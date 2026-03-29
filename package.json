@@ -1,0 +1,12 @@
+{
+  "name": "inventory-management",
+  "version": "0.1.0",
+  "description": "Local-first warehouse inventory app with RS485 simulation output",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  }
+}

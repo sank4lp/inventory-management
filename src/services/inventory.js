@@ -1,0 +1,1552 @@
+import { withTransaction } from "../db.js";
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function normalizeQuantity(value) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error("Quantity must be a positive number.");
+  }
+  return quantity;
+}
+
+function normalizeItemsPerCell(value) {
+  const capacity = Number(value);
+  if (!Number.isFinite(capacity) || capacity <= 0) {
+    throw new Error("Items per cell must be a positive number.");
+  }
+  return capacity;
+}
+
+function sumCellOccupancy(db, cellId) {
+  const row = db
+    .prepare(
+      `
+        SELECT COALESCE(SUM(available_quantity + reserved_quantity), 0) AS total_quantity
+        FROM inventory_balances
+        WHERE cell_id = ?
+      `,
+    )
+    .get(Number(cellId));
+  return Number(row?.total_quantity || 0);
+}
+
+function moveSuggestions(db, { productId, sourceCellId, quantity }) {
+  const product = findProductOrThrow(db, Number(productId));
+  const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
+  const requestedQuantity = normalizeQuantity(quantity);
+
+  const sameProductCells = db
+    .prepare(
+      `
+        SELECT
+          c.id AS cell_id,
+          c.logical_code,
+          COALESCE(b.available_quantity, 0) AS available_quantity,
+          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+        FROM cells c
+        JOIN inventory_balances b ON b.cell_id = c.id
+        WHERE b.product_id = ? AND c.active = 1 AND c.id != ?
+        ORDER BY (COALESCE(b.available_quantity, 0) + COALESCE(b.reserved_quantity, 0)) DESC,
+                 c.row_number,
+                 c.column_number
+      `,
+    )
+    .all(Number(productId), Number(sourceCellId));
+
+  const emptyCells = db
+    .prepare(
+      `
+        SELECT
+          c.id AS cell_id,
+          c.logical_code
+        FROM cells c
+        LEFT JOIN inventory_balances b
+          ON b.cell_id = c.id AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+        WHERE c.active = 1
+          AND b.id IS NULL
+          AND c.id != ?
+        ORDER BY c.row_number, c.column_number
+      `,
+    )
+    .all(Number(sourceCellId));
+
+  let remaining = requestedQuantity;
+  const destinations = [];
+
+  for (const cell of sameProductCells) {
+    if (remaining <= 0) {
+      break;
+    }
+    const currentQuantity = Number(cell.available_quantity) + Number(cell.reserved_quantity);
+    const room = itemsPerCell - currentQuantity;
+    if (room <= 0) {
+      continue;
+    }
+    const quantityToMove = Math.min(room, remaining);
+    destinations.push({
+      targetCellId: cell.cell_id,
+      targetLogicalCode: cell.logical_code,
+      quantity: quantityToMove,
+      currentQuantity,
+      idealCapacity: itemsPerCell,
+    });
+    remaining -= quantityToMove;
+  }
+
+  for (const cell of emptyCells) {
+    if (remaining <= 0) {
+      break;
+    }
+    const quantityToMove = Math.min(itemsPerCell, remaining);
+    destinations.push({
+      targetCellId: cell.cell_id,
+      targetLogicalCode: cell.logical_code,
+      quantity: quantityToMove,
+      currentQuantity: 0,
+      idealCapacity: itemsPerCell,
+    });
+    remaining -= quantityToMove;
+  }
+
+  return {
+    product,
+    sourceCellId: Number(sourceCellId),
+    requestedQuantity,
+    destinations,
+    unresolvedQuantity: remaining,
+  };
+}
+
+function buildCellAnomalies(db) {
+  const cells = db
+    .prepare(
+      `
+        SELECT
+          c.id AS cell_id,
+          c.logical_code,
+          p.id AS product_id,
+          p.sku,
+          p.name,
+          p.items_per_cell,
+          COALESCE(b.available_quantity, 0) AS available_quantity,
+          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+        FROM cells c
+        JOIN inventory_balances b ON b.cell_id = c.id
+        JOIN products p ON p.id = b.product_id
+        WHERE c.active = 1 AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+        ORDER BY c.row_number, c.column_number, p.name
+      `,
+    )
+    .all();
+
+  const grouped = new Map();
+  for (const row of cells) {
+    const key = row.cell_id;
+    const entry = grouped.get(key) || {
+      cellId: row.cell_id,
+      logicalCode: row.logical_code,
+      products: [],
+    };
+    entry.products.push({
+      productId: row.product_id,
+      sku: row.sku,
+      name: row.name,
+      totalQuantity: Number(row.available_quantity) + Number(row.reserved_quantity),
+      itemsPerCell: Number(row.items_per_cell),
+    });
+    grouped.set(key, entry);
+  }
+
+  const anomalies = [];
+
+  for (const cell of grouped.values()) {
+    if (cell.products.length > 1) {
+      const moveProduct = [...cell.products].sort((a, b) => a.totalQuantity - b.totalQuantity)[0];
+      const suggestion = moveSuggestions(db, {
+        productId: moveProduct.productId,
+        sourceCellId: cell.cellId,
+        quantity: moveProduct.totalQuantity,
+      });
+      anomalies.push({
+        key: `mixed-${cell.cellId}-${moveProduct.productId}`,
+        type: "mixed_cell",
+        severity: "warning",
+        cellId: cell.cellId,
+        logicalCode: cell.logicalCode,
+        title: `${cell.logicalCode} has mixed products`,
+        description: `${cell.products.map((item) => `${item.sku} (${item.totalQuantity})`).join(", ")}`,
+        productId: moveProduct.productId,
+        productSku: moveProduct.sku,
+        productName: moveProduct.name,
+        quantityToMove: moveProduct.totalQuantity,
+        recommendedMoves: suggestion.destinations,
+        unresolvedQuantity: suggestion.unresolvedQuantity,
+      });
+    }
+
+    for (const product of cell.products) {
+      if (product.totalQuantity > product.itemsPerCell) {
+        const excessQuantity = product.totalQuantity - product.itemsPerCell;
+        const suggestion = moveSuggestions(db, {
+          productId: product.productId,
+          sourceCellId: cell.cellId,
+          quantity: excessQuantity,
+        });
+        anomalies.push({
+          key: `overflow-${cell.cellId}-${product.productId}`,
+          type: "over_capacity",
+          severity: "alert",
+          cellId: cell.cellId,
+          logicalCode: cell.logicalCode,
+          title: `${product.sku} exceeds ideal capacity in ${cell.logicalCode}`,
+          description: `Stored ${product.totalQuantity}, ideal ${product.itemsPerCell}`,
+          productId: product.productId,
+          productSku: product.sku,
+          productName: product.name,
+          quantityToMove: excessQuantity,
+          recommendedMoves: suggestion.destinations,
+          unresolvedQuantity: suggestion.unresolvedQuantity,
+        });
+      }
+    }
+  }
+
+  return anomalies;
+}
+
+export function listProducts(db, search = "") {
+  const pattern = `%${search.trim()}%`;
+  return db
+    .prepare(
+      `
+        SELECT
+          p.*,
+          COALESCE(SUM(b.available_quantity), 0) AS total_available,
+          COALESCE(SUM(b.reserved_quantity), 0) AS total_reserved
+        FROM products p
+        LEFT JOIN inventory_balances b ON b.product_id = p.id
+        WHERE p.sku LIKE ? OR p.name LIKE ? OR p.brand LIKE ?
+        GROUP BY p.id
+        ORDER BY p.name
+      `,
+    )
+    .all(pattern, pattern, pattern);
+}
+
+export function getProductDetail(db, productId) {
+  const product = db
+    .prepare(
+      `
+        SELECT
+          p.*,
+          COALESCE(SUM(b.available_quantity), 0) AS total_available,
+          COALESCE(SUM(b.reserved_quantity), 0) AS total_reserved
+        FROM products p
+        LEFT JOIN inventory_balances b ON b.product_id = p.id
+        WHERE p.id = ?
+        GROUP BY p.id
+      `,
+    )
+    .get(Number(productId));
+
+  if (!product) {
+    return null;
+  }
+
+  const locations = db
+    .prepare(
+      `
+        SELECT
+          c.id AS cell_id,
+          c.logical_code,
+          c.hardware_channel,
+          COALESCE(b.available_quantity, 0) AS available_quantity,
+          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+        FROM inventory_balances b
+        JOIN cells c ON c.id = b.cell_id
+        WHERE b.product_id = ? AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+        ORDER BY c.row_number, c.column_number
+      `,
+    )
+    .all(Number(productId));
+
+  return {
+    ...product,
+    locations,
+  };
+}
+
+export function createProduct(db, input) {
+  const required = [
+    ["sku", "SKU is required."],
+    ["name", "Product name is required."],
+    ["brand", "Brand is required."],
+    ["unit_of_measure", "Unit of measure is required."],
+  ];
+
+  for (const [field, message] of required) {
+    if (!String(input[field] || "").trim()) {
+      throw new Error(message);
+    }
+  }
+
+  const itemsPerCell = normalizeItemsPerCell(input.items_per_cell || 12);
+
+  const existing = db
+    .prepare("SELECT id FROM products WHERE sku = ?")
+    .get(input.sku.trim());
+  if (existing) {
+    throw new Error("A product with that SKU already exists.");
+  }
+
+  const result = db
+    .prepare(
+      `
+        INSERT INTO products (
+          sku, name, brand, category, variant, unit_of_measure, description,
+          preferred_storage_strategy, items_per_cell, active, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run(
+      input.sku.trim(),
+      input.name.trim(),
+      input.brand.trim(),
+      input.category?.trim() || null,
+      input.variant?.trim() || null,
+      input.unit_of_measure.trim(),
+      input.description?.trim() || null,
+      input.preferred_storage_strategy?.trim() || "closest-cell-first",
+      itemsPerCell,
+      input.active === "0" ? 0 : 1,
+      nowIso(),
+    );
+
+  return db.prepare("SELECT * FROM products WHERE id = ?").get(Number(result.lastInsertRowid));
+}
+
+function findProductOrThrow(db, productId) {
+  const product = db.prepare("SELECT * FROM products WHERE id = ?").get(productId);
+  if (!product) {
+    throw new Error("Product not found.");
+  }
+  return product;
+}
+
+function getOrCreateBalance(db, productId, cellId) {
+  const existing = db
+    .prepare("SELECT * FROM inventory_balances WHERE product_id = ? AND cell_id = ?")
+    .get(productId, cellId);
+
+  if (existing) {
+    return existing;
+  }
+
+  const result = db
+    .prepare(
+      `
+        INSERT INTO inventory_balances (product_id, cell_id, available_quantity, reserved_quantity)
+        VALUES (?, ?, 0, 0)
+      `,
+    )
+    .run(productId, cellId);
+
+  return db
+    .prepare("SELECT * FROM inventory_balances WHERE id = ?")
+    .get(Number(result.lastInsertRowid));
+}
+
+function reserveInventory(db, taskLines) {
+  for (const line of taskLines) {
+    db.prepare(
+      `
+        UPDATE inventory_balances
+        SET reserved_quantity = reserved_quantity + ?
+        WHERE product_id = ? AND cell_id = ?
+      `,
+    ).run(line.planned_quantity, line.product_id, line.cell_id);
+  }
+}
+
+function taskLinesWithCells(db, taskId) {
+  return db
+    .prepare(
+      `
+        SELECT
+          tl.*,
+          p.sku,
+          p.name AS product_name,
+          p.brand,
+          p.unit_of_measure,
+          c.logical_code,
+          c.hardware_channel,
+          c.controller_id,
+          ctrl.controller_code
+        FROM task_lines tl
+        JOIN products p ON p.id = tl.product_id
+        JOIN cells c ON c.id = tl.cell_id
+        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
+        WHERE tl.task_id = ?
+        ORDER BY p.name, c.row_number, c.column_number
+      `,
+    )
+    .all(taskId);
+}
+
+export function getTask(db, taskId) {
+  const task = db
+    .prepare(
+      `
+        SELECT
+          t.*,
+          u.name AS created_by_name,
+          u.username AS created_by_username
+        FROM tasks t
+        JOIN users u ON u.id = t.created_by
+        WHERE t.id = ?
+      `,
+    )
+    .get(taskId);
+
+  if (!task) {
+    return null;
+  }
+
+  return {
+    ...task,
+    lines: taskLinesWithCells(db, taskId),
+  };
+}
+
+export function listRecentTasks(db, limit = 10) {
+  return db
+    .prepare(
+      `
+        SELECT
+          t.id,
+          t.type,
+          t.status,
+          t.summary,
+          t.started_at,
+          t.completed_at,
+          t.created_by,
+          u.username AS created_by_username,
+          (
+            SELECT p.sku
+            FROM task_lines tl
+            JOIN products p ON p.id = tl.product_id
+            WHERE tl.task_id = t.id
+            ORDER BY tl.id
+            LIMIT 1
+          ) AS first_sku,
+          (
+            SELECT p.name
+            FROM task_lines tl
+            JOIN products p ON p.id = tl.product_id
+            WHERE tl.task_id = t.id
+            ORDER BY tl.id
+            LIMIT 1
+          ) AS first_product_name
+        FROM tasks t
+        JOIN users u ON u.id = t.created_by
+        ORDER BY t.id DESC
+        LIMIT ?
+      `,
+    )
+    .all(limit);
+}
+
+export function listRecentTasksForUser(db, user, limit = 10) {
+  if (user.role === "admin") {
+    return listRecentTasks(db, limit);
+  }
+
+  return db
+    .prepare(
+      `
+        SELECT
+          t.id,
+          t.type,
+          t.status,
+          t.summary,
+          t.started_at,
+          t.completed_at,
+          t.created_by,
+          u.username AS created_by_username,
+          (
+            SELECT p.sku
+            FROM task_lines tl
+            JOIN products p ON p.id = tl.product_id
+            WHERE tl.task_id = t.id
+            ORDER BY tl.id
+            LIMIT 1
+          ) AS first_sku,
+          (
+            SELECT p.name
+            FROM task_lines tl
+            JOIN products p ON p.id = tl.product_id
+            WHERE tl.task_id = t.id
+            ORDER BY tl.id
+            LIMIT 1
+          ) AS first_product_name
+        FROM tasks t
+        JOIN users u ON u.id = t.created_by
+        WHERE t.created_by = ?
+        ORDER BY t.id DESC
+        LIMIT ?
+      `,
+    )
+    .all(user.id, limit);
+}
+
+export function allocatePick(db, { userId, productId, quantity }) {
+  const requestedQuantity = normalizeQuantity(quantity);
+  const product = findProductOrThrow(db, Number(productId));
+
+  const balances = db
+    .prepare(
+      `
+        SELECT
+          b.product_id,
+          b.cell_id,
+          b.available_quantity,
+          b.reserved_quantity,
+          c.logical_code,
+          c.hardware_channel,
+          c.controller_id,
+          c.row_number,
+          c.column_number
+        FROM inventory_balances b
+        JOIN cells c ON c.id = b.cell_id
+        WHERE b.product_id = ? AND c.active = 1 AND (b.available_quantity - b.reserved_quantity) > 0
+        ORDER BY c.row_number, c.column_number
+      `,
+    )
+    .all(product.id);
+
+  const totalAvailable = balances.reduce(
+    (sum, row) => sum + Number(row.available_quantity) - Number(row.reserved_quantity),
+    0,
+  );
+
+  if (totalAvailable < requestedQuantity) {
+    throw new Error(
+      `Insufficient stock. Requested ${requestedQuantity}, but only ${totalAvailable} is available.`,
+    );
+  }
+
+  let remaining = requestedQuantity;
+  const lines = [];
+  for (const row of balances) {
+    if (remaining <= 0) {
+      break;
+    }
+    const freeQuantity = Number(row.available_quantity) - Number(row.reserved_quantity);
+    const planned = Math.min(remaining, freeQuantity);
+    if (planned <= 0) {
+      continue;
+    }
+    lines.push({
+      product_id: product.id,
+      cell_id: row.cell_id,
+      planned_quantity: planned,
+      guidance_color: "green",
+    });
+    remaining -= planned;
+  }
+
+  return withTransaction(db, () => {
+    const taskResult = db
+      .prepare(
+        `
+          INSERT INTO tasks (type, status, summary, created_by, started_at)
+          VALUES ('pick', 'pending_review', ?, ?, ?)
+        `,
+      )
+      .run(
+        `${product.sku} pick (${requestedQuantity} ${product.unit_of_measure})`,
+        userId,
+        nowIso(),
+      );
+
+    const taskId = Number(taskResult.lastInsertRowid);
+    db.prepare("UPDATE tasks SET summary = ? WHERE id = ?").run(
+      `Pick Action Initiated - Task #${taskId}`,
+      taskId,
+    );
+
+    for (const line of lines) {
+      db.prepare(
+        `
+          INSERT INTO task_lines (task_id, product_id, cell_id, planned_quantity, guidance_color)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      ).run(
+        taskId,
+        line.product_id,
+        line.cell_id,
+        line.planned_quantity,
+        line.guidance_color,
+      );
+    }
+
+    reserveInventory(
+      db,
+      lines.map((line) => ({ ...line, task_id: taskId })),
+    );
+
+    return getTask(db, taskId);
+  });
+}
+
+export function planPut(db, { userId, productId, quantity }) {
+  const requestedQuantity = normalizeQuantity(quantity);
+  const product = findProductOrThrow(db, Number(productId));
+  const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
+
+  const sameProductCells = db
+    .prepare(
+      `
+        SELECT
+          c.id AS cell_id,
+          c.logical_code,
+          c.hardware_channel,
+          c.controller_id,
+          c.row_number,
+          c.column_number,
+          COALESCE(b.available_quantity, 0) AS available_quantity,
+          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+        FROM cells c
+        JOIN inventory_balances b ON b.cell_id = c.id
+        WHERE b.product_id = ? AND c.active = 1
+        ORDER BY (COALESCE(b.available_quantity, 0) + COALESCE(b.reserved_quantity, 0)) DESC,
+                 c.row_number,
+                 c.column_number
+      `,
+    )
+    .all(product.id);
+
+  const emptyCells = db
+    .prepare(
+      `
+        SELECT
+          c.id AS cell_id,
+          c.logical_code,
+          c.hardware_channel,
+          c.controller_id,
+          c.row_number,
+          c.column_number
+        FROM cells c
+        LEFT JOIN inventory_balances b
+          ON b.cell_id = c.id AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+        WHERE c.active = 1
+          AND b.id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM inventory_balances existing_product_balance
+            WHERE existing_product_balance.cell_id = c.id
+              AND existing_product_balance.product_id = ?
+          )
+        ORDER BY c.row_number, c.column_number
+      `,
+    )
+    .all(product.id);
+
+  let remaining = requestedQuantity;
+  const lines = [];
+
+  for (const cell of sameProductCells) {
+    if (remaining <= 0) {
+      break;
+    }
+    const currentQuantity = Number(cell.available_quantity) + Number(cell.reserved_quantity);
+    const room = itemsPerCell - currentQuantity;
+    if (room <= 0) {
+      continue;
+    }
+
+    const planned = Math.min(remaining, room);
+    lines.push({
+      product_id: product.id,
+      cell_id: cell.cell_id,
+      planned_quantity: planned,
+      guidance_color: "blue",
+    });
+    remaining -= planned;
+  }
+
+  for (const cell of emptyCells) {
+    if (remaining <= 0) {
+      break;
+    }
+
+    const planned = Math.min(remaining, itemsPerCell);
+    lines.push({
+      product_id: product.id,
+      cell_id: cell.cell_id,
+      planned_quantity: planned,
+      guidance_color: "blue",
+    });
+    remaining -= planned;
+  }
+
+  if (remaining > 0) {
+    throw new Error("Not enough free cells are available for this product capacity.");
+  }
+
+  return withTransaction(db, () => {
+    const taskResult = db
+      .prepare(
+        `
+          INSERT INTO tasks (type, status, summary, created_by, started_at)
+          VALUES ('put', 'pending_review', ?, ?, ?)
+        `,
+      )
+      .run(
+        `${product.sku} put (${requestedQuantity} ${product.unit_of_measure})`,
+        userId,
+        nowIso(),
+      );
+
+    const taskId = Number(taskResult.lastInsertRowid);
+    db.prepare("UPDATE tasks SET summary = ? WHERE id = ?").run(
+      `Put Action Initiated - Task #${taskId}`,
+      taskId,
+    );
+
+    for (const line of lines) {
+      db.prepare(
+        `
+          INSERT INTO task_lines (task_id, product_id, cell_id, planned_quantity, guidance_color)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      ).run(
+        taskId,
+        line.product_id,
+        line.cell_id,
+        line.planned_quantity,
+        line.guidance_color,
+      );
+    }
+
+    return getTask(db, taskId);
+  });
+}
+
+export function completeTask(db, { taskId, actualQuantities, actualCellIds, userId, note }) {
+  const task = getTask(db, Number(taskId));
+  if (!task) {
+    throw new Error("Task not found.");
+  }
+
+  if (task.status === "completed") {
+    throw new Error("Task is already completed.");
+  }
+
+  return withTransaction(db, () => {
+    const touchedCellIds = new Set();
+
+    for (const line of task.lines) {
+      const actualValue = actualQuantities[line.id] ?? line.planned_quantity;
+      const actualQuantity = Number(actualValue);
+
+      if (!Number.isFinite(actualQuantity) || actualQuantity < 0) {
+        throw new Error("Actual quantity values must be zero or greater.");
+      }
+
+      if (task.type === "pick" && actualQuantity > Number(line.planned_quantity)) {
+        throw new Error("Actual quantities cannot exceed planned quantities in this MVP.");
+      }
+
+      const exceptionQuantity = Math.max(0, Number(line.planned_quantity) - actualQuantity);
+      const targetCellId =
+        task.type === "put"
+          ? Number(actualCellIds?.[line.id] || line.cell_id)
+          : Number(line.cell_id);
+
+      const targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(targetCellId);
+      if (!targetCell) {
+        throw new Error("Selected cell not found.");
+      }
+
+      db.prepare(
+        `
+          UPDATE task_lines
+          SET actual_quantity = ?, exception_quantity = ?, note = ?, cell_id = ?
+          WHERE id = ?
+        `,
+      ).run(actualQuantity, exceptionQuantity, note || null, targetCellId, line.id);
+
+      const plannedBalance = getOrCreateBalance(db, line.product_id, line.cell_id);
+
+      if (task.type === "pick") {
+        db.prepare(
+          `
+            UPDATE inventory_balances
+            SET available_quantity = available_quantity - ?,
+                reserved_quantity = reserved_quantity - ?
+            WHERE id = ?
+          `,
+        ).run(actualQuantity, line.planned_quantity, plannedBalance.id);
+        touchedCellIds.add(Number(line.cell_id));
+
+        if (actualQuantity > 0) {
+          db.prepare(
+            `
+              INSERT INTO transactions (
+                type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+              )
+              VALUES ('pick', ?, ?, ?, ?, ?, ?, ?)
+            `,
+          ).run(
+            line.product_id,
+            line.cell_id,
+            -actualQuantity,
+            userId,
+            task.id,
+            note || "Pick confirmation",
+            nowIso(),
+          );
+        }
+      } else if (task.type === "put") {
+        const targetBalance = getOrCreateBalance(db, line.product_id, targetCellId);
+        db.prepare(
+          `
+            UPDATE inventory_balances
+            SET available_quantity = available_quantity + ?
+            WHERE id = ?
+          `,
+        ).run(actualQuantity, targetBalance.id);
+        touchedCellIds.add(targetCellId);
+
+        if (actualQuantity > 0) {
+          db.prepare(
+            `
+              INSERT INTO transactions (
+                type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+              )
+              VALUES ('put', ?, ?, ?, ?, ?, ?, ?)
+            `,
+          ).run(
+            line.product_id,
+            targetCellId,
+            actualQuantity,
+            userId,
+            task.id,
+            note || "Put confirmation",
+            nowIso(),
+          );
+        }
+      }
+    }
+
+    db.prepare(
+      `
+        UPDATE tasks
+        SET status = 'completed', completed_at = ?
+        WHERE id = ?
+      `,
+    ).run(nowIso(), task.id);
+
+    return {
+      task: getTask(db, task.id),
+      anomalies: detectAnomalies(db).filter((anomaly) => touchedCellIds.has(anomaly.cellId)),
+    };
+  });
+}
+
+export function correctCompletedTask(
+  db,
+  { taskId, actualQuantities, actualCellIds, userId, note },
+) {
+  const task = getTask(db, Number(taskId));
+  if (!task) {
+    throw new Error("Task not found.");
+  }
+
+  if (task.status !== "completed") {
+    throw new Error("Only completed tasks can be corrected.");
+  }
+
+  return withTransaction(db, () => {
+    const touchedCellIds = new Set();
+
+    for (const line of task.lines) {
+      const previousQuantity = Number(line.actual_quantity);
+      const nextQuantity = Number(actualQuantities[line.id] ?? previousQuantity);
+      const nextCellId =
+        task.type === "put"
+          ? Number(actualCellIds?.[line.id] || line.cell_id)
+          : Number(line.cell_id);
+
+      if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
+        throw new Error("Corrected quantities must be zero or greater.");
+      }
+
+      if (task.type === "pick" && nextQuantity > Number(line.planned_quantity)) {
+        throw new Error("Corrected pick quantity cannot exceed planned quantity.");
+      }
+
+      const nextCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(nextCellId);
+      if (!nextCell) {
+        throw new Error("Selected correction cell not found.");
+      }
+
+      const oldBalance = getOrCreateBalance(db, line.product_id, line.cell_id);
+      const newBalance = getOrCreateBalance(db, line.product_id, nextCellId);
+
+      if (task.type === "pick") {
+        db.prepare(
+          `
+            UPDATE inventory_balances
+            SET available_quantity = available_quantity + ?
+            WHERE id = ?
+          `,
+        ).run(previousQuantity, oldBalance.id);
+
+        db.prepare(
+          `
+            INSERT INTO transactions (
+              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+            )
+            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
+          `,
+        ).run(
+          line.product_id,
+          line.cell_id,
+          previousQuantity,
+          userId,
+          task.id,
+          note || `Correction reversal for task #${task.id}`,
+          nowIso(),
+        );
+
+        db.prepare(
+          `
+            UPDATE inventory_balances
+            SET available_quantity = available_quantity - ?
+            WHERE id = ?
+          `,
+        ).run(nextQuantity, oldBalance.id);
+
+        db.prepare(
+          `
+            INSERT INTO transactions (
+              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+            )
+            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
+          `,
+        ).run(
+          line.product_id,
+          line.cell_id,
+          -nextQuantity,
+          userId,
+          task.id,
+          note || `Correction applied for task #${task.id}`,
+          nowIso(),
+        );
+
+        touchedCellIds.add(Number(line.cell_id));
+      } else if (task.type === "put") {
+        db.prepare(
+          `
+            UPDATE inventory_balances
+            SET available_quantity = available_quantity - ?
+            WHERE id = ?
+          `,
+        ).run(previousQuantity, oldBalance.id);
+
+        db.prepare(
+          `
+            INSERT INTO transactions (
+              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+            )
+            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
+          `,
+        ).run(
+          line.product_id,
+          line.cell_id,
+          -previousQuantity,
+          userId,
+          task.id,
+          note || `Correction reversal for task #${task.id}`,
+          nowIso(),
+        );
+
+        db.prepare(
+          `
+            UPDATE inventory_balances
+            SET available_quantity = available_quantity + ?
+            WHERE id = ?
+          `,
+        ).run(nextQuantity, newBalance.id);
+
+        db.prepare(
+          `
+            INSERT INTO transactions (
+              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+            )
+            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
+          `,
+        ).run(
+          line.product_id,
+          nextCellId,
+          nextQuantity,
+          userId,
+          task.id,
+          note || `Correction applied for task #${task.id}`,
+          nowIso(),
+        );
+
+        touchedCellIds.add(Number(line.cell_id));
+        touchedCellIds.add(nextCellId);
+      }
+
+      const nextExceptionQuantity = Math.max(0, Number(line.planned_quantity) - nextQuantity);
+      db.prepare(
+        `
+          UPDATE task_lines
+          SET actual_quantity = ?, exception_quantity = ?, note = ?, cell_id = ?
+          WHERE id = ?
+        `,
+      ).run(nextQuantity, nextExceptionQuantity, note || line.note, nextCellId, line.id);
+    }
+
+    return {
+      task: getTask(db, task.id),
+      anomalies: detectAnomalies(db).filter((anomaly) => touchedCellIds.has(anomaly.cellId)),
+    };
+  });
+}
+
+export function markPhysicalConfirmation(db, lineId) {
+  const line = db
+    .prepare(
+      `
+        SELECT
+          tl.*,
+          c.logical_code,
+          c.hardware_channel,
+          c.controller_id
+        FROM task_lines tl
+        JOIN cells c ON c.id = tl.cell_id
+        WHERE tl.id = ?
+      `,
+    )
+    .get(lineId);
+
+  if (!line) {
+    throw new Error("Task line not found.");
+  }
+
+  db.prepare(
+    `
+      UPDATE task_lines
+      SET physical_confirmed_at = ?, actual_quantity = CASE WHEN actual_quantity = 0 THEN planned_quantity ELSE actual_quantity END
+      WHERE id = ?
+    `,
+  ).run(nowIso(), line.id);
+
+  return db
+    .prepare(
+      `
+        SELECT
+          tl.*,
+          c.logical_code,
+          c.hardware_channel,
+          c.controller_id
+        FROM task_lines tl
+        JOIN cells c ON c.id = tl.cell_id
+        WHERE tl.id = ?
+      `,
+    )
+    .get(line.id);
+}
+
+export function createAdjustment(db, { productId, cellId, quantityDelta, userId, reason, lines }) {
+  const cell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
+  if (!cell) {
+    throw new Error("Cell not found.");
+  }
+
+  if (!String(reason || "").trim()) {
+    throw new Error("Adjustment reason is required.");
+  }
+
+  const incomingLines =
+    Array.isArray(lines) && lines.length
+      ? lines
+      : [{ productId, quantityDelta }];
+
+  const normalizedLines = incomingLines.map((line, index) => {
+    const lineProductId = Number(line.productId);
+
+    if (!lineProductId) {
+      throw new Error(`Choose a product for adjustment line ${index + 1}.`);
+    }
+
+    const hasAbsoluteQuantity =
+      line.absoluteQuantity !== undefined && String(line.absoluteQuantity).trim() !== "";
+
+    if (hasAbsoluteQuantity) {
+      const absoluteQuantity = Number(line.absoluteQuantity);
+      if (!Number.isFinite(absoluteQuantity) || absoluteQuantity < 0) {
+        throw new Error(`Final quantity for line ${index + 1} must be zero or greater.`);
+      }
+
+      return {
+        product: findProductOrThrow(db, lineProductId),
+        absoluteQuantity,
+      };
+    }
+
+    const delta = Number(line.quantityDelta);
+    if (!Number.isFinite(delta) || delta === 0) {
+      throw new Error(`Adjustment delta for line ${index + 1} must be non-zero.`);
+    }
+
+    return {
+      product: findProductOrThrow(db, lineProductId),
+      delta,
+    };
+  });
+
+  const seenProductIds = new Set();
+  for (const line of normalizedLines) {
+    if (seenProductIds.has(line.product.id)) {
+      throw new Error(`Product ${line.product.sku} appears more than once in this adjustment batch.`);
+    }
+    seenProductIds.add(line.product.id);
+  }
+
+  return withTransaction(db, () => {
+    let appliedCount = 0;
+
+    for (const line of normalizedLines) {
+      const balance = getOrCreateBalance(db, line.product.id, cell.id);
+      const delta =
+        line.absoluteQuantity !== undefined
+          ? Number(line.absoluteQuantity) - Number(balance.available_quantity)
+          : Number(line.delta);
+
+      if (delta === 0) {
+        continue;
+      }
+
+      db.prepare(
+        `
+          UPDATE inventory_balances
+          SET available_quantity = available_quantity + ?
+          WHERE id = ?
+        `,
+      ).run(delta, balance.id);
+
+      db.prepare(
+        `
+          INSERT INTO transactions (
+            type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+          )
+          VALUES ('adjustment', ?, ?, ?, ?, NULL, ?, ?)
+        `,
+      ).run(line.product.id, cell.id, delta, userId, reason.trim(), nowIso());
+      appliedCount += 1;
+    }
+
+    if (appliedCount === 0) {
+      throw new Error("No adjustment was needed because the entered quantities already match the current values.");
+    }
+  });
+}
+
+export function dashboardStats(db) {
+  return {
+    products: db.prepare("SELECT COUNT(*) AS count FROM products WHERE active = 1").get().count,
+    cells: db.prepare("SELECT COUNT(*) AS count FROM cells WHERE active = 1").get().count,
+    controllers: db.prepare("SELECT COUNT(*) AS count FROM controllers WHERE active = 1").get().count,
+    openTasks: db
+      .prepare("SELECT COUNT(*) AS count FROM tasks WHERE status != 'completed'")
+      .get().count,
+    transactions: db.prepare("SELECT COUNT(*) AS count FROM transactions").get().count,
+  };
+}
+
+export function detectAnomalies(db) {
+  return buildCellAnomalies(db);
+}
+
+export function getRecommendedActions(db) {
+  return detectAnomalies(db).map((anomaly) => {
+    const cell = db.prepare("SELECT id, logical_code FROM cells WHERE id = ?").get(anomaly.cellId);
+    return {
+      ...anomaly,
+      sourceCell: cell,
+    };
+  });
+}
+
+export function listUsers(db) {
+  return db
+    .prepare(
+      `
+        SELECT id, name, username, role, status, created_at
+        FROM users
+        ORDER BY role DESC, username
+      `,
+    )
+    .all();
+}
+
+export function listRegistrationKeys(db) {
+  return db
+    .prepare(
+      `
+        SELECT rk.*, u.username AS created_by_username
+        FROM registration_keys rk
+        LEFT JOIN users u ON u.id = rk.created_by
+        ORDER BY rk.id DESC
+      `,
+    )
+    .all();
+}
+
+export function issueRegistrationKey(db, { keyValue, role, userId }) {
+  const normalized = String(keyValue || "").trim();
+  if (!normalized) {
+    throw new Error("Registration key value is required.");
+  }
+
+  db.prepare(
+    `
+      INSERT INTO registration_keys (key_value, role, status, expires_at, created_by, created_at)
+      VALUES (?, ?, 'active', ?, ?, ?)
+    `,
+  ).run(
+    normalized,
+    role === "admin" ? "admin" : "operator",
+    new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+    userId,
+    nowIso(),
+  );
+}
+
+export function registerUser(db, { registrationKey, name, username, password, hashPassword }) {
+  const key = db
+    .prepare(
+      `
+        SELECT *
+        FROM registration_keys
+        WHERE key_value = ?
+      `,
+    )
+    .get(String(registrationKey || "").trim());
+
+  if (!key) {
+    throw new Error("Registration key not found.");
+  }
+
+  if (key.status !== "active") {
+    throw new Error("Registration key is not active.");
+  }
+
+  if (key.expires_at && new Date(key.expires_at).getTime() < Date.now()) {
+    throw new Error("Registration key has expired.");
+  }
+
+  if (!String(name || "").trim() || !String(username || "").trim() || !String(password || "").trim()) {
+    throw new Error("Name, username, and password are required.");
+  }
+
+  const existing = db.prepare("SELECT id FROM users WHERE username = ?").get(username.trim());
+  if (existing) {
+    throw new Error("Username is already in use.");
+  }
+
+  return withTransaction(db, () => {
+    const result = db
+      .prepare(
+        `
+          INSERT INTO users (name, username, password_hash, role, status, created_by, created_at)
+          VALUES (?, ?, ?, ?, 'active', ?, ?)
+        `,
+      )
+      .run(
+        name.trim(),
+        username.trim(),
+        hashPassword(password.trim()),
+        key.role,
+        key.created_by,
+        nowIso(),
+      );
+
+    db.prepare(
+      `
+        UPDATE registration_keys
+        SET status = 'used', used_by = ?, used_at = ?
+        WHERE id = ?
+      `,
+    ).run(Number(result.lastInsertRowid), nowIso(), key.id);
+
+    return db
+      .prepare(
+        "SELECT id, name, username, role, status FROM users WHERE id = ?",
+      )
+      .get(Number(result.lastInsertRowid));
+  });
+}
+
+export function authenticateUser(db, { username, password, verifyPassword }) {
+  const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username.trim());
+  if (!user || user.status !== "active") {
+    throw new Error("Invalid username or password.");
+  }
+
+  if (!verifyPassword(password, user.password_hash)) {
+    throw new Error("Invalid username or password.");
+  }
+
+  return {
+    id: user.id,
+    name: user.name,
+    username: user.username,
+    role: user.role,
+    status: user.status,
+  };
+}
+
+export function listCells(db) {
+  return db
+    .prepare(
+      `
+        SELECT
+          c.*,
+          z.code AS zone_code,
+          ctrl.controller_code,
+          COALESCE(SUM(b.available_quantity + b.reserved_quantity), 0) AS occupied_quantity,
+          COALESCE(
+            GROUP_CONCAT(
+              CASE
+                WHEN (b.available_quantity > 0 OR b.reserved_quantity > 0) AND p.sku IS NOT NULL
+                THEN p.sku || ' (' || CAST((b.available_quantity + b.reserved_quantity) AS TEXT) || ')'
+              END,
+              ', '
+            ),
+            ''
+          ) AS inventory_summary
+        FROM cells c
+        JOIN zones z ON z.id = c.zone_id
+        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
+        LEFT JOIN inventory_balances b ON b.cell_id = c.id
+        LEFT JOIN products p ON p.id = b.product_id
+        GROUP BY c.id
+        ORDER BY c.row_number, c.column_number
+      `,
+    )
+    .all();
+}
+
+export function searchCells(db, search = "") {
+  const pattern = `%${search.trim()}%`;
+  return db
+    .prepare(
+      `
+        SELECT
+          c.id,
+          c.logical_code,
+          c.hardware_channel,
+          COALESCE(SUM(b.available_quantity + b.reserved_quantity), 0) AS occupied_quantity
+        FROM cells c
+        LEFT JOIN inventory_balances b ON b.cell_id = c.id
+        WHERE c.logical_code LIKE ?
+        GROUP BY c.id
+        ORDER BY c.row_number, c.column_number
+      `,
+    )
+    .all(pattern);
+}
+
+export function getCellDetail(db, cellId) {
+  const cell = db
+    .prepare(
+      `
+        SELECT
+          c.*,
+          ctrl.controller_code,
+          z.code AS zone_code
+        FROM cells c
+        JOIN zones z ON z.id = c.zone_id
+        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
+        WHERE c.id = ?
+      `,
+    )
+    .get(Number(cellId));
+
+  if (!cell) {
+    return null;
+  }
+
+  const products = db
+    .prepare(
+      `
+        SELECT
+          p.id AS product_id,
+          p.sku,
+          p.name,
+          p.brand,
+          p.unit_of_measure,
+          COALESCE(b.available_quantity, 0) AS available_quantity,
+          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+        FROM inventory_balances b
+        JOIN products p ON p.id = b.product_id
+        WHERE b.cell_id = ? AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+        ORDER BY p.name
+      `,
+    )
+    .all(Number(cellId));
+
+  return {
+    ...cell,
+    products,
+  };
+}
+
+export function listControllers(db) {
+  return db
+    .prepare(
+      `
+        SELECT
+          ctrl.*,
+          z.code AS zone_code,
+          COUNT(c.id) AS mapped_cells
+        FROM controllers ctrl
+        JOIN zones z ON z.id = ctrl.zone_id
+        LEFT JOIN cells c ON c.controller_id = ctrl.id
+        GROUP BY ctrl.id
+        ORDER BY ctrl.id
+      `,
+    )
+    .all();
+}
+
+export function updateCellMapping(db, { cellId, hardwareChannel, mappedBy }) {
+  const channel = Number(hardwareChannel);
+  if (!Number.isFinite(channel) || channel <= 0) {
+    throw new Error("Hardware channel must be a positive number.");
+  }
+
+  db.prepare(
+    `
+      UPDATE cells
+      SET hardware_channel = ?, mapping_status = 'mapped', last_mapped_at = ?, mapped_by = ?
+      WHERE id = ?
+    `,
+  ).run(channel, nowIso(), mappedBy, Number(cellId));
+}
+
+export function updateProductItemsPerCell(db, { productId, itemsPerCell }) {
+  const capacity = normalizeItemsPerCell(itemsPerCell);
+  const result = db
+    .prepare(
+      `
+        UPDATE products
+        SET items_per_cell = ?
+        WHERE id = ?
+      `,
+    )
+    .run(capacity, Number(productId));
+
+  if (result.changes === 0) {
+    throw new Error("Product not found.");
+  }
+
+  return getProductDetail(db, Number(productId));
+}
+
+export function applyRecommendedAction(
+  db,
+  { sourceCellId, productId, moves, userId, reason },
+) {
+  const product = findProductOrThrow(db, Number(productId));
+  const sourceCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(sourceCellId));
+  if (!sourceCell) {
+    throw new Error("Source cell not found.");
+  }
+
+  const normalizedMoves = moves
+    .map((move) => ({
+      targetCellId: Number(move.targetCellId),
+      quantity: Number(move.quantity),
+    }))
+    .filter((move) => Number.isFinite(move.quantity) && move.quantity > 0);
+
+  if (!normalizedMoves.length) {
+    throw new Error("At least one move is required.");
+  }
+
+  const totalQuantity = normalizedMoves.reduce((sum, move) => sum + move.quantity, 0);
+  const sourceBalance = getOrCreateBalance(db, product.id, sourceCell.id);
+  if (Number(sourceBalance.available_quantity) < totalQuantity) {
+    throw new Error("Source cell does not have enough quantity for this adjustment.");
+  }
+
+  return withTransaction(db, () => {
+    db.prepare(
+      `
+        UPDATE inventory_balances
+        SET available_quantity = available_quantity - ?
+        WHERE id = ?
+      `,
+    ).run(totalQuantity, sourceBalance.id);
+
+    db.prepare(
+      `
+        INSERT INTO transactions (
+          type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+        )
+        VALUES ('adjustment', ?, ?, ?, ?, NULL, ?, ?)
+      `,
+    ).run(
+      product.id,
+      sourceCell.id,
+      -totalQuantity,
+      userId,
+      reason || "Recommended action adjustment",
+      nowIso(),
+    );
+
+    for (const move of normalizedMoves) {
+      const targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(move.targetCellId);
+      if (!targetCell) {
+        throw new Error("Target cell not found.");
+      }
+
+      const targetBalance = getOrCreateBalance(db, product.id, targetCell.id);
+      db.prepare(
+        `
+          UPDATE inventory_balances
+          SET available_quantity = available_quantity + ?
+          WHERE id = ?
+        `,
+      ).run(move.quantity, targetBalance.id);
+
+      db.prepare(
+        `
+          INSERT INTO transactions (
+            type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+          )
+          VALUES ('adjustment', ?, ?, ?, ?, NULL, ?, ?)
+        `,
+      ).run(
+        product.id,
+        targetCell.id,
+        move.quantity,
+        userId,
+        reason || `Recommended action move from ${sourceCell.logical_code}`,
+        nowIso(),
+      );
+    }
+  });
+}
