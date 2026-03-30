@@ -461,22 +461,6 @@ function seedProducts(db) {
       .get(sample.sku);
 
     if (existing) {
-      db.prepare(
-        `
-          UPDATE products
-          SET name = ?, brand = ?, category = ?, variant = ?, unit_of_measure = ?, description = ?, items_per_cell = ?, active = 1
-          WHERE sku = ?
-        `,
-      ).run(
-        sample.name,
-        sample.brand,
-        sample.category,
-        sample.variant,
-        sample.unit,
-        sample.description,
-        sample.itemsPerCell,
-        sample.sku,
-      );
       continue;
     }
 
@@ -718,6 +702,11 @@ export function withTransaction(db, callback) {
 export function createDatabase(authHelpers) {
   ensureDirectory(dirname(DB_PATH));
   const db = new DatabaseSync(DB_PATH);
+  db.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = FULL;
+    PRAGMA busy_timeout = 5000;
+  `);
   initializeSchema(db);
   db.prepare("UPDATE inventory_balances SET reserved_quantity = 0 WHERE reserved_quantity != 0").run();
   seedUsers(db, authHelpers);

@@ -27,6 +27,7 @@ Responsibilities:
 - device and mapping screens
 - product detail, cell detail, and recommended actions screens
 - software-rendered comboboxes and live search behavior
+- split page-rendering code by feature/domain where practical, with shared helper files for reusable UI pieces
 
 ### 2. Application / Domain module
 Responsibilities:
@@ -149,3 +150,4 @@ The hardware integration layer should be isolated so that:
 - Search-heavy controls are rendered by the software instead of OS-native widgets so the UI stays consistent across platforms.
 - Task correction is handled as a first-class workflow rather than an ad hoc admin-only database edit.
 - Stock handling is intentionally simplified so picks and puts operate against live available quantities without a separate reservation layer.
+- Shared rendering and UI-building logic should live in helper modules, while page files should stay organized by feature/domain so both humans and coding agents can find the correct file quickly.

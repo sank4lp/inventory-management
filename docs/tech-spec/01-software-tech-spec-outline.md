@@ -81,6 +81,7 @@ This document now acts as a lightweight technical baseline for the implemented p
 - runtime diagram
 - dependency rules
 - current local web app deployment shape
+- page/rendering modules organized by feature area, with shared helper/util files for reusable UI logic
 
 ## 6. Data model
 
@@ -163,6 +164,7 @@ To be finalized later:
 - UI tests
 - simulated hardware tests
 - commissioning validation tests
+- regression checks after refactors so shared helpers and per-page modules stay behaviorally aligned
 
 ## 14. Acceptance criteria
 
@@ -183,3 +185,9 @@ These need to be decided before the detailed tech spec is complete:
 3. Printer integration details
 4. Future clustering strategy rules for similar items
 5. Device-event behavior when controllers are partially offline
+
+## Ongoing implementation guidance
+
+- Prefer clean, modular code over large mixed-responsibility files.
+- When logic or markup is reused, move it into a helper or util file instead of duplicating it.
+- When page code grows, split it by feature/domain so the correct file is obvious to both human maintainers and AI coding agents.

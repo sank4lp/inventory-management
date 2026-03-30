@@ -219,3 +219,47 @@ test("core inventory flows work against a fresh seeded database", async () => {
   const actions = inventory.getRecommendedActions(db);
   assert.ok(actions.length > 0);
 });
+
+test("database-backed settings and inventory survive an app restart", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-persist-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await import("../src/db.js");
+  const auth = await import("../src/services/auth.js");
+  const inventory = await import("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+
+  inventory.updateProductItemsPerCell(db, {
+    productId: shoe.id,
+    itemsPerCell: 9,
+  });
+
+  inventory.createAdjustment(db, {
+    cellId: 1,
+    userId: 1,
+    reason: "Persistence check",
+    lines: [
+      {
+        productId: shoe.id,
+        absoluteQuantity: 11,
+      },
+    ],
+  });
+
+  const reopenedDb = createDatabase({ hashPassword: auth.hashPassword });
+  const reopenedShoe = inventory.getProductDetail(reopenedDb, shoe.id);
+  assert.ok(reopenedShoe);
+  assert.equal(Number(reopenedShoe.items_per_cell), 9);
+
+  const reopenedCell = inventory.getCellDetail(reopenedDb, 1);
+  assert.ok(reopenedCell);
+  assert.equal(
+    Number(
+      reopenedCell.products.find((product) => product.product_id === shoe.id)?.available_quantity || 0,
+    ),
+    11,
+  );
+});

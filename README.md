@@ -42,3 +42,4 @@ Then open [http://localhost:3000](http://localhost:3000).
 - Put planning uses each product's `items per cell` value and tries to reuse partially filled cells first so the next put uses the minimum number of cells.
 - Operators may still record real-world exceptions such as mixed-product cells or over-capacity cells; the software allows the action, then flags it under **Recommended actions**.
 - Recommended actions suggest what to move, from which cell, and into which target cells, while still allowing the user to edit the suggestion before applying it.
+- Server-rendered UI code is intended to stay organized by feature/domain with shared helpers for reusable rendering logic, so future edits remain understandable and scalable.

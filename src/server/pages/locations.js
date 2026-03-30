@@ -1,0 +1,161 @@
+import {
+  listCells,
+  listControllers,
+  searchCells,
+} from "../../services/inventory.js";
+import {
+  card,
+  escapeHtml,
+  formatQuantity,
+  page,
+  quickActionLinks,
+  statusBadge,
+  table,
+} from "./shared.js";
+
+export function createLocationPages({ db }) {
+  function renderCellSearchResults(cells) {
+    return table(
+      ["Cell", "Stock", "Open"],
+      cells.map((cell) => [
+        escapeHtml(cell.logical_code),
+        escapeHtml(formatQuantity(cell.occupied_quantity)),
+        `<a class="mini-link" href="/cells/${cell.id}">View</a>`,
+      ]),
+    );
+  }
+
+  function renderCells(user, flash, search) {
+    const cells = search ? searchCells(db, search) : [];
+
+    return page({
+      title: "Cells",
+      user,
+      flash,
+      content: `
+        ${card(
+          "Find a cell",
+          `
+            <form
+              method="get"
+              action="/cells"
+              class="inline-form"
+              data-live-search-form
+              data-endpoint="/fragments/cell-search"
+              data-target="#cell-search-results"
+              data-empty-html="<p class=&quot;muted&quot;>Search a cell to see what products are inside it.</p>"
+            >
+              <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by logical code" />
+              <button type="submit">Search</button>
+            </form>
+            <div id="cell-search-results">
+              ${
+                search
+                  ? renderCellSearchResults(cells)
+                  : `<p class="muted">Search a cell to see what products are inside it.</p>`
+              }
+            </div>
+          `,
+        )}
+      `,
+    });
+  }
+
+  function renderCellDetail(user, flash, cell) {
+    if (!cell) {
+      return page({
+        title: "Cell not found",
+        user,
+        flash: flash || { message: "Cell not found.", tone: "error" },
+        content: `<p><a href="/cells">Back to cells</a></p>`,
+      });
+    }
+
+    return page({
+      title: cell.logical_code,
+      user,
+      flash,
+      content: `
+        ${card(
+          "Cell summary",
+          `
+            <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
+            <p>${escapeHtml(cell.controller_code || "No controller")} · Channel ${escapeHtml(cell.hardware_channel)}</p>
+          `,
+        )}
+        ${card(
+          "Products in this cell",
+          table(
+            ["Product", "Available", "Action"],
+            cell.products.map((product) => [
+              `<a href="/products/${product.product_id}">${escapeHtml(product.name)}</a><br /><small>${escapeHtml(product.sku)}</small>`,
+              escapeHtml(formatQuantity(product.available_quantity)),
+              quickActionLinks(product.product_id, cell.id),
+            ]),
+          ),
+        )}
+      `,
+    });
+  }
+
+  function renderDevices(user, flash) {
+    const controllers = listControllers(db);
+    const cells = listCells(db);
+
+    return page({
+      title: "Devices and Mapping",
+      user,
+      flash,
+      content: `
+        ${card(
+          "Controllers",
+          table(
+            ["Controller", "Health", "Cells", "Test"],
+            controllers.map((controller) => [
+              escapeHtml(controller.controller_code),
+              statusBadge(controller.heartbeat_status),
+              escapeHtml(formatQuantity(controller.mapped_cells)),
+              `
+                <form method="post" action="/devices/controller-test">
+                  <input type="hidden" name="controller_id" value="${controller.id}" />
+                  <button type="submit" class="ghost-button">Send test</button>
+                </form>
+              `,
+            ]),
+          ),
+        )}
+        ${card(
+          "Cell mapping",
+          table(
+            ["Cell", "Channel", "Stock", "Save", "Light"],
+            cells.map((cell) => [
+              escapeHtml(cell.logical_code),
+              escapeHtml(cell.hardware_channel),
+              escapeHtml(formatQuantity(cell.occupied_quantity)),
+              `
+                <form method="post" action="/mapping" class="inline-form">
+                  <input type="hidden" name="cell_id" value="${cell.id}" />
+                  <input class="compact-input" type="number" min="1" name="hardware_channel" value="${escapeHtml(cell.hardware_channel)}" />
+                  <button type="submit" class="ghost-button">Save</button>
+                </form>
+              `,
+              `
+                <form method="post" action="/devices/cell-test">
+                  <input type="hidden" name="cell_id" value="${cell.id}" />
+                  <button type="submit" class="ghost-button">Blink</button>
+                </form>
+              `,
+            ]),
+          ),
+        )}
+      `,
+    });
+  }
+
+  return {
+    renderCellDetail,
+    renderCells,
+    renderCellSearchResults,
+    renderDevices,
+  };
+}
