@@ -109,8 +109,8 @@ Recommended structure:
 
 If the planned quantity cannot be fully picked from a cell:
 - user records actual quantity picked,
-- remaining quantity is marked pending or exception,
-- system may reallocate remaining quantity to another cell,
+- remaining quantity is recorded as an exception on that task,
+- operator or admin can start a fresh follow-up task for any remaining need,
 - all deviations are logged.
 
 ## Pick exceptions
@@ -128,8 +128,12 @@ Examples:
 
 The pick flow should affect:
 - task records,
-- reserved inventory,
 - available inventory,
 - inventory transaction log,
 - device event log,
 - user activity log.
+
+Current software behavior:
+- stock is not reserved ahead of time,
+- cancelling a pick task does not change stock,
+- if stock has changed since the pick task was created, completion validates the live quantity again before subtracting inventory.

@@ -39,7 +39,7 @@ Responsibilities:
 
 ### 3. Inventory module
 Responsibilities:
-- maintain available/reserved balances
+- maintain available balances
 - apply transactions
 - expose inventory queries
 - detect mixed-product cells and over-capacity cells
@@ -80,7 +80,7 @@ Responsibilities:
 - aggregate transactions
 - generate time-based reports
 - provide print-ready report views
-- support quick timeframe presets and custom date filters
+- support quick timeframe presets and custom datetime filters
 
 ### 9. Configuration / commissioning module
 Responsibilities:
@@ -148,3 +148,4 @@ The hardware integration layer should be isolated so that:
 - The current app is a local web application with server-rendered HTML plus lightweight client-side JavaScript.
 - Search-heavy controls are rendered by the software instead of OS-native widgets so the UI stays consistent across platforms.
 - Task correction is handled as a first-class workflow rather than an ad hoc admin-only database edit.
+- Stock handling is intentionally simplified so picks and puts operate against live available quantities without a separate reservation layer.

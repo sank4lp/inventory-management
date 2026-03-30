@@ -60,6 +60,27 @@ function wireLiveSearch() {
   }
 }
 
+function wireNavState() {
+  const pathname = window.location.pathname;
+  const links = document.querySelectorAll(".nav-links a");
+
+  for (const link of links) {
+    const href = link.getAttribute("href");
+    if (!href) {
+      continue;
+    }
+
+    let isActive = false;
+    if (href === "/") {
+      isActive = pathname === "/";
+    } else {
+      isActive = pathname === href || pathname.startsWith(`${href}/`);
+    }
+
+    link.classList.toggle("nav-link-active", isActive);
+  }
+}
+
 function closeAllCombos(except = null) {
   document.querySelectorAll("[data-combo-box]").forEach((combo) => {
     if (combo === except) {
@@ -329,6 +350,7 @@ function wireAdjustmentForms() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  wireNavState();
   wireLiveSearch();
   wireComboBoxes();
   wireAdjustmentForms();

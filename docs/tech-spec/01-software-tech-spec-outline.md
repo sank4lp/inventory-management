@@ -62,7 +62,7 @@ This document now acts as a lightweight technical baseline for the implemented p
 - launch-critical report set
 - print support and printer integration
 - configurable timeframe selection before printing
-- quick preset buttons for common ranges
+- quick preset buttons for common ranges, including short operational windows such as 1/3/6/12 hours
 
 ## 4. Non-functional requirements
 
@@ -97,6 +97,9 @@ Include tables/entities such as:
 - transactions
 - device events
 - sessions
+
+Current implementation note:
+- operational stock logic should use actual available quantity in cells rather than a separate reservation workflow.
 
 ## 7. API / internal service contracts
 
@@ -168,7 +171,7 @@ Examples:
 - operator can complete a put with auto-planned cell allocation
 - admin can change `items per cell` and the next put uses the updated rule
 - system can map cells accurately
-- admin can generate reports for a selected time range or quick preset
+- admin can generate reports for a selected datetime range or quick preset and see all range-sensitive sections update consistently
 - users can only edit their own tasks unless they are admins
 
 ## Decision backlog

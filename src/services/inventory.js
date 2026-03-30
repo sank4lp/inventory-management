@@ -24,7 +24,7 @@ function sumCellOccupancy(db, cellId) {
   const row = db
     .prepare(
       `
-        SELECT COALESCE(SUM(available_quantity + reserved_quantity), 0) AS total_quantity
+        SELECT COALESCE(SUM(available_quantity), 0) AS total_quantity
         FROM inventory_balances
         WHERE cell_id = ?
       `,
@@ -44,12 +44,11 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
         SELECT
           c.id AS cell_id,
           c.logical_code,
-          COALESCE(b.available_quantity, 0) AS available_quantity,
-          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+          COALESCE(b.available_quantity, 0) AS available_quantity
         FROM cells c
         JOIN inventory_balances b ON b.cell_id = c.id
         WHERE b.product_id = ? AND c.active = 1 AND c.id != ?
-        ORDER BY (COALESCE(b.available_quantity, 0) + COALESCE(b.reserved_quantity, 0)) DESC,
+        ORDER BY COALESCE(b.available_quantity, 0) DESC,
                  c.row_number,
                  c.column_number
       `,
@@ -64,7 +63,7 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
           c.logical_code
         FROM cells c
         LEFT JOIN inventory_balances b
-          ON b.cell_id = c.id AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+          ON b.cell_id = c.id AND b.available_quantity > 0
         WHERE c.active = 1
           AND b.id IS NULL
           AND c.id != ?
@@ -80,7 +79,7 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
     if (remaining <= 0) {
       break;
     }
-    const currentQuantity = Number(cell.available_quantity) + Number(cell.reserved_quantity);
+    const currentQuantity = Number(cell.available_quantity);
     const room = itemsPerCell - currentQuantity;
     if (room <= 0) {
       continue;
@@ -131,12 +130,11 @@ function buildCellAnomalies(db) {
           p.sku,
           p.name,
           p.items_per_cell,
-          COALESCE(b.available_quantity, 0) AS available_quantity,
-          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+          COALESCE(b.available_quantity, 0) AS available_quantity
         FROM cells c
         JOIN inventory_balances b ON b.cell_id = c.id
         JOIN products p ON p.id = b.product_id
-        WHERE c.active = 1 AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+        WHERE c.active = 1 AND b.available_quantity > 0
         ORDER BY c.row_number, c.column_number, p.name
       `,
     )
@@ -154,7 +152,7 @@ function buildCellAnomalies(db) {
       productId: row.product_id,
       sku: row.sku,
       name: row.name,
-      totalQuantity: Number(row.available_quantity) + Number(row.reserved_quantity),
+      totalQuantity: Number(row.available_quantity),
       itemsPerCell: Number(row.items_per_cell),
     });
     grouped.set(key, entry);
@@ -178,6 +176,7 @@ function buildCellAnomalies(db) {
         logicalCode: cell.logicalCode,
         title: `${cell.logicalCode} has mixed products`,
         description: `${cell.products.map((item) => `${item.sku} (${item.totalQuantity})`).join(", ")}`,
+        actionSummary: `Move ${moveProduct.sku} from ${cell.logicalCode} into its own cell(s).`,
         productId: moveProduct.productId,
         productSku: moveProduct.sku,
         productName: moveProduct.name,
@@ -203,6 +202,7 @@ function buildCellAnomalies(db) {
           logicalCode: cell.logicalCode,
           title: `${product.sku} exceeds ideal capacity in ${cell.logicalCode}`,
           description: `Stored ${product.totalQuantity}, ideal ${product.itemsPerCell}`,
+          actionSummary: `Move the excess ${product.sku} quantity out of ${cell.logicalCode}.`,
           productId: product.productId,
           productSku: product.sku,
           productName: product.name,
@@ -224,8 +224,7 @@ export function listProducts(db, search = "") {
       `
         SELECT
           p.*,
-          COALESCE(SUM(b.available_quantity), 0) AS total_available,
-          COALESCE(SUM(b.reserved_quantity), 0) AS total_reserved
+          COALESCE(SUM(b.available_quantity), 0) AS total_available
         FROM products p
         LEFT JOIN inventory_balances b ON b.product_id = p.id
         WHERE p.sku LIKE ? OR p.name LIKE ? OR p.brand LIKE ?
@@ -242,8 +241,7 @@ export function getProductDetail(db, productId) {
       `
         SELECT
           p.*,
-          COALESCE(SUM(b.available_quantity), 0) AS total_available,
-          COALESCE(SUM(b.reserved_quantity), 0) AS total_reserved
+          COALESCE(SUM(b.available_quantity), 0) AS total_available
         FROM products p
         LEFT JOIN inventory_balances b ON b.product_id = p.id
         WHERE p.id = ?
@@ -263,11 +261,10 @@ export function getProductDetail(db, productId) {
           c.id AS cell_id,
           c.logical_code,
           c.hardware_channel,
-          COALESCE(b.available_quantity, 0) AS available_quantity,
-          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+          COALESCE(b.available_quantity, 0) AS available_quantity
         FROM inventory_balances b
         JOIN cells c ON c.id = b.cell_id
-        WHERE b.product_id = ? AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+        WHERE b.product_id = ? AND b.available_quantity > 0
         ORDER BY c.row_number, c.column_number
       `,
     )
@@ -358,18 +355,6 @@ function getOrCreateBalance(db, productId, cellId) {
   return db
     .prepare("SELECT * FROM inventory_balances WHERE id = ?")
     .get(Number(result.lastInsertRowid));
-}
-
-function reserveInventory(db, taskLines) {
-  for (const line of taskLines) {
-    db.prepare(
-      `
-        UPDATE inventory_balances
-        SET reserved_quantity = reserved_quantity + ?
-        WHERE product_id = ? AND cell_id = ?
-      `,
-    ).run(line.planned_quantity, line.product_id, line.cell_id);
-  }
 }
 
 function taskLinesWithCells(db, taskId) {
@@ -503,9 +488,12 @@ export function listRecentTasksForUser(db, user, limit = 10) {
     .all(user.id, limit);
 }
 
-export function allocatePick(db, { userId, productId, quantity }) {
+export function allocatePick(db, { userId, productId, quantity, preferredCellId = null }) {
   const requestedQuantity = normalizeQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
+  const preferredCell = preferredCellId
+    ? db.prepare("SELECT id, logical_code FROM cells WHERE id = ? AND active = 1").get(Number(preferredCellId))
+    : null;
 
   const balances = db
     .prepare(
@@ -514,7 +502,6 @@ export function allocatePick(db, { userId, productId, quantity }) {
           b.product_id,
           b.cell_id,
           b.available_quantity,
-          b.reserved_quantity,
           c.logical_code,
           c.hardware_channel,
           c.controller_id,
@@ -522,16 +509,16 @@ export function allocatePick(db, { userId, productId, quantity }) {
           c.column_number
         FROM inventory_balances b
         JOIN cells c ON c.id = b.cell_id
-        WHERE b.product_id = ? AND c.active = 1 AND (b.available_quantity - b.reserved_quantity) > 0
-        ORDER BY c.row_number, c.column_number
+        WHERE b.product_id = ? AND c.active = 1 AND b.available_quantity > 0
+        ORDER BY
+          CASE WHEN c.id = ? THEN 0 ELSE 1 END,
+          c.row_number,
+          c.column_number
       `,
     )
-    .all(product.id);
+    .all(product.id, preferredCell ? preferredCell.id : -1);
 
-  const totalAvailable = balances.reduce(
-    (sum, row) => sum + Number(row.available_quantity) - Number(row.reserved_quantity),
-    0,
-  );
+  const totalAvailable = balances.reduce((sum, row) => sum + Number(row.available_quantity), 0);
 
   if (totalAvailable < requestedQuantity) {
     throw new Error(
@@ -545,7 +532,7 @@ export function allocatePick(db, { userId, productId, quantity }) {
     if (remaining <= 0) {
       break;
     }
-    const freeQuantity = Number(row.available_quantity) - Number(row.reserved_quantity);
+    const freeQuantity = Number(row.available_quantity);
     const planned = Math.min(remaining, freeQuantity);
     if (planned <= 0) {
       continue;
@@ -594,19 +581,34 @@ export function allocatePick(db, { userId, productId, quantity }) {
       );
     }
 
-    reserveInventory(
-      db,
-      lines.map((line) => ({ ...line, task_id: taskId })),
-    );
-
     return getTask(db, taskId);
   });
 }
 
-export function planPut(db, { userId, productId, quantity }) {
+export function planPut(db, { userId, productId, quantity, preferredCellId = null }) {
   const requestedQuantity = normalizeQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
   const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
+  const preferredCell = preferredCellId
+    ? db
+        .prepare(
+          `
+            SELECT
+              c.id AS cell_id,
+              c.logical_code,
+              c.hardware_channel,
+              c.controller_id,
+              c.row_number,
+              c.column_number,
+              COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity
+            FROM cells c
+            LEFT JOIN inventory_balances b ON b.cell_id = c.id
+            WHERE c.id = ? AND c.active = 1
+            GROUP BY c.id
+          `,
+        )
+        .get(Number(preferredCellId))
+    : null;
 
   const sameProductCells = db
     .prepare(
@@ -618,17 +620,17 @@ export function planPut(db, { userId, productId, quantity }) {
           c.controller_id,
           c.row_number,
           c.column_number,
-          COALESCE(b.available_quantity, 0) AS available_quantity,
-          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+          COALESCE(b.available_quantity, 0) AS available_quantity
         FROM cells c
         JOIN inventory_balances b ON b.cell_id = c.id
         WHERE b.product_id = ? AND c.active = 1
-        ORDER BY (COALESCE(b.available_quantity, 0) + COALESCE(b.reserved_quantity, 0)) DESC,
+        ORDER BY COALESCE(b.available_quantity, 0) DESC,
                  c.row_number,
                  c.column_number
       `,
     )
-    .all(product.id);
+    .all(product.id)
+    .filter((cell) => cell.cell_id !== Number(preferredCellId || 0));
 
   const emptyCells = db
     .prepare(
@@ -642,7 +644,7 @@ export function planPut(db, { userId, productId, quantity }) {
           c.column_number
         FROM cells c
         LEFT JOIN inventory_balances b
-          ON b.cell_id = c.id AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+          ON b.cell_id = c.id AND b.available_quantity > 0
         WHERE c.active = 1
           AND b.id IS NULL
           AND NOT EXISTS (
@@ -654,16 +656,45 @@ export function planPut(db, { userId, productId, quantity }) {
         ORDER BY c.row_number, c.column_number
       `,
     )
-    .all(product.id);
+    .all(product.id)
+    .filter((cell) => cell.cell_id !== Number(preferredCellId || 0));
 
   let remaining = requestedQuantity;
   const lines = [];
+
+  if (preferredCell && remaining > 0) {
+    const preferredSameProduct = db
+      .prepare(
+        `
+          SELECT
+            COALESCE(available_quantity, 0) AS available_quantity
+          FROM inventory_balances
+          WHERE product_id = ? AND cell_id = ?
+        `,
+      )
+      .get(product.id, preferredCell.cell_id);
+    const currentQuantity = preferredSameProduct
+      ? Number(preferredSameProduct.available_quantity)
+      : Number(preferredCell.occupied_quantity || 0);
+    const room = Math.max(0, itemsPerCell - currentQuantity);
+
+    if (room > 0) {
+      const planned = Math.min(remaining, room);
+      lines.push({
+        product_id: product.id,
+        cell_id: preferredCell.cell_id,
+        planned_quantity: planned,
+        guidance_color: "blue",
+      });
+      remaining -= planned;
+    }
+  }
 
   for (const cell of sameProductCells) {
     if (remaining <= 0) {
       break;
     }
-    const currentQuantity = Number(cell.available_quantity) + Number(cell.reserved_quantity);
+    const currentQuantity = Number(cell.available_quantity);
     const room = itemsPerCell - currentQuantity;
     if (room <= 0) {
       continue;
@@ -737,6 +768,33 @@ export function planPut(db, { userId, productId, quantity }) {
   });
 }
 
+export function cancelTask(db, { taskId }) {
+  const task = getTask(db, Number(taskId));
+  if (!task) {
+    throw new Error("Task not found.");
+  }
+
+  if (task.status === "completed") {
+    throw new Error("Completed tasks cannot be cancelled.");
+  }
+
+  if (task.status === "cancelled") {
+    throw new Error("Task is already cancelled.");
+  }
+
+  return withTransaction(db, () => {
+    db.prepare(
+      `
+        UPDATE tasks
+        SET status = 'cancelled', completed_at = ?
+        WHERE id = ?
+      `,
+    ).run(nowIso(), task.id);
+
+    return getTask(db, task.id);
+  });
+}
+
 export function completeTask(db, { taskId, actualQuantities, actualCellIds, userId, note }) {
   const task = getTask(db, Number(taskId));
   if (!task) {
@@ -745,6 +803,10 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
 
   if (task.status === "completed") {
     throw new Error("Task is already completed.");
+  }
+
+  if (task.status === "cancelled") {
+    throw new Error("Cancelled tasks cannot be completed.");
   }
 
   return withTransaction(db, () => {
@@ -784,14 +846,19 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
       const plannedBalance = getOrCreateBalance(db, line.product_id, line.cell_id);
 
       if (task.type === "pick") {
+        if (actualQuantity > Number(plannedBalance.available_quantity)) {
+          throw new Error(
+            `Cell ${line.logical_code} only has ${Number(plannedBalance.available_quantity)} item(s) left for ${line.sku}. Start a new pick task with the current stock.`,
+          );
+        }
+
         db.prepare(
           `
             UPDATE inventory_balances
-            SET available_quantity = available_quantity - ?,
-                reserved_quantity = reserved_quantity - ?
+            SET available_quantity = available_quantity - ?
             WHERE id = ?
           `,
-        ).run(actualQuantity, line.planned_quantity, plannedBalance.id);
+        ).run(actualQuantity, plannedBalance.id);
         touchedCellIds.add(Number(line.cell_id));
 
         if (actualQuantity > 0) {
@@ -1168,7 +1235,7 @@ export function dashboardStats(db) {
     cells: db.prepare("SELECT COUNT(*) AS count FROM cells WHERE active = 1").get().count,
     controllers: db.prepare("SELECT COUNT(*) AS count FROM controllers WHERE active = 1").get().count,
     openTasks: db
-      .prepare("SELECT COUNT(*) AS count FROM tasks WHERE status != 'completed'")
+      .prepare("SELECT COUNT(*) AS count FROM tasks WHERE status NOT IN ('completed', 'cancelled')")
       .get().count,
     transactions: db.prepare("SELECT COUNT(*) AS count FROM transactions").get().count,
   };
@@ -1325,12 +1392,12 @@ export function listCells(db) {
           c.*,
           z.code AS zone_code,
           ctrl.controller_code,
-          COALESCE(SUM(b.available_quantity + b.reserved_quantity), 0) AS occupied_quantity,
+          COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
           COALESCE(
             GROUP_CONCAT(
               CASE
-                WHEN (b.available_quantity > 0 OR b.reserved_quantity > 0) AND p.sku IS NOT NULL
-                THEN p.sku || ' (' || CAST((b.available_quantity + b.reserved_quantity) AS TEXT) || ')'
+                WHEN b.available_quantity > 0 AND p.sku IS NOT NULL
+                THEN p.sku || ' (' || CAST(b.available_quantity AS TEXT) || ')'
               END,
               ', '
             ),
@@ -1357,7 +1424,7 @@ export function searchCells(db, search = "") {
           c.id,
           c.logical_code,
           c.hardware_channel,
-          COALESCE(SUM(b.available_quantity + b.reserved_quantity), 0) AS occupied_quantity
+          COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity
         FROM cells c
         LEFT JOIN inventory_balances b ON b.cell_id = c.id
         WHERE c.logical_code LIKE ?
@@ -1397,11 +1464,10 @@ export function getCellDetail(db, cellId) {
           p.name,
           p.brand,
           p.unit_of_measure,
-          COALESCE(b.available_quantity, 0) AS available_quantity,
-          COALESCE(b.reserved_quantity, 0) AS reserved_quantity
+          COALESCE(b.available_quantity, 0) AS available_quantity
         FROM inventory_balances b
         JOIN products p ON p.id = b.product_id
-        WHERE b.cell_id = ? AND (b.available_quantity > 0 OR b.reserved_quantity > 0)
+        WHERE b.cell_id = ? AND b.available_quantity > 0
         ORDER BY p.name
       `,
     )

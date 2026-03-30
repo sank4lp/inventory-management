@@ -18,11 +18,20 @@ function rangeClause(columnName, fromAt, toAt) {
   };
 }
 
+function andRangeClause(columnName, fromAt, toAt) {
+  const { clause, params } = rangeClause(columnName, fromAt, toAt);
+  return {
+    clause: clause ? `AND ${clause.slice(6)}` : "",
+    params,
+  };
+}
+
 export function buildReports(db, { fromAt, toAt }) {
   const transactionRange = rangeClause("tr.created_at", fromAt, toAt);
   const taskRange = rangeClause("t.completed_at", fromAt, toAt);
-  const taskActivityRange = rangeClause("t.started_at", fromAt, toAt);
-  const userTransactionRange = rangeClause("tr.created_at", fromAt, toAt);
+  const taskActivityRange = andRangeClause("t.started_at", fromAt, toAt);
+  const userTransactionRange = andRangeClause("tr.created_at", fromAt, toAt);
+  const recentTaskRange = rangeClause("COALESCE(t.completed_at, t.started_at)", fromAt, toAt);
 
   const stockSnapshot = db
     .prepare(
@@ -32,8 +41,7 @@ export function buildReports(db, { fromAt, toAt }) {
           p.name,
           p.brand,
           p.unit_of_measure,
-          COALESCE(SUM(b.available_quantity), 0) AS available,
-          COALESCE(SUM(b.reserved_quantity), 0) AS reserved
+          COALESCE(SUM(b.available_quantity), 0) AS available
         FROM products p
         LEFT JOIN inventory_balances b ON b.product_id = p.id
         GROUP BY p.id
@@ -67,13 +75,13 @@ export function buildReports(db, { fromAt, toAt }) {
             SELECT COUNT(*)
             FROM tasks t
             WHERE t.created_by = u.id
-            ${taskActivityRange.clause ? `AND ${taskActivityRange.clause.slice(6)}` : ""}
+            ${taskActivityRange.clause}
           ) AS tasks_created,
           (
             SELECT COUNT(*)
             FROM transactions tr
             WHERE tr.user_id = u.id
-            ${userTransactionRange.clause ? `AND ${userTransactionRange.clause.slice(6)}` : ""}
+            ${userTransactionRange.clause}
           ) AS transactions_recorded
         FROM users u
         ORDER BY u.username
@@ -126,11 +134,41 @@ export function buildReports(db, { fromAt, toAt }) {
     )
     .all(...transactionRange.params);
 
+  const recentTaskActivity = db
+    .prepare(
+      `
+        SELECT
+          t.id,
+          t.type,
+          t.status,
+          t.summary,
+          t.started_at,
+          t.completed_at,
+          u.username,
+          COALESCE(
+            (
+              SELECT GROUP_CONCAT(DISTINCT p.sku)
+              FROM task_lines tl
+              JOIN products p ON p.id = tl.product_id
+              WHERE tl.task_id = t.id
+            ),
+            ''
+          ) AS sku_list
+        FROM tasks t
+        JOIN users u ON u.id = t.created_by
+        ${recentTaskRange.clause}
+        ORDER BY COALESCE(t.completed_at, t.started_at) DESC, t.id DESC
+        LIMIT 40
+      `,
+    )
+    .all(...recentTaskRange.params);
+
   return {
     stockSnapshot,
     movementSummary,
     userActivity,
     exceptions,
     adjustments,
+    recentTaskActivity,
   };
 }

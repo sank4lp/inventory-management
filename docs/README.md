@@ -81,9 +81,11 @@ These documents are a strong starting draft, but several decisions are intention
 - A future placement strategy should support **grouping similar items in nearby cells** so related stock stays physically close together.
 - The initial printed report set at launch can be the same four core reports already identified in the docs.
 - Products should store an **items per cell** value that admins can edit later.
+- Inventory is tracked as actual quantity in cells only; the current software does **not** use a reservation layer.
 - The software should allow **mixed-product cells** and **over-capacity cells** when that is what actually happened, then highlight them for follow-up.
 - The home screen should include **recommended actions** to help users clean up flagged cells.
 - Search and picker controls should be **software-rendered**, not dependent on OS-native widgets.
+- Reports should support quick presets from **last 1 hour** through **previous month**, plus custom datetime ranges that update all report sections consistently.
 
 ## Suggested next authoring order
 

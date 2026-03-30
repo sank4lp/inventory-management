@@ -719,6 +719,7 @@ export function createDatabase(authHelpers) {
   ensureDirectory(dirname(DB_PATH));
   const db = new DatabaseSync(DB_PATH);
   initializeSchema(db);
+  db.prepare("UPDATE inventory_balances SET reserved_quantity = 0 WHERE reserved_quantity != 0").run();
   seedUsers(db, authHelpers);
   seedRegistrationKeys(db);
   seedWarehouse(db);

@@ -53,7 +53,6 @@ Even if phase 1 is delivered as one deployable application, its modules should b
 
 ### 4. Inventory state management
 - Available quantity per cell
-- Reserved quantity per task
 - Confirmed movement history
 - Audit-safe corrections
 - Detection of mixed-product and over-capacity cells
@@ -82,7 +81,7 @@ Even if phase 1 is delivered as one deployable application, its modules should b
 - User activity visibility
 - Exception and audit visibility
 - Print-ready report generation with custom time filters
-- Quick timeframe buttons such as last 24 hours, previous day, previous week, and previous month
+- Quick timeframe buttons such as last 1 hour, last 3 hours, last 6 hours, last 12 hours, last 24 hours, previous day, previous week, and previous month
 
 ### 9. Recommended actions and anomaly handling
 - Detect cells whose actual state does not match the ideal software rules
@@ -142,7 +141,6 @@ The following entities should exist in some form.
 - product id
 - cell id
 - available quantity
-- reserved quantity
 
 ### InventoryTask
 - id
@@ -216,5 +214,6 @@ The following entities should exist in some form.
 
 - Current implementation is a **local web app** with server-rendered HTML and lightweight in-app JavaScript enhancements.
 - Current local storage uses **SQLite**.
+- The current stock model is intentionally simple: there is no operational reservation concept in the software.
 - Button events update task review state as supporting physical evidence, but the final review screen remains the actual commit point.
 - The hardware layer is currently simulated by emitting RS485-style events to `stdout`.

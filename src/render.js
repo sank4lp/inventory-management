@@ -23,47 +23,55 @@ export function formatQuantity(value) {
   return Number.isInteger(number) ? String(number) : number.toFixed(2);
 }
 
-function nav(user) {
+function nav(user, currentTitle = "") {
   if (!user) {
     return "";
   }
 
   const links = [
-    ["/", "Home"],
-    ["/products", "Products"],
-    ["/cells", "Cells"],
+    ["/", "Overview"],
     ["/pick", "Pick"],
     ["/put", "Put"],
+    ["/products", "Products"],
+    ["/cells", "Locations"],
   ];
   if (user.role === "admin") {
-    links.push(["/reports", "Reports"]);
-    links.push(["/devices", "Devices"]);
+    links.push(["/reports", "Reporting"]);
+    links.push(["/devices", "Configuration"]);
     links.push(["/admin", "Admin"]);
   }
 
+  const activeTitle = String(currentTitle || "").toLowerCase();
+
   return `
     <nav class="top-nav">
-      <div class="brand">
-        <span class="brand-mark">IM</span>
-        <div>
-          <div class="brand-title">Inventory Management</div>
-          <div class="brand-subtitle">Local-first warehouse console</div>
+      <div class="top-nav-shell">
+        <div class="brand">
+          <span class="brand-mark">IM</span>
+          <div class="brand-copy">
+            <div class="brand-title">Inventory Management</div>
+          </div>
         </div>
-      </div>
-      <div class="nav-links">
-        ${links
-          .map(
-            ([href, label]) =>
-              `<a href="${href}">${escapeHtml(label)}</a>`,
-          )
-          .join("")}
-      </div>
-      <div class="session-box">
-        <div>${escapeHtml(user.name)}</div>
-        <small>${escapeHtml(user.role)}</small>
-        <form method="post" action="/logout">
-          <button class="ghost-button" type="submit">Logout</button>
-        </form>
+        <div class="nav-links">
+          ${links
+            .map(
+              ([href, label]) =>
+                `<a class="${activeTitle.includes(label.toLowerCase()) || (label === "Overview" && activeTitle === "home") ? "nav-link-active" : ""}" href="${href}"><span>${escapeHtml(label)}</span></a>`,
+            )
+            .join("")}
+        </div>
+        <div class="session-box">
+          <div class="session-identity">
+            <span class="session-avatar">${escapeHtml(user.name.charAt(0).toUpperCase())}</span>
+            <div class="session-copy">
+              <div class="session-name">${escapeHtml(user.name)}</div>
+              <div class="session-role">${escapeHtml(user.role)}</div>
+            </div>
+          </div>
+          <form method="post" action="/logout">
+            <button class="ghost-button" type="submit">Logout</button>
+          </form>
+        </div>
       </div>
     </nav>
   `;
@@ -80,7 +88,7 @@ export function page({ title, user, flash, content }) {
     <script src="/app.js" defer></script>
   </head>
   <body>
-    ${nav(user)}
+    ${nav(user, title)}
     <main class="page-shell">
       <header class="page-header">
         <h1>${escapeHtml(title)}</h1>

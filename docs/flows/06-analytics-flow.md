@@ -35,7 +35,7 @@ Provide reports and operational insights from the inventory data stored by the s
 ## Current software filters
 
 - custom start and end datetime filters,
-- quick presets for **last 24 hours**, **previous day**, **previous week**, **previous month**, and **all time**.
+- quick presets for **last 1 hour**, **last 3 hours**, **last 6 hours**, **last 12 hours**, **last 24 hours**, **previous day**, **previous week**, **previous month**, and **all time**.
 
 ## Example report flow
 
@@ -60,10 +60,12 @@ Recommended initial report set:
 - pick/put movement summary by time range
 - user activity report
 - exception/adjustment report
+- recent task activity / activity report
 
 All four should be treated as launch-priority reports.
 
 Current software behavior:
 - reports are generated on demand from transactions and tasks,
 - time filtering uses fully qualified timestamp columns to avoid ambiguous report queries,
-- the reports page stays admin-friendly by using clear preset buttons plus a manual range override.
+- the reports page stays admin-friendly by using clear preset buttons plus a manual range override,
+- the selected datetime range is expected to update all range-sensitive report sections consistently, including team activity, recent activity, adjustments, and issue-focused task views.

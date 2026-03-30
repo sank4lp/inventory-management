@@ -25,6 +25,7 @@ test("core inventory flows work against a fresh seeded database", async () => {
   assert.ok(productDetail);
   assert.ok(productDetail.locations.length > 0);
   assert.equal(Number(productDetail.items_per_cell), 3);
+  const preferredProductCellId = productDetail.locations[0].cell_id;
 
   const cells = inventory.searchCells(db, "Z1-R1-C01");
   assert.equal(cells.length, 1);
@@ -32,6 +33,17 @@ test("core inventory flows work against a fresh seeded database", async () => {
   const cellDetail = inventory.getCellDetail(db, cells[0].id);
   assert.ok(cellDetail);
   assert.ok(cellDetail.products.length > 0);
+
+  const preferredPickTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+    preferredCellId: preferredProductCellId,
+  });
+  assert.equal(preferredPickTask.lines[0].cell_id, preferredProductCellId);
+
+  const cancelledPreferredPick = inventory.cancelTask(db, { taskId: preferredPickTask.id });
+  assert.equal(cancelledPreferredPick.status, "cancelled");
 
   const pickTask = inventory.allocatePick(db, {
     userId: 1,
@@ -41,6 +53,26 @@ test("core inventory flows work against a fresh seeded database", async () => {
 
   assert.equal(pickTask.type, "pick");
   assert.equal(pickTask.lines.length, 2);
+
+  const cancelledPickTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+  });
+  const cancelledPick = inventory.cancelTask(db, { taskId: cancelledPickTask.id });
+  assert.equal(cancelledPick.status, "cancelled");
+  assert.throws(
+    () =>
+      inventory.completeTask(db, {
+        taskId: cancelledPickTask.id,
+        actualQuantities: Object.fromEntries(
+          cancelledPickTask.lines.map((line) => [line.id, line.planned_quantity]),
+        ),
+        userId: 1,
+        note: "Should not complete",
+      }),
+    /Cancelled tasks cannot be completed\./,
+  );
 
   const completedPick = inventory.completeTask(db, {
     taskId: pickTask.id,
@@ -74,6 +106,14 @@ test("core inventory flows work against a fresh seeded database", async () => {
     putTask.lines.slice(0, 3).map((line) => line.logical_code),
     ["Z1-R1-C01", "Z1-R1-C02", "Z1-R1-C03"],
   );
+
+  const preferredPutTask = inventory.planPut(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+    preferredCellId: preferredProductCellId,
+  });
+  assert.equal(preferredPutTask.lines[0].cell_id, preferredProductCellId);
 
   const completedPut = inventory.completeTask(db, {
     taskId: putTask.id,
@@ -131,6 +171,34 @@ test("core inventory flows work against a fresh seeded database", async () => {
   });
   assert.ok(Array.isArray(filteredSummary.movementSummary));
   assert.ok(Array.isArray(filteredSummary.adjustments));
+  assert.ok(Array.isArray(filteredSummary.recentTaskActivity));
+
+  const oldTimestamp = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare("UPDATE tasks SET started_at = ?, completed_at = ? WHERE id = ?").run(
+    oldTimestamp,
+    oldTimestamp,
+    completedPut.task.id,
+  );
+  db.prepare("UPDATE transactions SET created_at = ? WHERE task_id = ?").run(
+    oldTimestamp,
+    completedPut.task.id,
+  );
+
+  const narrowSummary = reports.buildReports(db, {
+    fromAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    toAt: new Date().toISOString(),
+  });
+  assert.ok(
+    !narrowSummary.recentTaskActivity.some((row) => row.id === completedPut.task.id),
+  );
+  assert.ok(
+    narrowSummary.userActivity.every((row) => Number(row.transactions_recorded) >= 0),
+  );
+  assert.ok(
+    narrowSummary.adjustments.every(
+      (row) => new Date(row.created_at).getTime() >= Date.now() - 24 * 60 * 60 * 1000,
+    ),
+  );
 
   const mixedCell = inventory.searchCells(db, "Z1-R1-C04")[0];
 

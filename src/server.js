@@ -23,6 +23,7 @@ import {
   applyRecommendedAction,
   allocatePick,
   authenticateUser,
+  cancelTask,
   completeTask,
   correctCompletedTask,
   createAdjustment,
@@ -100,6 +101,15 @@ function formatDateInput(date) {
   return `${year}-${month}-${day}`;
 }
 
+function formatDateTimeInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 function startOfDay(date) {
   const value = new Date(date);
   value.setHours(0, 0, 0, 0);
@@ -112,6 +122,23 @@ function endOfDay(date) {
   return value;
 }
 
+function hoursAgo(hours, now) {
+  return new Date(now.getTime() - hours * 60 * 60 * 1000);
+}
+
+function toIsoOrNull(value) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
+}
+
 function resolveReportRange(url) {
   const preset = url.searchParams.get("preset") || "";
   const now = new Date();
@@ -121,19 +148,43 @@ function resolveReportRange(url) {
   let to = url.searchParams.get("to") || "";
   let label = "Custom range";
 
-  if (preset === "last-24h") {
+  if (preset === "last-1h") {
+    fromAt = hoursAgo(1, now).toISOString();
+    toAt = now.toISOString();
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
+    label = "Last 1 hour";
+  } else if (preset === "last-3h") {
+    fromAt = hoursAgo(3, now).toISOString();
+    toAt = now.toISOString();
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
+    label = "Last 3 hours";
+  } else if (preset === "last-6h") {
+    fromAt = hoursAgo(6, now).toISOString();
+    toAt = now.toISOString();
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
+    label = "Last 6 hours";
+  } else if (preset === "last-12h") {
+    fromAt = hoursAgo(12, now).toISOString();
+    toAt = now.toISOString();
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
+    label = "Last 12 hours";
+  } else if (preset === "last-24h") {
     fromAt = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
     toAt = now.toISOString();
-    from = formatDateInput(new Date(fromAt));
-    to = formatDateInput(now);
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
     label = "Last 24 hours";
   } else if (preset === "previous-day") {
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
     fromAt = startOfDay(yesterday).toISOString();
     toAt = endOfDay(yesterday).toISOString();
-    from = formatDateInput(new Date(fromAt));
-    to = formatDateInput(new Date(toAt));
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(new Date(toAt));
     label = "Previous day";
   } else if (preset === "previous-week") {
     const day = now.getDay();
@@ -146,24 +197,20 @@ function resolveReportRange(url) {
     previousWeekEnd.setDate(previousWeekStart.getDate() + 6);
     fromAt = startOfDay(previousWeekStart).toISOString();
     toAt = endOfDay(previousWeekEnd).toISOString();
-    from = formatDateInput(new Date(fromAt));
-    to = formatDateInput(new Date(toAt));
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(new Date(toAt));
     label = "Previous week";
   } else if (preset === "previous-month") {
     const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
     fromAt = startOfDay(previousMonthStart).toISOString();
     toAt = endOfDay(previousMonthEnd).toISOString();
-    from = formatDateInput(previousMonthStart);
-    to = formatDateInput(previousMonthEnd);
+    from = formatDateTimeInput(previousMonthStart);
+    to = formatDateTimeInput(endOfDay(previousMonthEnd));
     label = "Previous month";
   } else {
-    if (from) {
-      fromAt = startOfDay(new Date(from)).toISOString();
-    }
-    if (to) {
-      toAt = endOfDay(new Date(to)).toISOString();
-    }
+    fromAt = toIsoOrNull(from);
+    toAt = toIsoOrNull(to);
     if (!from && !to) {
       label = "All time";
     }
@@ -227,12 +274,12 @@ function ensureAdmin(response, user) {
   return true;
 }
 
-function quickActionLinks(productId) {
+function quickActionLinks(productId, cellId = "") {
   return `
     <div class="mini-actions">
       <a class="mini-link" href="/products/${productId}">Open</a>
-      <a class="mini-link" href="/pick?product_id=${productId}">Pick</a>
-      <a class="mini-link" href="/put?product_id=${productId}">Put</a>
+      <a class="mini-link" href="/pick?product_id=${productId}${cellId ? `&cell_id=${cellId}` : ""}">Pick</a>
+      <a class="mini-link" href="/put?product_id=${productId}${cellId ? `&cell_id=${cellId}` : ""}">Put</a>
     </div>
   `;
 }
@@ -812,15 +859,14 @@ function renderProductDetail(user, flash, product) {
       ${card(
         "Cells holding this product",
         table(
-          ["Cell", "Available", "Reserved", "Action"],
+          ["Cell", "Available", "Action"],
           product.locations.map((location) => [
             `<a href="/cells/${location.cell_id}">${escapeHtml(location.logical_code)}</a>`,
             escapeHtml(formatQuantity(location.available_quantity)),
-            escapeHtml(formatQuantity(location.reserved_quantity)),
             `
               <div class="mini-actions">
-                <a class="mini-link" href="/pick?product_id=${product.id}&cell=${encodeURIComponent(location.logical_code)}">Pick</a>
-                <a class="mini-link" href="/put?product_id=${product.id}&cell=${encodeURIComponent(location.logical_code)}">Put</a>
+                <a class="mini-link" href="/pick?product_id=${product.id}&cell_id=${location.cell_id}">Pick</a>
+                <a class="mini-link" href="/put?product_id=${product.id}&cell_id=${location.cell_id}">Put</a>
               </div>
             `,
           ]),
@@ -836,7 +882,8 @@ function renderPick(user, flash, url) {
   const selectedProduct = selectedProductId
     ? products.find((product) => product.id === selectedProductId)
     : null;
-  const sourceCell = url.searchParams.get("cell") || "";
+  const selectedCellId = Number(url.searchParams.get("cell_id") || 0);
+  const selectedCell = selectedCellId ? listCells(db).find((cell) => cell.id === selectedCellId) : null;
   return page({
     title: "Pick",
     user,
@@ -853,6 +900,7 @@ function renderPick(user, flash, url) {
           `
             <form method="post" action="/pick" class="stack-form">
               ${productPickerField(products, selectedProductId, "pick-product")}
+              ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
               <label>Requested quantity<input type="number" min="1" step="1" name="quantity" required /></label>
               <button class="green-button" type="submit">Create pick task</button>
             </form>
@@ -862,7 +910,7 @@ function renderPick(user, flash, url) {
                   ? `Selected product: ${escapeHtml(selectedProduct.name)}. `
                   : ""
               }
-              ${sourceCell ? `You opened this from cell ${escapeHtml(sourceCell)}. ` : ""}
+              ${selectedCell ? `The system will try ${escapeHtml(selectedCell.logical_code)} first, then add more cells only if needed. ` : ""}
               The system chooses the cells for you and highlights them in green.
             </p>
           `,
@@ -878,7 +926,8 @@ function renderPut(user, flash, url) {
   const selectedProduct = selectedProductId
     ? products.find((product) => product.id === selectedProductId)
     : null;
-  const sourceCell = url.searchParams.get("cell") || "";
+  const selectedCellId = Number(url.searchParams.get("cell_id") || 0);
+  const selectedCell = selectedCellId ? listCells(db).find((cell) => cell.id === selectedCellId) : null;
   return page({
     title: "Put",
     user,
@@ -895,6 +944,7 @@ function renderPut(user, flash, url) {
           `
             <form method="post" action="/put" class="stack-form">
               ${productPickerField(products, selectedProductId, "put-product")}
+              ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
               <label>Quantity to place<input type="number" min="1" step="1" name="quantity" required /></label>
               <button class="blue-button" type="submit">Create put task</button>
             </form>
@@ -904,7 +954,7 @@ function renderPut(user, flash, url) {
                   ? `Selected product: ${escapeHtml(selectedProduct.name)}. `
                   : ""
               }
-              ${sourceCell ? `You opened this from cell ${escapeHtml(sourceCell)}. ` : ""}
+              ${selectedCell ? `The system will try ${escapeHtml(selectedCell.logical_code)} first, then add more cells only if needed. ` : ""}
               The system suggests the nearest free cells and lights them in blue.
             </p>
           `,
@@ -932,7 +982,8 @@ function renderTask(user, flash, task, mode = "view") {
   const firstLine = task.lines[0];
   const cells = task.type === "put" ? listCells(db) : [];
   const editMode = mode === "edit";
-  const editable = editMode && canEditTask(user, task);
+  const taskIsActive = task.status !== "completed" && task.status !== "cancelled";
+  const editable = editMode && canEditTask(user, task) && task.status === "completed";
   const taskLabel = task.type === "pick" ? "Pick Task" : "Put Task";
   const actionLabel = task.type === "pick" ? "Finish Pick Action" : "Finish Put Action";
   const editSubmitPath =
@@ -945,10 +996,19 @@ function renderTask(user, flash, task, mode = "view") {
     content: `
       <section class="page-actions">
         ${
-          canEditTask(user, task)
+          canEditTask(user, task) && task.status === "completed"
             ? editMode
               ? `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}">Back to task</a>`
               : `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}?mode=edit">Edit</a>`
+            : ""
+        }
+        ${
+          taskIsActive && canEditTask(user, task)
+            ? `
+              <form method="post" action="/tasks/${task.id}/cancel">
+                <button class="ghost-button" type="submit">Cancel Task</button>
+              </form>
+            `
             : ""
         }
       </section>
@@ -980,6 +1040,11 @@ function renderTask(user, flash, task, mode = "view") {
               ? `<p class="muted">You may change cell or quantity. If the final placement overfills a cell or mixes products, Home will flag it under Recommended actions.</p>`
               : ""
           }
+          ${
+            task.status === "cancelled"
+              ? `<p class="flash flash-info">This task has been cancelled. Start a new ${escapeHtml(task.type)} task if you still need to move these items.</p>`
+              : ""
+          }
           ${table(
             task.type === "put"
               ? ["Suggested cell", "Final cell", "Planned", "Actual", "Reached cell", "Signal"]
@@ -988,19 +1053,19 @@ function renderTask(user, flash, task, mode = "view") {
               ...(task.type === "put"
                 ? [
                     escapeHtml(line.logical_code),
-                    editable || task.status !== "completed"
+                    editable || taskIsActive
                       ? cellPickerField(cells, line.cell_id, `line-${line.id}`, `actual_cell_${line.id}`, "confirm-form")
                       : escapeHtml(line.logical_code),
                   ]
                 : [escapeHtml(line.logical_code)]),
               `${escapeHtml(formatQuantity(line.planned_quantity))} ${escapeHtml(line.unit_of_measure)}`,
-              editable || task.status !== "completed"
+              editable || taskIsActive
                 ? `<input form="confirm-form" class="compact-input" type="number" step="0.01" min="0" ${task.type === "pick" ? `max="${escapeHtml(line.planned_quantity)}"` : ""} name="actual_${line.id}" value="${escapeHtml(line.actual_quantity || line.planned_quantity)}" />`
                 : escapeHtml(formatQuantity(line.actual_quantity || line.planned_quantity)),
               line.physical_confirmed_at
                 ? `<span class="badge badge-active">Yes</span>`
                 : `<span class="badge badge-pending-review">No</span>`,
-              task.status !== "completed" && !editMode
+              taskIsActive && !editMode
                 ? `
                     <form method="post" action="/tasks/${task.id}/simulate-button">
                       <input type="hidden" name="line_id" value="${line.id}" />
@@ -1011,14 +1076,18 @@ function renderTask(user, flash, task, mode = "view") {
             ]),
           )}
           ${
-            editable || task.status !== "completed"
+            editable || taskIsActive
               ? `
                   <form id="confirm-form" method="post" action="/tasks/${task.id}/${editSubmitPath}" class="stack-form">
                     <label>Note<textarea name="note" rows="3" placeholder="Optional note"></textarea></label>
                     <button type="submit">${editMode ? "Save Correction" : "Finish task"}</button>
                   </form>
                 `
-              : `<p class="muted">Only the task owner or an admin can edit this task.</p>`
+              : `<p class="muted">${
+                  task.status === "cancelled"
+                    ? "Cancelled tasks cannot be completed or edited. Start a new task instead."
+                    : "Only the task owner or an admin can edit this task."
+                }</p>`
           }
         `,
       )}
@@ -1043,6 +1112,10 @@ function renderReports(user, flash, url) {
         "Timeframe",
         `
           <div class="preset-row">
+            <a class="preset-chip ${range.preset === "last-1h" ? "preset-chip-active" : ""}" href="${presetHref("last-1h")}">Last 1 hour</a>
+            <a class="preset-chip ${range.preset === "last-3h" ? "preset-chip-active" : ""}" href="${presetHref("last-3h")}">Last 3 hours</a>
+            <a class="preset-chip ${range.preset === "last-6h" ? "preset-chip-active" : ""}" href="${presetHref("last-6h")}">Last 6 hours</a>
+            <a class="preset-chip ${range.preset === "last-12h" ? "preset-chip-active" : ""}" href="${presetHref("last-12h")}">Last 12 hours</a>
             <a class="preset-chip ${range.preset === "last-24h" ? "preset-chip-active" : ""}" href="${presetHref("last-24h")}">Last 24 hours</a>
             <a class="preset-chip ${range.preset === "previous-day" ? "preset-chip-active" : ""}" href="${presetHref("previous-day")}">Previous day</a>
             <a class="preset-chip ${range.preset === "previous-week" ? "preset-chip-active" : ""}" href="${presetHref("previous-week")}">Previous week</a>
@@ -1050,21 +1123,20 @@ function renderReports(user, flash, url) {
             <a class="preset-chip ${!range.preset && !range.from && !range.to ? "preset-chip-active" : ""}" href="/reports">All time</a>
           </div>
           <form method="get" action="/reports" class="inline-form">
-            <label>From <input type="date" name="from" value="${escapeHtml(range.from)}" /></label>
-            <label>To <input type="date" name="to" value="${escapeHtml(range.to)}" /></label>
+            <label>From <input type="datetime-local" name="from" value="${escapeHtml(range.from)}" /></label>
+            <label>To <input type="datetime-local" name="to" value="${escapeHtml(range.to)}" /></label>
             <button type="submit">Apply</button>
           </form>
-          <p class="muted">A simple operational summary for ${escapeHtml(range.label.toLowerCase())}.</p>
+          <p class="muted">A simple operational summary for ${escapeHtml(range.label.toLowerCase())}, with date and time precision.</p>
         `,
       )}
       ${card(
         "Stock snapshot",
         table(
-          ["Item", "Available", "Reserved"],
+          ["Item", "Available"],
           reports.stockSnapshot.map((row) => [
             `${escapeHtml(row.name)}<br /><small>${escapeHtml(row.sku)}</small>`,
             escapeHtml(formatQuantity(row.available)),
-            escapeHtml(formatQuantity(row.reserved)),
           ]),
         ),
       )}
@@ -1088,6 +1160,20 @@ function renderReports(user, flash, url) {
             escapeHtml(row.username),
             escapeHtml(formatQuantity(row.tasks_created)),
             escapeHtml(formatQuantity(row.transactions_recorded)),
+          ]),
+        ),
+      )}
+      ${card(
+        "Recent activity",
+        table(
+          ["Task", "Who", "What", "Status", "Started", "Completed"],
+          reports.recentTaskActivity.map((row) => [
+            `<a href="/tasks/${row.id}">#${row.id}</a>`,
+            escapeHtml(row.username),
+            `${escapeHtml(row.type.toUpperCase())}<br /><small>${escapeHtml(row.sku_list || row.summary)}</small>`,
+            statusBadge(row.status),
+            escapeHtml(formatDate(row.started_at)),
+            escapeHtml(formatDate(row.completed_at)),
           ]),
         ),
       )}
@@ -1183,7 +1269,8 @@ function renderRecommendedActions(user, flash, selectedKey = "") {
               card(
                 action.title,
                 `
-                  <p>${escapeHtml(action.description)}</p>
+                  <p><strong>Products currently in ${escapeHtml(action.logicalCode)}:</strong> ${escapeHtml(action.description)}</p>
+                  <p><strong>Recommended action:</strong> ${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
                   ${
                     action.unresolvedQuantity > 0
                       ? `<p class="flash flash-error">The system could not find room for ${escapeHtml(formatQuantity(action.unresolvedQuantity))} item(s). Please review manually.</p>`
@@ -1197,17 +1284,23 @@ function renderRecommendedActions(user, flash, selectedKey = "") {
                       .map(
                         (move, index) => `
                           <div class="recommendation-row">
-                            <label>Move quantity
-                              <input type="number" min="0" step="0.01" name="move_qty_${index}" value="${escapeHtml(move.quantity)}" />
-                            </label>
-                            <label>Target cell
-                              ${cellPickerField(
-                                cells,
-                                move.targetCellId,
-                                `recommendation-${action.key}-${index}`,
-                                `move_cell_${index}`,
-                              )}
-                            </label>
+                            <div class="recommendation-summary">
+                              <strong>${escapeHtml(action.productSku)}</strong>
+                              <p class="muted">Move ${escapeHtml(formatQuantity(move.quantity))} item(s) from ${escapeHtml(action.logicalCode)} to the target cell below.</p>
+                            </div>
+                            <div class="recommendation-fields">
+                              <label>Move quantity
+                                <input type="number" min="0" step="0.01" name="move_qty_${index}" value="${escapeHtml(move.quantity)}" />
+                              </label>
+                              <label>Target cell
+                                ${cellPickerField(
+                                  cells,
+                                  move.targetCellId,
+                                  `recommendation-${action.key}-${index}`,
+                                  `move_cell_${index}`,
+                                )}
+                              </label>
+                            </div>
                           </div>
                         `,
                       )
@@ -1255,12 +1348,11 @@ function renderCellDetail(user, flash, cell) {
       ${card(
         "Products in this cell",
         table(
-          ["Product", "Available", "Reserved", "Action"],
+          ["Product", "Available", "Action"],
           cell.products.map((product) => [
             `<a href="/products/${product.product_id}">${escapeHtml(product.name)}</a><br /><small>${escapeHtml(product.sku)}</small>`,
             escapeHtml(formatQuantity(product.available_quantity)),
-            escapeHtml(formatQuantity(product.reserved_quantity)),
-            quickActionLinks(product.product_id),
+            quickActionLinks(product.product_id, cell.id),
           ]),
         ),
       )}
@@ -1615,6 +1707,7 @@ export const requestHandler = async (request, response) => {
         userId: user.id,
         productId: form.product_id,
         quantity: form.quantity,
+        preferredCellId: form.preferred_cell_id || null,
       });
       activateGuidance(db, task, task.lines);
       sendRedirect(
@@ -1659,6 +1752,7 @@ export const requestHandler = async (request, response) => {
         userId: user.id,
         productId: form.product_id,
         quantity: form.quantity,
+        preferredCellId: form.preferred_cell_id || null,
       });
       activateGuidance(db, task, task.lines);
       sendRedirect(
@@ -1675,7 +1769,7 @@ export const requestHandler = async (request, response) => {
       }
       const task = getTask(db, Number(taskMatch[1]));
       const mode = url.searchParams.get("mode") === "edit" ? "edit" : "view";
-      if (mode === "edit" && task && !canEditTask(user, task)) {
+      if (mode === "edit" && task && (!canEditTask(user, task) || task.status !== "completed")) {
         sendRedirect(response, appendFlash(`/tasks/${task.id}`, "You can edit only your own tasks unless you are an admin.", "error"));
         return;
       }
@@ -1766,6 +1860,11 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
+      const task = getTask(db, Number(buttonMatch[1]));
+      if (!task || task.status === "cancelled") {
+        sendRedirect(response, appendFlash(`/tasks/${buttonMatch[1]}`, "Cancelled tasks cannot be continued.", "error"));
+        return;
+      }
       const form = await parseForm(request);
       const line = markPhysicalConfirmation(db, Number(form.line_id));
       simulateButtonPress(db, { ...line, task_id: Number(buttonMatch[1]) });
@@ -1773,6 +1872,22 @@ export const requestHandler = async (request, response) => {
         response,
         appendFlash(`/tasks/${buttonMatch[1]}`, `Simulated button press for ${line.logical_code}.`, "success"),
       );
+      return;
+    }
+
+    const cancelMatch = url.pathname.match(/^\/tasks\/(\d+)\/cancel$/);
+    if (request.method === "POST" && cancelMatch) {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const task = getTask(db, Number(cancelMatch[1]));
+      if (!task || !canEditTask(user, task)) {
+        sendRedirect(response, appendFlash(`/tasks/${cancelMatch[1]}`, "You can cancel only your own tasks unless you are an admin.", "error"));
+        return;
+      }
+      const cancelledTask = cancelTask(db, { taskId: Number(cancelMatch[1]) });
+      clearGuidance(db, cancelledTask, cancelledTask.lines);
+      sendRedirect(response, appendFlash(`/tasks/${cancelledTask.id}`, "Task cancelled.", "success"));
       return;
     }
 

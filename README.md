@@ -15,7 +15,7 @@ Phase-1 local-first software implementation based on the docs in `docs/`.
 - Task correction mode with owner-or-admin edit permissions
 - Recommended actions for mixed-product cells and over-capacity cells
 - Device, controller, and cell mapping visibility
-- Launch-priority reports
+- Launch-priority reports with custom datetime ranges and quick presets from 1 hour to previous month
 - RS485 hardware command simulation via `stdout`
 - Seeded with a simple army-warehouse-style sample inventory
 
@@ -38,6 +38,7 @@ Then open [http://localhost:3000](http://localhost:3000).
 - Data is stored locally in `data/inventory.db`.
 - Controller/light actions are simulated and printed to server `stdout` with an `[RS485-SIM]` prefix.
 - The seeded catalog includes items like combat boots, field uniforms, helmets, gloves, canteens, batteries, ration packs, medical pouches, and other field gear.
+- The software does not use a reservation step for stock. Inventory is either still present in the cell or it has been picked.
 - Put planning uses each product's `items per cell` value and tries to reuse partially filled cells first so the next put uses the minimum number of cells.
 - Operators may still record real-world exceptions such as mixed-product cells or over-capacity cells; the software allows the action, then flags it under **Recommended actions**.
 - Recommended actions suggest what to move, from which cell, and into which target cells, while still allowing the user to edit the suggestion before applying it.
