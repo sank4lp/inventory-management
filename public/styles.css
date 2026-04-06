@@ -50,6 +50,14 @@ code {
   font-family: "SFMono-Regular", "Menlo", monospace;
 }
 
+.path-code {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .top-nav {
   padding: 0;
   background: rgba(255, 249, 241, 0.94);
@@ -482,6 +490,10 @@ small {
   align-items: end;
 }
 
+.inline-form-wrap {
+  min-width: 280px;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -849,6 +861,10 @@ th {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 0.8rem;
+}
+
+.meta-grid > div {
+  min-width: 0;
 }
 
 .compact-meta-grid {

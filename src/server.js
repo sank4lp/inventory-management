@@ -18,10 +18,10 @@ import {
 } from "./services/auth.js";
 import { createAdminService } from "./services/admin.js";
 import { createAnomalyService } from "./services/anomalies.js";
+import { createBackupService } from "./services/backups.js";
 import { createCatalogService } from "./services/catalog.js";
 import { createHardwareService } from "./services/hardware.js";
 import { createLocationService } from "./services/locations.js";
-import { createReportService } from "./services/reporting.js";
 import { createSystemService } from "./services/system.js";
 import { createTaskService } from "./services/tasks.js";
 import {
@@ -41,44 +41,86 @@ const logger = createLogger({
   level: appConfig.logLevel,
   siteId: appConfig.siteId,
 });
-const db = createDatabase({
-  hashPassword,
-  bootstrapAdmin: appConfig.bootstrapAdmin,
-  allowDevAuthSeeds: appConfig.allowDevAuthSeeds,
-});
-const hardwareService = createHardwareService({
-  db,
-  config: appConfig,
-  logger,
-});
-const systemService = createSystemService({
-  db,
-  config: appConfig,
-  logger,
-  hardwareService,
-  getTask,
-});
-const startup = systemService.runStartupChecks();
-startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
-setRuntimeContext({
-  config: appConfig,
-  logger,
-  systemService,
-  startup,
-});
-const catalogService = createCatalogService({ db });
-const locationService = createLocationService({ db });
-const anomalyService = createAnomalyService({ db });
-const adminService = createAdminService({ db });
-const reportService = createReportService({ db });
-const taskService = createTaskService({
-  db,
-  hardwareService,
-  logger,
-  systemService,
-});
-const pages = createPageRenderer({ db });
 const publicDir = join(process.cwd(), "public");
+let appState = null;
+
+function buildAppState() {
+  const db = createDatabase({
+    hashPassword,
+    bootstrapAdmin: appConfig.bootstrapAdmin,
+    allowDevAuthSeeds: appConfig.allowDevAuthSeeds,
+  });
+  const hardwareService = createHardwareService({
+    db,
+    config: appConfig,
+    logger,
+  });
+  const systemService = createSystemService({
+    db,
+    config: appConfig,
+    logger,
+    hardwareService,
+    getTask,
+  });
+  const startup = systemService.runStartupChecks();
+  startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
+  const catalogService = createCatalogService({ db });
+  const locationService = createLocationService({ db });
+  const anomalyService = createAnomalyService({ db });
+  const adminService = createAdminService({ db });
+  const taskService = createTaskService({
+    db,
+    hardwareService,
+    logger,
+    systemService,
+  });
+  const backupService = createBackupService({
+    getDb: () => appState?.db || db,
+    reloadAppState,
+    logger,
+  });
+  const pages = createPageRenderer({ db, backupService });
+
+  setRuntimeContext({
+    config: appConfig,
+    logger,
+    systemService,
+    startup,
+  });
+
+  return {
+    adminService,
+    anomalyService,
+    backupService,
+    catalogService,
+    db,
+    hardwareService,
+    locationService,
+    pages,
+    startup,
+    systemService,
+    taskService,
+  };
+}
+
+function reloadAppState({ closeCurrentDb = true } = {}) {
+  if (closeCurrentDb && appState?.db) {
+    appState.db.close();
+  }
+
+  appState = buildAppState();
+  return appState;
+}
+
+function getAppState() {
+  if (!appState) {
+    appState = buildAppState();
+  }
+
+  return appState;
+}
+
+getAppState();
 
 function sendHtml(response, html, statusCode = 200, headers = {}) {
   response.writeHead(statusCode, {
@@ -170,6 +212,43 @@ function parseTaskReviewForm(form) {
   };
 }
 
+function createAutomaticBackup(source) {
+  const { backupService } = getAppState();
+
+  try {
+    return {
+      ok: true,
+      backup: backupService.createBackup({
+        kind: "auto",
+        source,
+      }),
+    };
+  } catch (error) {
+    logger.error("backup.auto.failed", {
+      source,
+      error: error.message,
+    });
+    return {
+      ok: false,
+      error: error.message,
+    };
+  }
+}
+
+function backupAwareFlash(message, tone, backupResult) {
+  if (backupResult?.ok) {
+    return {
+      message,
+      tone,
+    };
+  }
+
+  return {
+    message: `${message} Automatic backup failed: ${backupResult?.error || "Unknown error"}`,
+    tone: tone === "error" ? "error" : "warning",
+  };
+}
+
 function serveStatic(request, response, pathname) {
   const filename =
     pathname === "/styles.css"
@@ -200,6 +279,17 @@ function serveStatic(request, response, pathname) {
 
 export const requestHandler = async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+  const {
+    adminService,
+    anomalyService,
+    backupService,
+    catalogService,
+    db,
+    hardwareService,
+    locationService,
+    pages,
+    taskService,
+  } = getAppState();
   const user = getSessionUser(request, db);
   const flash = getFlash(url);
 
@@ -302,7 +392,9 @@ export const requestHandler = async (request, response) => {
         username: newUser.username,
         role: newUser.role,
       });
-      sendRedirect(response, appendFlash("/", "Registration completed.", "success"), {
+      const backupResult = createAutomaticBackup("user-registration");
+      const nextFlash = backupAwareFlash("Registration completed.", "success", backupResult);
+      sendRedirect(response, appendFlash("/", nextFlash.message, nextFlash.tone), {
         "Set-Cookie": createSessionCookie(newUser),
       });
       return;
@@ -365,9 +457,11 @@ export const requestHandler = async (request, response) => {
         productId: Number(productCapacityMatch[1]),
         itemsPerCell: form.items_per_cell,
       });
+      const backupResult = createAutomaticBackup("product-capacity-update");
+      const nextFlash = backupAwareFlash("Items per cell updated.", "success", backupResult);
       sendRedirect(
         response,
-        appendFlash(`/products/${productCapacityMatch[1]}`, "Items per cell updated.", "success"),
+        appendFlash(`/products/${productCapacityMatch[1]}`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -378,7 +472,9 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       catalogService.createProduct(form);
-      sendRedirect(response, appendFlash("/products", "Product saved.", "success"));
+      const backupResult = createAutomaticBackup("product-create");
+      const nextFlash = backupAwareFlash("Product saved.", "success", backupResult);
+      sendRedirect(response, appendFlash("/products", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -401,15 +497,17 @@ export const requestHandler = async (request, response) => {
         quantity: form.quantity,
         preferredCellId: form.preferred_cell_id || null,
       });
+      const backupResult = createAutomaticBackup("task-pick-create");
+      const nextFlash = backupAwareFlash(
+        guidance.degraded
+          ? "Pick task created. Hardware guidance is unavailable, so continue with manual on-screen guidance."
+          : "Pick task created and guidance activated.",
+        guidance.degraded ? "warning" : "success",
+        backupResult,
+      );
       sendRedirect(
         response,
-        appendFlash(
-          `/tasks/${task.id}`,
-          guidance.degraded
-            ? "Pick task created. Hardware guidance is unavailable, so continue with manual on-screen guidance."
-            : "Pick task created and guidance activated.",
-          guidance.degraded ? "warning" : "success",
-        ),
+        appendFlash(`/tasks/${task.id}`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -451,15 +549,17 @@ export const requestHandler = async (request, response) => {
         quantity: form.quantity,
         preferredCellId: form.preferred_cell_id || null,
       });
+      const backupResult = createAutomaticBackup("task-put-create");
+      const nextFlash = backupAwareFlash(
+        guidance.degraded
+          ? "Put task created. Hardware guidance is unavailable, so continue with manual on-screen guidance."
+          : "Put task created and guidance activated.",
+        guidance.degraded ? "warning" : "success",
+        backupResult,
+      );
       sendRedirect(
         response,
-        appendFlash(
-          `/tasks/${task.id}`,
-          guidance.degraded
-            ? "Put task created. Hardware guidance is unavailable, so continue with manual on-screen guidance."
-            : "Put task created and guidance activated.",
-          guidance.degraded ? "warning" : "success",
-        ),
+        appendFlash(`/tasks/${task.id}`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -510,15 +610,17 @@ export const requestHandler = async (request, response) => {
         note: form.note,
         submissionToken: form.submission_token,
       });
+      const backupResult = createAutomaticBackup("task-confirm");
+      const nextFlash = backupAwareFlash(
+        completion.anomalies.length
+          ? `Action completed. ${completion.anomalies.length} recommended action warning(s) were created.`
+          : "Action completed successfully.",
+        completion.anomalies.length ? "error" : "success",
+        backupResult,
+      );
       sendRedirect(
         response,
-        appendFlash(
-          `/tasks/${completion.task.id}`,
-          completion.anomalies.length
-            ? `Action completed. ${completion.anomalies.length} recommended action warning(s) were created.`
-            : "Action completed successfully.",
-          completion.anomalies.length ? "error" : "success",
-        ),
+        appendFlash(`/tasks/${completion.task.id}`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -543,15 +645,17 @@ export const requestHandler = async (request, response) => {
         note: form.note,
         submissionToken: form.submission_token,
       });
+      const backupResult = createAutomaticBackup("task-correct");
+      const nextFlash = backupAwareFlash(
+        correction.anomalies.length
+          ? `Correction saved. ${correction.anomalies.length} recommended action warning(s) remain.`
+          : "Correction saved successfully.",
+        correction.anomalies.length ? "error" : "success",
+        backupResult,
+      );
       sendRedirect(
         response,
-        appendFlash(
-          `/tasks/${correction.task.id}`,
-          correction.anomalies.length
-            ? `Correction saved. ${correction.anomalies.length} recommended action warning(s) remain.`
-            : "Correction saved successfully.",
-          correction.anomalies.length ? "error" : "success",
-        ),
+        appendFlash(`/tasks/${correction.task.id}`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -572,9 +676,15 @@ export const requestHandler = async (request, response) => {
         taskId: Number(buttonMatch[1]),
         userId: user.id,
       });
+      const backupResult = createAutomaticBackup("task-physical-confirm");
+      const nextFlash = backupAwareFlash(
+        `Simulated button press for ${line.logical_code}.`,
+        "success",
+        backupResult,
+      );
       sendRedirect(
         response,
-        appendFlash(`/tasks/${buttonMatch[1]}`, `Simulated button press for ${line.logical_code}.`, "success"),
+        appendFlash(`/tasks/${buttonMatch[1]}`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -595,7 +705,9 @@ export const requestHandler = async (request, response) => {
         userId: user.id,
         submissionToken: form.submission_token,
       });
-      sendRedirect(response, appendFlash(`/tasks/${cancelledTask.id}`, "Task cancelled.", "success"));
+      const backupResult = createAutomaticBackup("task-cancel");
+      const nextFlash = backupAwareFlash("Task cancelled.", "success", backupResult);
+      sendRedirect(response, appendFlash(`/tasks/${cancelledTask.id}`, nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -604,6 +716,57 @@ export const requestHandler = async (request, response) => {
         return;
       }
       sendHtml(response, pages.renderReports(user, flash, url));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/backups") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      sendHtml(response, pages.renderBackups(user, flash));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/backups/create") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const backup = backupService.createBackup({
+        kind: "manual",
+        source: `manual-${user.username || user.id}`,
+      });
+      sendRedirect(
+        response,
+        appendFlash(
+          "/backups",
+          `Manual backup created: ${backup.filename}.`,
+          "success",
+        ),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/backups/restore") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      if (String(form.confirm_restore || "").trim() !== "RESTORE") {
+        sendRedirect(
+          response,
+          appendFlash("/backups", "Type RESTORE to confirm the database restore.", "error"),
+        );
+        return;
+      }
+      const restore = backupService.restoreBackup(form.filename);
+      sendRedirect(
+        response,
+        appendFlash(
+          "/backups",
+          `Restored ${restore.restoredBackup.filename}. A safety restore point was saved as ${restore.restorePoint.filename}.`,
+          "warning",
+        ),
+      );
       return;
     }
 
@@ -639,9 +802,11 @@ export const requestHandler = async (request, response) => {
         userId: user.id,
         reason: form.reason,
       });
+      const backupResult = createAutomaticBackup("recommended-action-apply");
+      const nextFlash = backupAwareFlash("Recommended action applied.", "success", backupResult);
       sendRedirect(
         response,
-        appendFlash("/recommended-actions", "Recommended action applied.", "success"),
+        appendFlash("/recommended-actions", nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -743,7 +908,9 @@ export const requestHandler = async (request, response) => {
         hardwareChannel: form.hardware_channel,
         mappedBy: user.id,
       });
-      sendRedirect(response, appendFlash("/devices", "Cell mapping updated.", "success"));
+      const backupResult = createAutomaticBackup("cell-mapping-update");
+      const nextFlash = backupAwareFlash("Cell mapping updated.", "success", backupResult);
+      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -765,7 +932,9 @@ export const requestHandler = async (request, response) => {
         role: form.role,
         userId: user.id,
       });
-      sendRedirect(response, appendFlash("/admin", "Registration key issued.", "success"));
+      const backupResult = createAutomaticBackup("registration-key-issue");
+      const nextFlash = backupAwareFlash("Registration key issued.", "success", backupResult);
+      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -801,7 +970,9 @@ export const requestHandler = async (request, response) => {
         reason: form.reason,
         lines,
       });
-      sendRedirect(response, appendFlash("/admin", "Adjustment batch recorded.", "success"));
+      const backupResult = createAutomaticBackup("adjustment-create");
+      const nextFlash = backupAwareFlash("Adjustment batch recorded.", "success", backupResult);
+      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
       return;
     }
 
