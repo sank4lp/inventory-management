@@ -1,11 +1,10 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { appConfig } from "../config.js";
 
-const SESSION_SECRET =
-  process.env.SESSION_SECRET || "inventory-local-dev-secret";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 function sign(value) {
-  return createHmac("sha256", SESSION_SECRET).update(value).digest("base64url");
+  return createHmac("sha256", appConfig.sessionSecret).update(value).digest("base64url");
 }
 
 export function hashPassword(password) {

@@ -20,6 +20,12 @@ export {
   table,
 };
 
+export function hiddenSubmissionToken(token) {
+  return token
+    ? `<input type="hidden" name="submission_token" value="${escapeHtml(token)}" />`
+    : "";
+}
+
 export function quickActionLinks(productId, cellId = "") {
   return `
     <div class="mini-actions">

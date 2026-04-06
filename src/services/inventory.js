@@ -20,6 +20,12 @@ function normalizeItemsPerCell(value) {
   return capacity;
 }
 
+function assertSufficientBalance(balance, quantity, message) {
+  if (Number(balance.available_quantity) < Number(quantity)) {
+    throw new Error(message);
+  }
+}
+
 function sumCellOccupancy(db, cellId) {
   const row = db
     .prepare(
@@ -967,6 +973,13 @@ export function correctCompletedTask(
       const newBalance = getOrCreateBalance(db, line.product_id, nextCellId);
 
       if (task.type === "pick") {
+        const reversibleAvailable = Number(oldBalance.available_quantity) + previousQuantity;
+        if (reversibleAvailable < nextQuantity) {
+          throw new Error(
+            `Cell ${line.logical_code} no longer has enough stock to apply this correction safely.`,
+          );
+        }
+
         db.prepare(
           `
             UPDATE inventory_balances
@@ -1019,6 +1032,12 @@ export function correctCompletedTask(
 
         touchedCellIds.add(Number(line.cell_id));
       } else if (task.type === "put") {
+        assertSufficientBalance(
+          oldBalance,
+          previousQuantity,
+          `Cell ${line.logical_code} no longer contains the previously recorded quantity, so this correction cannot be applied safely.`,
+        );
+
         db.prepare(
           `
             UPDATE inventory_balances
@@ -1202,6 +1221,12 @@ export function createAdjustment(db, { productId, cellId, quantityDelta, userId,
 
       if (delta === 0) {
         continue;
+      }
+
+      if (Number(balance.available_quantity) + delta < 0) {
+        throw new Error(
+          `Adjustment for ${line.product.sku} would make the cell quantity negative.`,
+        );
       }
 
       db.prepare(
