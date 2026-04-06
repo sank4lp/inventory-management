@@ -45,7 +45,8 @@ The current goal is to document the product clearly enough that you can:
 | `flows/07-device-onboarding-and-zone-management.md` | Zone/controller onboarding and controller management |
 | `flows/08-cell-mapping-and-commissioning.md` | Physical-to-logical cell mapping and test workflow |
 | `hardware/01-hardware-overview.md` | Hardware topology, component placement, connectivity summary |
-| `hardware/02-esp32-zone-controller.md` | ESP32 block responsibilities and connection outline |
+| `hardware/02-esp32-zone-controller.md` | ESP32 block responsibilities, controller-box layout, and terminal guidance |
+| `hardware/03-physical-installation-guide.md` | Step-by-step physical installation and wiring sequence |
 | `architecture/01-software-architecture-outline.md` | Proposed software architecture direction |
 | `tech-spec/01-software-tech-spec-outline.md` | Detailed spec template and decision backlog |
 
