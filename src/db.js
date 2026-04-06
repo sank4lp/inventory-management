@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 const DATA_DIR = join(process.cwd(), "data");
 const DB_PATH = join(DATA_DIR, "inventory.db");
+export const APP_SCHEMA_VERSION = "2";
 
 function ensureDirectory(path) {
   mkdirSync(path, { recursive: true });
@@ -22,25 +23,38 @@ function ensureColumn(db, tableName, columnName, definition) {
 }
 
 function seedUsers(db, authHelpers) {
-  const { hashPassword } = authHelpers;
+  const {
+    hashPassword,
+    bootstrapAdmin = null,
+    allowDevAuthSeeds = true,
+  } = authHelpers;
   const adminExists = db
-    .prepare("SELECT id FROM users WHERE username = ?")
-    .get("admin");
+    .prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1")
+    .get();
 
   if (!adminExists) {
+    const adminConfig = bootstrapAdmin || {
+      name: "System Admin",
+      username: "admin",
+      password: "admin123",
+    };
     db.prepare(
       `
         INSERT INTO users (name, username, password_hash, role, status, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `,
     ).run(
-      "System Admin",
-      "admin",
-      hashPassword("admin123"),
+      adminConfig.name,
+      adminConfig.username,
+      hashPassword(adminConfig.password),
       "admin",
       "active",
       nowIso(),
     );
+  }
+
+  if (!allowDevAuthSeeds) {
+    return;
   }
 
   const operatorExists = db
@@ -70,15 +84,18 @@ function seedUsers(db, authHelpers) {
 }
 
 function seedRegistrationKeys(db) {
+  const activeAdmin = db
+    .prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id LIMIT 1")
+    .get();
+  if (!activeAdmin) {
+    return;
+  }
+
   const row = db
     .prepare("SELECT id FROM registration_keys WHERE key_value = ?")
     .get("INVITE-OP-2026");
 
   if (!row) {
-    const admin = db
-      .prepare("SELECT id FROM users WHERE username = ?")
-      .get("admin");
-
     db.prepare(
       `
         INSERT INTO registration_keys (key_value, role, status, expires_at, created_by, created_at)
@@ -89,7 +106,7 @@ function seedRegistrationKeys(db) {
       "operator",
       "active",
       new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      admin.id,
+      activeAdmin.id,
       nowIso(),
     );
   }
@@ -678,13 +695,48 @@ function initializeSchema(db) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS system_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      message TEXT NOT NULL,
+      payload TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS submission_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT NOT NULL UNIQUE,
+      scope TEXT NOT NULL,
+      task_id INTEGER REFERENCES tasks(id),
+      user_id INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      used_at TEXT,
+      used_by INTEGER REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS app_metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_inventory_balances_product ON inventory_balances(product_id);
     CREATE INDEX IF NOT EXISTS idx_task_lines_task ON task_lines(task_id);
     CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
     CREATE INDEX IF NOT EXISTS idx_device_events_created_at ON device_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_system_events_created_at ON system_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_submission_tokens_scope_task ON submission_tokens(scope, task_id, used_at);
   `);
 
   ensureColumn(db, "products", "items_per_cell", "REAL NOT NULL DEFAULT 12");
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES ('schema_version', ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(APP_SCHEMA_VERSION, nowIso());
 }
 
 export function withTransaction(db, callback) {
@@ -709,8 +761,16 @@ export function createDatabase(authHelpers) {
   `);
   initializeSchema(db);
   db.prepare("UPDATE inventory_balances SET reserved_quantity = 0 WHERE reserved_quantity != 0").run();
+  db.prepare(
+    `
+      DELETE FROM submission_tokens
+      WHERE used_at IS NOT NULL OR created_at < ?
+    `,
+  ).run(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString());
   seedUsers(db, authHelpers);
-  seedRegistrationKeys(db);
+  if (authHelpers.allowDevAuthSeeds !== false) {
+    seedRegistrationKeys(db);
+  }
   seedWarehouse(db);
   seedProducts(db);
   seedInventory(db);

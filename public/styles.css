@@ -255,6 +255,11 @@ small {
   border-color: rgba(40, 54, 58, 0.1);
 }
 
+.flash-warning {
+  background: rgba(227, 186, 80, 0.18);
+  border-color: rgba(158, 97, 36, 0.22);
+}
+
 .stats-grid,
 .hero-grid,
 .two-column {
@@ -825,6 +830,19 @@ th {
 .badge-cancelled {
   background: var(--error-soft);
   color: var(--error);
+}
+
+.badge-warning,
+.badge-degraded,
+.badge-simulator {
+  background: rgba(227, 186, 80, 0.18);
+  color: #8f5d1d;
+}
+
+.badge-healthy,
+.badge-info {
+  background: var(--info-soft);
+  color: #445164;
 }
 
 .meta-grid {

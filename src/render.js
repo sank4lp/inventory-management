@@ -1,3 +1,5 @@
+import { getRuntimeContext } from "./server/runtime-context.js";
+
 export function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -78,6 +80,14 @@ function nav(user, currentTitle = "") {
 }
 
 export function page({ title, user, flash, content }) {
+  const runtime = getRuntimeContext();
+  const systemHealth = runtime.systemService?.healthSummary(runtime.startup);
+  const systemNotice =
+    user && systemHealth?.degraded
+      ? `<div class="flash flash-warning">System warning: ${escapeHtml(
+          systemHealth.message,
+        )} Adapter: ${escapeHtml(runtime.startup?.hardware?.message || runtime.config?.hardwareAdapter || "unknown")}.</div>`
+      : "";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -98,6 +108,7 @@ export function page({ title, user, flash, content }) {
           ? `<div class="flash flash-${escapeHtml(flash.tone || "info")}">${escapeHtml(flash.message)}</div>`
           : ""
       }
+      ${systemNotice}
       ${content}
     </main>
   </body>

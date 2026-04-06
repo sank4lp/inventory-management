@@ -4,14 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+async function freshImport(specifier) {
+  return import(`${specifier}?t=${Date.now()}-${Math.random()}`);
+}
+
 test("core inventory flows work against a fresh seeded database", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-"));
   process.chdir(sandbox);
 
-  const { createDatabase } = await import("../src/db.js");
-  const auth = await import("../src/services/auth.js");
-  const inventory = await import("../src/services/inventory.js");
-  const reports = await import("../src/services/reports.js");
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const reports = await freshImport("../src/services/reports.js");
 
   const db = createDatabase({ hashPassword: auth.hashPassword });
 
@@ -224,9 +228,9 @@ test("database-backed settings and inventory survive an app restart", async () =
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-persist-"));
   process.chdir(sandbox);
 
-  const { createDatabase } = await import("../src/db.js");
-  const auth = await import("../src/services/auth.js");
-  const inventory = await import("../src/services/inventory.js");
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
 
   const db = createDatabase({ hashPassword: auth.hashPassword });
   const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
@@ -261,5 +265,116 @@ test("database-backed settings and inventory survive an app restart", async () =
       reopenedCell.products.find((product) => product.product_id === shoe.id)?.available_quantity || 0,
     ),
     11,
+  );
+});
+
+test("startup recovery records stale guidance cleanup in degraded mode", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recovery-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createLogger } = await freshImport("../src/logger.js");
+  const { createHardwareService } = await freshImport("../src/services/hardware.js");
+  const { createSystemService } = await freshImport("../src/services/system.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const task = inventory.allocatePick(db, {
+    userId: 1,
+    productId: 1,
+    quantity: 1,
+  });
+  assert.equal(task.status, "pending_review");
+
+  const logger = createLogger({ level: "error", siteId: "test-site" });
+  const hardwareService = createHardwareService({
+    db,
+    config: {
+      hardwareAdapter: "degraded",
+    },
+    logger,
+  });
+  const systemService = createSystemService({
+    db,
+    config: {
+      siteId: "test-site",
+    },
+    logger,
+    hardwareService,
+    getTask: inventory.getTask,
+  });
+
+  const startup = systemService.runStartupChecks();
+  assert.equal(startup.hardware.status, "degraded");
+  const recoveredTaskIds = systemService.recoverPendingGuidance();
+  assert.deepEqual(recoveredTaskIds, [task.id]);
+
+  const recoveryEvents = systemService.listRecentSystemEvents(5, "startup_recovery");
+  assert.ok(recoveryEvents.some((event) => event.message.includes(`task #${task.id}`)));
+  const hardwareEvents = db.prepare("SELECT * FROM device_events WHERE event_type = 'guidance_clear_skipped'").all();
+  assert.ok(hardwareEvents.length >= 1);
+});
+
+test("submission tokens are one-time use and production config requires a session secret", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-token-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const { createLogger } = await freshImport("../src/logger.js");
+  const { createHardwareService } = await freshImport("../src/services/hardware.js");
+  const { createSystemService } = await freshImport("../src/services/system.js");
+  const { resolveConfig } = await freshImport("../src/config.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  assert.throws(() => resolveConfig({ NODE_ENV: "production" }), /SESSION_SECRET must be set/);
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const logger = createLogger({ level: "error", siteId: "test-site" });
+  const hardwareService = createHardwareService({
+    db,
+    config: {
+      hardwareAdapter: "simulator",
+    },
+    logger,
+  });
+  const systemService = createSystemService({
+    db,
+    config: {
+      siteId: "test-site",
+    },
+    logger,
+    hardwareService,
+    getTask: inventory.getTask,
+  });
+
+  const task = inventory.allocatePick(db, {
+    userId: 1,
+    productId: 1,
+    quantity: 1,
+  });
+  const token = systemService.issueSubmissionToken({
+    scope: "task-confirm",
+    taskId: task.id,
+    userId: 1,
+  });
+
+  systemService.consumeSubmissionToken({
+    token,
+    scope: "task-confirm",
+    taskId: task.id,
+    userId: 1,
+  });
+
+  assert.throws(
+    () =>
+      systemService.consumeSubmissionToken({
+        token,
+        scope: "task-confirm",
+        taskId: task.id,
+        userId: 1,
+      }),
+    /already been submitted/,
   );
 });

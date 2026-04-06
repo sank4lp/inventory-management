@@ -9,13 +9,14 @@ import {
   escapeHtml,
   formatDate,
   formatQuantity,
+  hiddenSubmissionToken,
   page,
   statusBadge,
   table,
 } from "./shared.js";
 
 export function createTaskPages({ db }) {
-  function renderTask(user, flash, task, mode = "view") {
+  function renderTask(user, flash, task, mode = "view", actionTokens = {}) {
     if (!task) {
       return page({
         title: "Task not found",
@@ -55,6 +56,7 @@ export function createTaskPages({ db }) {
             taskIsActive && canEditTask(user, task)
               ? `
                 <form method="post" action="/tasks/${task.id}/cancel">
+                  ${hiddenSubmissionToken(actionTokens.cancel)}
                   <button class="ghost-button" type="submit">Cancel Task</button>
                 </form>
               `
@@ -128,6 +130,7 @@ export function createTaskPages({ db }) {
               editable || taskIsActive
                 ? `
                     <form id="confirm-form" method="post" action="/tasks/${task.id}/${editSubmitPath}" class="stack-form">
+                      ${hiddenSubmissionToken(editMode ? actionTokens.correct : actionTokens.confirm)}
                       <label>Note<textarea name="note" rows="3" placeholder="Optional note"></textarea></label>
                       <button type="submit">${editMode ? "Save Correction" : "Finish task"}</button>
                     </form>

@@ -1,0 +1,261 @@
+import { randomBytes } from "node:crypto";
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function firstColumnValue(row) {
+  const values = Object.values(row || {});
+  return values[0];
+}
+
+export function createSystemService({ db, config, logger, hardwareService, getTask }) {
+  function recordSystemEvent({ eventType, status = "info", message, payload = null }) {
+    db.prepare(
+      `
+        INSERT INTO system_events (event_type, status, message, payload, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+    ).run(eventType, status, message, payload ? JSON.stringify(payload) : null, nowIso());
+  }
+
+  function listRecentSystemEvents(limit = 10, eventType = null) {
+    if (eventType) {
+      return db
+        .prepare(
+          `
+            SELECT *
+            FROM system_events
+            WHERE event_type = ?
+            ORDER BY id DESC
+            LIMIT ?
+          `,
+        )
+        .all(eventType, limit);
+    }
+
+    return db
+      .prepare(
+        `
+          SELECT *
+          FROM system_events
+          ORDER BY id DESC
+          LIMIT ?
+        `,
+      )
+      .all(limit);
+  }
+
+  function runStartupChecks() {
+    const integrityRow = db.prepare("PRAGMA integrity_check").get();
+    const integrityValue = String(firstColumnValue(integrityRow) || "");
+    if (integrityValue.toLowerCase() !== "ok") {
+      throw new Error(`Database integrity check failed: ${integrityValue}`);
+    }
+
+    const schemaVersionRow = db
+      .prepare("SELECT value FROM app_metadata WHERE key = 'schema_version'")
+      .get();
+    const schemaVersion = schemaVersionRow?.value || "unknown";
+    const adminCount = Number(
+      db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND status = 'active'").get()
+        .count,
+    );
+    const controllerSummary = db
+      .prepare(
+        `
+          SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN heartbeat_status = 'online' THEN 1 ELSE 0 END) AS online
+          FROM controllers
+          WHERE active = 1
+        `,
+      )
+      .get();
+    const hardwareHealth = hardwareService.healthCheck();
+    const pendingTasks = db
+      .prepare(
+        `
+          SELECT id
+          FROM tasks
+          WHERE status = 'pending_review'
+          ORDER BY id
+        `,
+      )
+      .all();
+
+    const startup = {
+      db: {
+        status: "healthy",
+        message: "SQLite integrity check passed.",
+        schemaVersion,
+      },
+      config: {
+        status: adminCount > 0 ? "healthy" : "warning",
+        message: adminCount > 0 ? "Configuration is valid." : "No active admin users found.",
+      },
+      hardware: hardwareHealth,
+      controllers: {
+        status:
+          Number(controllerSummary.total || 0) === Number(controllerSummary.online || 0)
+            ? "healthy"
+            : "warning",
+        message:
+          Number(controllerSummary.total || 0) === 0
+            ? "No active controllers configured."
+            : `${Number(controllerSummary.online || 0)} of ${Number(
+                controllerSummary.total || 0,
+              )} controllers online.`,
+      },
+      recovery: {
+        status: pendingTasks.length ? "warning" : "healthy",
+        message: pendingTasks.length
+          ? `${pendingTasks.length} pending task(s) require operator review after startup.`
+          : "No unfinished tasks found during startup recovery scan.",
+        pendingTaskIds: pendingTasks.map((row) => row.id),
+        recoveredTaskIds: [],
+      },
+    };
+
+    recordSystemEvent({
+      eventType: "startup_check",
+      status: startup.hardware.status === "healthy" ? "info" : "warning",
+      message: "Startup checks completed.",
+      payload: startup,
+    });
+    logger.info("startup.check.completed", startup);
+    return startup;
+  }
+
+  function recoverPendingGuidance() {
+    const rows = db
+      .prepare(
+        `
+          SELECT id
+          FROM tasks
+          WHERE status = 'pending_review'
+          ORDER BY id
+        `,
+      )
+      .all();
+
+    const recoveredTaskIds = [];
+    for (const row of rows) {
+      const task = getTask(db, row.id);
+      if (!task) {
+        continue;
+      }
+      const result = hardwareService.clearGuidance(task, task.lines, {
+        source: "startup_recovery",
+      });
+      recoveredTaskIds.push(task.id);
+      recordSystemEvent({
+        eventType: "startup_recovery",
+        status: result.degraded ? "warning" : "info",
+        message: `Cleared stale guidance for task #${task.id}.`,
+        payload: {
+          taskId: task.id,
+          degraded: result.degraded,
+          adapter: hardwareService.adapterName,
+        },
+      });
+    }
+
+    logger.info("startup.recovery.completed", {
+      recoveredTaskIds,
+      adapter: hardwareService.adapterName,
+    });
+    return recoveredTaskIds;
+  }
+
+  function issueSubmissionToken({ scope, taskId = null, userId = null }) {
+    const token = randomBytes(18).toString("base64url");
+    db.prepare(
+      `
+        INSERT INTO submission_tokens (token, scope, task_id, user_id, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+    ).run(token, scope, taskId, userId, nowIso());
+    return token;
+  }
+
+  function consumeSubmissionToken({ token, scope, taskId = null, userId = null }) {
+    const row = db
+      .prepare(
+        `
+          SELECT *
+          FROM submission_tokens
+          WHERE token = ? AND scope = ? AND used_at IS NULL
+        `,
+      )
+      .get(token, scope);
+
+    if (!row) {
+      throw new Error("This form has already been submitted or is no longer valid.");
+    }
+
+    if ((taskId ?? null) !== (row.task_id ?? null)) {
+      throw new Error("This form token does not match the current task.");
+    }
+
+    if (row.user_id && userId && Number(row.user_id) !== Number(userId)) {
+      throw new Error("This form token belongs to another user session.");
+    }
+
+    db.prepare(
+      `
+        UPDATE submission_tokens
+        SET used_at = ?, used_by = ?
+        WHERE id = ?
+      `,
+    ).run(nowIso(), userId ?? null, row.id);
+  }
+
+  function healthSummary(startupState = null) {
+    const startup = startupState || runStartupChecks();
+    const parts = [startup.db, startup.config, startup.hardware, startup.controllers, startup.recovery];
+    const degraded = parts.some((part) => part.status !== "healthy");
+    return {
+      overallStatus: degraded ? "warning" : "healthy",
+      degraded,
+      message: degraded
+        ? "System is running with warnings. Operators can continue with manual guidance if needed."
+        : "System is healthy.",
+      startup,
+    };
+  }
+
+  function getDashboardData(startupState) {
+    const recentRecoveryEvents = listRecentSystemEvents(5, "startup_recovery");
+    const recentHardwareFailures = db
+      .prepare(
+        `
+          SELECT *
+          FROM device_events
+          WHERE event_type LIKE '%skipped%' OR event_type LIKE '%failed%'
+          ORDER BY id DESC
+          LIMIT 8
+        `,
+      )
+      .all();
+
+    return {
+      siteId: config.siteId,
+      adapterName: hardwareService.adapterName,
+      health: healthSummary(startupState),
+      recentRecoveryEvents,
+      recentHardwareFailures,
+    };
+  }
+
+  return {
+    recordSystemEvent,
+    listRecentSystemEvents,
+    runStartupChecks,
+    recoverPendingGuidance,
+    issueSubmissionToken,
+    consumeSubmissionToken,
+    healthSummary,
+    getDashboardData,
+  };
+}

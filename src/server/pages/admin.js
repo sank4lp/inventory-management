@@ -14,6 +14,7 @@ import {
   statusBadge,
   table,
 } from "./shared.js";
+import { getRuntimeContext } from "../runtime-context.js";
 
 export function createAdminPages({ db }) {
   function renderAdmin(user, flash) {
@@ -21,12 +22,71 @@ export function createAdminPages({ db }) {
     const keys = listRegistrationKeys(db);
     const products = listProducts(db);
     const cells = listCells(db);
+    const runtime = getRuntimeContext();
+    const dashboard = runtime.systemService?.getDashboardData(runtime.startup);
 
     return page({
       title: "Admin",
       user,
       flash,
       content: `
+        ${
+          dashboard
+            ? card(
+                "System",
+                `
+                  <div class="meta-grid compact-meta-grid">
+                    <div><strong>Site</strong><br />${escapeHtml(dashboard.siteId)}</div>
+                    <div><strong>Adapter</strong><br />${statusBadge(dashboard.adapterName)}</div>
+                    <div><strong>Overall</strong><br />${statusBadge(
+                      dashboard.health.overallStatus,
+                    )}</div>
+                    <div><strong>Recovery</strong><br />${escapeHtml(
+                      dashboard.health.startup.recovery.message,
+                    )}</div>
+                  </div>
+                  <h3>Recent recovery actions</h3>
+                  ${
+                    dashboard.recentRecoveryEvents.length
+                      ? table(
+                          ["When", "Status", "Message"],
+                          dashboard.recentRecoveryEvents.map((event) => [
+                            escapeHtml(event.created_at),
+                            statusBadge(event.status),
+                            escapeHtml(event.message),
+                          ]),
+                        )
+                      : `<p class="muted">No recent recovery actions recorded.</p>`
+                  }
+                  <h3>Recent hardware warnings</h3>
+                  ${
+                    dashboard.recentHardwareFailures.length
+                      ? table(
+                          ["When", "Event", "Details"],
+                          dashboard.recentHardwareFailures.map((event) => {
+                            let details = "Hardware warning";
+                            try {
+                              const payload = JSON.parse(event.payload);
+                              details =
+                                payload.error ||
+                                payload.mode ||
+                                payload.type ||
+                                payload.message ||
+                                details;
+                            } catch {}
+                            return [
+                              escapeHtml(event.created_at),
+                              escapeHtml(event.event_type),
+                              escapeHtml(details),
+                            ];
+                          }),
+                        )
+                      : `<p class="muted">No hardware warnings recorded.</p>`
+                  }
+                `,
+              )
+            : ""
+        }
         <section class="two-column">
           ${card(
             "Registration keys",

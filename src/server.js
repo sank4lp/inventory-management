@@ -3,8 +3,11 @@ import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { URL } from "node:url";
 
+import { appConfig } from "./config.js";
 import { createDatabase } from "./db.js";
+import { createLogger } from "./logger.js";
 import { createPageRenderer } from "./server/pages/index.js";
+import { setRuntimeContext } from "./server/runtime-context.js";
 import {
   clearSessionCookie,
   createSessionCookie,
@@ -13,39 +16,67 @@ import {
   requireRole,
   verifyPassword,
 } from "./services/auth.js";
+import { createAdminService } from "./services/admin.js";
+import { createAnomalyService } from "./services/anomalies.js";
+import { createCatalogService } from "./services/catalog.js";
+import { createHardwareService } from "./services/hardware.js";
+import { createLocationService } from "./services/locations.js";
+import { createReportService } from "./services/reporting.js";
+import { createSystemService } from "./services/system.js";
+import { createTaskService } from "./services/tasks.js";
 import {
-  activateGuidance,
-  clearGuidance,
-  sendCellTest,
-  sendControllerTest,
-  simulateButtonPress,
-} from "./services/hardware.js";
-import {
-  applyRecommendedAction,
-  allocatePick,
   authenticateUser,
-  cancelTask,
-  completeTask,
-  correctCompletedTask,
-  createAdjustment,
-  createProduct,
   getCellDetail,
   getProductDetail,
   getTask,
-  issueRegistrationKey,
   listCells,
   listControllers,
   listProducts,
-  markPhysicalConfirmation,
-  planPut,
   registerUser,
   searchCells,
-  updateCellMapping,
-  updateProductItemsPerCell,
 } from "./services/inventory.js";
 
 const PORT = Number(process.env.PORT || 3000);
-const db = createDatabase({ hashPassword });
+const logger = createLogger({
+  level: appConfig.logLevel,
+  siteId: appConfig.siteId,
+});
+const db = createDatabase({
+  hashPassword,
+  bootstrapAdmin: appConfig.bootstrapAdmin,
+  allowDevAuthSeeds: appConfig.allowDevAuthSeeds,
+});
+const hardwareService = createHardwareService({
+  db,
+  config: appConfig,
+  logger,
+});
+const systemService = createSystemService({
+  db,
+  config: appConfig,
+  logger,
+  hardwareService,
+  getTask,
+});
+const startup = systemService.runStartupChecks();
+startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
+setRuntimeContext({
+  config: appConfig,
+  logger,
+  systemService,
+  startup,
+});
+const catalogService = createCatalogService({ db });
+const locationService = createLocationService({ db });
+const anomalyService = createAnomalyService({ db });
+const adminService = createAdminService({ db });
+const reportService = createReportService({ db });
+const taskService = createTaskService({
+  db,
+  hardwareService,
+  logger,
+  systemService,
+});
 const pages = createPageRenderer({ db });
 const publicDir = join(process.cwd(), "public");
 
@@ -242,6 +273,10 @@ export const requestHandler = async (request, response) => {
         password: form.password || "",
         verifyPassword,
       });
+      logger.info("auth.login", {
+        userId: signedInUser.id,
+        username: signedInUser.username,
+      });
       sendRedirect(response, appendFlash("/", "Signed in successfully.", "success"), {
         "Set-Cookie": createSessionCookie(signedInUser),
       });
@@ -262,6 +297,11 @@ export const requestHandler = async (request, response) => {
         password: form.password,
         hashPassword,
       });
+      logger.info("auth.register", {
+        userId: newUser.id,
+        username: newUser.username,
+        role: newUser.role,
+      });
       sendRedirect(response, appendFlash("/", "Registration completed.", "success"), {
         "Set-Cookie": createSessionCookie(newUser),
       });
@@ -269,6 +309,12 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/logout") {
+      if (user) {
+        logger.info("auth.logout", {
+          userId: user.id,
+          username: user.username,
+        });
+      }
       sendRedirect(response, "/login", {
         "Set-Cookie": clearSessionCookie(),
       });
@@ -315,7 +361,7 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      updateProductItemsPerCell(db, {
+      catalogService.updateProductItemsPerCell({
         productId: Number(productCapacityMatch[1]),
         itemsPerCell: form.items_per_cell,
       });
@@ -331,7 +377,7 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      createProduct(db, form);
+      catalogService.createProduct(form);
       sendRedirect(response, appendFlash("/products", "Product saved.", "success"));
       return;
     }
@@ -349,16 +395,21 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const task = allocatePick(db, {
+      const { task, guidance } = taskService.createPickTask({
         userId: user.id,
         productId: form.product_id,
         quantity: form.quantity,
         preferredCellId: form.preferred_cell_id || null,
       });
-      activateGuidance(db, task, task.lines);
       sendRedirect(
         response,
-        appendFlash(`/tasks/${task.id}`, "Pick task created and guidance activated.", "success"),
+        appendFlash(
+          `/tasks/${task.id}`,
+          guidance.degraded
+            ? "Pick task created. Hardware guidance is unavailable, so continue with manual on-screen guidance."
+            : "Pick task created and guidance activated.",
+          guidance.degraded ? "warning" : "success",
+        ),
       );
       return;
     }
@@ -394,16 +445,21 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const task = planPut(db, {
+      const { task, guidance } = taskService.createPutTask({
         userId: user.id,
         productId: form.product_id,
         quantity: form.quantity,
         preferredCellId: form.preferred_cell_id || null,
       });
-      activateGuidance(db, task, task.lines);
       sendRedirect(
         response,
-        appendFlash(`/tasks/${task.id}`, "Put task created and guidance activated.", "success"),
+        appendFlash(
+          `/tasks/${task.id}`,
+          guidance.degraded
+            ? "Put task created. Hardware guidance is unavailable, so continue with manual on-screen guidance."
+            : "Put task created and guidance activated.",
+          guidance.degraded ? "warning" : "success",
+        ),
       );
       return;
     }
@@ -413,13 +469,29 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
-      const task = getTask(db, Number(taskMatch[1]));
+      const task = taskService.getTask(Number(taskMatch[1]));
       const mode = url.searchParams.get("mode") === "edit" ? "edit" : "view";
       if (mode === "edit" && task && (!pages.canEditTask(user, task) || task.status !== "completed")) {
         sendRedirect(response, appendFlash(`/tasks/${task.id}`, "You can edit only your own tasks unless you are an admin.", "error"));
         return;
       }
-      sendHtml(response, pages.renderTask(user, flash, task, mode));
+      sendHtml(
+        response,
+        pages.renderTask(user, flash, task, mode, {
+          cancel:
+            task && task.status !== "completed" && task.status !== "cancelled"
+              ? taskService.issueActionToken("task-cancel", task.id, user.id)
+              : null,
+          confirm:
+            task && task.status !== "completed" && task.status !== "cancelled"
+              ? taskService.issueActionToken("task-confirm", task.id, user.id)
+              : null,
+          correct:
+            task && task.status === "completed"
+              ? taskService.issueActionToken("task-correct", task.id, user.id)
+              : null,
+        }),
+      );
       return;
     }
 
@@ -430,14 +502,14 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const { actualQuantities, actualCellIds } = parseTaskReviewForm(form);
-      const completion = completeTask(db, {
+      const completion = taskService.confirmTask({
         taskId: Number(confirmMatch[1]),
         actualQuantities,
         actualCellIds,
         userId: user.id,
         note: form.note,
+        submissionToken: form.submission_token,
       });
-      clearGuidance(db, completion.task, completion.task.lines);
       sendRedirect(
         response,
         appendFlash(
@@ -456,19 +528,20 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
-      const task = getTask(db, Number(correctMatch[1]));
+      const task = taskService.getTask(Number(correctMatch[1]));
       if (!task || !pages.canEditTask(user, task)) {
         sendRedirect(response, appendFlash(`/tasks/${correctMatch[1]}`, "You can edit only your own tasks unless you are an admin.", "error"));
         return;
       }
       const form = await parseForm(request);
       const { actualQuantities, actualCellIds } = parseTaskReviewForm(form);
-      const correction = correctCompletedTask(db, {
+      const correction = taskService.correctTask({
         taskId: Number(correctMatch[1]),
         actualQuantities,
         actualCellIds,
         userId: user.id,
         note: form.note,
+        submissionToken: form.submission_token,
       });
       sendRedirect(
         response,
@@ -488,14 +561,17 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
-      const task = getTask(db, Number(buttonMatch[1]));
+      const task = taskService.getTask(Number(buttonMatch[1]));
       if (!task || task.status === "cancelled") {
         sendRedirect(response, appendFlash(`/tasks/${buttonMatch[1]}`, "Cancelled tasks cannot be continued.", "error"));
         return;
       }
       const form = await parseForm(request);
-      const line = markPhysicalConfirmation(db, Number(form.line_id));
-      simulateButtonPress(db, { ...line, task_id: Number(buttonMatch[1]) });
+      const line = taskService.recordPhysicalConfirmation({
+        lineId: Number(form.line_id),
+        taskId: Number(buttonMatch[1]),
+        userId: user.id,
+      });
       sendRedirect(
         response,
         appendFlash(`/tasks/${buttonMatch[1]}`, `Simulated button press for ${line.logical_code}.`, "success"),
@@ -508,13 +584,17 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
-      const task = getTask(db, Number(cancelMatch[1]));
+      const task = taskService.getTask(Number(cancelMatch[1]));
       if (!task || !pages.canEditTask(user, task)) {
         sendRedirect(response, appendFlash(`/tasks/${cancelMatch[1]}`, "You can cancel only your own tasks unless you are an admin.", "error"));
         return;
       }
-      const cancelledTask = cancelTask(db, { taskId: Number(cancelMatch[1]) });
-      clearGuidance(db, cancelledTask, cancelledTask.lines);
+      const form = await parseForm(request);
+      const cancelledTask = taskService.cancelTask({
+        taskId: Number(cancelMatch[1]),
+        userId: user.id,
+        submissionToken: form.submission_token,
+      });
       sendRedirect(response, appendFlash(`/tasks/${cancelledTask.id}`, "Task cancelled.", "success"));
       return;
     }
@@ -552,7 +632,7 @@ export const requestHandler = async (request, response) => {
             targetCellId: form[`move_cell_${suffix}`],
           };
         });
-      applyRecommendedAction(db, {
+      anomalyService.applyRecommendedAction({
         sourceCellId: form.source_cell_id,
         productId: form.product_id,
         moves,
@@ -585,7 +665,7 @@ export const requestHandler = async (request, response) => {
         );
         return;
       }
-      sendCellTest(db, cell, "blue");
+      hardwareService.sendCellTest(cell, "blue");
       sendRedirect(
         response,
         appendFlash(
@@ -610,12 +690,23 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const controller = listControllers(db).find((entry) => entry.id === Number(form.controller_id));
+      const controller = locationService
+        .listControllers()
+        .find((entry) => entry.id === Number(form.controller_id));
       if (!controller) {
         throw new Error("Controller not found.");
       }
-      sendControllerTest(db, controller);
-      sendRedirect(response, appendFlash("/devices", `Sent test to ${controller.controller_code}.`, "success"));
+      const result = hardwareService.sendControllerTest(controller);
+      sendRedirect(
+        response,
+        appendFlash(
+          "/devices",
+          result.degraded
+            ? `Controller test skipped for ${controller.controller_code}. Manual mode is active.`
+            : `Sent test to ${controller.controller_code}.`,
+          result.degraded ? "warning" : "success",
+        ),
+      );
       return;
     }
 
@@ -624,12 +715,21 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const cell = listCells(db).find((entry) => entry.id === Number(form.cell_id));
+      const cell = locationService.listCells().find((entry) => entry.id === Number(form.cell_id));
       if (!cell) {
         throw new Error("Cell not found.");
       }
-      sendCellTest(db, cell);
-      sendRedirect(response, appendFlash("/devices", `Light test sent for ${cell.logical_code}.`, "success"));
+      const result = hardwareService.sendCellTest(cell);
+      sendRedirect(
+        response,
+        appendFlash(
+          "/devices",
+          result.degraded
+            ? `Light test skipped for ${cell.logical_code}. Manual mode is active.`
+            : `Light test sent for ${cell.logical_code}.`,
+          result.degraded ? "warning" : "success",
+        ),
+      );
       return;
     }
 
@@ -638,7 +738,7 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      updateCellMapping(db, {
+      locationService.updateCellMapping({
         cellId: form.cell_id,
         hardwareChannel: form.hardware_channel,
         mappedBy: user.id,
@@ -660,7 +760,7 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      issueRegistrationKey(db, {
+      adminService.issueRegistrationKey({
         keyValue: form.key_value,
         role: form.role,
         userId: user.id,
@@ -695,7 +795,7 @@ export const requestHandler = async (request, response) => {
           (line) =>
             String(line.productId || "").trim() || String(line.absoluteQuantity || "").trim(),
         );
-      createAdjustment(db, {
+      adminService.createAdjustment({
         cellId: form.cell_id,
         userId: user.id,
         reason: form.reason,
