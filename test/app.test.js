@@ -268,6 +268,83 @@ test("database-backed settings and inventory survive an app restart", async () =
   );
 });
 
+test("backups can restore previous data and prune old automatic snapshots", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-backups-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createBackupService } = await freshImport("../src/services/backups.js");
+
+  let currentDb = createDatabase({ hashPassword: auth.hashPassword });
+  const backupService = createBackupService({
+    getDb: () => currentDb,
+    reloadAppState: ({ closeCurrentDb = true } = {}) => {
+      if (closeCurrentDb && currentDb) {
+        currentDb.close();
+      }
+      currentDb = createDatabase({ hashPassword: auth.hashPassword });
+      return { db: currentDb };
+    },
+    logger: {
+      info() {},
+      warn() {},
+    },
+    autoBackupLimit: 2,
+  });
+
+  const shoe = inventory.listProducts(currentDb).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+
+  const originalQuantity =
+    inventory
+      .getCellDetail(currentDb, 1)
+      .products.find((product) => product.product_id === shoe.id)?.available_quantity || 0;
+
+  const manualBackup = backupService.createBackup({
+    kind: "manual",
+    source: "before-adjustment",
+  });
+
+  inventory.createAdjustment(currentDb, {
+    cellId: 1,
+    userId: 1,
+    reason: "Backup restore test",
+    lines: [
+      {
+        productId: shoe.id,
+        absoluteQuantity: 99,
+      },
+    ],
+  });
+
+  const changedQuantity =
+    inventory
+      .getCellDetail(currentDb, 1)
+      .products.find((product) => product.product_id === shoe.id)?.available_quantity || 0;
+  assert.equal(Number(changedQuantity), 99);
+
+  const restore = backupService.restoreBackup(manualBackup.filename);
+  assert.equal(restore.restoredBackup.filename, manualBackup.filename);
+  assert.match(restore.restorePoint.filename, /^manual-.*-pre-restore-before-adjustment\.sqlite$/);
+
+  const restoredQuantity =
+    inventory
+      .getCellDetail(currentDb, 1)
+      .products.find((product) => product.product_id === shoe.id)?.available_quantity || 0;
+  assert.equal(Number(restoredQuantity), Number(originalQuantity));
+
+  backupService.createBackup({ kind: "auto", source: "first-auto" });
+  backupService.createBackup({ kind: "auto", source: "second-auto" });
+  backupService.createBackup({ kind: "auto", source: "third-auto" });
+
+  const automaticBackups = backupService
+    .listBackups()
+    .filter((backup) => backup.kind === "auto");
+  assert.equal(automaticBackups.length, 2);
+});
+
 test("startup recovery records stale guidance cleanup in degraded mode", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recovery-"));
   process.chdir(sandbox);

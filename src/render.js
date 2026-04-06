@@ -40,6 +40,7 @@ function nav(user, currentTitle = "") {
   if (user.role === "admin") {
     links.push(["/reports", "Reporting"]);
     links.push(["/devices", "Configuration"]);
+    links.push(["/backups", "Backups"]);
     links.push(["/admin", "Admin"]);
   }
 
