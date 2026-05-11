@@ -14,7 +14,7 @@
 #endif
 
 #define MODULES LED_MODULE_COUNT
-#define FIRMWARE_PROTOCOL "simple-matrix-v7-idle-scan"
+#define FIRMWARE_PROTOCOL "simple-matrix-v9-digit-guidance"
 #define W 8
 #define H 8
 #define LEDS_PER_MODULE 64
@@ -26,6 +26,7 @@
 #define DEFAULT_LOCATE_DURATION_MS 120000
 #define RIPPLE_STEP_MS 150
 #define IDLE_HEARTBEAT_STEP_MS 5000
+#define IDLE_HEARTBEAT_PULSE_MS 500
 #define DEFAULT_SCROLL_MS 120
 #define DEFAULT_LAYOUT 3
 #define CHAR_ADVANCE_STATIC 6
@@ -63,7 +64,9 @@ char line[160];
 int linePos = 0;
 int layoutMode = DEFAULT_LAYOUT;
 int heartbeatColumn = 0;
+bool heartbeatPulseOn = true;
 unsigned long lastHeartbeatAt = 0;
+unsigned long heartbeatPulseStartedAt = 0;
 
 void setGlyph(byte out[7], byte a, byte b, byte c, byte d, byte e, byte f, byte g) {
   out[0] = a;
@@ -429,7 +432,9 @@ void renderScrollModule(int module) {
 
 void renderIdleModule(int module) {
   clearModulePixels(module);
-  pixels.setPixelColor(pixelIndex(module, heartbeatColumn, H - 1), pixels.Color(32, 0, 0));
+  if (heartbeatPulseOn) {
+    pixels.setPixelColor(pixelIndex(module, heartbeatColumn, H - 1), pixels.Color(32, 0, 0));
+  }
 }
 
 int rippleRingFor(int x, int y) {
@@ -854,18 +859,29 @@ void updateScrolls() {
 
 void updateHeartbeat() {
   unsigned long now = millis();
-  if (now - lastHeartbeatAt < IDLE_HEARTBEAT_STEP_MS) {
-    return;
+  bool changed = false;
+
+  if (heartbeatPulseOn && now - heartbeatPulseStartedAt >= IDLE_HEARTBEAT_PULSE_MS) {
+    heartbeatPulseOn = false;
+    for (int module = 0; module < MODULES; module++) {
+      if (modules[module].mode == MODE_IDLE) {
+        renderModule(module);
+        changed = true;
+      }
+    }
   }
 
-  lastHeartbeatAt = now;
-  heartbeatColumn = (heartbeatColumn + 1) % W;
+  if (now - lastHeartbeatAt >= IDLE_HEARTBEAT_STEP_MS) {
+    lastHeartbeatAt = now;
+    heartbeatPulseStartedAt = now;
+    heartbeatPulseOn = true;
+    heartbeatColumn = (heartbeatColumn + 1) % W;
 
-  bool changed = false;
-  for (int module = 0; module < MODULES; module++) {
-    if (modules[module].mode == MODE_IDLE) {
-      renderModule(module);
-      changed = true;
+    for (int module = 0; module < MODULES; module++) {
+      if (modules[module].mode == MODE_IDLE) {
+        renderModule(module);
+        changed = true;
+      }
     }
   }
 
@@ -1067,7 +1083,11 @@ void handleLine(char *cmdLine) {
         brightness = atoi(tokens[5]);
       }
       bool forceScroll = strcmp(command, "scroll") == 0;
-      showOrScroll(module, text, colorFor(color), speed, brightness, forceScroll);
+      if (strcmp(command, "digit") == 0) {
+        showTaskModule(module, text, colorFor(color), brightness);
+      } else {
+        showOrScroll(module, text, colorFor(color), speed, brightness, forceScroll);
+      }
       ack(command, module);
       return;
     }
@@ -1121,6 +1141,8 @@ void setup() {
 
   pixels.begin();
   pixels.setBrightness(255);
+  lastHeartbeatAt = millis();
+  heartbeatPulseStartedAt = lastHeartbeatAt;
 
   for (int module = 0; module < MODULES; module++) {
     modules[module].mode = MODE_IDLE;
@@ -1143,7 +1165,7 @@ void setup() {
   pixels.show();
 
   char bootMsg[128];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v7\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v9\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
   send485(bootMsg);
 }
 

@@ -24,6 +24,7 @@ export function createRs485Adapter({ config = {}, logger }) {
   const port = config.rs485SerialPort || process.env.RS485_SERIAL_PORT || "";
   let configured = false;
   let portFd = null;
+  const locateTimers = new Map();
 
   function ensureReady() {
     if (!port) {
@@ -72,6 +73,33 @@ export function createRs485Adapter({ config = {}, logger }) {
     return task?.type === "put" ? "red" : "green";
   }
 
+  function clearLocateTimer(hardwareChannel) {
+    const key = Number(hardwareChannel);
+    const timeout = locateTimers.get(key);
+    if (timeout) {
+      clearTimeout(timeout);
+      locateTimers.delete(key);
+    }
+  }
+
+  function scheduleLocateClear(cell) {
+    clearLocateTimer(cell.hardware_channel);
+    const timeout = setTimeout(() => {
+      locateTimers.delete(Number(cell.hardware_channel));
+      try {
+        send(`clear ${cell.hardware_channel}`);
+      } catch (error) {
+        logger?.warn("hardware.rs485.locate_timeout_clear_failed", {
+          port,
+          hardwareChannel: cell.hardware_channel,
+          error: error.message,
+        });
+      }
+    }, LOCATE_TIMEOUT_MS);
+    timeout.unref?.();
+    locateTimers.set(Number(cell.hardware_channel), timeout);
+  }
+
   function event({ controllerId = null, cellId = null, taskId = null, eventType, payload }) {
     return {
       controllerId,
@@ -108,7 +136,8 @@ export function createRs485Adapter({ config = {}, logger }) {
       for (const line of lines) {
         const text = String(line.planned_quantity ?? "");
         const color = taskColor(task);
-        const command = `task ${line.hardware_channel} ${firmwareToken(text)} ${color} 80`;
+        const command = `digit ${line.hardware_channel} ${firmwareToken(text)} ${color} 120 80`;
+        clearLocateTimer(line.hardware_channel);
         send(command);
         events.push(
           event({
@@ -135,6 +164,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       const events = [];
       for (const line of lines) {
         const command = `clear ${line.hardware_channel}`;
+        clearLocateTimer(line.hardware_channel);
         send(command);
         events.push(
           event({
@@ -174,6 +204,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     },
     sendCellTest(cell, color = "green") {
       const command = `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 2000`;
+      clearLocateTimer(cell.hardware_channel);
       send(command);
       return {
         ok: true,
@@ -195,9 +226,13 @@ export function createRs485Adapter({ config = {}, logger }) {
     },
     setCellLocate(cell, active = true) {
       const command = active
-        ? `locate ${cell.hardware_channel} red 80 ${LOCATE_TIMEOUT_MS}`
+        ? `fill ${cell.hardware_channel} red 80`
         : `clear ${cell.hardware_channel}`;
+      clearLocateTimer(cell.hardware_channel);
       send(command);
+      if (active) {
+        scheduleLocateClear(cell);
+      }
       return {
         ok: true,
         degraded: false,
