@@ -14,6 +14,7 @@
 #endif
 
 #define MODULES LED_MODULE_COUNT
+#define FIRMWARE_PROTOCOL "simple-matrix-v4-blink"
 #define W 8
 #define H 8
 #define LEDS_PER_MODULE 64
@@ -719,7 +720,16 @@ void handleLine(char *cmdLine) {
   lowerToken(command);
 
   if (strcmp(command, "ping") == 0) {
-    send485("{\"type\":\"pong\"}\n");
+    char msg[128];
+    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
+    send485(msg);
+    return;
+  }
+
+  if (strcmp(command, "version") == 0 || strcmp(command, "status") == 0) {
+    char msg[128];
+    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
+    send485(msg);
     return;
   }
 
@@ -910,7 +920,7 @@ void setup() {
   pixels.show();
 
   char bootMsg[128];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v3\",\"controller\":\"%s\",\"modules\":%d}\n", CONTROLLER_NAME, MODULES);
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v3\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
   send485(bootMsg);
 }
 
