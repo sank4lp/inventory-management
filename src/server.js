@@ -895,7 +895,7 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const job = firmwareService.startFlashJob(form);
+      const job = firmwareService.startFlashJob(form, user);
       sendJson(response, { job }, 202);
       return;
     }

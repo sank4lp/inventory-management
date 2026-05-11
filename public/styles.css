@@ -587,9 +587,52 @@ textarea {
   color: var(--muted);
 }
 
+.firmware-device-summary {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 .firmware-port-choice-active {
   border-color: rgba(11, 128, 152, 0.44);
   background: var(--blue-soft);
+}
+
+.firmware-other-devices {
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: white;
+  padding: 0.65rem 0.75rem;
+}
+
+.firmware-other-devices[hidden] {
+  display: none;
+}
+
+.firmware-other-devices summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.firmware-other-device-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+}
+
+.firmware-other-device {
+  display: grid;
+  gap: 0.16rem;
+  padding: 0.55rem;
+  border-radius: 0.5rem;
+  background: #faf7ef;
+}
+
+.firmware-other-device code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
 }
 
 .firmware-progress {
@@ -946,6 +989,7 @@ th {
 .badge-completed,
 .badge-online,
 .badge-available,
+.badge-flashed,
 .badge-admin {
   background: var(--green-soft);
   color: var(--green);
@@ -953,6 +997,7 @@ th {
 
 .badge-pending-review,
 .badge-planned,
+.badge-new,
 .badge-serial,
 .badge-operator {
   background: var(--blue-soft);

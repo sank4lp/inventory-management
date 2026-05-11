@@ -7,6 +7,7 @@ import { getRuntimeContext } from "../runtime-context.js";
 import {
   card,
   escapeHtml,
+  formatDate,
   formatQuantity,
   page,
   quickActionLinks,
@@ -26,9 +27,25 @@ function renderPortOptions(ports = []) {
     .join("");
 }
 
+function flashRecordSummary(port) {
+  if (!port.flashRecord) {
+    return `<span class="firmware-device-summary">New ESP32 detected. Flash this controller before mapping cells.</span>`;
+  }
+
+  const flashedBy = port.flashRecord.flashedBy?.name || port.flashRecord.flashedBy?.username || "unknown user";
+  return `
+    <span class="firmware-device-summary">
+      Already flashed as ${escapeHtml(port.flashRecord.deviceName || port.deviceName || "ESP32 controller")}
+      · ${escapeHtml(port.flashRecord.moduleCount)} LED module(s)
+      · ${escapeHtml(formatDate(port.flashRecord.configuredAt))}
+      · by ${escapeHtml(flashedBy)}
+    </span>
+  `;
+}
+
 function renderPortChoices(ports = [], selectedPort = "") {
   if (!ports.length) {
-    return `<p class="muted">No ESP32 serial port detected. Plug in the ESP32 USB cable, then click Refresh ports.</p>`;
+    return `<p class="muted">No new ESP32 detected yet. Leave existing peripherals connected, plug in the ESP32 USB cable, then click Refresh ports.</p>`;
   }
 
   return ports
@@ -40,9 +57,10 @@ function renderPortChoices(ports = [], selectedPort = "") {
           data-firmware-port-choice
           data-port-path="${escapeHtml(port.path)}"
         >
-          <strong>${escapeHtml(port.label)}</strong>
+          <strong>${escapeHtml(port.flashRecord?.deviceName || port.deviceName || "ESP32 controller")}</strong>
           <code>${escapeHtml(port.path)}</code>
-          ${port.recommended ? statusBadge("detected") : statusBadge("serial")}
+          ${statusBadge(port.flashStatus === "configured" ? "flashed" : "new")}
+          ${flashRecordSummary(port)}
         </button>
       `,
     )
@@ -143,7 +161,10 @@ export function createLocationPages({ db }) {
     const moduleCount = lastFirmwareConfig?.moduleCount || firmwareOptions?.moduleCount?.value || 4;
     const port = firmwareOptions?.defaultPort || "";
     const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
-    const hasPorts = Boolean(firmwareOptions?.ports?.length);
+    const configuredPorts = (firmwareOptions?.esp32Ports || []).filter(
+      (entry) => entry.flashStatus === "configured",
+    );
+    const hasPorts = Boolean(configuredPorts.length);
 
     return page({
       title: "Devices and Mapping",
@@ -187,7 +208,8 @@ export function createLocationPages({ db }) {
                               data-firmware-port-input
                               required
                             />
-                            <button type="button" class="ghost-button" data-firmware-refresh-ports>Refresh ports</button>
+                            <input type="hidden" name="device_identity" value="" data-firmware-device-identity />
+                            <button type="button" class="ghost-button" data-firmware-refresh-ports>Detect ESP32</button>
                           </div>
                         </label>
                         <label>Board FQBN
@@ -195,15 +217,20 @@ export function createLocationPages({ db }) {
                         </label>
                       </div>
                       <datalist id="firmware-ports">
-                        ${renderPortOptions(firmwareOptions.ports)}
+                        ${renderPortOptions(firmwareOptions.esp32Ports)}
                       </datalist>
+                      <p class="muted">Keep existing USB devices connected, then plug in the ESP32 and click Refresh ports. Existing USB-to-UART devices such as the RS485 adapter are ignored unless they were previously flashed here.</p>
                       <div
                         class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
                         data-firmware-port-status
                       >${escapeHtml(firmwareOptions.portStatus)}</div>
                       <div class="firmware-port-list" data-firmware-port-list>
-                        ${renderPortChoices(firmwareOptions.ports, port)}
+                        ${renderPortChoices(configuredPorts, port)}
                       </div>
+                      <details class="firmware-other-devices" data-firmware-other-devices>
+                        <summary>Existing serial devices ignored</summary>
+                        <div class="firmware-other-device-list" data-firmware-other-device-list></div>
+                      </details>
                       <div class="mini-actions">
                         <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Compile and flash</button>
                       </div>

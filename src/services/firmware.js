@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { accessSync, constants, mkdirSync, readdirSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { accessSync, constants, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -70,16 +70,23 @@ function executableExists(command) {
   return false;
 }
 
-function addPort(ports, seen, path, label = "") {
-  if (!path || seen.has(path)) {
-    return;
+function canonicalPath(path) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
   }
+}
 
-  seen.add(path);
-  const haystack = `${path} ${label}`.toLowerCase();
-  const recommended =
+function usbSerialProfile(path, label = "", arduinoBoard = null) {
+  const haystack = `${path} ${label} ${arduinoBoard?.name || ""} ${arduinoBoard?.fqbn || ""}`.toLowerCase();
+  const knownEsp32 =
     haystack.includes("esp32") ||
     haystack.includes("espressif") ||
+    haystack.includes("303a") ||
+    String(arduinoBoard?.fqbn || "").toLowerCase().includes("esp32");
+  const likelyEsp32 =
+    knownEsp32 ||
     haystack.includes("cp210") ||
     haystack.includes("ch340") ||
     haystack.includes("ch341") ||
@@ -90,25 +97,118 @@ function addPort(ports, seen, path, label = "") {
     haystack.includes("usbmodem") ||
     haystack.includes("1a86") ||
     haystack.includes("10c4") ||
-    haystack.includes("303a") ||
     path.includes("/ttyUSB") ||
     path.includes("/ttyACM");
 
+  if (knownEsp32) {
+    return {
+      kind: "esp32",
+      confidence: "known",
+      recommended: true,
+      badge: "ESP32",
+    };
+  }
+
+  if (likelyEsp32) {
+    return {
+      kind: "esp32_candidate",
+      confidence: "likely",
+      recommended: true,
+      badge: "Likely ESP32",
+    };
+  }
+
+  return {
+    kind: "serial",
+    confidence: "unknown",
+    recommended: false,
+    badge: "Serial",
+  };
+}
+
+function deviceIdentityFor(path, label, canonical) {
+  if (path.includes("/dev/serial/by-id/")) {
+    return `by-id:${label || path.split("/").pop()}`;
+  }
+  return `path:${canonical || path}`;
+}
+
+function readArduinoBoards(arduinoCliPath) {
+  if (!executableExists(arduinoCliPath)) {
+    return new Map();
+  }
+
+  const result = spawnSync(arduinoCliPath, ["board", "list", "--format", "json"], {
+    encoding: "utf8",
+    timeout: 3000,
+  });
+
+  if (result.status !== 0 || !result.stdout) {
+    return new Map();
+  }
+
+  try {
+    const parsed = JSON.parse(result.stdout);
+    const rows = Array.isArray(parsed) ? parsed : parsed.detected_ports || parsed.ports || [];
+    const byAddress = new Map();
+
+    for (const row of rows) {
+      const address = row?.port?.address || row?.address || row?.port || row?.port_path;
+      if (!address) {
+        continue;
+      }
+      const boards = row.matching_boards || row.boards || row.matchingBoards || [];
+      const board = Array.isArray(boards) ? boards[0] : boards;
+      byAddress.set(address, {
+        name: board?.name || row.board_name || row.name || "",
+        fqbn: board?.fqbn || row.fqbn || "",
+      });
+    }
+
+    return byAddress;
+  } catch {
+    return new Map();
+  }
+}
+
+function addPort(ports, seen, path, label = "", arduinoBoards = new Map()) {
+  if (!path || seen.paths.has(path)) {
+    return;
+  }
+
+  const canonical = canonicalPath(path);
+  if (seen.canonical.has(canonical)) {
+    return;
+  }
+
+  seen.paths.add(path);
+  seen.canonical.add(canonical);
+  const arduinoBoard = arduinoBoards.get(path) || arduinoBoards.get(canonical) || null;
+  const profile = usbSerialProfile(path, label, arduinoBoard);
+  const deviceIdentity = deviceIdentityFor(path, label, canonical);
+
   ports.push({
     path,
+    canonicalPath: canonical,
     label: label || path.split("/").pop() || path,
-    kind: recommended ? "esp32_candidate" : "serial",
-    recommended,
+    deviceName: arduinoBoard?.name || label || path.split("/").pop() || path,
+    deviceIdentity,
+    arduinoBoard,
+    ...profile,
   });
 }
 
-function listSerialPorts() {
+function listSerialPorts(arduinoCliPath) {
   const ports = [];
-  const seen = new Set();
+  const seen = {
+    paths: new Set(),
+    canonical: new Set(),
+  };
+  const arduinoBoards = readArduinoBoards(arduinoCliPath);
 
   try {
     for (const name of readdirSync("/dev/serial/by-id")) {
-      addPort(ports, seen, `/dev/serial/by-id/${name}`, name);
+      addPort(ports, seen, `/dev/serial/by-id/${name}`, name, arduinoBoards);
     }
   } catch {}
 
@@ -130,12 +230,20 @@ function listSerialPorts() {
           name.startsWith("ttyACM"),
       )
       .sort()
-      .forEach((name) => addPort(ports, seen, `/dev/${name}`));
+      .forEach((name) => addPort(ports, seen, `/dev/${name}`, "", arduinoBoards));
   } catch {
     return ports;
   }
 
   return ports.sort((left, right) => {
+    const rank = {
+      known: 0,
+      likely: 1,
+      unknown: 2,
+    };
+    if (rank[left.confidence] !== rank[right.confidence]) {
+      return rank[left.confidence] - rank[right.confidence];
+    }
     if (left.recommended !== right.recommended) {
       return left.recommended ? -1 : 1;
     }
@@ -170,6 +278,9 @@ function publicJob(job) {
     moduleCount: job.moduleCount,
     assignedModules: job.assignedModules,
     port: job.port,
+    deviceIdentity: job.deviceIdentity,
+    deviceName: job.deviceName,
+    flashedBy: job.flashedBy,
     fqbn: job.fqbn,
     sketchPath: job.sketchPath,
     startedAt: job.startedAt,
@@ -221,9 +332,12 @@ export function createFirmwareService({ db, config = {}, logger }) {
       moduleCount: job.moduleCount,
       assignedModules: job.assignedModules,
       port: job.port,
+      deviceIdentity: job.deviceIdentity,
+      deviceName: job.deviceName,
       fqbn: job.fqbn,
       sketchPath: job.sketchPath,
       configuredAt: nowIso(),
+      flashedBy: job.flashedBy,
     };
 
     db.prepare(
@@ -233,6 +347,16 @@ export function createFirmwareService({ db, config = {}, logger }) {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
       `,
     ).run(JSON.stringify(payload), nowIso());
+
+    const devices = getFlashedDevices();
+    devices[job.deviceIdentity || job.port] = payload;
+    db.prepare(
+      `
+        INSERT INTO app_metadata (key, value, updated_at)
+        VALUES ('firmware_matrix_devices', ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+      `,
+    ).run(JSON.stringify(devices), nowIso());
   }
 
   function runCommand(job, stage, progress, args) {
@@ -366,12 +490,41 @@ export function createFirmwareService({ db, config = {}, logger }) {
     return parseMetadata(row?.value);
   }
 
+  function getFlashedDevices() {
+    const row = db
+      .prepare("SELECT value FROM app_metadata WHERE key = 'firmware_matrix_devices'")
+      .get();
+    const parsed = parseMetadata(row?.value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  }
+
+  function annotatePorts(ports, flashedDevices) {
+    return ports.map((port) => {
+      const flashRecord = flashedDevices[port.deviceIdentity] || flashedDevices[port.path] || null;
+      return {
+        ...port,
+        flashStatus: flashRecord ? "configured" : port.recommended ? "new" : "other",
+        flashRecord,
+      };
+    });
+  }
+
   return {
     getFlashOptions() {
-      const ports = listSerialPorts();
+      const flashedDevices = getFlashedDevices();
+      const ports = annotatePorts(listSerialPorts(arduinoCliPath), flashedDevices);
       const lastConfiguration = getLastConfiguration();
-      const lastPortAvailable = ports.some((port) => port.path === lastConfiguration?.port);
-      const recommendedPort = ports.find((port) => port.recommended) || ports[0] || null;
+      const lastPortAvailable = ports.some(
+        (port) =>
+          port.path === lastConfiguration?.port ||
+          port.deviceIdentity === lastConfiguration?.deviceIdentity,
+      );
+      const configuredPort = ports.find((port) => port.flashStatus === "configured") || null;
+      const newEsp32Port = ports.find((port) => port.flashStatus === "new") || null;
+      const recommendedPort = configuredPort || newEsp32Port || ports.find((port) => port.recommended) || null;
+      const esp32Ports = ports.filter((port) => port.recommended);
+      const otherPorts = ports.filter((port) => !port.recommended);
+      const configuredCount = esp32Ports.filter((port) => port.flashStatus === "configured").length;
       return {
         arduinoCli: {
           command: arduinoCliPath,
@@ -380,20 +533,25 @@ export function createFirmwareService({ db, config = {}, logger }) {
         defaultFqbn,
         sketchPath,
         ports,
+        esp32Ports,
+        otherPorts,
         defaultPort: lastPortAvailable ? lastConfiguration.port : recommendedPort?.path || "",
-        portStatus: ports.length
-          ? "ESP32 serial port detected. Choose a port or refresh after reconnecting the device."
-          : "No ESP32 serial port detected. Plug in the ESP32 USB cable, then refresh ports.",
+        portStatus: esp32Ports.length
+          ? configuredCount
+            ? `${configuredCount} configured ESP32 controller${configuredCount === 1 ? "" : "s"} detected.`
+            : "New ESP32 detected. Configure LED modules, then flash it."
+          : "No ESP32 detected. Plug in the ESP32 USB cable, then refresh ports.",
         moduleCount: {
           min: MIN_MODULES,
           max: MAX_MODULES,
           value: lastConfiguration?.moduleCount || 4,
         },
         lastConfiguration,
+        flashedDevices,
       };
     },
     getLastConfiguration,
-    startFlashJob(input = {}) {
+    startFlashJob(input = {}, actor = null) {
       if (!executableExists(arduinoCliPath)) {
         throw new Error(
           `Arduino CLI was not found at "${arduinoCliPath}". Install arduino-cli or set ARDUINO_CLI_PATH.`,
@@ -403,6 +561,22 @@ export function createFirmwareService({ db, config = {}, logger }) {
       const moduleCount = asPositiveInteger(input.module_count ?? input.moduleCount, "LED modules");
       const port = assertSafePort(input.port);
       const fqbn = assertSafeFqbn(input.fqbn || defaultFqbn);
+      const deviceIdentity = String(input.device_identity || input.deviceIdentity || "").trim();
+      if (!deviceIdentity) {
+        throw new Error("Click Refresh ports and select the newly detected ESP32 before flashing.");
+      }
+      const detectedPort = listSerialPorts(arduinoCliPath).find(
+        (entry) => entry.path === port || entry.canonicalPath === port,
+      );
+      if (!detectedPort) {
+        throw new Error("ESP32 is not detected. Plug in the ESP32 USB cable, then refresh ports.");
+      }
+      if (detectedPort.deviceIdentity !== deviceIdentity) {
+        throw new Error("Selected ESP32 changed after detection. Refresh ports and select it again.");
+      }
+      if (!detectedPort.recommended) {
+        throw new Error("The selected port does not look like an ESP32. Choose a detected ESP32 device or unplug unrelated USB serial devices, then refresh.");
+      }
       const assignedModules = Array.from({ length: moduleCount }, (_, index) => index + 1);
       const job = {
         id: randomUUID(),
@@ -412,6 +586,15 @@ export function createFirmwareService({ db, config = {}, logger }) {
         moduleCount,
         assignedModules,
         port,
+        deviceIdentity: detectedPort.deviceIdentity,
+        deviceName: detectedPort.deviceName,
+        flashedBy: actor
+          ? {
+              id: actor.id,
+              name: actor.name,
+              username: actor.username,
+            }
+          : null,
         fqbn,
         sketchPath,
         startedAt: nowIso(),
