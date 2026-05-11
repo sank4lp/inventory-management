@@ -851,7 +851,7 @@ function wireFirmwareFlash() {
 }
 
 const LOCATION_LOCATE_TIMEOUT_MS = 120000;
-let activeLocate = null;
+const activeLocates = new Map();
 
 function setLocateButtonState(button, active) {
   if (!button) {
@@ -881,26 +881,42 @@ async function sendLocateCommand(cellId, active) {
   return payload;
 }
 
-function clearActiveLocateUi() {
+function clearLocateUi(cellId) {
+  const activeLocate = activeLocates.get(String(cellId));
   if (!activeLocate) {
     return;
   }
   window.clearTimeout(activeLocate.timeoutId);
   setLocateButtonState(activeLocate.button, false);
-  activeLocate = null;
+  activeLocates.delete(String(cellId));
 }
 
-function sendLocateClearBeacon() {
-  if (!activeLocate || !navigator.sendBeacon) {
+function clearAllLocateUi() {
+  for (const cellId of Array.from(activeLocates.keys())) {
+    clearLocateUi(cellId);
+  }
+}
+
+function sendLocateClearAll() {
+  const body = new URLSearchParams();
+  body.set("active", "0");
+  if (navigator.sendBeacon) {
+    const blob = new Blob([body.toString()], {
+      type: "application/x-www-form-urlencoded; charset=UTF-8",
+    });
+    navigator.sendBeacon("/api/cells/locate/clear-all", blob);
     return;
   }
 
-  const body = new URLSearchParams();
-  body.set("active", "0");
-  const blob = new Blob([body.toString()], {
-    type: "application/x-www-form-urlencoded; charset=UTF-8",
-  });
-  navigator.sendBeacon(`/api/cells/${encodeURIComponent(activeLocate.cellId)}/locate`, blob);
+  fetch("/api/cells/locate/clear-all", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+    keepalive: true,
+  }).catch(() => {});
 }
 
 function wireLocationLocate() {
@@ -921,38 +937,31 @@ function wireLocationLocate() {
       return;
     }
 
-    const alreadyActive = activeLocate?.button === button;
+    const activeEntry = activeLocates.get(String(cellId));
     button.disabled = true;
 
     try {
-      if (alreadyActive) {
+      if (activeEntry) {
         await sendLocateCommand(cellId, false);
-        clearActiveLocateUi();
+        clearLocateUi(cellId);
         return;
-      }
-
-      if (activeLocate) {
-        const previous = activeLocate;
-        clearActiveLocateUi();
-        sendLocateCommand(previous.cellId, false).catch(() => {});
       }
 
       await sendLocateCommand(cellId, true);
       setLocateButtonState(button, true);
-      activeLocate = {
+      activeLocates.set(String(cellId), {
         button,
-        cellId,
         timeoutId: window.setTimeout(() => {
-          if (!activeLocate || activeLocate.button !== button) {
+          if (!activeLocates.has(String(cellId))) {
             return;
           }
-          sendLocateCommand(cellId, false).catch(() => {}).finally(clearActiveLocateUi);
+          sendLocateCommand(cellId, false).catch(() => {}).finally(() => clearLocateUi(cellId));
         }, LOCATION_LOCATE_TIMEOUT_MS),
-      };
+      });
     } catch (error) {
       button.textContent = "Failed";
       window.setTimeout(() => {
-        if (activeLocate?.button !== button) {
+        if (!activeLocates.has(String(cellId))) {
           setLocateButtonState(button, false);
         }
       }, 1400);
@@ -962,8 +971,8 @@ function wireLocationLocate() {
   });
 
   window.addEventListener("pagehide", () => {
-    sendLocateClearBeacon();
-    clearActiveLocateUi();
+    sendLocateClearAll();
+    clearAllLocateUi();
   });
 }
 

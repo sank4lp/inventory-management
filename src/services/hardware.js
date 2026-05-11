@@ -128,6 +128,9 @@ export function createHardwareService({ db, config, logger }) {
         active,
       });
     },
+    clearAllCellLocates() {
+      return run("cell_locate_clear_all", adapter.clearAllCellLocates.bind(adapter), []);
+    },
     recordPhysicalConfirmation(event, userId = null) {
       return run(
         "physical_confirmation",

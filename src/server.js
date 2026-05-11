@@ -578,6 +578,19 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/cells/locate/clear-all") {
+      if (!ensureApiAuth(response, user)) {
+        return;
+      }
+      const result = hardwareService.clearAllCellLocates();
+      sendJson(response, {
+        ok: result.ok,
+        degraded: result.degraded,
+        message: result.message,
+      });
+      return;
+    }
+
     const apiCellLocateMatch = url.pathname.match(/^\/api\/cells\/(\d+)\/locate$/);
     if (request.method === "POST" && apiCellLocateMatch) {
       if (!ensureApiAuth(response, user)) {

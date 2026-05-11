@@ -1605,7 +1605,7 @@ export function configureControllerModules(
     deviceIdentity,
     moduleCount,
     configuredBy = null,
-    firmwareVersion = "simple-matrix-v9-digit-guidance",
+    firmwareVersion = "simple-matrix-v10-locate-ripple",
   },
 ) {
   const count = Number(moduleCount);

@@ -70,6 +70,11 @@ export function createDegradedAdapter() {
         },
       });
     },
+    clearAllCellLocates() {
+      return skipped("cell_locate_clear_all_skipped", {
+        payload: {},
+      });
+    },
     recordPhysicalConfirmation(event) {
       return skipped("physical_confirmation_recorded", {
         controllerId: event.controller_id,

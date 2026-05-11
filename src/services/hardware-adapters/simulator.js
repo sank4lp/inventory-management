@@ -142,6 +142,20 @@ export function createSimulatorAdapter({ logger }) {
         },
       ]);
     },
+    clearAllCellLocates() {
+      const payload = {
+        ts: stamp(),
+        type: "cell-locate-clear-all",
+      };
+      emit(payload);
+      return wrap([
+        {
+          eventType: "cell_locate_cleared_all",
+          payload,
+          status: "ok",
+        },
+      ]);
+    },
     recordPhysicalConfirmation(event) {
       const payload = {
         ts: stamp(),

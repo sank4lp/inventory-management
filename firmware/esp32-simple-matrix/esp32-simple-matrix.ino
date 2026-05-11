@@ -14,7 +14,7 @@
 #endif
 
 #define MODULES LED_MODULE_COUNT
-#define FIRMWARE_PROTOCOL "simple-matrix-v9-digit-guidance"
+#define FIRMWARE_PROTOCOL "simple-matrix-v10-locate-ripple"
 #define W 8
 #define H 8
 #define LEDS_PER_MODULE 64
@@ -22,9 +22,10 @@
 #define DEFAULT_BRIGHTNESS_PERCENT 8
 #define DEFAULT_TASK_BRIGHTNESS_PERCENT 80
 #define DEFAULT_TEST_BRIGHTNESS_PERCENT 80
-#define DEFAULT_TEST_DURATION_MS 1200
+#define DEFAULT_TEST_DURATION_MS 2250
 #define DEFAULT_LOCATE_DURATION_MS 120000
 #define RIPPLE_STEP_MS 150
+#define RIPPLE_STEP_COUNT 5
 #define IDLE_HEARTBEAT_STEP_MS 5000
 #define IDLE_HEARTBEAT_PULSE_MS 500
 #define DEFAULT_SCROLL_MS 120
@@ -54,6 +55,9 @@ struct ModuleState {
   int testBrightness;
   int lastTestStep;
   unsigned long locateUntil;
+  unsigned long locateStartedAt;
+  uint32_t locateColor;
+  int lastLocateStep;
   bool statusActive;
   uint32_t statusColor;
 };
@@ -456,7 +460,7 @@ int rippleRingFor(int x, int y) {
   return dx > dy ? dx : dy;
 }
 
-void renderRippleModule(int module, int step) {
+void renderRippleModule(int module, int step, bool reverse) {
   if (module < 0) {
     return;
   }
@@ -465,21 +469,33 @@ void renderRippleModule(int module, int step) {
   }
 
   clearModulePixels(module);
-  int ring = step % 5;
-  if (ring > 3) {
-    return;
+  int phase = step % RIPPLE_STEP_COUNT;
+  int leadingRing = reverse ? 3 - phase : phase;
+  int trailingRing = reverse ? leadingRing + 1 : leadingRing - 1;
+
+  if (trailingRing < 0) {
+    trailingRing = leadingRing;
+  }
+  if (trailingRing > 3) {
+    trailingRing = leadingRing;
   }
 
-  int minRing = ring - 1;
+  int minRing = leadingRing < trailingRing ? leadingRing : trailingRing;
+  int maxRing = leadingRing > trailingRing ? leadingRing : trailingRing;
+  uint32_t color = reverse ? modules[module].locateColor : modules[module].testColor;
+
   if (minRing < 0) {
     minRing = 0;
+  }
+  if (maxRing > 3) {
+    maxRing = 3;
   }
 
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       int pixelRing = rippleRingFor(x, y);
-      if (pixelRing >= minRing && pixelRing <= ring) {
-        pixels.setPixelColor(pixelIndex(module, x, y), modules[module].testColor);
+      if (pixelRing >= minRing && pixelRing <= maxRing) {
+        pixels.setPixelColor(pixelIndex(module, x, y), color);
       }
     }
   }
@@ -528,6 +544,7 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
   modules[module].scrollSpeedMs = speedMs;
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
+  modules[module].lastLocateStep = -1;
   modules[module].statusActive = false;
   if (modules[module].scrollSpeedMs <= 0) {
     modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
@@ -567,6 +584,7 @@ void showTaskModule(int module, const char *text, uint32_t color, int brightness
   modules[module].lastStepAt = 0;
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
+  modules[module].lastLocateStep = -1;
 
   if (textPixelWidth(text) <= W) {
     modules[module].mode = MODE_STATIC;
@@ -592,6 +610,7 @@ void setModuleIdle(int module) {
   modules[module].text[0] = 0;
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
+  modules[module].lastLocateStep = -1;
   modules[module].statusActive = false;
   renderModule(module);
 }
@@ -608,6 +627,7 @@ void setModuleOff(int module) {
   modules[module].text[0] = 0;
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
+  modules[module].lastLocateStep = -1;
   modules[module].statusActive = false;
   renderModule(module);
 }
@@ -702,6 +722,7 @@ void setSinglePixel(int module, int row, int column, uint32_t color) {
   modules[module].color = color;
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
+  modules[module].lastLocateStep = -1;
   modules[module].statusActive = false;
   clearModulePixels(module);
 
@@ -733,6 +754,7 @@ void fillModule(int module, uint32_t color, int brightness) {
   modules[module].brightness = clampBrightness(brightness);
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
+  modules[module].lastLocateStep = -1;
   modules[module].statusActive = false;
   uint32_t scaled = scaleColor(color, modules[module].brightness);
   for (int i = 0; i < LEDS_PER_MODULE; i++) {
@@ -761,21 +783,35 @@ void blinkModule(int module, uint32_t color, int brightness, unsigned long durat
   modules[module].testUntil = now + durationMs;
   modules[module].lastTestStep = -1;
   modules[module].locateUntil = 0;
+  modules[module].lastLocateStep = -1;
   modules[module].statusActive = false;
-  renderRippleModule(module, 0);
+  renderRippleModule(module, 0, false);
   pixels.show();
 }
 
 void locateModule(int module, uint32_t color, int brightness, unsigned long durationMs) {
+  if (module < 0) {
+    return;
+  }
+  if (module >= MODULES) {
+    return;
+  }
   if (durationMs == 0) {
     durationMs = DEFAULT_LOCATE_DURATION_MS;
   }
-  fillModule(module, color, brightness);
-  if (module >= 0) {
-    if (module < MODULES) {
-      modules[module].locateUntil = millis() + durationMs;
-    }
-  }
+  unsigned long now = millis();
+  modules[module].mode = MODE_STATIC;
+  modules[module].text[0] = 0;
+  modules[module].brightness = clampBrightness(brightness);
+  modules[module].locateColor = scaleColor(color, modules[module].brightness);
+  modules[module].locateStartedAt = now;
+  modules[module].locateUntil = now + durationMs;
+  modules[module].lastLocateStep = -1;
+  modules[module].testUntil = 0;
+  modules[module].lastTestStep = -1;
+  modules[module].statusActive = false;
+  renderRippleModule(module, 0, true);
+  pixels.show();
 }
 
 void updateModuleTests() {
@@ -787,10 +823,10 @@ void updateModuleTests() {
       continue;
     }
     if ((long)(now - modules[module].testUntil) < 0) {
-      int step = (int)((now - modules[module].testStartedAt) / RIPPLE_STEP_MS) % 5;
+      int step = (int)((now - modules[module].testStartedAt) / RIPPLE_STEP_MS) % RIPPLE_STEP_COUNT;
       if (step != modules[module].lastTestStep) {
         modules[module].lastTestStep = step;
-        renderRippleModule(module, step);
+        renderRippleModule(module, step, false);
         changed = true;
       }
       continue;
@@ -815,9 +851,16 @@ void updateLocateTimeouts() {
       continue;
     }
     if ((long)(now - modules[module].locateUntil) < 0) {
+      int step = (int)((now - modules[module].locateStartedAt) / RIPPLE_STEP_MS) % RIPPLE_STEP_COUNT;
+      if (step != modules[module].lastLocateStep) {
+        modules[module].lastLocateStep = step;
+        renderRippleModule(module, step, true);
+        changed = true;
+      }
       continue;
     }
     modules[module].locateUntil = 0;
+    modules[module].lastLocateStep = -1;
     setModuleIdle(module);
     changed = true;
   }
@@ -1158,6 +1201,9 @@ void setup() {
     modules[module].testBrightness = DEFAULT_TEST_BRIGHTNESS_PERCENT;
     modules[module].lastTestStep = -1;
     modules[module].locateUntil = 0;
+    modules[module].locateStartedAt = 0;
+    modules[module].locateColor = 0;
+    modules[module].lastLocateStep = -1;
     modules[module].statusActive = false;
     modules[module].statusColor = 0;
     renderModule(module);
@@ -1165,7 +1211,7 @@ void setup() {
   pixels.show();
 
   char bootMsg[128];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v9\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v10\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
   send485(bootMsg);
 }
 

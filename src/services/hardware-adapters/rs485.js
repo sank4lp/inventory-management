@@ -19,6 +19,7 @@ function firmwareWord(value, fallback) {
 }
 
 const LOCATE_TIMEOUT_MS = 120000;
+const BLINK_TEST_DURATION_MS = 2250;
 
 export function createRs485Adapter({ config = {}, logger }) {
   const port = config.rs485SerialPort || process.env.RS485_SERIAL_PORT || "";
@@ -80,6 +81,23 @@ export function createRs485Adapter({ config = {}, logger }) {
       clearTimeout(timeout);
       locateTimers.delete(key);
     }
+  }
+
+  function clearAllLocateTimers() {
+    const channels = Array.from(locateTimers.keys());
+    for (const channel of channels) {
+      clearLocateTimer(channel);
+      try {
+        send(`clear ${channel}`);
+      } catch (error) {
+        logger?.warn("hardware.rs485.locate_clear_all_failed", {
+          port,
+          hardwareChannel: channel,
+          error: error.message,
+        });
+      }
+    }
+    return channels;
   }
 
   function scheduleLocateClear(cell) {
@@ -203,7 +221,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     },
     sendCellTest(cell, color = "green") {
-      const command = `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 2000`;
+      const command = `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 ${BLINK_TEST_DURATION_MS}`;
       clearLocateTimer(cell.hardware_channel);
       send(command);
       return {
@@ -226,7 +244,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     },
     setCellLocate(cell, active = true) {
       const command = active
-        ? `fill ${cell.hardware_channel} red 80`
+        ? `locate ${cell.hardware_channel} red 80 ${LOCATE_TIMEOUT_MS}`
         : `clear ${cell.hardware_channel}`;
       clearLocateTimer(cell.hardware_channel);
       send(command);
@@ -248,6 +266,22 @@ export function createRs485Adapter({ config = {}, logger }) {
               hardwareChannel: cell.hardware_channel,
               color: "red",
               timeoutMs: LOCATE_TIMEOUT_MS,
+            },
+          }),
+        ],
+      };
+    },
+    clearAllCellLocates() {
+      const channels = clearAllLocateTimers();
+      return {
+        ok: true,
+        degraded: false,
+        events: [
+          event({
+            eventType: "cell_locate_cleared_all",
+            payload: {
+              type: "cell-locate-clear-all",
+              hardwareChannels: channels,
             },
           }),
         ],
