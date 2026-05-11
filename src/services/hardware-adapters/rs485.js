@@ -151,7 +151,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     },
     sendCellTest(cell, color = "green") {
-      const command = `test ${cell.hardware_channel} ${firmwareWord(color, "green")} 12`;
+      const command = `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 1200`;
       send(command);
       return {
         ok: true,
@@ -162,7 +162,7 @@ export function createRs485Adapter({ config = {}, logger }) {
             cellId: cell.id,
             eventType: "cell_test",
             payload: {
-              type: "module-all-led-test",
+              type: "module-blink-test",
               command,
               hardwareChannel: cell.hardware_channel,
               color,

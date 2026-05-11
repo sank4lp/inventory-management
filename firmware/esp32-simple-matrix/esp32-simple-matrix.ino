@@ -19,6 +19,8 @@
 #define LEDS_PER_MODULE 64
 #define LED_COUNT (MODULES * LEDS_PER_MODULE)
 #define DEFAULT_BRIGHTNESS_PERCENT 8
+#define DEFAULT_TEST_BRIGHTNESS_PERCENT 80
+#define DEFAULT_TEST_DURATION_MS 1200
 #define DEFAULT_SCROLL_MS 120
 #define DEFAULT_LAYOUT 3
 #define CHAR_ADVANCE_STATIC 6
@@ -40,6 +42,7 @@ struct ModuleState {
   int scrollOffset;
   int scrollSpeedMs;
   unsigned long lastStepAt;
+  unsigned long testUntil;
 };
 
 ModuleState modules[MODULES];
@@ -439,6 +442,7 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
   modules[module].color = scaleColor(color, brightness);
   modules[module].brightness = clampBrightness(brightness);
   modules[module].scrollSpeedMs = speedMs;
+  modules[module].testUntil = 0;
   if (modules[module].scrollSpeedMs <= 0) {
     modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
   }
@@ -469,6 +473,7 @@ void setModuleIdle(int module) {
   modules[module].mode = MODE_IDLE;
   modules[module].brightness = DEFAULT_BRIGHTNESS_PERCENT;
   modules[module].text[0] = 0;
+  modules[module].testUntil = 0;
   renderModule(module);
 }
 
@@ -482,6 +487,7 @@ void setModuleOff(int module) {
   modules[module].mode = MODE_OFF;
   modules[module].brightness = 0;
   modules[module].text[0] = 0;
+  modules[module].testUntil = 0;
   renderModule(module);
 }
 
@@ -573,6 +579,7 @@ void setSinglePixel(int module, int row, int column, uint32_t color) {
   modules[module].mode = MODE_STATIC;
   modules[module].text[0] = 0;
   modules[module].color = color;
+  modules[module].testUntil = 0;
   clearModulePixels(module);
 
   int y = row - 1;
@@ -601,11 +608,45 @@ void fillModule(int module, uint32_t color, int brightness) {
   modules[module].mode = MODE_STATIC;
   modules[module].text[0] = 0;
   modules[module].brightness = clampBrightness(brightness);
+  modules[module].testUntil = 0;
   uint32_t scaled = scaleColor(color, modules[module].brightness);
   for (int i = 0; i < LEDS_PER_MODULE; i++) {
     pixels.setPixelColor(module * LEDS_PER_MODULE + i, scaled);
   }
   pixels.show();
+}
+
+void blinkModule(int module, uint32_t color, int brightness, unsigned long durationMs) {
+  if (durationMs == 0) {
+    durationMs = DEFAULT_TEST_DURATION_MS;
+  }
+  fillModule(module, color, brightness);
+  if (module >= 0) {
+    if (module < MODULES) {
+      modules[module].testUntil = millis() + durationMs;
+    }
+  }
+}
+
+void updateModuleTests() {
+  unsigned long now = millis();
+  bool changed = false;
+
+  for (int module = 0; module < MODULES; module++) {
+    if (modules[module].testUntil == 0) {
+      continue;
+    }
+    if ((long)(now - modules[module].testUntil) < 0) {
+      continue;
+    }
+    modules[module].testUntil = 0;
+    setModuleIdle(module);
+    changed = true;
+  }
+
+  if (changed) {
+    pixels.show();
+  }
 }
 
 void updateScrolls() {
@@ -758,14 +799,22 @@ void handleLine(char *cmdLine) {
         return;
       }
       const char *color = "green";
-      int brightness = DEFAULT_BRIGHTNESS_PERCENT;
+      int brightness = DEFAULT_TEST_BRIGHTNESS_PERCENT;
+      unsigned long durationMs = DEFAULT_TEST_DURATION_MS;
       if (count >= 3) {
         color = tokens[2];
       }
       if (count >= 4) {
         brightness = atoi(tokens[3]);
       }
-      fillModule(module, colorFor(color), brightness);
+      if (count >= 5) {
+        durationMs = (unsigned long)atol(tokens[4]);
+      }
+      if (strcmp(command, "fill") == 0) {
+        fillModule(module, colorFor(color), brightness);
+      } else {
+        blinkModule(module, colorFor(color), brightness, durationMs);
+      }
       ack(command, module);
       return;
     }
@@ -855,6 +904,7 @@ void setup() {
     modules[module].scrollOffset = W;
     modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
     modules[module].lastStepAt = 0;
+    modules[module].testUntil = 0;
     renderModule(module);
   }
   pixels.show();
@@ -881,6 +931,7 @@ void loop() {
     }
   }
 
+  updateModuleTests();
   updateScrolls();
   updateHeartbeat();
 }
