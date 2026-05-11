@@ -1,4 +1,4 @@
-import { accessSync, constants, openSync, writeSync } from "node:fs";
+import { accessSync, closeSync, constants, openSync, readSync, writeSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 function stamp() {
@@ -31,6 +31,7 @@ const DEFAULT_RS485_INTER_COMMAND_DELAY_MS = 35;
 const DEFAULT_RS485_CLEAR_REPEATS = 5;
 const HEARTBEAT_SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_COLUMN_COUNT = 8;
+const CONTROLLER_PROBE_TIMEOUT_MS = 900;
 
 function numberSetting(value, fallback, { min, max }) {
   const number = Number(value);
@@ -45,6 +46,20 @@ function sleepMs(ms) {
     return;
   }
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function parseJsonLines(text) {
+  return String(text)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
 }
 
 export function createRs485Adapter({ config = {}, logger }) {
@@ -161,6 +176,107 @@ export function createRs485Adapter({ config = {}, logger }) {
     }
   }
 
+  function readSerialWindow(timeoutMs) {
+    const startedAt = Date.now();
+    const chunks = [];
+    const buffer = Buffer.alloc(512);
+    let fd = null;
+
+    try {
+      fd = openSync(port, constants.O_RDWR | constants.O_NONBLOCK);
+      while (Date.now() - startedAt < timeoutMs) {
+        try {
+          const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+          if (bytesRead > 0) {
+            chunks.push(buffer.subarray(0, bytesRead).toString("utf8"));
+          } else {
+            sleepMs(20);
+          }
+        } catch (error) {
+          if (["EAGAIN", "EWOULDBLOCK"].includes(error.code)) {
+            sleepMs(20);
+            continue;
+          }
+          throw error;
+        }
+      }
+    } finally {
+      if (fd !== null) {
+        closeSync(fd);
+      }
+    }
+
+    return chunks.join("");
+  }
+
+  function checkControllerHealth(controller) {
+    const controllerAddress = controllerAddressFor(controller);
+    if (!controllerAddress) {
+      return {
+        ok: false,
+        degraded: true,
+        status: "unknown",
+        message: "Controller has no RS485 id.",
+        events: [],
+      };
+    }
+
+    ensureReady();
+    readSerialWindow(80);
+    const command = addressedCommand(controllerAddress, "ping");
+    send(command, { repeats: Math.max(2, Math.min(writeRepeats, 3)) });
+    const raw = readSerialWindow(CONTROLLER_PROBE_TIMEOUT_MS);
+    const replies = parseJsonLines(raw);
+    const matchedReply = replies.find(
+      (reply) =>
+        reply.type === "pong" &&
+        (String(reply.address || "").toUpperCase() === String(controllerAddress).toUpperCase() ||
+          String(reply.controller || "").toUpperCase() === String(controller.controller_code || "").toUpperCase()),
+    );
+
+    if (!matchedReply) {
+      return {
+        ok: false,
+        degraded: true,
+        status: "offline",
+        message: `No ping response from ${controller.controller_code}.`,
+        events: [
+          event({
+            controllerId: controller.id,
+            eventType: "controller_health_check",
+            payload: {
+              type: "controller-health",
+              command,
+              controllerAddress,
+              status: "offline",
+              raw,
+            },
+          }),
+        ],
+      };
+    }
+
+    return {
+      ok: true,
+      degraded: false,
+      status: "online",
+      message: `${controller.controller_code} responded on RS485.`,
+      events: [
+        event({
+          controllerId: controller.id,
+          eventType: "controller_health_check",
+          payload: {
+            type: "controller-health",
+            command,
+            controllerAddress,
+            status: "online",
+            reply: matchedReply,
+          },
+        }),
+      ],
+    };
+  }
+
   function startHeartbeatSync() {
     if (heartbeatSyncStarted) {
       return;
@@ -250,7 +366,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     });
   }
 
-  function event({ controllerId = null, cellId = null, taskId = null, eventType, payload }) {
+  function event({ controllerId = null, cellId = null, taskId = null, eventType, payload, status = "ok" }) {
     return {
       controllerId,
       cellId,
@@ -261,8 +377,29 @@ export function createRs485Adapter({ config = {}, logger }) {
         port,
         ...payload,
       },
-      status: "ok",
+      status,
     };
+  }
+
+  function hasModuleTarget(record = {}) {
+    return Boolean(controllerAddressFor(record)) && Boolean(record.hardware_channel);
+  }
+
+  function manualGuidanceEvent({ line, task, eventType }) {
+    return event({
+      controllerId: line.controller_id,
+      cellId: line.cell_id || line.id,
+      taskId: task?.id || null,
+      eventType,
+      status: "degraded",
+      payload: {
+        type: "manual-guidance",
+        cell: line.logical_code,
+        taskType: task?.type || null,
+        quantity: line.planned_quantity,
+        reason: "cell-not-mapped-to-controller",
+      },
+    });
   }
 
   return {
@@ -283,7 +420,13 @@ export function createRs485Adapter({ config = {}, logger }) {
     },
     activateGuidance(task, lines) {
       const events = [];
+      let skipped = 0;
       for (const line of lines) {
+        if (!hasModuleTarget(line)) {
+          skipped += 1;
+          events.push(manualGuidanceEvent({ line, task, eventType: "guidance_manual" }));
+          continue;
+        }
         const text = String(line.planned_quantity ?? "");
         const color = taskColor(task);
         const controllerAddress = controllerAddressFor(line);
@@ -312,11 +455,22 @@ export function createRs485Adapter({ config = {}, logger }) {
           }),
         );
       }
-      return { ok: true, degraded: false, events };
+      return {
+        ok: true,
+        degraded: skipped > 0,
+        message: skipped > 0 ? `${skipped} cell(s) require manual guidance because they are not mapped.` : null,
+        events,
+      };
     },
     clearGuidance(task, lines) {
       const events = [];
+      let skipped = 0;
       for (const line of lines) {
+        if (!hasModuleTarget(line)) {
+          skipped += 1;
+          events.push(manualGuidanceEvent({ line, task, eventType: "guidance_manual_clear" }));
+          continue;
+        }
         const controllerAddress = controllerAddressFor(line);
         const command = addressedCommand(controllerAddress, `clear ${line.hardware_channel}`);
         clearLocateTimer(line.hardware_channel, controllerAddress);
@@ -337,7 +491,12 @@ export function createRs485Adapter({ config = {}, logger }) {
           }),
         );
       }
-      return { ok: true, degraded: false, events };
+      return {
+        ok: true,
+        degraded: skipped > 0,
+        message: skipped > 0 ? `${skipped} cell(s) had no LED guidance to clear.` : null,
+        events,
+      };
     },
     sendControllerTest(controller) {
       const controllerAddress = controllerAddressFor(controller);
@@ -360,7 +519,29 @@ export function createRs485Adapter({ config = {}, logger }) {
         ],
       };
     },
+    checkControllerHealth,
     sendCellTest(cell, color = "green") {
+      if (!hasModuleTarget(cell)) {
+        return {
+          ok: true,
+          degraded: true,
+          message: `${cell.logical_code} is not mapped to a controller.`,
+          events: [
+            event({
+              controllerId: cell.controller_id,
+              cellId: cell.id,
+              eventType: "cell_test_manual",
+              status: "degraded",
+              payload: {
+                type: "manual-guidance",
+                cell: cell.logical_code,
+                color,
+                reason: "cell-not-mapped-to-controller",
+              },
+            }),
+          ],
+        };
+      }
       const controllerAddress = controllerAddressFor(cell);
       const command = addressedCommand(
         controllerAddress,
@@ -388,6 +569,27 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     },
     setCellLocate(cell, active = true) {
+      if (!hasModuleTarget(cell)) {
+        return {
+          ok: true,
+          degraded: true,
+          message: `${cell.logical_code} is not mapped to a controller.`,
+          events: [
+            event({
+              controllerId: cell.controller_id,
+              cellId: cell.id,
+              eventType: active ? "cell_locate_manual" : "cell_locate_manual_clear",
+              status: "degraded",
+              payload: {
+                type: "manual-guidance",
+                cell: cell.logical_code,
+                active,
+                reason: "cell-not-mapped-to-controller",
+              },
+            }),
+          ],
+        };
+      }
       const controllerAddress = controllerAddressFor(cell);
       const command = active
         ? addressedCommand(controllerAddress, `locate ${cell.hardware_channel} red 80 ${LOCATE_TIMEOUT_MS}`)

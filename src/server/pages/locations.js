@@ -1,4 +1,5 @@
 import {
+  listCellCatalog,
   listCells,
   listControllers,
   searchCells,
@@ -78,6 +79,27 @@ function renderPortChoices(ports = [], selectedPort = "") {
     .join("");
 }
 
+function cellMappingOptionLabel(cell) {
+  const stock = Number(cell.occupied_quantity || 0) > 0 ? ` · stock ${formatQuantity(cell.occupied_quantity)}` : "";
+  const controller = cell.controller_code
+    ? ` · ${cell.controller_code}${cell.hardware_channel ? ` module ${cell.hardware_channel}` : ""}`
+    : " · unmapped";
+  const state = Number(cell.active) === 1 ? "" : " · inactive";
+  return `${cell.logical_code}${stock}${controller}${state}`;
+}
+
+function renderCellMappingOptions(cellCatalog, selectedCellId) {
+  return cellCatalog
+    .map(
+      (cell) => `
+        <option value="${cell.id}" ${Number(cell.id) === Number(selectedCellId) ? "selected" : ""}>
+          ${escapeHtml(cellMappingOptionLabel(cell))}
+        </option>
+      `,
+    )
+    .join("");
+}
+
 export function createLocationPages({ db }) {
   function renderCellSearchResults(cells) {
     return table(
@@ -95,8 +117,8 @@ export function createLocationPages({ db }) {
       ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
       cells.map((cell) => [
         `<a href="/cells/${cell.id}">${escapeHtml(cell.logical_code)}</a>`,
-        escapeHtml(cell.controller_code || "No controller"),
-        escapeHtml(cell.hardware_channel),
+        cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
+        cell.hardware_channel ? escapeHtml(cell.hardware_channel) : `<span class="muted">Manual</span>`,
         escapeHtml(formatQuantity(cell.occupied_quantity)),
         cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
         `
@@ -180,7 +202,11 @@ export function createLocationPages({ db }) {
           "Cell summary",
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
-            <p>${escapeHtml(cell.controller_code || "No controller")} · Channel ${escapeHtml(cell.hardware_channel)}</p>
+            <p>${
+              cell.controller_code && cell.hardware_channel
+                ? `${escapeHtml(cell.controller_code)} · Channel ${escapeHtml(cell.hardware_channel)}`
+                : "Manual pick/put · no controller mapped"
+            }</p>
             <div class="mini-actions">
               <a class="mini-link" href="/put?cell_id=${cell.id}">Put any item here</a>
             </div>
@@ -204,6 +230,8 @@ export function createLocationPages({ db }) {
   function renderDevices(user, flash) {
     const controllers = listControllers(db);
     const cells = listCells(db);
+    const cellCatalog = listCellCatalog(db);
+    const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
     const runtime = getRuntimeContext();
     const firmwareOptions = runtime.firmwareService?.getFlashOptions();
     const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
@@ -237,6 +265,7 @@ export function createLocationPages({ db }) {
                         <label>Controller name
                           <input
                             name="controller_name"
+                            list="firmware-controller-names"
                             value="${escapeHtml(controllerName)}"
                             placeholder="ESP32-Z1-A"
                             required
@@ -277,7 +306,18 @@ export function createLocationPages({ db }) {
                       <datalist id="firmware-ports">
                         ${renderPortOptions([])}
                       </datalist>
+                      <datalist id="firmware-controller-names">
+                        ${controllers
+                          .map(
+                            (controller) =>
+                              `<option value="${escapeHtml(controller.controller_code)}">${escapeHtml(
+                                `${controller.controller_code} · replace/migrate existing mapping`,
+                              )}</option>`,
+                          )
+                          .join("")}
+                      </datalist>
                       <p class="muted">Setup flow: keep RS485, mouse, and keyboard connected; unplug the ESP32; scan without ESP32; plug in the ESP32; then detect the added serial device.</p>
+                      <p class="muted">To replace a controller but keep its cell mapping, choose its existing controller name before flashing. The system will assign a fresh RS485 id and migrate the mapping to it.</p>
                       <p class="muted">If upload cannot connect, hold BOOT, start flashing, tap EN/RESET once while Connecting is shown, then release BOOT after upload starts.</p>
                       <div
                         class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
@@ -315,35 +355,70 @@ export function createLocationPages({ db }) {
         }
         ${card(
           "Controllers",
-          table(
-            ["Controller", "RS485 id", "Health", "LED modules", "Cells", "Test"],
-            controllers.map((controller) => [
-              escapeHtml(controller.controller_code),
-              `<code>${escapeHtml(controller.address || "")}</code>`,
-              statusBadge(controller.heartbeat_status),
-              escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
-              escapeHtml(formatQuantity(controller.mapped_cells)),
-              `
-                <form method="post" action="/devices/controller-test">
-                  <input type="hidden" name="controller_id" value="${controller.id}" />
-                  <button type="submit" class="ghost-button">Send test</button>
-                </form>
-              `,
-            ]),
-          ),
+          `
+            <p class="muted">Health is checked with an addressed RS485 ping when this page loads. Delete removes only the controller; its cells stay active for manual pick/put until they are remapped.</p>
+            ${table(
+              ["Controller", "RS485 id", "Health", "Last seen", "LED modules", "Cells", "Actions"],
+              controllers.map((controller) => [
+                escapeHtml(controller.controller_code),
+                `<code>${escapeHtml(controller.address || "")}</code>`,
+                statusBadge(controller.heartbeat_status),
+                escapeHtml(formatDate(controller.last_seen_at)),
+                escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
+                escapeHtml(formatQuantity(controller.mapped_cells)),
+                `
+                  <div class="mini-actions">
+                    <form method="post" action="/devices/controller-test">
+                      <input type="hidden" name="controller_id" value="${controller.id}" />
+                      <button type="submit" class="ghost-button">Check health</button>
+                    </form>
+                    <form
+                      method="post"
+                      action="/devices/controller-delete"
+                      onsubmit="return confirm('Delete this controller? Its cells will stay active for manual pick/put until remapped.');"
+                    >
+                      <input type="hidden" name="controller_id" value="${controller.id}" />
+                      <button type="submit" class="ghost-button danger-button">Delete</button>
+                    </form>
+                  </div>
+                `,
+              ]),
+            )}
+          `,
+        )}
+        ${card(
+          "Add cells",
+          `
+            <form method="post" action="/devices/cells" class="inline-form">
+              <label>Cell name
+                <input
+                  name="logical_code"
+                  placeholder="Z1-R1-C01"
+                  pattern="[A-Za-z0-9._:-]+"
+                  required
+                />
+              </label>
+              <label>Capacity
+                <input name="capacity" type="number" min="1" step="1" value="12" required />
+              </label>
+              <button type="submit" class="ghost-button">Add cell</button>
+            </form>
+          `,
         )}
         ${card(
           "Cell mapping",
           table(
             ["Controller", "LED module", "Cell name", "Stock", "Blink"],
-            cells.map((cell) => [
+            mappedCells.map((cell) => [
               escapeHtml(cell.controller_code || "No controller"),
               escapeHtml(cell.hardware_channel),
               `
                 <form method="post" action="/mapping" class="inline-form">
                   <input type="hidden" name="cell_id" value="${cell.id}" />
                   <input type="hidden" name="hardware_channel" value="${escapeHtml(cell.hardware_channel)}" />
-                  <input class="compact-input" name="logical_code" value="${escapeHtml(cell.logical_code)}" />
+                  <select class="compact-input" name="target_cell_id" required>
+                    ${renderCellMappingOptions(cellCatalog, cell.id)}
+                  </select>
                   <button type="submit" class="ghost-button">Save</button>
                 </form>
               `,

@@ -68,11 +68,6 @@ function generateControllerAddress() {
   return `CTRL-${randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
 }
 
-function reusableControllerAddress(value) {
-  const normalized = String(value || "").trim().toUpperCase();
-  return /^CTRL-[A-F0-9]{12}$/.test(normalized) ? normalized : "";
-}
-
 function cStringLiteral(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
@@ -363,6 +358,8 @@ function publicJob(job) {
     controllerId: job.controllerId,
     controllerName: job.controllerName,
     controllerAddress: job.controllerAddress,
+    previousControllerAddress: job.previousControllerAddress,
+    replacingControllerId: job.replacingControllerId,
     deviceIdentity: job.deviceIdentity,
     deviceName: job.deviceName,
     flashedBy: job.flashedBy,
@@ -412,6 +409,9 @@ export function createFirmwareService({ db, config = {}, logger }) {
   }
 
   function saveLastConfiguration(job) {
+    const previousController = db
+      .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
+      .get(job.controllerName);
     const controller = configureControllerModules(db, {
       controllerCode: job.controllerName,
       controllerAddress: job.controllerAddress,
@@ -429,6 +429,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
       controllerId: controller.id,
       controllerName: controller.controller_code,
       controllerAddress: controller.address,
+      previousControllerAddress: previousController?.address || null,
+      replacedExistingController: Boolean(previousController),
       moduleCount: job.moduleCount,
       assignedModules: job.assignedModules,
       port: job.port,
@@ -449,6 +451,9 @@ export function createFirmwareService({ db, config = {}, logger }) {
     ).run(JSON.stringify(payload), nowIso());
 
     const devices = getFlashedDevices();
+    if (previousController?.address && previousController.address !== controller.address) {
+      delete devices[previousController.address];
+    }
     devices[controller.address] = payload;
     devices[job.deviceIdentity || job.port] = payload;
     db.prepare(
@@ -496,6 +501,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
           jobId: job.id,
           moduleCount: job.moduleCount,
           controllerAddress: job.controllerAddress,
+          previousControllerAddress: job.previousControllerAddress,
+          replacingControllerId: job.replacingControllerId,
           port: job.port,
           fqbn: job.fqbn,
         },
@@ -541,6 +548,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
           jobId: job.id,
           moduleCount: job.moduleCount,
           controllerAddress: job.controllerAddress,
+          previousControllerAddress: job.previousControllerAddress,
+          replacingControllerId: job.replacingControllerId,
           assignedModules: job.assignedModules,
           port: job.port,
           fqbn: job.fqbn,
@@ -552,6 +561,9 @@ export function createFirmwareService({ db, config = {}, logger }) {
       job.progress = 100;
       job.finishedAt = nowIso();
       job.currentCommand = null;
+      if (job.previousControllerAddress && job.previousControllerAddress !== job.controllerAddress) {
+        appendLog(job, `Migrated existing mapping from ${job.previousControllerAddress} to ${job.controllerAddress}`);
+      }
       appendLog(job, `Controller RS485 id: ${job.controllerAddress}`);
       appendLog(job, `Configured module numbers: ${job.assignedModules.join(", ")}`);
     } catch (error) {
@@ -681,13 +693,10 @@ export function createFirmwareService({ db, config = {}, logger }) {
         `ESP32-${String(Date.now()).slice(-6)}`,
       );
       const existingController = db
-        .prepare("SELECT address FROM controllers WHERE controller_code = ?")
+        .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
         .get(controllerName);
       const controllerAddress = normalizeControllerAddress(
-        input.controller_address ||
-          input.controllerAddress ||
-          reusableControllerAddress(existingController?.address) ||
-          generateControllerAddress(),
+        input.controller_address || input.controllerAddress || generateControllerAddress(),
       );
       const assignedModules = Array.from({ length: moduleCount }, (_, index) => index + 1);
       const job = {
@@ -701,6 +710,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
         controllerId: null,
         controllerName,
         controllerAddress,
+        previousControllerAddress: existingController?.address || null,
+        replacingControllerId: existingController?.id || null,
         deviceIdentity: detectedPort.deviceIdentity,
         deviceName: controllerName,
         flashedBy: actor
@@ -727,6 +738,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
         jobId: job.id,
         moduleCount,
         controllerAddress,
+        previousControllerAddress: existingController?.address || null,
+        replacingControllerId: existingController?.id || null,
         port,
         fqbn,
       });

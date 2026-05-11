@@ -10,9 +10,13 @@ export function createSimulatorAdapter({ logger }) {
   function wrap(events) {
     return {
       ok: true,
-      degraded: false,
+      degraded: events.some((event) => event.status === "degraded"),
       events,
     };
+  }
+
+  function hasModuleTarget(record = {}) {
+    return Boolean(record.controller_id) && Boolean(record.hardware_channel);
   }
 
   return {
@@ -26,6 +30,27 @@ export function createSimulatorAdapter({ logger }) {
     activateGuidance(task, lines) {
       const color = task.type === "put" ? "red" : "green";
       const events = lines.map((line) => {
+        if (!hasModuleTarget(line)) {
+          const payload = {
+            ts: stamp(),
+            type: "manual-guidance",
+            controllerId: line.controller_id,
+            cell: line.logical_code,
+            taskId: task.id,
+            taskType: task.type,
+            quantity: line.planned_quantity,
+            reason: "cell-not-mapped-to-controller",
+          };
+          emit(payload);
+          return {
+            controllerId: line.controller_id,
+            cellId: line.cell_id,
+            taskId: task.id,
+            eventType: "guidance_manual",
+            payload,
+            status: "degraded",
+          };
+        }
         const payload = {
           ts: stamp(),
           type: "set-cell-state",
@@ -56,6 +81,25 @@ export function createSimulatorAdapter({ logger }) {
     },
     clearGuidance(task, lines) {
       const events = lines.map((line) => {
+        if (!hasModuleTarget(line)) {
+          const payload = {
+            ts: stamp(),
+            type: "manual-guidance-clear",
+            controllerId: line.controller_id,
+            cell: line.logical_code,
+            taskId: task.id,
+            reason: "cell-not-mapped-to-controller",
+          };
+          emit(payload);
+          return {
+            controllerId: line.controller_id,
+            cellId: line.cell_id,
+            taskId: task.id,
+            eventType: "guidance_manual_clear",
+            payload,
+            status: "degraded",
+          };
+        }
         const payload = {
           ts: stamp(),
           type: "clear-cell-state",
@@ -99,7 +143,57 @@ export function createSimulatorAdapter({ logger }) {
         },
       ]);
     },
+    checkControllerHealth(controller) {
+      const payload = {
+        ts: stamp(),
+        type: "controller-health",
+        controllerId: controller.id,
+        controllerCode: controller.controller_code,
+        controllerAddress: controller.address,
+        status: "online",
+      };
+      emit(payload);
+      return {
+        ok: true,
+        degraded: false,
+        status: "online",
+        message: `${controller.controller_code} responded in simulator.`,
+        events: [
+          {
+            controllerId: controller.id,
+            eventType: "controller_health_check",
+            payload,
+            status: "ok",
+          },
+        ],
+      };
+    },
     sendCellTest(cell, color = "amber") {
+      if (!hasModuleTarget(cell)) {
+        const payload = {
+          ts: stamp(),
+          type: "manual-guidance",
+          controllerId: cell.controller_id,
+          cell: cell.logical_code,
+          color,
+          reason: "cell-not-mapped-to-controller",
+        };
+        emit(payload);
+        return {
+          ok: true,
+          degraded: true,
+          message: `${cell.logical_code} is not mapped to a controller.`,
+          events: [
+            {
+              controllerId: cell.controller_id,
+              cellId: cell.id,
+              eventType: "cell_test_manual",
+              payload,
+              status: "degraded",
+            },
+          ],
+        };
+      }
       const payload = {
         ts: stamp(),
         type: "cell-test",
@@ -120,6 +214,32 @@ export function createSimulatorAdapter({ logger }) {
       ]);
     },
     setCellLocate(cell, active = true) {
+      if (!hasModuleTarget(cell)) {
+        const payload = {
+          ts: stamp(),
+          type: "manual-guidance",
+          controllerId: cell.controller_id,
+          cell: cell.logical_code,
+          color: "red",
+          active,
+          reason: "cell-not-mapped-to-controller",
+        };
+        emit(payload);
+        return {
+          ok: true,
+          degraded: true,
+          message: `${cell.logical_code} is not mapped to a controller.`,
+          events: [
+            {
+              controllerId: cell.controller_id,
+              cellId: cell.id,
+              eventType: active ? "cell_locate_manual" : "cell_locate_manual_clear",
+              payload,
+              status: "degraded",
+            },
+          ],
+        };
+      }
       const payload = {
         ts: stamp(),
         type: "cell-locate",

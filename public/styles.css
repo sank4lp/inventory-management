@@ -850,6 +850,15 @@ button:hover {
   box-shadow: inset 0 0 0 2px rgba(181, 60, 46, 0.08);
 }
 
+.danger-button {
+  color: var(--error);
+  border-color: rgba(181, 60, 46, 0.35);
+}
+
+.danger-button:hover {
+  background: var(--error-soft);
+}
+
 .green-button {
   background: linear-gradient(135deg, var(--green), #3ca478);
 }
@@ -1062,6 +1071,7 @@ th {
 }
 
 .badge-inactive,
+.badge-offline,
 .badge-revoked,
 .badge-expired,
 .badge-missing,
@@ -1071,6 +1081,7 @@ th {
 }
 
 .badge-warning,
+.badge-unknown,
 .badge-degraded,
 .badge-simulator {
   background: rgba(227, 186, 80, 0.18);

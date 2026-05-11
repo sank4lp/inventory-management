@@ -20,6 +20,7 @@ function normalizeResult(result = {}) {
   return {
     ok: result.ok !== false,
     degraded: result.degraded === true,
+    status: result.status || null,
     message: result.message || null,
     events: Array.isArray(result.events) ? result.events : [],
   };
@@ -111,6 +112,11 @@ export function createHardwareService({ db, config, logger }) {
     },
     sendControllerTest(controller) {
       return run("controller_test", adapter.sendControllerTest.bind(adapter), [controller], {
+        controllerId: controller.id,
+      });
+    },
+    checkControllerHealth(controller) {
+      return run("controller_health", adapter.checkControllerHealth.bind(adapter), [controller], {
         controllerId: controller.id,
       });
     },

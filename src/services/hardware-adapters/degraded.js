@@ -53,6 +53,12 @@ export function createDegradedAdapter() {
     sendControllerTest(controller) {
       return skipped("controller_test_skipped", { controllerId: controller.id });
     },
+    checkControllerHealth(controller) {
+      return {
+        ...skipped("controller_health_skipped", { controllerId: controller.id }),
+        status: "unknown",
+      };
+    },
     sendCellTest(cell, color = "amber") {
       return skipped("cell_test_skipped", {
         controllerId: cell.controller_id,

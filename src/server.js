@@ -1001,6 +1001,7 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
+      systemService.refreshControllerHealths();
       sendHtml(response, pages.renderDevices(user, flash));
       return;
     }
@@ -1048,15 +1049,49 @@ export const requestHandler = async (request, response) => {
       if (!controller) {
         throw new Error("Controller not found.");
       }
-      const result = hardwareService.sendControllerTest(controller);
+      const result = hardwareService.checkControllerHealth(controller);
+      const healthStatus = result.status || (result.ok && !result.degraded ? "online" : "unknown");
+      locationService.updateControllerHealth({
+        controllerId: controller.id,
+        status: healthStatus,
+      });
       sendRedirect(
         response,
         appendFlash(
           "/devices",
-          result.degraded
-            ? `Controller test skipped for ${controller.controller_code}. Manual mode is active.`
-            : `Sent test to ${controller.controller_code}.`,
-          result.degraded ? "warning" : "success",
+          healthStatus === "online"
+            ? `${controller.controller_code} responded on RS485.`
+            : `No healthy response from ${controller.controller_code}. Check power, A/B wiring, RS485 id, and that the controller is flashed.`,
+          healthStatus === "online" ? "success" : "warning",
+        ),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/devices/controller-delete") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const controller = locationService
+        .listControllers()
+        .find((entry) => entry.id === Number(form.controller_id));
+      if (!controller) {
+        throw new Error("Controller not found.");
+      }
+      const controllerCells = locationService
+        .listCells()
+        .filter((cell) => cell.controller_id === controller.id);
+      if (controllerCells.length) {
+        hardwareService.clearAllCellLocates(controllerCells);
+      }
+      const deleted = locationService.deleteController({ controllerId: controller.id });
+      sendRedirect(
+        response,
+        appendFlash(
+          "/devices",
+          `${controller.controller_code} was deleted. ${deleted.detachedCellCount} cell(s) remain active for manual pick/put until remapped.`,
+          "success",
         ),
       );
       return;
@@ -1093,11 +1128,27 @@ export const requestHandler = async (request, response) => {
       locationService.updateCellMapping({
         cellId: form.cell_id,
         hardwareChannel: form.hardware_channel,
-        logicalCode: form.logical_code,
+        targetCellId: form.target_cell_id,
         mappedBy: user.id,
       });
       const backupResult = createAutomaticBackup("cell-mapping-update");
       const nextFlash = backupAwareFlash("Cell mapping updated.", "success", backupResult);
+      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/devices/cells") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const cell = locationService.createCell({
+        logicalCode: form.logical_code,
+        capacity: form.capacity || 12,
+        createdBy: user.id,
+      });
+      const backupResult = createAutomaticBackup("cell-created");
+      const nextFlash = backupAwareFlash(`Cell ${cell.logical_code} added.`, "success", backupResult);
       sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
       return;
     }

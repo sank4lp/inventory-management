@@ -1548,6 +1548,38 @@ export function listCells(db) {
     .all();
 }
 
+export function listCellCatalog(db) {
+  return db
+    .prepare(
+      `
+        SELECT
+          c.*,
+          z.code AS zone_code,
+          ctrl.controller_code,
+          ctrl.address AS controller_address,
+          COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
+          COALESCE(
+            GROUP_CONCAT(
+              CASE
+                WHEN b.available_quantity > 0 AND p.sku IS NOT NULL
+                THEN p.sku || ' (' || CAST(b.available_quantity AS TEXT) || ')'
+              END,
+              ', '
+            ),
+            ''
+          ) AS inventory_summary
+        FROM cells c
+        JOIN zones z ON z.id = c.zone_id
+        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
+        LEFT JOIN inventory_balances b ON b.cell_id = c.id
+        LEFT JOIN products p ON p.id = b.product_id
+        GROUP BY c.id
+        ORDER BY c.logical_code
+      `,
+    )
+    .all();
+}
+
 export function searchCells(db, search = "") {
   const pattern = `%${search.trim()}%`;
   return db
@@ -1632,6 +1664,78 @@ export function listControllers(db) {
     .all();
 }
 
+const VALID_CONTROLLER_HEALTH_STATUSES = new Set(["online", "offline", "unknown"]);
+
+function normalizeControllerHealthStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return VALID_CONTROLLER_HEALTH_STATUSES.has(status) ? status : "unknown";
+}
+
+export function updateControllerHealth(db, { controllerId, status }) {
+  const normalizedStatus = normalizeControllerHealthStatus(status);
+  const now = nowIso();
+  const result = db
+    .prepare(
+      `
+        UPDATE controllers
+        SET
+          heartbeat_status = ?,
+          last_seen_at = CASE WHEN ? = 'online' THEN ? ELSE last_seen_at END
+        WHERE id = ? AND active = 1
+      `,
+    )
+    .run(normalizedStatus, normalizedStatus, now, Number(controllerId));
+
+  if (result.changes === 0) {
+    throw new Error("Controller not found.");
+  }
+
+  return db.prepare("SELECT * FROM controllers WHERE id = ?").get(Number(controllerId));
+}
+
+export function deleteController(db, { controllerId }) {
+  return withTransaction(db, () => {
+    const controller = db
+      .prepare("SELECT * FROM controllers WHERE id = ?")
+      .get(Number(controllerId));
+
+    if (!controller) {
+      throw new Error("Controller not found.");
+    }
+
+    const cells = db.prepare("SELECT * FROM cells WHERE controller_id = ?").all(controller.id);
+    db.prepare("UPDATE device_events SET controller_id = NULL WHERE controller_id = ?").run(controller.id);
+
+    if (cells.length > 0) {
+      const placeholders = cells.map(() => "?").join(", ");
+      db.prepare(
+        `
+          UPDATE cells
+          SET
+            controller_id = NULL,
+            hardware_channel = NULL,
+            mapping_status = 'unmapped',
+            active = 1
+          WHERE id IN (${placeholders})
+        `,
+      ).run(...cells.map((cell) => Number(cell.id)));
+    }
+
+    db.prepare(
+      `
+        DELETE FROM controllers
+        WHERE id = ?
+      `,
+    ).run(controller.id);
+
+    return {
+      ...controller,
+      deleted: true,
+      detachedCellCount: cells.length,
+    };
+  });
+}
+
 function normalizeLogicalCode(value) {
   const logicalCode = String(value || "").trim().toUpperCase();
   if (!logicalCode) {
@@ -1643,34 +1747,183 @@ function normalizeLogicalCode(value) {
   return logicalCode;
 }
 
-export function updateCellMapping(db, { cellId, hardwareChannel, logicalCode = null, mappedBy }) {
+function cellHasStock(db, cellId) {
+  const row = db
+    .prepare(
+      `
+        SELECT COUNT(*) AS count
+        FROM inventory_balances
+        WHERE cell_id = ?
+          AND (available_quantity != 0 OR reserved_quantity != 0)
+      `,
+    )
+    .get(Number(cellId));
+  return Number(row?.count || 0) > 0;
+}
+
+function cellHasHistory(db, cellId) {
+  const row = db
+    .prepare(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM task_lines WHERE cell_id = ?) AS task_lines,
+          (SELECT COUNT(*) FROM transactions WHERE cell_id = ?) AS transactions
+      `,
+    )
+    .get(Number(cellId), Number(cellId));
+  return Number(row?.task_lines || 0) > 0 || Number(row?.transactions || 0) > 0;
+}
+
+function retireEmptyMappingCell(db, cellId) {
+  if (cellHasStock(db, cellId)) {
+    throw new Error("Move stock out of the current mapped cell before replacing it.");
+  }
+
+  if (cellHasHistory(db, cellId)) {
+    db.prepare(
+      `
+        UPDATE cells
+        SET
+          controller_id = NULL,
+          hardware_channel = NULL,
+          mapping_status = 'unmapped',
+          active = 1
+        WHERE id = ?
+      `,
+    ).run(Number(cellId));
+    return "detached";
+  }
+
+  db.prepare("UPDATE device_events SET cell_id = NULL WHERE cell_id = ?").run(Number(cellId));
+  db.prepare("DELETE FROM inventory_balances WHERE cell_id = ?").run(Number(cellId));
+  db.prepare("DELETE FROM cells WHERE id = ?").run(Number(cellId));
+  return "deleted";
+}
+
+export function createCell(db, { logicalCode, capacity = 12, createdBy = null } = {}) {
+  const code = normalizeLogicalCode(logicalCode);
+  const cellCapacity = Number(capacity || 12);
+  if (!Number.isFinite(cellCapacity) || cellCapacity <= 0) {
+    throw new Error("Cell capacity must be a positive number.");
+  }
+
+  const existing = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(code);
+  if (existing) {
+    if (Number(existing.active) === 0 && existing.controller_id == null) {
+      db.prepare(
+        `
+          UPDATE cells
+          SET
+            active = 1,
+            capacity = ?,
+            mapping_status = 'unmapped',
+            mapped_by = COALESCE(mapped_by, ?)
+          WHERE id = ?
+        `,
+      ).run(cellCapacity, createdBy, existing.id);
+      return db.prepare("SELECT * FROM cells WHERE id = ?").get(existing.id);
+    }
+    throw new Error("A cell with this name already exists.");
+  }
+
+  const zoneId = getOrCreateZone(db);
+  const result = db
+    .prepare(
+      `
+        INSERT INTO cells (
+          logical_code, zone_id, row_number, column_number, controller_id,
+          hardware_channel, mapping_status, active, capacity, last_mapped_at, mapped_by
+        )
+        VALUES (?, ?, 1, 0, NULL, NULL, 'unmapped', 1, ?, NULL, ?)
+      `,
+    )
+    .run(code, zoneId, cellCapacity, createdBy);
+
+  return db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(result.lastInsertRowid));
+}
+
+export function updateCellMapping(
+  db,
+  { cellId, hardwareChannel, logicalCode = null, targetCellId = null, mappedBy },
+) {
   const channel = Number(hardwareChannel);
   if (!Number.isFinite(channel) || channel <= 0) {
     throw new Error("Hardware channel must be a positive number.");
   }
 
-  const nextLogicalCode = logicalCode == null ? null : normalizeLogicalCode(logicalCode);
-  if (nextLogicalCode) {
-    const existing = db
-      .prepare("SELECT id FROM cells WHERE logical_code = ? AND id != ?")
-      .get(nextLogicalCode, Number(cellId));
-    if (existing) {
-      throw new Error("Another cell already uses that name.");
+  return withTransaction(db, () => {
+    const sourceCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
+    if (!sourceCell) {
+      throw new Error("Mapped module not found.");
     }
-  }
 
-  db.prepare(
-    `
-      UPDATE cells
-      SET
-        logical_code = COALESCE(?, logical_code),
-        hardware_channel = ?,
-        mapping_status = 'mapped',
-        last_mapped_at = ?,
-        mapped_by = ?
-      WHERE id = ?
-    `,
-  ).run(nextLogicalCode, channel, nowIso(), mappedBy, Number(cellId));
+    if (!sourceCell.controller_id) {
+      throw new Error("Choose a mapped LED module before assigning a cell.");
+    }
+
+    let targetCell = null;
+    if (targetCellId) {
+      targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(targetCellId));
+      if (!targetCell) {
+        throw new Error("Selected cell was not found.");
+      }
+    } else if (logicalCode != null) {
+      const nextLogicalCode = normalizeLogicalCode(logicalCode);
+      targetCell = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(nextLogicalCode) || null;
+      if (!targetCell) {
+        db.prepare(
+          `
+            UPDATE cells
+            SET
+              logical_code = ?,
+              hardware_channel = ?,
+              mapping_status = 'mapped',
+              active = 1,
+              last_mapped_at = ?,
+              mapped_by = ?
+            WHERE id = ?
+          `,
+        ).run(nextLogicalCode, channel, nowIso(), mappedBy, sourceCell.id);
+        return db.prepare("SELECT * FROM cells WHERE id = ?").get(sourceCell.id);
+      }
+    } else {
+      targetCell = sourceCell;
+    }
+
+    const now = nowIso();
+    if (Number(targetCell.id) === Number(sourceCell.id)) {
+      db.prepare(
+        `
+          UPDATE cells
+          SET
+            hardware_channel = ?,
+            mapping_status = 'mapped',
+            active = 1,
+            last_mapped_at = ?,
+            mapped_by = ?
+          WHERE id = ?
+        `,
+      ).run(channel, now, mappedBy, sourceCell.id);
+      return db.prepare("SELECT * FROM cells WHERE id = ?").get(sourceCell.id);
+    }
+
+    db.prepare(
+      `
+        UPDATE cells
+        SET
+          controller_id = ?,
+          hardware_channel = ?,
+          mapping_status = 'mapped',
+          active = 1,
+          last_mapped_at = ?,
+          mapped_by = ?
+        WHERE id = ?
+      `,
+    ).run(sourceCell.controller_id, channel, now, mappedBy, targetCell.id);
+
+    retireEmptyMappingCell(db, sourceCell.id);
+    return db.prepare("SELECT * FROM cells WHERE id = ?").get(targetCell.id);
+  });
 }
 
 function getOrCreateZone(db, code = "Z1", name = "Main Zone") {

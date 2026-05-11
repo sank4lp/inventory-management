@@ -393,6 +393,181 @@ test("startup recovery records stale guidance cleanup in degraded mode", async (
   assert.ok(hardwareEvents.length >= 1);
 });
 
+test("reflashing an existing controller migrates mappings to the new RS485 id", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-migration-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const initial = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-01",
+    controllerAddress: "CTRL-OLD-000001",
+    moduleCount: 2,
+    configuredBy: 1,
+  });
+  const initialCells = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === initial.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+
+  assert.equal(initialCells.length, 2);
+  inventory.updateCellMapping(db, {
+    cellId: initialCells[0].id,
+    hardwareChannel: 1,
+    logicalCode: "Z9-R9-C99",
+    mappedBy: 1,
+  });
+
+  const replacement = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-01",
+    controllerAddress: "CTRL-NEW-000001",
+    moduleCount: 2,
+    configuredBy: 1,
+  });
+  const migratedCells = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === replacement.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+
+  assert.equal(replacement.id, initial.id);
+  assert.equal(replacement.address, "CTRL-NEW-000001");
+  assert.deepEqual(
+    migratedCells.map((cell) => cell.id),
+    initialCells.map((cell) => cell.id),
+  );
+  assert.equal(migratedCells[0].logical_code, "Z9-R9-C99");
+  assert.equal(migratedCells[0].controller_address, "CTRL-NEW-000001");
+});
+
+test("controllers can be health-checked and deleted by an admin", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-delete-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const controller = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-STALE",
+    controllerAddress: "CTRL-STALE-0001",
+    moduleCount: 2,
+    configuredBy: 1,
+  });
+
+  inventory.updateControllerHealth(db, {
+    controllerId: controller.id,
+    status: "offline",
+  });
+  assert.equal(
+    inventory.listControllers(db).find((entry) => entry.id === controller.id).heartbeat_status,
+    "offline",
+  );
+
+  const controllerCells = inventory.listCells(db).filter((cell) => cell.controller_id === controller.id);
+  const stockedCell = controllerCells.find((cell) => Number(cell.occupied_quantity) > 0);
+  assert.ok(stockedCell);
+  const controllerCellIds = controllerCells.map((cell) => cell.id);
+
+  const deleted = inventory.deleteController(db, {
+    controllerId: controller.id,
+  });
+  assert.equal(deleted.deleted, true);
+  assert.equal(deleted.detachedCellCount, 2);
+  assert.ok(!inventory.listControllers(db).some((entry) => entry.id === controller.id));
+  assert.ok(!inventory.listCells(db).some((cell) => cell.controller_id === controller.id));
+
+  const manualCells = inventory.listCells(db).filter((cell) => controllerCellIds.includes(cell.id));
+  assert.equal(manualCells.length, 2);
+  assert.ok(manualCells.every((cell) => cell.controller_id == null));
+  assert.ok(manualCells.every((cell) => cell.hardware_channel == null));
+  assert.ok(manualCells.every((cell) => cell.mapping_status === "unmapped"));
+  assert.ok(manualCells.every((cell) => Number(cell.active) === 1));
+  assert.equal(
+    Number(manualCells.find((cell) => cell.id === stockedCell.id).occupied_quantity),
+    Number(stockedCell.occupied_quantity),
+  );
+
+  const storedController = db.prepare("SELECT * FROM controllers WHERE id = ?").get(controller.id);
+  const storedCells = db
+    .prepare(`SELECT * FROM cells WHERE id IN (${controllerCellIds.map(() => "?").join(", ")})`)
+    .all(...controllerCellIds);
+  assert.equal(storedController, undefined);
+  assert.equal(storedCells.length, 2);
+
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  const manualPickTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+    preferredCellId: stockedCell.id,
+  });
+  assert.equal(manualPickTask.lines[0].cell_id, stockedCell.id);
+  assert.equal(manualPickTask.lines[0].controller_id, null);
+});
+
+test("mapping a new module to an existing cell preserves that cell inventory", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-cell-remap-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const existingController = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-OLD",
+    controllerAddress: "CTRL-OLD-REMAP",
+    moduleCount: 1,
+    configuredBy: 1,
+  });
+  const existingCell = inventory
+    .listCells(db)
+    .find((cell) => cell.controller_id === existingController.id && cell.logical_code === "Z1-R1-C01");
+  assert.ok(existingCell);
+  assert.ok(Number(existingCell.occupied_quantity) > 0);
+
+  const replacementController = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-NEW",
+    controllerAddress: "CTRL-NEW-REMAP",
+    moduleCount: 1,
+    configuredBy: 1,
+  });
+  const placeholderCell = inventory
+    .listCells(db)
+    .find((cell) => cell.controller_id === replacementController.id && cell.logical_code !== "Z1-R1-C01");
+  assert.ok(placeholderCell);
+
+  const remapped = inventory.updateCellMapping(db, {
+    cellId: placeholderCell.id,
+    targetCellId: existingCell.id,
+    hardwareChannel: 1,
+    mappedBy: 1,
+  });
+  assert.equal(remapped.id, existingCell.id);
+
+  const afterRemap = inventory
+    .listCells(db)
+    .find((cell) => cell.id === existingCell.id);
+  assert.equal(afterRemap.logical_code, "Z1-R1-C01");
+  assert.equal(afterRemap.controller_id, replacementController.id);
+  assert.equal(afterRemap.controller_address, "CTRL-NEW-REMAP");
+  assert.equal(Number(afterRemap.occupied_quantity), Number(existingCell.occupied_quantity));
+  assert.ok(!inventory.listCells(db).some((cell) => cell.id === placeholderCell.id));
+
+  const added = inventory.createCell(db, {
+    logicalCode: "Z1-R1-C99",
+    capacity: 8,
+    createdBy: 1,
+  });
+  assert.equal(added.logical_code, "Z1-R1-C99");
+  assert.equal(Number(added.capacity), 8);
+  assert.ok(inventory.listCellCatalog(db).some((cell) => cell.id === added.id));
+});
+
 test("submission tokens are one-time use and production config requires a session secret", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-token-"));
   process.chdir(sandbox);

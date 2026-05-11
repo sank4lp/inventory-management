@@ -91,8 +91,8 @@ export function createTaskPages({ db }) {
 
     const guidanceSummary =
       task.type === "pick"
-        ? "Pick from the green cells below."
-        : "Place into the red cells below.";
+        ? "Pick from the cells below. Mapped cells light green; unmapped cells are manual."
+        : "Place into the cells below. Mapped cells light red; unmapped cells are manual.";
     const firstLine = task.lines[0];
     const cells = task.type === "put" ? listCells(db) : [];
     const editMode = mode === "edit";

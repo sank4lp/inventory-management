@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 
+import { updateControllerHealth } from "./inventory.js";
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -10,6 +12,45 @@ function firstColumnValue(row) {
 }
 
 export function createSystemService({ db, config, logger, hardwareService, getTask }) {
+  function normalizeControllerHealthStatus(result = {}) {
+    const status = String(result.status || "").trim().toLowerCase();
+    if (["online", "offline", "unknown"].includes(status)) {
+      return status;
+    }
+    if (result.ok === true && result.degraded !== true) {
+      return "online";
+    }
+    return "unknown";
+  }
+
+  function refreshControllerHealths() {
+    const controllers = db
+      .prepare(
+        `
+          SELECT *
+          FROM controllers
+          WHERE active = 1
+          ORDER BY id
+        `,
+      )
+      .all();
+
+    return controllers.map((controller) => {
+      const result = hardwareService.checkControllerHealth(controller);
+      const status = normalizeControllerHealthStatus(result);
+      updateControllerHealth(db, {
+        controllerId: controller.id,
+        status,
+      });
+      return {
+        controllerId: controller.id,
+        controllerCode: controller.controller_code,
+        status,
+        message: result.message || null,
+      };
+    });
+  }
+
   function recordSystemEvent({ eventType, status = "info", message, payload = null }) {
     db.prepare(
       `
@@ -61,6 +102,8 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
       db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND status = 'active'").get()
         .count,
     );
+    const hardwareHealth = hardwareService.healthCheck();
+    const controllerHealthResults = refreshControllerHealths();
     const controllerSummary = db
       .prepare(
         `
@@ -72,7 +115,6 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         `,
       )
       .get();
-    const hardwareHealth = hardwareService.healthCheck();
     const pendingTasks = db
       .prepare(
         `
@@ -106,6 +148,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
             : `${Number(controllerSummary.online || 0)} of ${Number(
                 controllerSummary.total || 0,
               )} controllers online.`,
+        checked: controllerHealthResults,
       },
       recovery: {
         status: pendingTasks.length ? "warning" : "healthy",
@@ -251,6 +294,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   return {
     recordSystemEvent,
     listRecentSystemEvents,
+    refreshControllerHealths,
     runStartupChecks,
     recoverPendingGuidance,
     issueSubmissionToken,
