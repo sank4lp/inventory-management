@@ -158,6 +158,32 @@ function deviceIdentityFor(path, label, canonical) {
   return `path:${canonical || path}`;
 }
 
+function isTtyAlias(path) {
+  return (
+    path.startsWith("/dev/ttyUSB") ||
+    path.startsWith("/dev/ttyACM") ||
+    path.startsWith("/dev/tty.usb") ||
+    path.startsWith("/dev/cu.usb") ||
+    path.startsWith("/dev/tty.SLAB") ||
+    path.startsWith("/dev/cu.SLAB") ||
+    path.startsWith("/dev/tty.wchusb") ||
+    path.startsWith("/dev/cu.wchusb")
+  );
+}
+
+function mergePortAlias(port, alias) {
+  if (!alias) {
+    return port;
+  }
+  if (!port.aliases.includes(alias)) {
+    port.aliases.push(alias);
+  }
+  if (isTtyAlias(alias) && !port.ttyPath) {
+    port.ttyPath = alias;
+  }
+  return port;
+}
+
 function readArduinoBoards(arduinoCliPath) {
   if (!executableExists(arduinoCliPath)) {
     return new Map();
@@ -202,32 +228,42 @@ function addPort(ports, seen, path, label = "", arduinoBoards = new Map()) {
   }
 
   const canonical = canonicalPath(path);
-  if (seen.canonical.has(canonical)) {
+  const existingPort = seen.canonical.get(canonical);
+  if (existingPort) {
+    seen.paths.add(path);
+    mergePortAlias(existingPort, path);
+    mergePortAlias(existingPort, canonical);
     return;
   }
 
   seen.paths.add(path);
-  seen.canonical.add(canonical);
+  const aliases = [];
   const arduinoBoard = arduinoBoards.get(path) || arduinoBoards.get(canonical) || null;
   const profile = usbSerialProfile(path, label, arduinoBoard);
   const deviceIdentity = deviceIdentityFor(path, label, canonical);
 
-  ports.push({
+  const port = {
     path,
     canonicalPath: canonical,
     label: label || path.split("/").pop() || path,
     deviceName: arduinoBoard?.name || label || path.split("/").pop() || path,
     deviceIdentity,
+    aliases,
+    ttyPath: "",
     arduinoBoard,
     ...profile,
-  });
+  };
+  mergePortAlias(port, path);
+  mergePortAlias(port, canonical);
+  ports.push(port);
+  seen.canonical.set(canonical, port);
 }
 
 function listSerialPorts(arduinoCliPath) {
   const ports = [];
   const seen = {
     paths: new Set(),
-    canonical: new Set(),
+    canonical: new Map(),
   };
   const arduinoBoards = readArduinoBoards(arduinoCliPath);
 

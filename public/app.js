@@ -393,6 +393,27 @@ function firmwarePortIdentity(port) {
   return port.deviceIdentity || port.path;
 }
 
+function firmwareTtyPath(port) {
+  if (port.ttyPath) {
+    return port.ttyPath;
+  }
+  return (port.aliases || []).find((alias) => /\/dev\/(?:tty|cu)[A-Za-z0-9._-]+$/.test(alias)) || "";
+}
+
+function appendFirmwarePortMeta(parent, label, value) {
+  if (!value) {
+    return;
+  }
+  const meta = document.createElement("span");
+  meta.className = "firmware-port-meta";
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  const code = document.createElement("code");
+  code.textContent = value;
+  meta.append(strong, code);
+  parent.appendChild(meta);
+}
+
 function getFirmwareBaseline(panel) {
   try {
     return new Set(JSON.parse(panel.dataset.firmwareBaseline || "[]"));
@@ -463,9 +484,9 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
     button.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
 
     const label = document.createElement("strong");
-    label.textContent = port.flashRecord?.deviceName || port.deviceName || "ESP32 controller";
-    const path = document.createElement("code");
-    path.textContent = port.path;
+    label.textContent = port.newlyConnected
+      ? "Added serial device"
+      : port.flashRecord?.deviceName || port.deviceName || "ESP32 controller";
     const badge = document.createElement("span");
     const flashed = port.flashStatus === "configured";
     badge.className = `badge ${flashed ? "badge-flashed" : "badge-new"}`;
@@ -484,7 +505,10 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
         : "ESP32 candidate. Flash this controller before mapping cells.";
     }
 
-    button.append(label, path, badge, summary);
+    button.append(label, badge);
+    appendFirmwarePortMeta(button, "Flash path", port.path);
+    appendFirmwarePortMeta(button, "TTY alias", firmwareTtyPath(port));
+    button.append(summary);
     target.appendChild(button);
   }
 }
@@ -500,9 +524,6 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
   const otherPorts = ports.filter((port) => !primary.has(firmwarePortIdentity(port)));
   target.replaceChildren();
   details.hidden = otherPorts.length === 0;
-  if (otherPorts.length > 0) {
-    details.open = true;
-  }
 
   for (const port of otherPorts) {
     const item = document.createElement("button");
@@ -513,14 +534,15 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
     item.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
     const name = document.createElement("strong");
     name.textContent = port.deviceName || port.label || "Serial device";
-    const path = document.createElement("code");
-    path.textContent = port.path;
     const reason = document.createElement("span");
     reason.textContent =
       port.flashStatus === "configured"
         ? "Previously configured ESP32. Select to reflash."
         : "Existing serial device. Select only if this is the ESP32 you want to flash.";
-    item.append(name, path, reason);
+    item.append(name);
+    appendFirmwarePortMeta(item, "Flash path", port.path);
+    appendFirmwarePortMeta(item, "TTY alias", firmwareTtyPath(port));
+    item.append(reason);
     target.appendChild(item);
   }
 }
@@ -544,16 +566,16 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
   let primaryPorts = ports
     .map((port) => ({
       ...port,
-      newlyConnected: !baseline.has(firmwarePortIdentity(port)) && port.flashStatus !== "configured",
+      newlyConnected: !baseline.has(firmwarePortIdentity(port)),
     }))
     .filter(
       (port) =>
-        port.flashStatus === "configured" ||
-        port.newlyConnected ||
-        (!baselineAvailable && port.recommended && esp32Identities.has(firmwarePortIdentity(port))),
+        baselineAvailable
+          ? port.newlyConnected
+          : port.flashStatus === "configured" && esp32Identities.has(firmwarePortIdentity(port)),
     );
   if (mode === "baseline") {
-    primaryPorts = primaryPorts.filter((port) => port.flashStatus === "configured");
+    primaryPorts = [];
   }
   const selectedCandidate =
     primaryPorts.find((port) => port.path === currentPort) ||

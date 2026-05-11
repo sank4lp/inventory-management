@@ -593,8 +593,20 @@ textarea {
 }
 
 .firmware-port-choice code {
-  grid-column: 1 / -1;
   overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.firmware-port-meta {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
+  font-size: 0.9rem;
+}
+
+.firmware-port-meta strong {
   color: var(--muted);
 }
 
@@ -652,6 +664,10 @@ textarea {
 .firmware-other-device code {
   overflow-wrap: anywhere;
   color: var(--muted);
+}
+
+.firmware-other-device .firmware-port-meta {
+  grid-template-columns: 82px minmax(0, 1fr);
 }
 
 .firmware-progress {

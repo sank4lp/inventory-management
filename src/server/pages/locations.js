@@ -45,7 +45,7 @@ function flashRecordSummary(port) {
 
 function renderPortChoices(ports = [], selectedPort = "") {
   if (!ports.length) {
-    return `<p class="muted">No new ESP32 detected yet. Leave existing peripherals connected, plug in the ESP32 USB cable, then click Refresh ports.</p>`;
+    return `<p class="muted">No detected ESP32 target yet. Unplug the ESP32, scan without it, then plug it in and detect the added port.</p>`;
   }
 
   return ports
@@ -160,13 +160,10 @@ export function createLocationPages({ db }) {
     const firmwareOptions = runtime.firmwareService?.getFlashOptions();
     const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
     const moduleCount = lastFirmwareConfig?.moduleCount || firmwareOptions?.moduleCount?.value || 4;
-    const port = firmwareOptions?.defaultPort || "";
+    const port = "";
     const controllerName = lastFirmwareConfig?.controllerName || lastFirmwareConfig?.deviceName || "ESP32-01";
     const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
-    const configuredPorts = (firmwareOptions?.esp32Ports || []).filter(
-      (entry) => entry.flashStatus === "configured",
-    );
-    const hasPorts = Boolean(configuredPorts.length);
+    const hasPorts = false;
 
     return page({
       title: "Devices and Mapping",
@@ -230,7 +227,7 @@ export function createLocationPages({ db }) {
                         </label>
                       </div>
                       <datalist id="firmware-ports">
-                        ${renderPortOptions(firmwareOptions.esp32Ports)}
+                        ${renderPortOptions([])}
                       </datalist>
                       <p class="muted">Setup flow: keep RS485, mouse, and keyboard connected; unplug the ESP32; scan without ESP32; plug in the ESP32; then detect the added serial device.</p>
                       <p class="muted">If upload cannot connect, hold BOOT, start flashing, tap EN/RESET once while Connecting is shown, then release BOOT after upload starts.</p>
@@ -239,10 +236,10 @@ export function createLocationPages({ db }) {
                         data-firmware-port-status
                       >${escapeHtml(firmwareOptions.portStatus)}</div>
                       <div class="firmware-port-list" data-firmware-port-list>
-                        ${renderPortChoices(configuredPorts, port)}
+                        ${renderPortChoices([], port)}
                       </div>
-                      <details class="firmware-other-devices" data-firmware-other-devices open>
-                        <summary>Existing serial devices / reflash existing ESP32</summary>
+                      <details class="firmware-other-devices" data-firmware-other-devices>
+                        <summary>Other serial devices / manual reflash</summary>
                         <div class="firmware-other-device-list" data-firmware-other-device-list></div>
                       </details>
                       <div class="mini-actions">
