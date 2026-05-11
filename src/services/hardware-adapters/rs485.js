@@ -20,11 +20,45 @@ function firmwareWord(value, fallback) {
 
 const LOCATE_TIMEOUT_MS = 120000;
 const BLINK_TEST_DURATION_MS = 2250;
+const DEFAULT_RS485_WRITE_REPEATS = 3;
+const DEFAULT_RS485_WRITE_REPEAT_DELAY_MS = 90;
+const DEFAULT_RS485_INTER_COMMAND_DELAY_MS = 35;
+
+function numberSetting(value, fallback, { min, max }) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.trunc(number)));
+}
+
+function sleepMs(ms) {
+  if (ms <= 0) {
+    return;
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 export function createRs485Adapter({ config = {}, logger }) {
   const port = config.rs485SerialPort || process.env.RS485_SERIAL_PORT || "";
+  const writeRepeats = numberSetting(
+    config.rs485WriteRepeats || process.env.RS485_WRITE_REPEATS,
+    DEFAULT_RS485_WRITE_REPEATS,
+    { min: 1, max: 5 },
+  );
+  const writeRepeatDelayMs = numberSetting(
+    config.rs485WriteRepeatDelayMs || process.env.RS485_WRITE_REPEAT_DELAY_MS,
+    DEFAULT_RS485_WRITE_REPEAT_DELAY_MS,
+    { min: 0, max: 500 },
+  );
+  const interCommandDelayMs = numberSetting(
+    config.rs485InterCommandDelayMs || process.env.RS485_INTER_COMMAND_DELAY_MS,
+    DEFAULT_RS485_INTER_COMMAND_DELAY_MS,
+    { min: 0, max: 500 },
+  );
   let configured = false;
   let portFd = null;
+  let lastWriteAt = 0;
   const locateTimers = new Map();
 
   function ensureReady() {
@@ -58,7 +92,19 @@ export function createRs485Adapter({ config = {}, logger }) {
   function send(command) {
     ensureReady();
     try {
-      writeSync(portFd, `${command}\n`);
+      const now = Date.now();
+      const sinceLastWrite = now - lastWriteAt;
+      if (lastWriteAt > 0 && sinceLastWrite < interCommandDelayMs) {
+        sleepMs(interCommandDelayMs - sinceLastWrite);
+      }
+
+      for (let attempt = 1; attempt <= writeRepeats; attempt += 1) {
+        writeSync(portFd, `${command}\n`);
+        lastWriteAt = Date.now();
+        if (attempt < writeRepeats) {
+          sleepMs(writeRepeatDelayMs);
+        }
+      }
     } catch (error) {
       portFd = null;
       configured = false;
@@ -67,6 +113,9 @@ export function createRs485Adapter({ config = {}, logger }) {
     logger?.debug("hardware.rs485.write", {
       port,
       command,
+      repeats: writeRepeats,
+      repeatDelayMs: writeRepeatDelayMs,
+      interCommandDelayMs,
     });
   }
 
