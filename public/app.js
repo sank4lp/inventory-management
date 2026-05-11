@@ -402,9 +402,27 @@ function getFirmwareBaseline(panel) {
 }
 
 function setFirmwareBaseline(panel, ports) {
-  panel.dataset.firmwareBaseline = JSON.stringify(
-    ports.map((port) => firmwarePortIdentity(port)).filter(Boolean),
-  );
+  const identities = ports.map((port) => firmwarePortIdentity(port)).filter(Boolean);
+  panel.dataset.firmwareBaseline = JSON.stringify(identities);
+  panel.dataset.firmwareBaselineCount = String(identities.length);
+}
+
+function hasFirmwareBaseline(panel) {
+  return Boolean(panel.dataset.firmwareBaseline);
+}
+
+function clearFirmwareSelection(panel) {
+  const input = panel.querySelector("[data-firmware-port-input]");
+  const identityInput = panel.querySelector("[data-firmware-device-identity]");
+  if (input) {
+    input.value = "";
+  }
+  if (identityInput) {
+    identityInput.value = "";
+  }
+  panel.querySelectorAll("[data-firmware-port-choice]").forEach((choice) => {
+    choice.classList.remove("firmware-port-choice-active");
+  });
 }
 
 function syncFirmwareSubmitState(panel) {
@@ -426,7 +444,9 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
   if (!ports.length) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = "No new ESP32 detected yet. Leave existing peripherals connected, plug in the ESP32 USB cable, then click Refresh ports.";
+    empty.textContent = hasFirmwareBaseline(panel)
+      ? "No added serial device detected yet. Plug in the ESP32 USB cable, then click Detect added ESP32."
+      : "Unplug the ESP32 and click Scan without ESP32 to capture the current peripherals first.";
     target.appendChild(empty);
     return;
   }
@@ -449,7 +469,7 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
     const badge = document.createElement("span");
     const flashed = port.flashStatus === "configured";
     badge.className = `badge ${flashed ? "badge-flashed" : "badge-new"}`;
-    badge.textContent = flashed ? "flashed" : "new";
+    badge.textContent = flashed ? "flashed" : port.badge || "new";
     const summary = document.createElement("span");
     summary.className = "firmware-device-summary";
     if (flashed && port.flashRecord) {
@@ -459,7 +479,9 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
         : "unknown time";
       summary.textContent = `Already flashed · ${port.flashRecord.moduleCount} LED module(s) · ${configuredAt} · by ${flashedBy}`;
     } else {
-      summary.textContent = "New ESP32 connected. Flash this controller before mapping cells.";
+      summary.textContent = port.newlyConnected
+        ? "New serial device detected after refresh. Select it only if this is the ESP32."
+        : "ESP32 candidate. Flash this controller before mapping cells.";
     }
 
     button.append(label, path, badge, summary);
@@ -503,7 +525,7 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
   }
 }
 
-function updateFirmwarePorts(panel, options, { captureBaseline = false } = {}) {
+function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "detect" } = {}) {
   const ports = normalizeFirmwarePorts(options.ports || []);
   const esp32Ports = normalizeFirmwarePorts(options.esp32Ports || options.ports || []);
   const input = panel.querySelector("[data-firmware-port-input]");
@@ -512,17 +534,27 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false } = {}) {
   const status = panel.querySelector("[data-firmware-port-status]");
   const currentPort = input?.value.trim() || "";
 
-  if (captureBaseline || !panel.dataset.firmwareBaseline) {
+  if (captureBaseline) {
     setFirmwareBaseline(panel, ports);
   }
 
   const baseline = getFirmwareBaseline(panel);
-  const primaryPorts = esp32Ports
+  const baselineAvailable = hasFirmwareBaseline(panel);
+  const esp32Identities = new Set(esp32Ports.map((port) => firmwarePortIdentity(port)));
+  let primaryPorts = ports
     .map((port) => ({
       ...port,
       newlyConnected: !baseline.has(firmwarePortIdentity(port)) && port.flashStatus !== "configured",
     }))
-    .filter((port) => port.flashStatus === "configured" || port.newlyConnected);
+    .filter(
+      (port) =>
+        port.flashStatus === "configured" ||
+        port.newlyConnected ||
+        (!baselineAvailable && port.recommended && esp32Identities.has(firmwarePortIdentity(port))),
+    );
+  if (mode === "baseline") {
+    primaryPorts = primaryPorts.filter((port) => port.flashStatus === "configured");
+  }
   const selectedCandidate =
     primaryPorts.find((port) => port.path === currentPort) ||
     primaryPorts.find((port) => port.newlyConnected) ||
@@ -550,13 +582,18 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false } = {}) {
   if (status) {
     const newCount = primaryPorts.filter((port) => port.newlyConnected).length;
     const flashedCount = primaryPorts.filter((port) => port.flashStatus === "configured").length;
-    if (newCount > 0) {
-      status.textContent = `New ESP32 connected. ${newCount === 1 ? "It" : "One of them"} should be flashed.`;
+    if (mode === "baseline") {
+      status.textContent = `Baseline saved with ${ports.length} serial device${ports.length === 1 ? "" : "s"}. Now plug in the ESP32 and click Detect added ESP32.`;
+    } else if (newCount > 0) {
+      status.textContent = `New serial device connected. If this is the ESP32, select it and flash it.`;
     } else if (flashedCount > 0) {
       status.textContent = `${flashedCount} already flashed ESP32 controller${flashedCount === 1 ? "" : "s"} detected.`;
+    } else if (baselineAvailable) {
+      status.textContent =
+        "No newly added serial device detected. Keep the existing peripherals connected, plug in the ESP32, then click Detect added ESP32 again.";
     } else {
       status.textContent =
-        "No new ESP32 detected. Existing USB-to-UART devices such as the RS485 adapter are listed below. Plug in the ESP32 USB cable, then click Refresh ports.";
+        "Start by unplugging the ESP32 and clicking Scan without ESP32. Then plug in the ESP32 and detect the added port.";
     }
     status.classList.toggle("firmware-port-status-ok", primaryPorts.length > 0);
     status.classList.toggle("firmware-port-status-missing", primaryPorts.length === 0);
@@ -568,13 +605,16 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false } = {}) {
 }
 
 async function refreshFirmwarePorts(panel, settings = {}) {
-  const button = panel.querySelector("[data-firmware-refresh-ports]");
+  const buttons = panel.querySelectorAll("[data-firmware-scan-baseline], [data-firmware-refresh-ports]");
   const status = panel.querySelector("[data-firmware-port-status]");
-  if (button) {
+  for (const button of buttons) {
     button.disabled = true;
   }
   if (status) {
-    status.textContent = "Checking connected serial ports...";
+    status.textContent =
+      settings.mode === "baseline"
+        ? "Scanning current serial devices. Keep the ESP32 unplugged..."
+        : "Checking for a serial device added after the baseline scan...";
   }
 
   try {
@@ -589,6 +629,7 @@ async function refreshFirmwarePorts(panel, settings = {}) {
     }
     updateFirmwarePorts(panel, payload, {
       captureBaseline: settings.captureBaseline === true,
+      mode: settings.mode || "detect",
     });
   } catch (error) {
     if (status) {
@@ -598,7 +639,7 @@ async function refreshFirmwarePorts(panel, settings = {}) {
     }
   } finally {
     syncFirmwareSubmitState(panel);
-    if (button) {
+    for (const button of buttons) {
       button.disabled = false;
     }
   }
@@ -697,9 +738,20 @@ function wireFirmwareFlash() {
 
     if (panel) {
       panel.addEventListener("click", (event) => {
+        const baselineButton = event.target.closest("[data-firmware-scan-baseline]");
+        if (baselineButton) {
+          refreshFirmwarePorts(panel, { captureBaseline: true, mode: "baseline" })
+            .then(() => {
+              clearFirmwareSelection(panel);
+              syncFirmwareSubmitState(panel);
+            })
+            .catch(() => {});
+          return;
+        }
+
         const refreshButton = event.target.closest("[data-firmware-refresh-ports]");
         if (refreshButton) {
-          refreshFirmwarePorts(panel).catch(() => {});
+          refreshFirmwarePorts(panel, { mode: "detect" }).catch(() => {});
           return;
         }
 
@@ -730,7 +782,7 @@ function wireFirmwareFlash() {
         }
         syncFirmwareSubmitState(panel);
       });
-      refreshFirmwarePorts(panel, { captureBaseline: true }).catch(() => {});
+      syncFirmwareSubmitState(panel);
     }
 
     form.addEventListener("submit", async (event) => {

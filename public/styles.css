@@ -539,8 +539,19 @@ textarea {
 
 .firmware-port-input-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.55rem;
+}
+
+.firmware-detect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.firmware-detect-actions .ghost-button {
+  white-space: normal;
+  min-height: 2.45rem;
 }
 
 .firmware-port-status {

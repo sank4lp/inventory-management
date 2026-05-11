@@ -219,7 +219,10 @@ export function createLocationPages({ db }) {
                               required
                             />
                             <input type="hidden" name="device_identity" value="" data-firmware-device-identity />
-                            <button type="button" class="ghost-button" data-firmware-refresh-ports>Refresh ports</button>
+                          </div>
+                          <div class="firmware-detect-actions">
+                            <button type="button" class="ghost-button" data-firmware-scan-baseline>1. Scan without ESP32</button>
+                            <button type="button" class="ghost-button" data-firmware-refresh-ports>2. Detect added ESP32</button>
                           </div>
                         </label>
                         <label>Board FQBN
@@ -229,7 +232,8 @@ export function createLocationPages({ db }) {
                       <datalist id="firmware-ports">
                         ${renderPortOptions(firmwareOptions.esp32Ports)}
                       </datalist>
-                      <p class="muted">Keep existing USB devices connected, then plug in the ESP32 and click Refresh ports. New ESP32 devices appear in the primary list; existing USB-to-UART devices such as the RS485 adapter remain in the serial-device list unless you select them for reflashing.</p>
+                      <p class="muted">Setup flow: keep RS485, mouse, and keyboard connected; unplug the ESP32; scan without ESP32; plug in the ESP32; then detect the added serial device.</p>
+                      <p class="muted">If upload cannot connect, hold BOOT, start flashing, tap EN/RESET once while Connecting is shown, then release BOOT after upload starts.</p>
                       <div
                         class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
                         data-firmware-port-status

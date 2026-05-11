@@ -11,7 +11,7 @@ const MIN_MODULES = 1;
 const MAX_MODULES = 64;
 const MAX_LOG_LINES = 500;
 const BOOT_BUTTON_GUIDANCE =
-  "Upload failed while connecting to the ESP32. Hold the BOOT button, start flashing again, release BOOT when the upload begins, then wait for the progress to finish.";
+  "Upload failed while connecting to the ESP32. First confirm the selected serial port is the ESP32, not the RS485 USB-to-UART bridge. To force download mode: hold BOOT, start flashing, tap EN/RESET once when Connecting appears while still holding BOOT, then release BOOT only after upload starts. If there is no EN/RESET button, unplug and reconnect USB while holding BOOT.";
 
 function nowIso() {
   return new Date().toISOString();
@@ -100,8 +100,7 @@ function usbSerialProfile(path, label = "", arduinoBoard = null) {
     haystack.includes("espressif") ||
     haystack.includes("303a") ||
     String(arduinoBoard?.fqbn || "").toLowerCase().includes("esp32");
-  const likelyEsp32 =
-    knownEsp32 ||
+  const genericUsbUart =
     haystack.includes("cp210") ||
     haystack.includes("ch340") ||
     haystack.includes("ch341") ||
@@ -111,7 +110,9 @@ function usbSerialProfile(path, label = "", arduinoBoard = null) {
     haystack.includes("usbserial") ||
     haystack.includes("usbmodem") ||
     haystack.includes("1a86") ||
-    haystack.includes("10c4") ||
+    haystack.includes("10c4");
+  const likelyEsp32 =
+    knownEsp32 ||
     path.includes("/ttyUSB") ||
     path.includes("/ttyACM");
 
@@ -121,6 +122,15 @@ function usbSerialProfile(path, label = "", arduinoBoard = null) {
       confidence: "known",
       recommended: true,
       badge: "ESP32",
+    };
+  }
+
+  if (genericUsbUart) {
+    return {
+      kind: "usb_uart_bridge",
+      confidence: "bridge",
+      recommended: false,
+      badge: "USB-UART",
     };
   }
 
@@ -254,7 +264,8 @@ function listSerialPorts(arduinoCliPath) {
     const rank = {
       known: 0,
       likely: 1,
-      unknown: 2,
+      bridge: 2,
+      unknown: 3,
     };
     if (rank[left.confidence] !== rank[right.confidence]) {
       return rank[left.confidence] - rank[right.confidence];
@@ -549,8 +560,6 @@ export function createFirmwareService({ db, config = {}, logger }) {
           port.deviceIdentity === lastConfiguration?.deviceIdentity,
       );
       const configuredPort = ports.find((port) => port.flashStatus === "configured") || null;
-      const newEsp32Port = ports.find((port) => port.flashStatus === "new") || null;
-      const recommendedPort = configuredPort || newEsp32Port || ports.find((port) => port.recommended) || null;
       const esp32Ports = ports.filter((port) => port.recommended || port.flashStatus === "configured");
       const otherPorts = ports.filter((port) => !port.recommended);
       const configuredCount = esp32Ports.filter((port) => port.flashStatus === "configured").length;
@@ -564,12 +573,12 @@ export function createFirmwareService({ db, config = {}, logger }) {
         ports,
         esp32Ports,
         otherPorts,
-        defaultPort: lastPortAvailable ? lastConfiguration.port : recommendedPort?.path || "",
+        defaultPort: lastPortAvailable ? lastConfiguration.port : configuredPort?.path || "",
         portStatus: esp32Ports.length
           ? configuredCount
             ? `${configuredCount} configured ESP32 controller${configuredCount === 1 ? "" : "s"} detected.`
-            : "New ESP32 detected. Configure LED modules, then flash it."
-          : "No ESP32 detected. Plug in the ESP32 USB cable, then refresh ports.",
+            : "Step 1: unplug the ESP32 and scan without it. Then plug it in and detect the added port."
+          : "Step 1: unplug the ESP32 and scan without it. Then plug it in and detect the added port.",
         moduleCount: {
           min: MIN_MODULES,
           max: MAX_MODULES,
