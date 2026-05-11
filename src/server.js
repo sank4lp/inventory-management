@@ -20,6 +20,7 @@ import { createAdminService } from "./services/admin.js";
 import { createAnomalyService } from "./services/anomalies.js";
 import { createBackupService } from "./services/backups.js";
 import { createCatalogService } from "./services/catalog.js";
+import { createFirmwareService } from "./services/firmware.js";
 import { createHardwareService } from "./services/hardware.js";
 import { createLocationService } from "./services/locations.js";
 import { createSystemService } from "./services/system.js";
@@ -55,6 +56,11 @@ function buildAppState() {
     config: appConfig,
     logger,
   });
+  const firmwareService = createFirmwareService({
+    db,
+    config: appConfig,
+    logger,
+  });
   const systemService = createSystemService({
     db,
     config: appConfig,
@@ -83,6 +89,7 @@ function buildAppState() {
 
   setRuntimeContext({
     config: appConfig,
+    firmwareService,
     logger,
     systemService,
     startup,
@@ -94,6 +101,7 @@ function buildAppState() {
     backupService,
     catalogService,
     db,
+    firmwareService,
     hardwareService,
     locationService,
     pages,
@@ -136,6 +144,15 @@ function sendText(response, text, statusCode = 200, headers = {}) {
     ...headers,
   });
   response.end(text);
+}
+
+function sendJson(response, payload, statusCode = 200, headers = {}) {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...headers,
+  });
+  response.end(JSON.stringify(payload));
 }
 
 function sendRedirect(response, location, headers = {}) {
@@ -191,6 +208,20 @@ function ensureAdmin(response, user) {
 
   if (!requireRole(user, "admin")) {
     sendRedirect(response, appendFlash("/", "Admin access is required.", "error"));
+    return false;
+  }
+
+  return true;
+}
+
+function ensureApiAdmin(response, user) {
+  if (!user) {
+    sendJson(response, { error: "Authentication is required." }, 401);
+    return false;
+  }
+
+  if (!requireRole(user, "admin")) {
+    sendJson(response, { error: "Admin access is required." }, 403);
     return false;
   }
 
@@ -285,6 +316,7 @@ export const requestHandler = async (request, response) => {
     backupService,
     catalogService,
     db,
+    firmwareService,
     hardwareService,
     locationService,
     pages,
@@ -850,6 +882,38 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/firmware/options") {
+      if (!ensureApiAdmin(response, user)) {
+        return;
+      }
+      sendJson(response, firmwareService.getFlashOptions());
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/firmware/flash") {
+      if (!ensureApiAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const job = firmwareService.startFlashJob(form);
+      sendJson(response, { job }, 202);
+      return;
+    }
+
+    const firmwareJobMatch = url.pathname.match(/^\/api\/firmware\/jobs\/([A-Za-z0-9-]+)$/);
+    if (request.method === "GET" && firmwareJobMatch) {
+      if (!ensureApiAdmin(response, user)) {
+        return;
+      }
+      const job = firmwareService.getJob(firmwareJobMatch[1]);
+      if (!job) {
+        sendJson(response, { error: "Firmware job not found." }, 404);
+        return;
+      }
+      sendJson(response, { job });
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/devices/controller-test") {
       if (!ensureAdmin(response, user)) {
         return;
@@ -978,6 +1042,10 @@ export const requestHandler = async (request, response) => {
 
     sendHtml(response, pages.renderNotFound(user), 404);
   } catch (error) {
+    if (url.pathname.startsWith("/api/")) {
+      sendJson(response, { error: error.message }, 400);
+      return;
+    }
     let target = user ? url.pathname : "/login";
     const confirmMatch = url.pathname.match(/^\/tasks\/(\d+)\/confirm$/);
     const buttonMatch = url.pathname.match(/^\/tasks\/(\d+)\/simulate-button$/);

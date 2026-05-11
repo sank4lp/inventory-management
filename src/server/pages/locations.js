@@ -3,6 +3,7 @@ import {
   listControllers,
   searchCells,
 } from "../../services/inventory.js";
+import { getRuntimeContext } from "../runtime-context.js";
 import {
   card,
   escapeHtml,
@@ -12,6 +13,12 @@ import {
   statusBadge,
   table,
 } from "./shared.js";
+
+function renderModuleChips(modules = []) {
+  return modules
+    .map((moduleNumber) => `<span class="module-chip">Module ${escapeHtml(moduleNumber)}</span>`)
+    .join("");
+}
 
 export function createLocationPages({ db }) {
   function renderCellSearchResults(cells) {
@@ -101,12 +108,85 @@ export function createLocationPages({ db }) {
   function renderDevices(user, flash) {
     const controllers = listControllers(db);
     const cells = listCells(db);
+    const runtime = getRuntimeContext();
+    const firmwareOptions = runtime.firmwareService?.getFlashOptions();
+    const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
+    const moduleCount = lastFirmwareConfig?.moduleCount || firmwareOptions?.moduleCount?.value || 4;
+    const port = lastFirmwareConfig?.port || firmwareOptions?.defaultPort || "";
+    const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
 
     return page({
       title: "Devices and Mapping",
       user,
       flash,
       content: `
+        ${
+          firmwareOptions
+            ? card(
+                "ESP32 firmware",
+                `
+                  <div class="firmware-panel" data-firmware-panel>
+                    <div class="meta-grid compact-meta-grid">
+                      <div><strong>Arduino CLI</strong><br />${statusBadge(
+                        firmwareOptions.arduinoCli.available ? "available" : "missing",
+                      )}</div>
+                      <div><strong>Sketch</strong><br /><code>${escapeHtml(
+                        firmwareOptions.sketchPath,
+                      )}</code></div>
+                    </div>
+                    <form class="stack-form" data-firmware-flash-form>
+                      <div class="firmware-grid">
+                        <label>LED modules
+                          <input
+                            type="number"
+                            name="module_count"
+                            min="${firmwareOptions.moduleCount.min}"
+                            max="${firmwareOptions.moduleCount.max}"
+                            step="1"
+                            value="${escapeHtml(moduleCount)}"
+                            required
+                          />
+                        </label>
+                        <label>Serial port
+                          <input
+                            name="port"
+                            list="firmware-ports"
+                            value="${escapeHtml(port)}"
+                            placeholder="/dev/cu.usbserial-0001"
+                            required
+                          />
+                        </label>
+                        <label>Board FQBN
+                          <input name="fqbn" value="${escapeHtml(fqbn)}" required />
+                        </label>
+                      </div>
+                      <datalist id="firmware-ports">
+                        ${firmwareOptions.ports
+                          .map((entry) => `<option value="${escapeHtml(entry)}"></option>`)
+                          .join("")}
+                      </datalist>
+                      <div class="mini-actions">
+                        <button type="submit" class="blue-button">Compile and flash</button>
+                      </div>
+                    </form>
+                    <div
+                      class="module-assignment-strip"
+                      data-firmware-modules
+                      ${lastFirmwareConfig?.assignedModules?.length ? "" : "hidden"}
+                    >${renderModuleChips(lastFirmwareConfig?.assignedModules || [])}</div>
+                    <div class="firmware-progress" data-firmware-progress hidden>
+                      <div class="firmware-progress-head">
+                        <strong data-firmware-stage>Queued</strong>
+                        <span data-firmware-percent>0%</span>
+                      </div>
+                      <progress data-firmware-progress-bar value="0" max="100"></progress>
+                      <pre class="firmware-log" data-firmware-log></pre>
+                    </div>
+                  </div>
+                `,
+              )
+            : ""
+        }
         ${card(
           "Controllers",
           table(

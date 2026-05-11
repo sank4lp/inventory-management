@@ -47,6 +47,8 @@ The current goal is to document the product clearly enough that you can:
 | `hardware/01-hardware-overview.md` | Hardware topology, component placement, connectivity summary |
 | `hardware/02-esp32-zone-controller.md` | ESP32 block responsibilities, controller-box layout, and terminal guidance |
 | `hardware/03-physical-installation-guide.md` | Step-by-step physical installation and wiring sequence |
+| `hardware/04-bench-controller-pinout.md` | Known-working ESP32, MAX485, LM2596, and WS2812 bench pinout |
+| `hardware/05-matrix-firmware-and-power.md` | Matrix firmware command inputs, color support, and buck-converter power sizing |
 | `architecture/01-software-architecture-outline.md` | Proposed software architecture direction |
 | `tech-spec/01-software-tech-spec-outline.md` | Detailed spec template and decision backlog |
 

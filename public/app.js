@@ -349,9 +349,159 @@ function wireAdjustmentForms() {
   }
 }
 
+function firmwareStageLabel(stage) {
+  const labels = {
+    queued: "Queued",
+    compiling: "Compiling",
+    uploading: "Uploading",
+    configuring: "Configuring",
+    completed: "Completed",
+    failed: "Failed",
+  };
+  return labels[stage] || "Running";
+}
+
+function renderFirmwareModules(target, modules = []) {
+  if (!target) {
+    return;
+  }
+
+  target.replaceChildren();
+  for (const moduleNumber of modules) {
+    const chip = document.createElement("span");
+    chip.className = "module-chip";
+    chip.textContent = `Module ${moduleNumber}`;
+    target.appendChild(chip);
+  }
+  target.hidden = modules.length === 0;
+}
+
+function updateFirmwarePanel(panel, job) {
+  const progressWrap = panel.querySelector("[data-firmware-progress]");
+  const progressBar = panel.querySelector("[data-firmware-progress-bar]");
+  const stage = panel.querySelector("[data-firmware-stage]");
+  const percent = panel.querySelector("[data-firmware-percent]");
+  const log = panel.querySelector("[data-firmware-log]");
+  const modules = panel.querySelector("[data-firmware-modules]");
+
+  if (progressWrap) {
+    progressWrap.hidden = false;
+    progressWrap.dataset.status = job.status || "running";
+  }
+  if (progressBar) {
+    progressBar.value = Number(job.progress || 0);
+  }
+  if (stage) {
+    stage.textContent = job.error || firmwareStageLabel(job.stage);
+  }
+  if (percent) {
+    percent.textContent = `${Math.round(Number(job.progress || 0))}%`;
+  }
+  if (log) {
+    log.textContent = (job.logs || []).map((entry) => entry.line || "").join("\n");
+    log.scrollTop = log.scrollHeight;
+  }
+  if (job.status === "completed") {
+    renderFirmwareModules(modules, job.assignedModules || []);
+  }
+}
+
+function showFirmwareError(panel, message) {
+  updateFirmwarePanel(panel, {
+    status: "failed",
+    stage: "failed",
+    progress: 100,
+    error: message,
+    logs: [{ line: `ERROR: ${message}` }],
+  });
+}
+
+async function pollFirmwareJob(panel, jobId, submitButton) {
+  const response = await fetch(`/api/firmware/jobs/${encodeURIComponent(jobId)}`, {
+    headers: {
+      "X-Requested-With": "fetch",
+    },
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "Firmware job status could not be loaded.");
+  }
+
+  updateFirmwarePanel(panel, payload.job);
+
+  if (payload.job.status === "running") {
+    window.setTimeout(() => {
+      pollFirmwareJob(panel, jobId, submitButton).catch((error) => {
+        showFirmwareError(panel, error.message);
+        if (submitButton) {
+          submitButton.disabled = false;
+        }
+      });
+    }, 900);
+    return;
+  }
+
+  if (submitButton) {
+    submitButton.disabled = false;
+  }
+}
+
+function wireFirmwareFlash() {
+  const forms = document.querySelectorAll("[data-firmware-flash-form]");
+
+  for (const form of forms) {
+    if (form.dataset.firmwareBound === "true") {
+      continue;
+    }
+    form.dataset.firmwareBound = "true";
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const panel = form.closest("[data-firmware-panel]");
+      const submitButton = form.querySelector('button[type="submit"]');
+      if (!panel) {
+        return;
+      }
+
+      if (submitButton) {
+        submitButton.disabled = true;
+      }
+      updateFirmwarePanel(panel, {
+        status: "running",
+        stage: "queued",
+        progress: 3,
+        logs: [{ line: "Starting firmware job..." }],
+      });
+
+      try {
+        const response = await fetch("/api/firmware/flash", {
+          method: "POST",
+          headers: {
+            "X-Requested-With": "fetch",
+          },
+          body: new URLSearchParams(new FormData(form)),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Firmware job could not be started.");
+        }
+
+        updateFirmwarePanel(panel, payload.job);
+        await pollFirmwareJob(panel, payload.job.id, submitButton);
+      } catch (error) {
+        showFirmwareError(panel, error.message);
+        if (submitButton) {
+          submitButton.disabled = false;
+        }
+      }
+    });
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   wireNavState();
   wireLiveSearch();
   wireComboBoxes();
   wireAdjustmentForms();
+  wireFirmwareFlash();
 });

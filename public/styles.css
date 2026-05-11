@@ -524,6 +524,73 @@ textarea {
   padding: 0.5rem 0.6rem;
 }
 
+.firmware-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.firmware-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(220px, 1fr) minmax(220px, 1fr);
+  gap: 0.8rem;
+  align-items: end;
+}
+
+.firmware-progress {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.firmware-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.firmware-progress progress {
+  width: 100%;
+  height: 0.8rem;
+  accent-color: var(--blue);
+}
+
+.firmware-progress[data-status="failed"] progress {
+  accent-color: var(--error);
+}
+
+.firmware-log {
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.8rem;
+  margin: 0;
+  border-radius: 0.65rem;
+  background: #18263a;
+  color: #eff7fb;
+  white-space: pre-wrap;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.module-assignment-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.module-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.38rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(11, 128, 152, 0.24);
+  background: var(--blue-soft);
+  color: #145a69;
+  font-weight: 700;
+}
+
 .combo-box {
   position: relative;
   display: grid;
@@ -814,6 +881,7 @@ th {
 .badge-active,
 .badge-completed,
 .badge-online,
+.badge-available,
 .badge-admin {
   background: var(--green-soft);
   color: var(--green);
@@ -839,6 +907,7 @@ th {
 .badge-inactive,
 .badge-revoked,
 .badge-expired,
+.badge-missing,
 .badge-cancelled {
   background: var(--error-soft);
   color: var(--error);
@@ -908,5 +977,9 @@ th {
 
   .page-shell {
     padding: 1rem;
+  }
+
+  .firmware-grid {
+    grid-template-columns: 1fr;
   }
 }

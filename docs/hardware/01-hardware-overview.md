@@ -139,6 +139,7 @@ Therefore:
 1. Read this overview first.
 2. Read `02-esp32-zone-controller.md` to build one controller box correctly.
 3. Read `03-physical-installation-guide.md` and follow the installation sequence step by step.
+4. Use `04-bench-controller-pinout.md` when reconnecting the current ESP32/MAX485/LED prototype.
 
 ## Open implementation details
 
