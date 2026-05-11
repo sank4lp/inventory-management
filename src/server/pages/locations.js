@@ -80,38 +80,70 @@ export function createLocationPages({ db }) {
     );
   }
 
+  function renderAllLocations(cells) {
+    return table(
+      ["Cell", "Controller", "LED module", "Stock", "Products", "Locate"],
+      cells.map((cell) => [
+        `<a href="/cells/${cell.id}">${escapeHtml(cell.logical_code)}</a>`,
+        escapeHtml(cell.controller_code || "No controller"),
+        escapeHtml(cell.hardware_channel),
+        escapeHtml(formatQuantity(cell.occupied_quantity)),
+        cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
+        `
+          <button
+            type="button"
+            class="ghost-button locate-button"
+            data-locate-cell
+            data-cell-id="${cell.id}"
+            data-cell-name="${escapeHtml(cell.logical_code)}"
+            aria-pressed="false"
+          >Locate</button>
+        `,
+      ]),
+    );
+  }
+
   function renderCells(user, flash, search) {
     const cells = search ? searchCells(db, search) : [];
+    const allCells = listCells(db);
 
     return page({
       title: "Cells",
       user,
       flash,
       content: `
-        ${card(
-          "Find a cell",
-          `
-            <form
-              method="get"
-              action="/cells"
-              class="inline-form"
-              data-live-search-form
-              data-endpoint="/fragments/cell-search"
-              data-target="#cell-search-results"
-              data-empty-html="<p class=&quot;muted&quot;>Search a cell to see what products are inside it.</p>"
-            >
-              <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by logical code" />
-              <button type="submit">Search</button>
-            </form>
-            <div id="cell-search-results">
-              ${
-                search
-                  ? renderCellSearchResults(cells)
-                  : `<p class="muted">Search a cell to see what products are inside it.</p>`
-              }
-            </div>
-          `,
-        )}
+        <div data-location-page>
+          ${card(
+            "Find a cell",
+            `
+              <form
+                method="get"
+                action="/cells"
+                class="inline-form"
+                data-live-search-form
+                data-endpoint="/fragments/cell-search"
+                data-target="#cell-search-results"
+                data-empty-html="<p class=&quot;muted&quot;>Search a cell to see what products are inside it.</p>"
+              >
+                <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by logical code" />
+                <button type="submit">Search</button>
+              </form>
+              <div id="cell-search-results">
+                ${
+                  search
+                    ? renderCellSearchResults(cells)
+                    : `<p class="muted">Search a cell to see what products are inside it.</p>`
+                }
+              </div>
+            `,
+          )}
+          ${card(
+            "All locations",
+            allCells.length
+              ? renderAllLocations(allCells)
+              : `<p class="muted">No active locations are configured.</p>`,
+          )}
+        </div>
       `,
     });
   }

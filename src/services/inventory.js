@@ -690,7 +690,7 @@ export function planPut(db, { userId, productId, quantity, preferredCellId = nul
         product_id: product.id,
         cell_id: preferredCell.cell_id,
         planned_quantity: planned,
-        guidance_color: "blue",
+        guidance_color: "red",
       });
       remaining -= planned;
     }
@@ -711,7 +711,7 @@ export function planPut(db, { userId, productId, quantity, preferredCellId = nul
       product_id: product.id,
       cell_id: cell.cell_id,
       planned_quantity: planned,
-      guidance_color: "blue",
+      guidance_color: "red",
     });
     remaining -= planned;
   }
@@ -726,7 +726,7 @@ export function planPut(db, { userId, productId, quantity, preferredCellId = nul
       product_id: product.id,
       cell_id: cell.cell_id,
       planned_quantity: planned,
-      guidance_color: "blue",
+      guidance_color: "red",
     });
     remaining -= planned;
   }
@@ -1605,7 +1605,7 @@ export function configureControllerModules(
     deviceIdentity,
     moduleCount,
     configuredBy = null,
-    firmwareVersion = "simple-matrix-v3",
+    firmwareVersion = "simple-matrix-v7-idle-scan",
   },
 ) {
   const count = Number(moduleCount);

@@ -1,4 +1,4 @@
-import { appendFileSync, accessSync, constants } from "node:fs";
+import { accessSync, constants, openSync, writeSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 function stamp() {
@@ -18,9 +18,12 @@ function firmwareWord(value, fallback) {
   return /^[a-z0-9#]+$/.test(word) ? word : fallback;
 }
 
+const LOCATE_TIMEOUT_MS = 120000;
+
 export function createRs485Adapter({ config = {}, logger }) {
   const port = config.rs485SerialPort || process.env.RS485_SERIAL_PORT || "";
   let configured = false;
+  let portFd = null;
 
   function ensureReady() {
     if (!port) {
@@ -38,21 +41,35 @@ export function createRs485Adapter({ config = {}, logger }) {
         "-ixon",
         "-ixoff",
         "raw",
+        "-echo",
       ]);
       if (result.status !== 0) {
         throw new Error(`Could not configure RS485 serial port ${port}.`);
       }
       configured = true;
     }
+    if (portFd === null) {
+      portFd = openSync(port, "a");
+    }
   }
 
   function send(command) {
     ensureReady();
-    appendFileSync(port, `${command}\n`);
+    try {
+      writeSync(portFd, `${command}\n`);
+    } catch (error) {
+      portFd = null;
+      configured = false;
+      throw error;
+    }
     logger?.debug("hardware.rs485.write", {
       port,
       command,
     });
+  }
+
+  function taskColor(task) {
+    return task?.type === "put" ? "red" : "green";
   }
 
   function event({ controllerId = null, cellId = null, taskId = null, eventType, payload }) {
@@ -90,7 +107,8 @@ export function createRs485Adapter({ config = {}, logger }) {
       const events = [];
       for (const line of lines) {
         const text = String(line.planned_quantity ?? "");
-        const command = `${line.hardware_channel} ${firmwareToken(text)} ${firmwareWord(line.guidance_color, "green")}`;
+        const color = taskColor(task);
+        const command = `task ${line.hardware_channel} ${firmwareToken(text)} ${color} 80`;
         send(command);
         events.push(
           event({
@@ -99,10 +117,14 @@ export function createRs485Adapter({ config = {}, logger }) {
             taskId: task.id,
             eventType: "guidance_activated",
             payload: {
-              type: "display-module",
+              type: "task-module",
               command,
               hardwareChannel: line.hardware_channel,
               cell: line.logical_code,
+              taskType: task.type,
+              quantity: line.planned_quantity,
+              color,
+              statusRow: color,
             },
           }),
         );
@@ -151,7 +173,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     },
     sendCellTest(cell, color = "green") {
-      const command = `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 1200`;
+      const command = `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 2000`;
       send(command);
       return {
         ok: true,
@@ -166,6 +188,31 @@ export function createRs485Adapter({ config = {}, logger }) {
               command,
               hardwareChannel: cell.hardware_channel,
               color,
+            },
+          }),
+        ],
+      };
+    },
+    setCellLocate(cell, active = true) {
+      const command = active
+        ? `locate ${cell.hardware_channel} red 80 ${LOCATE_TIMEOUT_MS}`
+        : `clear ${cell.hardware_channel}`;
+      send(command);
+      return {
+        ok: true,
+        degraded: false,
+        events: [
+          event({
+            controllerId: cell.controller_id,
+            cellId: cell.id,
+            eventType: active ? "cell_locate_started" : "cell_locate_cleared",
+            payload: {
+              type: "cell-locate",
+              command,
+              active,
+              hardwareChannel: cell.hardware_channel,
+              color: "red",
+              timeoutMs: LOCATE_TIMEOUT_MS,
             },
           }),
         ],

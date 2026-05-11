@@ -24,6 +24,7 @@ export function createSimulatorAdapter({ logger }) {
       };
     },
     activateGuidance(task, lines) {
+      const color = task.type === "put" ? "red" : "green";
       const events = lines.map((line) => {
         const payload = {
           ts: stamp(),
@@ -31,8 +32,10 @@ export function createSimulatorAdapter({ logger }) {
           controllerId: line.controller_id,
           cell: line.logical_code,
           hardwareChannel: line.hardware_channel,
-          color: line.guidance_color,
+          color,
+          statusRow: color,
           taskId: task.id,
+          taskType: task.type,
           quantity: line.planned_quantity,
         };
         emit(payload);
@@ -112,6 +115,28 @@ export function createSimulatorAdapter({ logger }) {
           controllerId: cell.controller_id,
           cellId: cell.id,
           eventType: "cell_test",
+          payload,
+          status: "ok",
+        },
+      ]);
+    },
+    setCellLocate(cell, active = true) {
+      const payload = {
+        ts: stamp(),
+        type: "cell-locate",
+        controllerId: cell.controller_id,
+        cell: cell.logical_code,
+        hardwareChannel: cell.hardware_channel,
+        color: "red",
+        active,
+        timeoutMs: 120000,
+      };
+      emit(payload);
+      return wrap([
+        {
+          controllerId: cell.controller_id,
+          cellId: cell.id,
+          eventType: active ? "cell_locate_started" : "cell_locate_cleared",
           payload,
           status: "ok",
         },

@@ -850,10 +850,128 @@ function wireFirmwareFlash() {
   }
 }
 
+const LOCATION_LOCATE_TIMEOUT_MS = 120000;
+let activeLocate = null;
+
+function setLocateButtonState(button, active) {
+  if (!button) {
+    return;
+  }
+  button.classList.toggle("locate-button-active", active);
+  button.setAttribute("aria-pressed", active ? "true" : "false");
+  button.textContent = active ? "Locating" : "Locate";
+}
+
+async function sendLocateCommand(cellId, active) {
+  const body = new URLSearchParams();
+  body.set("active", active ? "1" : "0");
+
+  const response = await fetch(`/api/cells/${encodeURIComponent(cellId)}/locate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.degraded) {
+    throw new Error(payload.error || payload.message || "Locate command failed.");
+  }
+  return payload;
+}
+
+function clearActiveLocateUi() {
+  if (!activeLocate) {
+    return;
+  }
+  window.clearTimeout(activeLocate.timeoutId);
+  setLocateButtonState(activeLocate.button, false);
+  activeLocate = null;
+}
+
+function sendLocateClearBeacon() {
+  if (!activeLocate || !navigator.sendBeacon) {
+    return;
+  }
+
+  const body = new URLSearchParams();
+  body.set("active", "0");
+  const blob = new Blob([body.toString()], {
+    type: "application/x-www-form-urlencoded; charset=UTF-8",
+  });
+  navigator.sendBeacon(`/api/cells/${encodeURIComponent(activeLocate.cellId)}/locate`, blob);
+}
+
+function wireLocationLocate() {
+  const page = document.querySelector("[data-location-page]");
+  if (!page || page.dataset.locateBound === "true") {
+    return;
+  }
+  page.dataset.locateBound = "true";
+
+  page.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-locate-cell]");
+    if (!button) {
+      return;
+    }
+
+    const cellId = button.dataset.cellId;
+    if (!cellId || button.disabled) {
+      return;
+    }
+
+    const alreadyActive = activeLocate?.button === button;
+    button.disabled = true;
+
+    try {
+      if (alreadyActive) {
+        await sendLocateCommand(cellId, false);
+        clearActiveLocateUi();
+        return;
+      }
+
+      if (activeLocate) {
+        const previous = activeLocate;
+        clearActiveLocateUi();
+        sendLocateCommand(previous.cellId, false).catch(() => {});
+      }
+
+      await sendLocateCommand(cellId, true);
+      setLocateButtonState(button, true);
+      activeLocate = {
+        button,
+        cellId,
+        timeoutId: window.setTimeout(() => {
+          if (!activeLocate || activeLocate.button !== button) {
+            return;
+          }
+          sendLocateCommand(cellId, false).catch(() => {}).finally(clearActiveLocateUi);
+        }, LOCATION_LOCATE_TIMEOUT_MS),
+      };
+    } catch (error) {
+      button.textContent = "Failed";
+      window.setTimeout(() => {
+        if (activeLocate?.button !== button) {
+          setLocateButtonState(button, false);
+        }
+      }, 1400);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  window.addEventListener("pagehide", () => {
+    sendLocateClearBeacon();
+    clearActiveLocateUi();
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   wireNavState();
   wireLiveSearch();
   wireComboBoxes();
   wireAdjustmentForms();
   wireFirmwareFlash();
+  wireLocationLocate();
 });

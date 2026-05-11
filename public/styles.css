@@ -838,6 +838,18 @@ button:hover {
   border: 1px solid var(--line);
 }
 
+.locate-button {
+  min-width: 94px;
+}
+
+.locate-button-active,
+.locate-button[aria-pressed="true"] {
+  background: var(--error-soft);
+  color: var(--error);
+  border-color: rgba(181, 60, 46, 0.42);
+  box-shadow: inset 0 0 0 2px rgba(181, 60, 46, 0.08);
+}
+
 .green-button {
   background: linear-gradient(135deg, var(--green), #3ca478);
 }

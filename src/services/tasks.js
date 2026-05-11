@@ -63,6 +63,7 @@ export function createTaskService({ db, hardwareService, logger, systemService }
         taskId: Number(taskId),
         userId,
       });
+      const taskBeforeCompletion = getTask(db, Number(taskId));
       const completion = completeTask(db, {
         taskId,
         actualQuantities,
@@ -70,9 +71,11 @@ export function createTaskService({ db, hardwareService, logger, systemService }
         userId,
         note,
       });
-      hardwareService.clearGuidance(completion.task, completion.task.lines, {
-        source: "task_complete",
-      });
+      if (taskBeforeCompletion) {
+        hardwareService.clearGuidance(taskBeforeCompletion, taskBeforeCompletion.lines, {
+          source: "task_complete",
+        });
+      }
       logger.info("task.confirmed", {
         taskId: completion.task.id,
         userId,

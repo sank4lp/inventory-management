@@ -29,7 +29,7 @@ export function createTaskPages({ db }) {
     const guidanceSummary =
       task.type === "pick"
         ? "Pick from the green cells below."
-        : "Place into the blue cells below.";
+        : "Place into the red cells below.";
     const firstLine = task.lines[0];
     const cells = task.type === "put" ? listCells(db) : [];
     const editMode = mode === "edit";
@@ -98,8 +98,8 @@ export function createTaskPages({ db }) {
             }
             ${table(
               task.type === "put"
-                ? ["Suggested cell", "Final cell", "Planned", "Actual", "Reached cell", "Signal"]
-                : ["Cell", "Planned", "Actual", "Reached cell", "Signal"],
+                ? ["Suggested cell", "Final cell", "Planned", "Actual"]
+                : ["Cell", "Planned", "Actual"],
               task.lines.map((line) => [
                 ...(task.type === "put"
                   ? [
@@ -113,17 +113,6 @@ export function createTaskPages({ db }) {
                 editable || taskIsActive
                   ? `<input form="confirm-form" class="compact-input" type="number" step="0.01" min="0" ${task.type === "pick" ? `max="${escapeHtml(line.planned_quantity)}"` : ""} name="actual_${line.id}" value="${escapeHtml(line.actual_quantity || line.planned_quantity)}" />`
                   : escapeHtml(formatQuantity(line.actual_quantity || line.planned_quantity)),
-                line.physical_confirmed_at
-                  ? `<span class="badge badge-active">Yes</span>`
-                  : `<span class="badge badge-pending-review">No</span>`,
-                taskIsActive && !editMode
-                  ? `
-                      <form method="post" action="/tasks/${task.id}/simulate-button">
-                        <input type="hidden" name="line_id" value="${line.id}" />
-                        <button type="submit" class="ghost-button">Press button</button>
-                      </form>
-                    `
-                  : `<span class="muted">${editMode ? "Editing" : "Done"}</span>`,
               ]),
             )}
             ${

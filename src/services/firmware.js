@@ -396,7 +396,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
       deviceIdentity: job.deviceIdentity,
       moduleCount: job.moduleCount,
       configuredBy: job.flashedBy?.id || null,
-      firmwareVersion: "simple-matrix-v3",
+      firmwareVersion: "simple-matrix-v7-idle-scan",
     });
     job.controllerId = controller.id;
     job.controllerName = controller.controller_code;

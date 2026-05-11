@@ -14,14 +14,18 @@
 #endif
 
 #define MODULES LED_MODULE_COUNT
-#define FIRMWARE_PROTOCOL "simple-matrix-v4-blink"
+#define FIRMWARE_PROTOCOL "simple-matrix-v7-idle-scan"
 #define W 8
 #define H 8
 #define LEDS_PER_MODULE 64
 #define LED_COUNT (MODULES * LEDS_PER_MODULE)
 #define DEFAULT_BRIGHTNESS_PERCENT 8
+#define DEFAULT_TASK_BRIGHTNESS_PERCENT 80
 #define DEFAULT_TEST_BRIGHTNESS_PERCENT 80
 #define DEFAULT_TEST_DURATION_MS 1200
+#define DEFAULT_LOCATE_DURATION_MS 120000
+#define RIPPLE_STEP_MS 150
+#define IDLE_HEARTBEAT_STEP_MS 5000
 #define DEFAULT_SCROLL_MS 120
 #define DEFAULT_LAYOUT 3
 #define CHAR_ADVANCE_STATIC 6
@@ -44,6 +48,13 @@ struct ModuleState {
   int scrollSpeedMs;
   unsigned long lastStepAt;
   unsigned long testUntil;
+  unsigned long testStartedAt;
+  uint32_t testColor;
+  int testBrightness;
+  int lastTestStep;
+  unsigned long locateUntil;
+  bool statusActive;
+  uint32_t statusColor;
 };
 
 ModuleState modules[MODULES];
@@ -51,7 +62,7 @@ ModuleState modules[MODULES];
 char line[160];
 int linePos = 0;
 int layoutMode = DEFAULT_LAYOUT;
-bool heartbeatOn = false;
+int heartbeatColumn = 0;
 unsigned long lastHeartbeatAt = 0;
 
 void setGlyph(byte out[7], byte a, byte b, byte c, byte d, byte e, byte f, byte g) {
@@ -240,6 +251,9 @@ int hexNibble(char c) {
 }
 
 uint32_t colorFor(const char *c) {
+  if (strcmp(c, "red") == 0) {
+    return pixels.Color(255, 0, 0);
+  }
   if (strcmp(c, "green") == 0) {
     return pixels.Color(0, 255, 0);
   }
@@ -363,6 +377,22 @@ void drawGlyph(int module, char ch, int ox, int oy, uint32_t color, bool bold) {
   }
 }
 
+void drawStatusRow(int module) {
+  if (module < 0) {
+    return;
+  }
+  if (module >= MODULES) {
+    return;
+  }
+  if (!modules[module].statusActive) {
+    return;
+  }
+
+  for (int x = 0; x < W; x++) {
+    pixels.setPixelColor(pixelIndex(module, x, H - 1), modules[module].statusColor);
+  }
+}
+
 int textPixelWidth(const char *text) {
   int length = strlen(text);
   if (length <= 0) {
@@ -383,6 +413,7 @@ void renderStaticModule(int module) {
       x += CHAR_ADVANCE_STATIC;
     }
   }
+  drawStatusRow(module);
 }
 
 void renderScrollModule(int module) {
@@ -393,12 +424,59 @@ void renderScrollModule(int module) {
     drawGlyph(module, modules[module].text[i], x, 0, modules[module].color, false);
     x += CHAR_ADVANCE_SCROLL;
   }
+  drawStatusRow(module);
 }
 
 void renderIdleModule(int module) {
   clearModulePixels(module);
-  if (heartbeatOn) {
-    pixels.setPixelColor(pixelIndex(module, 7, 7), pixels.Color(0, 80, 40));
+  pixels.setPixelColor(pixelIndex(module, heartbeatColumn, H - 1), pixels.Color(32, 0, 0));
+}
+
+int rippleRingFor(int x, int y) {
+  int dx = 0;
+  int dy = 0;
+
+  if (x < 3) {
+    dx = 3 - x;
+  } else if (x > 4) {
+    dx = x - 4;
+  }
+
+  if (y < 3) {
+    dy = 3 - y;
+  } else if (y > 4) {
+    dy = y - 4;
+  }
+
+  return dx > dy ? dx : dy;
+}
+
+void renderRippleModule(int module, int step) {
+  if (module < 0) {
+    return;
+  }
+  if (module >= MODULES) {
+    return;
+  }
+
+  clearModulePixels(module);
+  int ring = step % 5;
+  if (ring > 3) {
+    return;
+  }
+
+  int minRing = ring - 1;
+  if (minRing < 0) {
+    minRing = 0;
+  }
+
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      int pixelRing = rippleRingFor(x, y);
+      if (pixelRing >= minRing && pixelRing <= ring) {
+        pixels.setPixelColor(pixelIndex(module, x, y), modules[module].testColor);
+      }
+    }
   }
 }
 
@@ -444,6 +522,8 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
   modules[module].brightness = clampBrightness(brightness);
   modules[module].scrollSpeedMs = speedMs;
   modules[module].testUntil = 0;
+  modules[module].locateUntil = 0;
+  modules[module].statusActive = false;
   if (modules[module].scrollSpeedMs <= 0) {
     modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
   }
@@ -464,6 +544,37 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
   pixels.show();
 }
 
+void showTaskModule(int module, const char *text, uint32_t color, int brightness) {
+  if (module < 0) {
+    return;
+  }
+  if (module >= MODULES) {
+    return;
+  }
+
+  strncpy(modules[module].text, text, sizeof(modules[module].text) - 1);
+  modules[module].text[sizeof(modules[module].text) - 1] = 0;
+  modules[module].brightness = clampBrightness(brightness);
+  modules[module].color = scaleColor(color, modules[module].brightness);
+  modules[module].statusColor = modules[module].color;
+  modules[module].statusActive = true;
+  modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
+  modules[module].lastStepAt = 0;
+  modules[module].testUntil = 0;
+  modules[module].locateUntil = 0;
+
+  if (textPixelWidth(text) <= W) {
+    modules[module].mode = MODE_STATIC;
+    modules[module].scrollOffset = W;
+  } else {
+    modules[module].mode = MODE_SCROLL;
+    modules[module].scrollOffset = 0;
+  }
+
+  renderModule(module);
+  pixels.show();
+}
+
 void setModuleIdle(int module) {
   if (module < 0) {
     return;
@@ -475,6 +586,8 @@ void setModuleIdle(int module) {
   modules[module].brightness = DEFAULT_BRIGHTNESS_PERCENT;
   modules[module].text[0] = 0;
   modules[module].testUntil = 0;
+  modules[module].locateUntil = 0;
+  modules[module].statusActive = false;
   renderModule(module);
 }
 
@@ -489,6 +602,8 @@ void setModuleOff(int module) {
   modules[module].brightness = 0;
   modules[module].text[0] = 0;
   modules[module].testUntil = 0;
+  modules[module].locateUntil = 0;
+  modules[module].statusActive = false;
   renderModule(module);
 }
 
@@ -581,6 +696,8 @@ void setSinglePixel(int module, int row, int column, uint32_t color) {
   modules[module].text[0] = 0;
   modules[module].color = color;
   modules[module].testUntil = 0;
+  modules[module].locateUntil = 0;
+  modules[module].statusActive = false;
   clearModulePixels(module);
 
   int y = row - 1;
@@ -610,6 +727,8 @@ void fillModule(int module, uint32_t color, int brightness) {
   modules[module].text[0] = 0;
   modules[module].brightness = clampBrightness(brightness);
   modules[module].testUntil = 0;
+  modules[module].locateUntil = 0;
+  modules[module].statusActive = false;
   uint32_t scaled = scaleColor(color, modules[module].brightness);
   for (int i = 0; i < LEDS_PER_MODULE; i++) {
     pixels.setPixelColor(module * LEDS_PER_MODULE + i, scaled);
@@ -618,13 +737,38 @@ void fillModule(int module, uint32_t color, int brightness) {
 }
 
 void blinkModule(int module, uint32_t color, int brightness, unsigned long durationMs) {
+  if (module < 0) {
+    return;
+  }
+  if (module >= MODULES) {
+    return;
+  }
   if (durationMs == 0) {
     durationMs = DEFAULT_TEST_DURATION_MS;
+  }
+  unsigned long now = millis();
+  modules[module].mode = MODE_STATIC;
+  modules[module].text[0] = 0;
+  modules[module].brightness = clampBrightness(brightness);
+  modules[module].testColor = scaleColor(color, modules[module].brightness);
+  modules[module].testBrightness = modules[module].brightness;
+  modules[module].testStartedAt = now;
+  modules[module].testUntil = now + durationMs;
+  modules[module].lastTestStep = -1;
+  modules[module].locateUntil = 0;
+  modules[module].statusActive = false;
+  renderRippleModule(module, 0);
+  pixels.show();
+}
+
+void locateModule(int module, uint32_t color, int brightness, unsigned long durationMs) {
+  if (durationMs == 0) {
+    durationMs = DEFAULT_LOCATE_DURATION_MS;
   }
   fillModule(module, color, brightness);
   if (module >= 0) {
     if (module < MODULES) {
-      modules[module].testUntil = millis() + durationMs;
+      modules[module].locateUntil = millis() + durationMs;
     }
   }
 }
@@ -638,9 +782,37 @@ void updateModuleTests() {
       continue;
     }
     if ((long)(now - modules[module].testUntil) < 0) {
+      int step = (int)((now - modules[module].testStartedAt) / RIPPLE_STEP_MS) % 5;
+      if (step != modules[module].lastTestStep) {
+        modules[module].lastTestStep = step;
+        renderRippleModule(module, step);
+        changed = true;
+      }
       continue;
     }
     modules[module].testUntil = 0;
+    modules[module].lastTestStep = -1;
+    setModuleIdle(module);
+    changed = true;
+  }
+
+  if (changed) {
+    pixels.show();
+  }
+}
+
+void updateLocateTimeouts() {
+  unsigned long now = millis();
+  bool changed = false;
+
+  for (int module = 0; module < MODULES; module++) {
+    if (modules[module].locateUntil == 0) {
+      continue;
+    }
+    if ((long)(now - modules[module].locateUntil) < 0) {
+      continue;
+    }
+    modules[module].locateUntil = 0;
     setModuleIdle(module);
     changed = true;
   }
@@ -682,12 +854,12 @@ void updateScrolls() {
 
 void updateHeartbeat() {
   unsigned long now = millis();
-  if (now - lastHeartbeatAt < 700) {
+  if (now - lastHeartbeatAt < IDLE_HEARTBEAT_STEP_MS) {
     return;
   }
 
   lastHeartbeatAt = now;
-  heartbeatOn = !heartbeatOn;
+  heartbeatColumn = (heartbeatColumn + 1) % W;
 
   bool changed = false;
   for (int module = 0; module < MODULES; module++) {
@@ -830,6 +1002,50 @@ void handleLine(char *cmdLine) {
     }
   }
 
+  if (strcmp(command, "locate") == 0) {
+    if (count >= 2) {
+      int module = 0;
+      if (!parseModuleNumber(tokens[1], &module)) {
+        send485("{\"type\":\"error\",\"message\":\"invalid-module\"}\n");
+        return;
+      }
+      const char *color = "red";
+      int brightness = DEFAULT_TEST_BRIGHTNESS_PERCENT;
+      unsigned long durationMs = DEFAULT_LOCATE_DURATION_MS;
+      if (count >= 3) {
+        color = tokens[2];
+      }
+      if (count >= 4) {
+        brightness = atoi(tokens[3]);
+      }
+      if (count >= 5) {
+        durationMs = (unsigned long)atol(tokens[4]);
+      }
+      locateModule(module, colorFor(color), brightness, durationMs);
+      ack("locate", module);
+      return;
+    }
+  }
+
+  if (strcmp(command, "task") == 0) {
+    if (count >= 4) {
+      int module = 0;
+      if (!parseModuleNumber(tokens[1], &module)) {
+        send485("{\"type\":\"error\",\"message\":\"invalid-module\"}\n");
+        return;
+      }
+      const char *text = tokens[2];
+      const char *color = tokens[3];
+      int brightness = DEFAULT_TASK_BRIGHTNESS_PERCENT;
+      if (count >= 5) {
+        brightness = atoi(tokens[4]);
+      }
+      showTaskModule(module, text, colorFor(color), brightness);
+      ack("task", module);
+      return;
+    }
+  }
+
   if (strcmp(command, "digit") == 0 || strcmp(command, "text") == 0 || strcmp(command, "scroll") == 0) {
     if (count >= 3) {
       int module = 0;
@@ -915,12 +1131,19 @@ void setup() {
     modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
     modules[module].lastStepAt = 0;
     modules[module].testUntil = 0;
+    modules[module].testStartedAt = 0;
+    modules[module].testColor = 0;
+    modules[module].testBrightness = DEFAULT_TEST_BRIGHTNESS_PERCENT;
+    modules[module].lastTestStep = -1;
+    modules[module].locateUntil = 0;
+    modules[module].statusActive = false;
+    modules[module].statusColor = 0;
     renderModule(module);
   }
   pixels.show();
 
   char bootMsg[128];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v3\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v7\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
   send485(bootMsg);
 }
 
@@ -942,6 +1165,7 @@ void loop() {
   }
 
   updateModuleTests();
+  updateLocateTimeouts();
   updateScrolls();
   updateHeartbeat();
 }

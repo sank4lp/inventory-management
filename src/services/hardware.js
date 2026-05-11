@@ -121,6 +121,13 @@ export function createHardwareService({ db, config, logger }) {
         color,
       });
     },
+    setCellLocate(cell, active = true) {
+      return run("cell_locate", adapter.setCellLocate.bind(adapter), [cell, active], {
+        cellId: cell.id,
+        controllerId: cell.controller_id,
+        active,
+      });
+    },
     recordPhysicalConfirmation(event, userId = null) {
       return run(
         "physical_confirmation",

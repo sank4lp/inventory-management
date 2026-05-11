@@ -60,6 +60,16 @@ export function createDegradedAdapter() {
         payload: { color },
       });
     },
+    setCellLocate(cell, active = true) {
+      return skipped("cell_locate_skipped", {
+        controllerId: cell.controller_id,
+        cellId: cell.id,
+        payload: {
+          color: "red",
+          active,
+        },
+      });
+    },
     recordPhysicalConfirmation(event) {
       return skipped("physical_confirmation_recorded", {
         controllerId: event.controller_id,

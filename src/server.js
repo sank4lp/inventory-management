@@ -228,6 +228,14 @@ function ensureApiAdmin(response, user) {
   return true;
 }
 
+function ensureApiAuth(response, user) {
+  if (!user) {
+    sendJson(response, { error: "Authentication is required." }, 401);
+    return false;
+  }
+  return true;
+}
+
 function parseTaskReviewForm(form) {
   return {
     actualQuantities: Object.fromEntries(
@@ -567,6 +575,37 @@ export const requestHandler = async (request, response) => {
       }
       const cell = getCellDetail(db, Number(cellMatch[1]));
       sendHtml(response, pages.renderCellDetail(user, flash, cell));
+      return;
+    }
+
+    const apiCellLocateMatch = url.pathname.match(/^\/api\/cells\/(\d+)\/locate$/);
+    if (request.method === "POST" && apiCellLocateMatch) {
+      if (!ensureApiAuth(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const cell = locationService
+        .listCells()
+        .find((entry) => entry.id === Number(apiCellLocateMatch[1]));
+      if (!cell) {
+        sendJson(response, { error: "Cell not found." }, 404);
+        return;
+      }
+      const active = !["0", "false", "off", "clear"].includes(
+        String(form.active || form.action || "1").toLowerCase(),
+      );
+      const result = hardwareService.setCellLocate(cell, active);
+      sendJson(response, {
+        ok: result.ok,
+        degraded: result.degraded,
+        message: result.message,
+        active,
+        cell: {
+          id: cell.id,
+          logicalCode: cell.logical_code,
+          hardwareChannel: cell.hardware_channel,
+        },
+      });
       return;
     }
 
