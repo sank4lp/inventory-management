@@ -537,6 +537,61 @@ textarea {
   align-items: end;
 }
 
+.firmware-port-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+}
+
+.firmware-port-status {
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--line);
+  background: white;
+  font-weight: 650;
+}
+
+.firmware-port-status-ok {
+  background: var(--success-soft);
+  border-color: rgba(31, 122, 84, 0.22);
+  color: var(--success);
+}
+
+.firmware-port-status-missing {
+  background: var(--error-soft);
+  border-color: rgba(181, 60, 46, 0.22);
+  color: var(--error);
+}
+
+.firmware-port-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.55rem;
+}
+
+.firmware-port-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 0.55rem;
+  align-items: center;
+  text-align: left;
+  background: white;
+  color: var(--text);
+  border-color: var(--line);
+  border-radius: 0.65rem;
+}
+
+.firmware-port-choice code {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.firmware-port-choice-active {
+  border-color: rgba(11, 128, 152, 0.44);
+  background: var(--blue-soft);
+}
+
 .firmware-progress {
   display: grid;
   gap: 0.55rem;
@@ -557,6 +612,15 @@ textarea {
 
 .firmware-progress[data-status="failed"] progress {
   accent-color: var(--error);
+}
+
+.firmware-hint {
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.65rem;
+  background: rgba(227, 186, 80, 0.18);
+  border: 1px solid rgba(158, 97, 36, 0.22);
+  color: #6e4515;
+  font-weight: 700;
 }
 
 .firmware-log {
@@ -889,6 +953,7 @@ th {
 
 .badge-pending-review,
 .badge-planned,
+.badge-serial,
 .badge-operator {
   background: var(--blue-soft);
   color: var(--blue);
@@ -921,6 +986,7 @@ th {
 }
 
 .badge-healthy,
+.badge-detected,
 .badge-info {
   background: var(--info-soft);
   color: #445164;
@@ -980,6 +1046,10 @@ th {
   }
 
   .firmware-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .firmware-port-input-row {
     grid-template-columns: 1fr;
   }
 }

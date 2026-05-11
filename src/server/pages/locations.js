@@ -20,6 +20,35 @@ function renderModuleChips(modules = []) {
     .join("");
 }
 
+function renderPortOptions(ports = []) {
+  return ports
+    .map((port) => `<option value="${escapeHtml(port.path)}">${escapeHtml(port.label)}</option>`)
+    .join("");
+}
+
+function renderPortChoices(ports = [], selectedPort = "") {
+  if (!ports.length) {
+    return `<p class="muted">No ESP32 serial port detected. Plug in the ESP32 USB cable, then click Refresh ports.</p>`;
+  }
+
+  return ports
+    .map(
+      (port) => `
+        <button
+          type="button"
+          class="firmware-port-choice ${port.path === selectedPort ? "firmware-port-choice-active" : ""}"
+          data-firmware-port-choice
+          data-port-path="${escapeHtml(port.path)}"
+        >
+          <strong>${escapeHtml(port.label)}</strong>
+          <code>${escapeHtml(port.path)}</code>
+          ${port.recommended ? statusBadge("detected") : statusBadge("serial")}
+        </button>
+      `,
+    )
+    .join("");
+}
+
 export function createLocationPages({ db }) {
   function renderCellSearchResults(cells) {
     return table(
@@ -112,8 +141,9 @@ export function createLocationPages({ db }) {
     const firmwareOptions = runtime.firmwareService?.getFlashOptions();
     const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
     const moduleCount = lastFirmwareConfig?.moduleCount || firmwareOptions?.moduleCount?.value || 4;
-    const port = lastFirmwareConfig?.port || firmwareOptions?.defaultPort || "";
+    const port = firmwareOptions?.defaultPort || "";
     const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
+    const hasPorts = Boolean(firmwareOptions?.ports?.length);
 
     return page({
       title: "Devices and Mapping",
@@ -148,25 +178,34 @@ export function createLocationPages({ db }) {
                           />
                         </label>
                         <label>Serial port
-                          <input
-                            name="port"
-                            list="firmware-ports"
-                            value="${escapeHtml(port)}"
-                            placeholder="/dev/cu.usbserial-0001"
-                            required
-                          />
+                          <div class="firmware-port-input-row">
+                            <input
+                              name="port"
+                              list="firmware-ports"
+                              value="${escapeHtml(port)}"
+                              placeholder="/dev/ttyUSB0"
+                              data-firmware-port-input
+                              required
+                            />
+                            <button type="button" class="ghost-button" data-firmware-refresh-ports>Refresh ports</button>
+                          </div>
                         </label>
                         <label>Board FQBN
                           <input name="fqbn" value="${escapeHtml(fqbn)}" required />
                         </label>
                       </div>
                       <datalist id="firmware-ports">
-                        ${firmwareOptions.ports
-                          .map((entry) => `<option value="${escapeHtml(entry)}"></option>`)
-                          .join("")}
+                        ${renderPortOptions(firmwareOptions.ports)}
                       </datalist>
+                      <div
+                        class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
+                        data-firmware-port-status
+                      >${escapeHtml(firmwareOptions.portStatus)}</div>
+                      <div class="firmware-port-list" data-firmware-port-list>
+                        ${renderPortChoices(firmwareOptions.ports, port)}
+                      </div>
                       <div class="mini-actions">
-                        <button type="submit" class="blue-button">Compile and flash</button>
+                        <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Compile and flash</button>
                       </div>
                     </form>
                     <div
@@ -180,6 +219,7 @@ export function createLocationPages({ db }) {
                         <span data-firmware-percent>0%</span>
                       </div>
                       <progress data-firmware-progress-bar value="0" max="100"></progress>
+                      <div class="firmware-hint" data-firmware-hint hidden></div>
                       <pre class="firmware-log" data-firmware-log></pre>
                     </div>
                   </div>

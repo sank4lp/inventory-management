@@ -8,6 +8,8 @@ const DEFAULT_FQBN = "esp32:esp32:esp32";
 const MIN_MODULES = 1;
 const MAX_MODULES = 64;
 const MAX_LOG_LINES = 500;
+const BOOT_BUTTON_GUIDANCE =
+  "Upload failed while connecting to the ESP32. Hold the BOOT button, start flashing again, release BOOT when the upload begins, then wait for the progress to finish.";
 
 function nowIso() {
   return new Date().toISOString();
@@ -68,25 +70,77 @@ function executableExists(command) {
   return false;
 }
 
+function addPort(ports, seen, path, label = "") {
+  if (!path || seen.has(path)) {
+    return;
+  }
+
+  seen.add(path);
+  const haystack = `${path} ${label}`.toLowerCase();
+  const recommended =
+    haystack.includes("esp32") ||
+    haystack.includes("espressif") ||
+    haystack.includes("cp210") ||
+    haystack.includes("ch340") ||
+    haystack.includes("ch341") ||
+    haystack.includes("wchusb") ||
+    haystack.includes("usb_serial") ||
+    haystack.includes("usb-serial") ||
+    haystack.includes("usbserial") ||
+    haystack.includes("usbmodem") ||
+    haystack.includes("1a86") ||
+    haystack.includes("10c4") ||
+    haystack.includes("303a") ||
+    path.includes("/ttyUSB") ||
+    path.includes("/ttyACM");
+
+  ports.push({
+    path,
+    label: label || path.split("/").pop() || path,
+    kind: recommended ? "esp32_candidate" : "serial",
+    recommended,
+  });
+}
+
 function listSerialPorts() {
+  const ports = [];
+  const seen = new Set();
+
   try {
-    return readdirSync("/dev")
+    for (const name of readdirSync("/dev/serial/by-id")) {
+      addPort(ports, seen, `/dev/serial/by-id/${name}`, name);
+    }
+  } catch {}
+
+  try {
+    readdirSync("/dev")
       .filter(
         (name) =>
           name.startsWith("cu.usb") ||
           name.startsWith("tty.usb") ||
+          name.startsWith("cu.usbmodem") ||
+          name.startsWith("tty.usbmodem") ||
           name.startsWith("cu.SLAB") ||
           name.startsWith("tty.SLAB") ||
           name.startsWith("cu.wchusb") ||
           name.startsWith("tty.wchusb") ||
           name.startsWith("cu.usbserial") ||
-          name.startsWith("tty.usbserial"),
+          name.startsWith("tty.usbserial") ||
+          name.startsWith("ttyUSB") ||
+          name.startsWith("ttyACM"),
       )
-      .map((name) => `/dev/${name}`)
-      .sort();
+      .sort()
+      .forEach((name) => addPort(ports, seen, `/dev/${name}`));
   } catch {
-    return [];
+    return ports;
   }
+
+  return ports.sort((left, right) => {
+    if (left.recommended !== right.recommended) {
+      return left.recommended ? -1 : 1;
+    }
+    return left.path.localeCompare(right.path);
+  });
 }
 
 function commandLine(command, args) {
@@ -124,6 +178,7 @@ function publicJob(job) {
     currentCommand: job.currentCommand,
     commands: job.commands,
     logs: job.logs,
+    recoveryHint: job.recoveryHint,
   };
 }
 
@@ -272,17 +327,24 @@ export function createFirmwareService({ db, config = {}, logger }) {
       job.currentCommand = null;
       appendLog(job, `Configured module numbers: ${job.assignedModules.join(", ")}`);
     } catch (error) {
+      const failedStage = job.stage;
+      const uploadFailed = failedStage === "uploading";
+      const message = error.message;
+      const eventMessage = uploadFailed
+        ? `${error.message} ${BOOT_BUTTON_GUIDANCE}`
+        : error.message;
       job.status = "failed";
       job.stage = "failed";
       job.progress = Math.max(job.progress || 0, 100);
       job.finishedAt = nowIso();
-      job.error = error.message;
+      job.error = message;
+      job.recoveryHint = uploadFailed ? BOOT_BUTTON_GUIDANCE : null;
       job.currentCommand = null;
-      appendLog(job, `ERROR: ${error.message}`);
+      appendLog(job, `ERROR: ${eventMessage}`);
       recordSystemEvent({
         eventType: "firmware_flash_failed",
         status: "warning",
-        message: error.message,
+        message: eventMessage,
         payload: {
           jobId: job.id,
           moduleCount: job.moduleCount,
@@ -292,7 +354,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
       });
       logger?.error("firmware.flash.failed", {
         jobId: job.id,
-        error: error.message,
+        error: eventMessage,
       });
     }
   }
@@ -307,6 +369,9 @@ export function createFirmwareService({ db, config = {}, logger }) {
   return {
     getFlashOptions() {
       const ports = listSerialPorts();
+      const lastConfiguration = getLastConfiguration();
+      const lastPortAvailable = ports.some((port) => port.path === lastConfiguration?.port);
+      const recommendedPort = ports.find((port) => port.recommended) || ports[0] || null;
       return {
         arduinoCli: {
           command: arduinoCliPath,
@@ -315,13 +380,16 @@ export function createFirmwareService({ db, config = {}, logger }) {
         defaultFqbn,
         sketchPath,
         ports,
-        defaultPort: ports[0] || "",
+        defaultPort: lastPortAvailable ? lastConfiguration.port : recommendedPort?.path || "",
+        portStatus: ports.length
+          ? "ESP32 serial port detected. Choose a port or refresh after reconnecting the device."
+          : "No ESP32 serial port detected. Plug in the ESP32 USB cable, then refresh ports.",
         moduleCount: {
           min: MIN_MODULES,
           max: MAX_MODULES,
-          value: getLastConfiguration()?.moduleCount || 4,
+          value: lastConfiguration?.moduleCount || 4,
         },
-        lastConfiguration: getLastConfiguration(),
+        lastConfiguration,
       };
     },
     getLastConfiguration,
@@ -349,6 +417,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
         startedAt: nowIso(),
         finishedAt: null,
         error: null,
+        recoveryHint: null,
         currentCommand: null,
         commands: [],
         logs: [],

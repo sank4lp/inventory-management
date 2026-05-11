@@ -376,6 +376,137 @@ function renderFirmwareModules(target, modules = []) {
   target.hidden = modules.length === 0;
 }
 
+function normalizeFirmwarePorts(ports = []) {
+  return ports.map((port) => {
+    if (typeof port === "string") {
+      return {
+        path: port,
+        label: port.split("/").pop() || port,
+        recommended: true,
+      };
+    }
+    return port;
+  });
+}
+
+function syncFirmwareSubmitState(panel) {
+  const input = panel.querySelector("[data-firmware-port-input]");
+  const submitButton = panel.querySelector("[data-firmware-flash-form] button[type='submit']");
+  if (submitButton && input) {
+    submitButton.disabled = !input.value.trim();
+  }
+}
+
+function renderFirmwarePortList(panel, ports, selectedPort) {
+  const target = panel.querySelector("[data-firmware-port-list]");
+  if (!target) {
+    return;
+  }
+
+  target.replaceChildren();
+  if (!ports.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No ESP32 serial port detected. Plug in the ESP32 USB cable, then click Refresh ports.";
+    target.appendChild(empty);
+    return;
+  }
+
+  for (const port of ports) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "firmware-port-choice";
+    if (port.path === selectedPort) {
+      button.classList.add("firmware-port-choice-active");
+    }
+    button.dataset.firmwarePortChoice = "true";
+    button.dataset.portPath = port.path;
+
+    const label = document.createElement("strong");
+    label.textContent = port.label || port.path;
+    const path = document.createElement("code");
+    path.textContent = port.path;
+    const badge = document.createElement("span");
+    badge.className = `badge ${port.recommended ? "badge-detected" : "badge-serial"}`;
+    badge.textContent = port.recommended ? "detected" : "serial";
+
+    button.append(label, path, badge);
+    target.appendChild(button);
+  }
+}
+
+function updateFirmwarePorts(panel, options) {
+  const ports = normalizeFirmwarePorts(options.ports || []);
+  const input = panel.querySelector("[data-firmware-port-input]");
+  const datalist = panel.querySelector("#firmware-ports");
+  const status = panel.querySelector("[data-firmware-port-status]");
+  const currentPort = input?.value.trim() || "";
+  const detectedCurrent = ports.some((port) => port.path === currentPort);
+  const selectedPort = detectedCurrent ? currentPort : options.defaultPort || ports[0]?.path || "";
+
+  if (datalist) {
+    datalist.replaceChildren();
+    for (const port of ports) {
+      const option = document.createElement("option");
+      option.value = port.path;
+      option.label = port.label || port.path;
+      datalist.appendChild(option);
+    }
+  }
+
+  if (input && !detectedCurrent) {
+    input.value = selectedPort;
+  }
+
+  if (status) {
+    status.textContent =
+      options.portStatus ||
+      (ports.length
+        ? "ESP32 serial port detected. Choose a port or refresh after reconnecting the device."
+        : "No ESP32 serial port detected. Plug in the ESP32 USB cable, then refresh ports.");
+    status.classList.toggle("firmware-port-status-ok", ports.length > 0);
+    status.classList.toggle("firmware-port-status-missing", ports.length === 0);
+  }
+
+  renderFirmwarePortList(panel, ports, input?.value.trim() || selectedPort);
+  syncFirmwareSubmitState(panel);
+}
+
+async function refreshFirmwarePorts(panel) {
+  const button = panel.querySelector("[data-firmware-refresh-ports]");
+  const status = panel.querySelector("[data-firmware-port-status]");
+  if (button) {
+    button.disabled = true;
+  }
+  if (status) {
+    status.textContent = "Checking connected serial ports...";
+  }
+
+  try {
+    const response = await fetch("/api/firmware/options", {
+      headers: {
+        "X-Requested-With": "fetch",
+      },
+    });
+    const options = await response.json();
+    if (!response.ok) {
+      throw new Error(options.error || "Serial ports could not be refreshed.");
+    }
+    updateFirmwarePorts(panel, options);
+  } catch (error) {
+    if (status) {
+      status.textContent = error.message;
+      status.classList.add("firmware-port-status-missing");
+      status.classList.remove("firmware-port-status-ok");
+    }
+  } finally {
+    syncFirmwareSubmitState(panel);
+    if (button) {
+      button.disabled = false;
+    }
+  }
+}
+
 function updateFirmwarePanel(panel, job) {
   const progressWrap = panel.querySelector("[data-firmware-progress]");
   const progressBar = panel.querySelector("[data-firmware-progress-bar]");
@@ -383,6 +514,7 @@ function updateFirmwarePanel(panel, job) {
   const percent = panel.querySelector("[data-firmware-percent]");
   const log = panel.querySelector("[data-firmware-log]");
   const modules = panel.querySelector("[data-firmware-modules]");
+  const hint = panel.querySelector("[data-firmware-hint]");
 
   if (progressWrap) {
     progressWrap.hidden = false;
@@ -400,6 +532,10 @@ function updateFirmwarePanel(panel, job) {
   if (log) {
     log.textContent = (job.logs || []).map((entry) => entry.line || "").join("\n");
     log.scrollTop = log.scrollHeight;
+  }
+  if (hint) {
+    hint.textContent = job.recoveryHint || "";
+    hint.hidden = !job.recoveryHint;
   }
   if (job.status === "completed") {
     renderFirmwareModules(modules, job.assignedModules || []);
@@ -454,6 +590,35 @@ function wireFirmwareFlash() {
       continue;
     }
     form.dataset.firmwareBound = "true";
+    const panel = form.closest("[data-firmware-panel]");
+
+    if (panel) {
+      panel.addEventListener("click", (event) => {
+        const refreshButton = event.target.closest("[data-firmware-refresh-ports]");
+        if (refreshButton) {
+          refreshFirmwarePorts(panel).catch(() => {});
+          return;
+        }
+
+        const portChoice = event.target.closest("[data-firmware-port-choice]");
+        if (!portChoice) {
+          return;
+        }
+
+        const input = panel.querySelector("[data-firmware-port-input]");
+        if (input) {
+          input.value = portChoice.dataset.portPath || "";
+        }
+        panel.querySelectorAll("[data-firmware-port-choice]").forEach((choice) => {
+          choice.classList.toggle("firmware-port-choice-active", choice === portChoice);
+        });
+        syncFirmwareSubmitState(panel);
+      });
+
+      const portInput = panel.querySelector("[data-firmware-port-input]");
+      portInput?.addEventListener("input", () => syncFirmwareSubmitState(panel));
+      refreshFirmwarePorts(panel).catch(() => {});
+    }
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
