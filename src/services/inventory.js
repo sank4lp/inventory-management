@@ -1,4 +1,5 @@
 import { withTransaction } from "../db.js";
+import { ESP32_FIRMWARE_PROTOCOL } from "./firmware-constants.js";
 
 function nowIso() {
   return new Date().toISOString();
@@ -376,7 +377,8 @@ function taskLinesWithCells(db, taskId) {
           c.logical_code,
           c.hardware_channel,
           c.controller_id,
-          ctrl.controller_code
+          ctrl.controller_code,
+          ctrl.address AS controller_address
         FROM task_lines tl
         JOIN products p ON p.id = tl.product_id
         JOIN cells c ON c.id = tl.cell_id
@@ -1117,9 +1119,12 @@ export function markPhysicalConfirmation(db, lineId) {
           tl.*,
           c.logical_code,
           c.hardware_channel,
-          c.controller_id
+          c.controller_id,
+          ctrl.controller_code,
+          ctrl.address AS controller_address
         FROM task_lines tl
         JOIN cells c ON c.id = tl.cell_id
+        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
         WHERE tl.id = ?
       `,
     )
@@ -1144,9 +1149,12 @@ export function markPhysicalConfirmation(db, lineId) {
           tl.*,
           c.logical_code,
           c.hardware_channel,
-          c.controller_id
+          c.controller_id,
+          ctrl.controller_code,
+          ctrl.address AS controller_address
         FROM task_lines tl
         JOIN cells c ON c.id = tl.cell_id
+        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
         WHERE tl.id = ?
       `,
     )
@@ -1417,6 +1425,7 @@ export function listCells(db) {
           c.*,
           z.code AS zone_code,
           ctrl.controller_code,
+          ctrl.address AS controller_address,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
           COALESCE(
             GROUP_CONCAT(
@@ -1468,6 +1477,7 @@ export function getCellDetail(db, cellId) {
         SELECT
           c.*,
           ctrl.controller_code,
+          ctrl.address AS controller_address,
           z.code AS zone_code
         FROM cells c
         JOIN zones z ON z.id = c.zone_id
@@ -1602,10 +1612,11 @@ export function configureControllerModules(
   db,
   {
     controllerCode,
+    controllerAddress,
     deviceIdentity,
     moduleCount,
     configuredBy = null,
-    firmwareVersion = "simple-matrix-v10-locate-ripple",
+    firmwareVersion = ESP32_FIRMWARE_PROTOCOL,
   },
 ) {
   const count = Number(moduleCount);
@@ -1615,13 +1626,24 @@ export function configureControllerModules(
 
   return withTransaction(db, () => {
   const zoneId = getOrCreateZone(db);
-  const code = normalizeLogicalCode(controllerCode || nextDefaultControllerCode(db));
+  const requestedCode = controllerCode ? normalizeLogicalCode(controllerCode) : "";
+  const code = requestedCode || nextDefaultControllerCode(db);
   const now = nowIso();
-  const existingByDevice = deviceIdentity
-    ? db.prepare("SELECT * FROM controllers WHERE device_identity = ?").get(deviceIdentity)
-    : null;
   const existingByCode = db.prepare("SELECT * FROM controllers WHERE controller_code = ?").get(code);
-  const existing = existingByDevice || existingByCode || null;
+  const existingByDevice =
+    !requestedCode && deviceIdentity
+      ? db.prepare("SELECT * FROM controllers WHERE device_identity = ? ORDER BY id DESC LIMIT 1").get(deviceIdentity)
+      : null;
+  const existing = existingByCode || existingByDevice || null;
+  const address = controllerAddress
+    ? normalizeLogicalCode(controllerAddress)
+    : existing?.address || code;
+  const addressConflict = db
+    .prepare("SELECT id, controller_code FROM controllers WHERE address = ? AND id != ?")
+    .get(address, existing?.id || 0);
+  if (addressConflict) {
+    throw new Error(`Controller RS485 id is already assigned to ${addressConflict.controller_code}.`);
+  }
 
   let controllerId;
   if (existing) {
@@ -1648,7 +1670,7 @@ export function configureControllerModules(
     ).run(
       zoneId,
       code,
-      deviceIdentity || existing.address || code,
+      address,
       firmwareVersion,
       now,
       count,
@@ -1673,7 +1695,7 @@ export function configureControllerModules(
       .run(
         zoneId,
         code,
-        deviceIdentity || code,
+        address,
         firmwareVersion,
         now,
         count,

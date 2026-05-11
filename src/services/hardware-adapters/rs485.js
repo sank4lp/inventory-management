@@ -18,11 +18,17 @@ function firmwareWord(value, fallback) {
   return /^[a-z0-9#]+$/.test(word) ? word : fallback;
 }
 
+function firmwareAddress(value) {
+  const address = String(value || "").trim();
+  return /^[A-Za-z0-9._:-]+$/.test(address) ? address : "";
+}
+
 const LOCATE_TIMEOUT_MS = 120000;
 const BLINK_TEST_DURATION_MS = 2250;
 const DEFAULT_RS485_WRITE_REPEATS = 3;
 const DEFAULT_RS485_WRITE_REPEAT_DELAY_MS = 90;
 const DEFAULT_RS485_INTER_COMMAND_DELAY_MS = 35;
+const DEFAULT_RS485_CLEAR_REPEATS = 5;
 
 function numberSetting(value, fallback, { min, max }) {
   const number = Number(value);
@@ -61,6 +67,15 @@ export function createRs485Adapter({ config = {}, logger }) {
   let lastWriteAt = 0;
   const locateTimers = new Map();
 
+  function controllerAddressFor(record = {}) {
+    return record.controller_address || record.address || "";
+  }
+
+  function addressedCommand(controllerAddress, command) {
+    const address = firmwareAddress(controllerAddress);
+    return address ? `to ${address} ${command}` : command;
+  }
+
   function ensureReady() {
     if (!port) {
       throw new Error("RS485_SERIAL_PORT is not configured.");
@@ -89,8 +104,9 @@ export function createRs485Adapter({ config = {}, logger }) {
     }
   }
 
-  function send(command) {
+  function send(command, options = {}) {
     ensureReady();
+    const repeats = numberSetting(options.repeats, writeRepeats, { min: 1, max: 8 });
     try {
       const now = Date.now();
       const sinceLastWrite = now - lastWriteAt;
@@ -98,10 +114,10 @@ export function createRs485Adapter({ config = {}, logger }) {
         sleepMs(interCommandDelayMs - sinceLastWrite);
       }
 
-      for (let attempt = 1; attempt <= writeRepeats; attempt += 1) {
+      for (let attempt = 1; attempt <= repeats; attempt += 1) {
         writeSync(portFd, `${command}\n`);
         lastWriteAt = Date.now();
-        if (attempt < writeRepeats) {
+        if (attempt < repeats) {
           sleepMs(writeRepeatDelayMs);
         }
       }
@@ -113,9 +129,15 @@ export function createRs485Adapter({ config = {}, logger }) {
     logger?.debug("hardware.rs485.write", {
       port,
       command,
-      repeats: writeRepeats,
+      repeats,
       repeatDelayMs: writeRepeatDelayMs,
       interCommandDelayMs,
+    });
+  }
+
+  function sendClear(hardwareChannel, controllerAddress = "") {
+    send(addressedCommand(controllerAddress, `clear ${hardwareChannel}`), {
+      repeats: Math.max(writeRepeats, DEFAULT_RS485_CLEAR_REPEATS),
     });
   }
 
@@ -123,48 +145,75 @@ export function createRs485Adapter({ config = {}, logger }) {
     return task?.type === "put" ? "red" : "green";
   }
 
-  function clearLocateTimer(hardwareChannel) {
-    const key = Number(hardwareChannel);
-    const timeout = locateTimers.get(key);
-    if (timeout) {
-      clearTimeout(timeout);
+  function locateKey(hardwareChannel, controllerAddress = "") {
+    return `${firmwareAddress(controllerAddress)}:${Number(hardwareChannel)}`;
+  }
+
+  function clearLocateTimer(hardwareChannel, controllerAddress = "") {
+    const key = locateKey(hardwareChannel, controllerAddress);
+    const locate = locateTimers.get(key);
+    if (locate?.timeout) {
+      clearTimeout(locate.timeout);
       locateTimers.delete(key);
     }
   }
 
-  function clearAllLocateTimers() {
-    const channels = Array.from(locateTimers.keys());
-    for (const channel of channels) {
-      clearLocateTimer(channel);
+  function clearAllLocateTimers(cells = []) {
+    const locates = new Map(locateTimers);
+    for (const cell of cells) {
+      if (cell?.hardware_channel) {
+        const controllerAddress = controllerAddressFor(cell);
+        locates.set(locateKey(cell.hardware_channel, controllerAddress), {
+          hardwareChannel: Number(cell.hardware_channel),
+          controllerAddress,
+          timeout: locateTimers.get(locateKey(cell.hardware_channel, controllerAddress))?.timeout || null,
+        });
+      }
+    }
+    for (const [key, locate] of locates) {
+      if (locate?.timeout) {
+        clearTimeout(locate.timeout);
+      }
+      locateTimers.delete(key);
       try {
-        send(`clear ${channel}`);
+        sendClear(locate.hardwareChannel, locate.controllerAddress);
       } catch (error) {
         logger?.warn("hardware.rs485.locate_clear_all_failed", {
           port,
-          hardwareChannel: channel,
+          controllerAddress: locate.controllerAddress,
+          hardwareChannel: locate.hardwareChannel,
           error: error.message,
         });
       }
     }
-    return channels;
+    return Array.from(locates.values()).map((locate) => ({
+      controllerAddress: locate.controllerAddress,
+      hardwareChannel: locate.hardwareChannel,
+    }));
   }
 
   function scheduleLocateClear(cell) {
-    clearLocateTimer(cell.hardware_channel);
+    const controllerAddress = controllerAddressFor(cell);
+    clearLocateTimer(cell.hardware_channel, controllerAddress);
     const timeout = setTimeout(() => {
-      locateTimers.delete(Number(cell.hardware_channel));
+      locateTimers.delete(locateKey(cell.hardware_channel, controllerAddress));
       try {
-        send(`clear ${cell.hardware_channel}`);
+        sendClear(cell.hardware_channel, controllerAddress);
       } catch (error) {
         logger?.warn("hardware.rs485.locate_timeout_clear_failed", {
           port,
+          controllerAddress,
           hardwareChannel: cell.hardware_channel,
           error: error.message,
         });
       }
     }, LOCATE_TIMEOUT_MS);
     timeout.unref?.();
-    locateTimers.set(Number(cell.hardware_channel), timeout);
+    locateTimers.set(locateKey(cell.hardware_channel, controllerAddress), {
+      timeout,
+      controllerAddress,
+      hardwareChannel: Number(cell.hardware_channel),
+    });
   }
 
   function event({ controllerId = null, cellId = null, taskId = null, eventType, payload }) {
@@ -203,8 +252,12 @@ export function createRs485Adapter({ config = {}, logger }) {
       for (const line of lines) {
         const text = String(line.planned_quantity ?? "");
         const color = taskColor(task);
-        const command = `digit ${line.hardware_channel} ${firmwareToken(text)} ${color} 120 80`;
-        clearLocateTimer(line.hardware_channel);
+        const controllerAddress = controllerAddressFor(line);
+        const command = addressedCommand(
+          controllerAddress,
+          `digit ${line.hardware_channel} ${firmwareToken(text)} ${color} 120 80`,
+        );
+        clearLocateTimer(line.hardware_channel, controllerAddress);
         send(command);
         events.push(
           event({
@@ -216,11 +269,11 @@ export function createRs485Adapter({ config = {}, logger }) {
               type: "task-module",
               command,
               hardwareChannel: line.hardware_channel,
+              controllerAddress,
               cell: line.logical_code,
               taskType: task.type,
               quantity: line.planned_quantity,
               color,
-              statusRow: color,
             },
           }),
         );
@@ -230,9 +283,10 @@ export function createRs485Adapter({ config = {}, logger }) {
     clearGuidance(task, lines) {
       const events = [];
       for (const line of lines) {
-        const command = `clear ${line.hardware_channel}`;
-        clearLocateTimer(line.hardware_channel);
-        send(command);
+        const controllerAddress = controllerAddressFor(line);
+        const command = addressedCommand(controllerAddress, `clear ${line.hardware_channel}`);
+        clearLocateTimer(line.hardware_channel, controllerAddress);
+        send(command, { repeats: Math.max(writeRepeats, DEFAULT_RS485_CLEAR_REPEATS) });
         events.push(
           event({
             controllerId: line.controller_id,
@@ -243,6 +297,7 @@ export function createRs485Adapter({ config = {}, logger }) {
               type: "clear-module",
               command,
               hardwareChannel: line.hardware_channel,
+              controllerAddress,
               cell: line.logical_code,
             },
           }),
@@ -251,7 +306,8 @@ export function createRs485Adapter({ config = {}, logger }) {
       return { ok: true, degraded: false, events };
     },
     sendControllerTest(controller) {
-      const command = "ping";
+      const controllerAddress = controllerAddressFor(controller);
+      const command = addressedCommand(controllerAddress, "ping");
       send(command);
       return {
         ok: true,
@@ -263,6 +319,7 @@ export function createRs485Adapter({ config = {}, logger }) {
             payload: {
               type: "controller-test",
               command,
+              controllerAddress,
               controllerCode: controller.controller_code,
             },
           }),
@@ -270,8 +327,12 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     },
     sendCellTest(cell, color = "green") {
-      const command = `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 ${BLINK_TEST_DURATION_MS}`;
-      clearLocateTimer(cell.hardware_channel);
+      const controllerAddress = controllerAddressFor(cell);
+      const command = addressedCommand(
+        controllerAddress,
+        `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 ${BLINK_TEST_DURATION_MS}`,
+      );
+      clearLocateTimer(cell.hardware_channel, controllerAddress);
       send(command);
       return {
         ok: true,
@@ -285,6 +346,7 @@ export function createRs485Adapter({ config = {}, logger }) {
               type: "module-blink-test",
               command,
               hardwareChannel: cell.hardware_channel,
+              controllerAddress,
               color,
             },
           }),
@@ -292,11 +354,16 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     },
     setCellLocate(cell, active = true) {
+      const controllerAddress = controllerAddressFor(cell);
       const command = active
-        ? `locate ${cell.hardware_channel} red 80 ${LOCATE_TIMEOUT_MS}`
-        : `clear ${cell.hardware_channel}`;
-      clearLocateTimer(cell.hardware_channel);
-      send(command);
+        ? addressedCommand(controllerAddress, `locate ${cell.hardware_channel} red 80 ${LOCATE_TIMEOUT_MS}`)
+        : addressedCommand(controllerAddress, `clear ${cell.hardware_channel}`);
+      clearLocateTimer(cell.hardware_channel, controllerAddress);
+      if (active) {
+        send(command);
+      } else {
+        send(command, { repeats: Math.max(writeRepeats, DEFAULT_RS485_CLEAR_REPEATS) });
+      }
       if (active) {
         scheduleLocateClear(cell);
       }
@@ -313,6 +380,7 @@ export function createRs485Adapter({ config = {}, logger }) {
               command,
               active,
               hardwareChannel: cell.hardware_channel,
+              controllerAddress,
               color: "red",
               timeoutMs: LOCATE_TIMEOUT_MS,
             },
@@ -320,8 +388,8 @@ export function createRs485Adapter({ config = {}, logger }) {
         ],
       };
     },
-    clearAllCellLocates() {
-      const channels = clearAllLocateTimers();
+    clearAllCellLocates(cells = []) {
+      const channels = clearAllLocateTimers(cells);
       return {
         ok: true,
         degraded: false,

@@ -4,11 +4,14 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import {
+  DEFAULT_ESP32_FQBN,
+  ESP32_FIRMWARE_PROTOCOL,
+  MAX_LED_MODULES,
+  MIN_LED_MODULES,
+} from "./firmware-constants.js";
 import { configureControllerModules } from "./inventory.js";
 
-const DEFAULT_FQBN = "esp32:esp32:esp32";
-const MIN_MODULES = 1;
-const MAX_MODULES = 64;
 const MAX_LOG_LINES = 500;
 const BOOT_BUTTON_GUIDANCE =
   "Upload failed while connecting to the ESP32. First confirm the selected serial port is the ESP32, not the RS485 USB-to-UART bridge. To force download mode: hold BOOT, start flashing, tap EN/RESET once when Connecting appears while still holding BOOT, then release BOOT only after upload starts. If there is no EN/RESET button, unplug and reconnect USB while holding BOOT.";
@@ -19,8 +22,8 @@ function nowIso() {
 
 function asPositiveInteger(value, fieldName) {
   const number = Number(value);
-  if (!Number.isInteger(number) || number < MIN_MODULES || number > MAX_MODULES) {
-    throw new Error(`${fieldName} must be a whole number from ${MIN_MODULES} to ${MAX_MODULES}.`);
+  if (!Number.isInteger(number) || number < MIN_LED_MODULES || number > MAX_LED_MODULES) {
+    throw new Error(`${fieldName} must be a whole number from ${MIN_LED_MODULES} to ${MAX_LED_MODULES}.`);
   }
   return number;
 }
@@ -37,7 +40,7 @@ function assertSafePort(value) {
 }
 
 function assertSafeFqbn(value) {
-  const fqbn = String(value || DEFAULT_FQBN).trim();
+  const fqbn = String(value || DEFAULT_ESP32_FQBN).trim();
   if (!/^[A-Za-z0-9._:-]+$/.test(fqbn)) {
     throw new Error("Board FQBN contains unsupported characters.");
   }
@@ -51,6 +54,23 @@ function normalizeControllerName(value, fallback = "ESP32-01") {
     throw new Error("Controller name can use letters, numbers, dot, dash, underscore, or colon.");
   }
   return normalized;
+}
+
+function normalizeControllerAddress(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!/^[A-Z0-9._:-]+$/.test(normalized)) {
+    throw new Error("Controller RS485 id can use letters, numbers, dot, dash, underscore, or colon.");
+  }
+  return normalized;
+}
+
+function generateControllerAddress() {
+  return `CTRL-${randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+}
+
+function reusableControllerAddress(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return /^CTRL-[A-F0-9]{12}$/.test(normalized) ? normalized : "";
 }
 
 function cStringLiteral(value) {
@@ -342,6 +362,7 @@ function publicJob(job) {
     port: job.port,
     controllerId: job.controllerId,
     controllerName: job.controllerName,
+    controllerAddress: job.controllerAddress,
     deviceIdentity: job.deviceIdentity,
     deviceName: job.deviceName,
     flashedBy: job.flashedBy,
@@ -360,7 +381,7 @@ function publicJob(job) {
 export function createFirmwareService({ db, config = {}, logger }) {
   const jobs = new Map();
   const arduinoCliPath = config.arduinoCliPath || process.env.ARDUINO_CLI_PATH || "arduino-cli";
-  const defaultFqbn = config.esp32Fqbn || process.env.ESP32_FQBN || DEFAULT_FQBN;
+  const defaultFqbn = config.esp32Fqbn || process.env.ESP32_FQBN || DEFAULT_ESP32_FQBN;
   const sketchPath = resolve(
     config.esp32SketchPath || process.env.ESP32_SKETCH_PATH || "firmware/esp32-simple-matrix",
   );
@@ -393,18 +414,21 @@ export function createFirmwareService({ db, config = {}, logger }) {
   function saveLastConfiguration(job) {
     const controller = configureControllerModules(db, {
       controllerCode: job.controllerName,
+      controllerAddress: job.controllerAddress,
       deviceIdentity: job.deviceIdentity,
       moduleCount: job.moduleCount,
       configuredBy: job.flashedBy?.id || null,
-      firmwareVersion: "simple-matrix-v10-locate-ripple",
+      firmwareVersion: ESP32_FIRMWARE_PROTOCOL,
     });
     job.controllerId = controller.id;
     job.controllerName = controller.controller_code;
+    job.controllerAddress = controller.address;
     job.deviceName = controller.controller_code;
     const payload = {
       jobId: job.id,
       controllerId: controller.id,
       controllerName: controller.controller_code,
+      controllerAddress: controller.address,
       moduleCount: job.moduleCount,
       assignedModules: job.assignedModules,
       port: job.port,
@@ -425,6 +449,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
     ).run(JSON.stringify(payload), nowIso());
 
     const devices = getFlashedDevices();
+    devices[controller.address] = payload;
     devices[job.deviceIdentity || job.port] = payload;
     db.prepare(
       `
@@ -470,6 +495,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
         payload: {
           jobId: job.id,
           moduleCount: job.moduleCount,
+          controllerAddress: job.controllerAddress,
           port: job.port,
           fqbn: job.fqbn,
         },
@@ -486,7 +512,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
         "--fqbn",
         job.fqbn,
         "--build-property",
-        `compiler.cpp.extra_flags=-DLED_MODULE_COUNT=${job.moduleCount} -DCONTROLLER_NAME="${cStringLiteral(job.controllerName)}"`,
+        `compiler.cpp.extra_flags=-DLED_MODULE_COUNT=${job.moduleCount} -DCONTROLLER_NAME="${cStringLiteral(job.controllerName)}" -DCONTROLLER_ADDRESS="${cStringLiteral(job.controllerAddress)}"`,
         "--output-dir",
         buildDir,
         job.sketchPath,
@@ -514,6 +540,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
         payload: {
           jobId: job.id,
           moduleCount: job.moduleCount,
+          controllerAddress: job.controllerAddress,
           assignedModules: job.assignedModules,
           port: job.port,
           fqbn: job.fqbn,
@@ -525,6 +552,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
       job.progress = 100;
       job.finishedAt = nowIso();
       job.currentCommand = null;
+      appendLog(job, `Controller RS485 id: ${job.controllerAddress}`);
       appendLog(job, `Configured module numbers: ${job.assignedModules.join(", ")}`);
     } catch (error) {
       const failedStage = job.stage;
@@ -616,8 +644,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
             : "Step 1: unplug the ESP32 and scan without it. Then plug it in and detect the added port."
           : "Step 1: unplug the ESP32 and scan without it. Then plug it in and detect the added port.",
         moduleCount: {
-          min: MIN_MODULES,
-          max: MAX_MODULES,
+          min: MIN_LED_MODULES,
+          max: MAX_LED_MODULES,
           value: lastConfiguration?.moduleCount || 4,
         },
         lastConfiguration,
@@ -652,6 +680,15 @@ export function createFirmwareService({ db, config = {}, logger }) {
         input.controller_name || input.controllerName,
         `ESP32-${String(Date.now()).slice(-6)}`,
       );
+      const existingController = db
+        .prepare("SELECT address FROM controllers WHERE controller_code = ?")
+        .get(controllerName);
+      const controllerAddress = normalizeControllerAddress(
+        input.controller_address ||
+          input.controllerAddress ||
+          reusableControllerAddress(existingController?.address) ||
+          generateControllerAddress(),
+      );
       const assignedModules = Array.from({ length: moduleCount }, (_, index) => index + 1);
       const job = {
         id: randomUUID(),
@@ -663,6 +700,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
         port,
         controllerId: null,
         controllerName,
+        controllerAddress,
         deviceIdentity: detectedPort.deviceIdentity,
         deviceName: controllerName,
         flashedBy: actor
@@ -688,6 +726,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
       logger?.info("firmware.flash.started", {
         jobId: job.id,
         moduleCount,
+        controllerAddress,
         port,
         fqbn,
       });

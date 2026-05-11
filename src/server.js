@@ -582,11 +582,20 @@ export const requestHandler = async (request, response) => {
       if (!ensureApiAuth(response, user)) {
         return;
       }
-      const result = hardwareService.clearAllCellLocates();
+      const form = await parseForm(request);
+      const cellIds = String(form.cell_ids || "")
+        .split(",")
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0);
+      const selectedCells = cellIds.length
+        ? locationService.listCells().filter((cell) => cellIds.includes(cell.id))
+        : [];
+      const result = hardwareService.clearAllCellLocates(selectedCells);
       sendJson(response, {
         ok: result.ok,
         degraded: result.degraded,
         message: result.message,
+        clearedCellIds: selectedCells.map((cell) => cell.id),
       });
       return;
     }

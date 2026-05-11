@@ -498,7 +498,7 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
       const configuredAt = port.flashRecord.configuredAt
         ? new Date(port.flashRecord.configuredAt).toLocaleString()
         : "unknown time";
-      summary.textContent = `Already flashed · ${port.flashRecord.moduleCount} LED module(s) · ${configuredAt} · by ${flashedBy}`;
+      summary.textContent = `Already flashed · id ${port.flashRecord.controllerAddress || "unknown"} · ${port.flashRecord.moduleCount} LED module(s) · ${configuredAt} · by ${flashedBy}`;
     } else {
       summary.textContent = port.newlyConnected
         ? "New serial device detected after refresh. Select it only if this is the ESP32."
@@ -897,18 +897,29 @@ function clearAllLocateUi() {
   }
 }
 
-function sendLocateClearAll() {
+function activeLocateCellIds() {
+  return Array.from(activeLocates.keys());
+}
+
+function locateClearAllBody() {
   const body = new URLSearchParams();
   body.set("active", "0");
+  body.set("cell_ids", activeLocateCellIds().join(","));
+  return body;
+}
+
+function sendLocateClearAll({ beacon = true } = {}) {
+  const body = locateClearAllBody();
   if (navigator.sendBeacon) {
     const blob = new Blob([body.toString()], {
       type: "application/x-www-form-urlencoded; charset=UTF-8",
     });
-    navigator.sendBeacon("/api/cells/locate/clear-all", blob);
-    return;
+    if (beacon && navigator.sendBeacon("/api/cells/locate/clear-all", blob)) {
+      return Promise.resolve();
+    }
   }
 
-  fetch("/api/cells/locate/clear-all", {
+  return fetch("/api/cells/locate/clear-all", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -969,6 +980,30 @@ function wireLocationLocate() {
       button.disabled = false;
     }
   });
+
+  document.addEventListener(
+    "click",
+    async (event) => {
+      const link = event.target.closest("a[href]");
+      if (!link || activeLocates.size === 0) {
+        return;
+      }
+      if (link.target || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+
+      const nextUrl = new URL(link.href, window.location.href);
+      if (nextUrl.origin !== window.location.origin || nextUrl.pathname === window.location.pathname) {
+        return;
+      }
+
+      event.preventDefault();
+      await sendLocateClearAll({ beacon: false });
+      clearAllLocateUi();
+      window.location.href = nextUrl.href;
+    },
+    { capture: true },
+  );
 
   window.addEventListener("pagehide", () => {
     sendLocateClearAll();

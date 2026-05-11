@@ -27,6 +27,15 @@ function renderPortOptions(ports = []) {
     .join("");
 }
 
+function nextControllerName(controllers = []) {
+  const used = new Set(controllers.map((controller) => String(controller.controller_code || "").toUpperCase()));
+  let index = controllers.length + 1;
+  while (used.has(`ESP32-${String(index).padStart(2, "0")}`)) {
+    index += 1;
+  }
+  return `ESP32-${String(index).padStart(2, "0")}`;
+}
+
 function flashRecordSummary(port) {
   if (!port.flashRecord) {
     return `<span class="firmware-device-summary">New ESP32 detected. Flash this controller before mapping cells.</span>`;
@@ -36,6 +45,7 @@ function flashRecordSummary(port) {
   return `
     <span class="firmware-device-summary">
       Already flashed as ${escapeHtml(port.flashRecord.deviceName || port.deviceName || "ESP32 controller")}
+      · id ${escapeHtml(port.flashRecord.controllerAddress || port.flashRecord.controllerId || "unknown")}
       · ${escapeHtml(port.flashRecord.moduleCount)} LED module(s)
       · ${escapeHtml(formatDate(port.flashRecord.configuredAt))}
       · by ${escapeHtml(flashedBy)}
@@ -193,7 +203,7 @@ export function createLocationPages({ db }) {
     const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
     const moduleCount = lastFirmwareConfig?.moduleCount || firmwareOptions?.moduleCount?.value || 4;
     const port = "";
-    const controllerName = lastFirmwareConfig?.controllerName || lastFirmwareConfig?.deviceName || "ESP32-01";
+    const controllerName = nextControllerName(controllers);
     const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
     const hasPorts = false;
 
@@ -300,9 +310,10 @@ export function createLocationPages({ db }) {
         ${card(
           "Controllers",
           table(
-            ["Controller", "Health", "LED modules", "Cells", "Test"],
+            ["Controller", "RS485 id", "Health", "LED modules", "Cells", "Test"],
             controllers.map((controller) => [
               escapeHtml(controller.controller_code),
+              `<code>${escapeHtml(controller.address || "")}</code>`,
               statusBadge(controller.heartbeat_status),
               escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
               escapeHtml(formatQuantity(controller.mapped_cells)),

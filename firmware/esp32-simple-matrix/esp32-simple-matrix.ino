@@ -13,8 +13,12 @@
 #define CONTROLLER_NAME "ESP32-01"
 #endif
 
+#ifndef CONTROLLER_ADDRESS
+#define CONTROLLER_ADDRESS CONTROLLER_NAME
+#endif
+
 #define MODULES LED_MODULE_COUNT
-#define FIRMWARE_PROTOCOL "simple-matrix-v10-locate-ripple"
+#define FIRMWARE_PROTOCOL "simple-matrix-v12-rs485-addressed"
 #define W 8
 #define H 8
 #define LEDS_PER_MODULE 64
@@ -58,8 +62,6 @@ struct ModuleState {
   unsigned long locateStartedAt;
   uint32_t locateColor;
   int lastLocateStep;
-  bool statusActive;
-  uint32_t statusColor;
 };
 
 ModuleState modules[MODULES];
@@ -384,22 +386,6 @@ void drawGlyph(int module, char ch, int ox, int oy, uint32_t color, bool bold) {
   }
 }
 
-void drawStatusRow(int module) {
-  if (module < 0) {
-    return;
-  }
-  if (module >= MODULES) {
-    return;
-  }
-  if (!modules[module].statusActive) {
-    return;
-  }
-
-  for (int x = 0; x < W; x++) {
-    pixels.setPixelColor(pixelIndex(module, x, H - 1), modules[module].statusColor);
-  }
-}
-
 int textPixelWidth(const char *text) {
   int length = strlen(text);
   if (length <= 0) {
@@ -420,7 +406,6 @@ void renderStaticModule(int module) {
       x += CHAR_ADVANCE_STATIC;
     }
   }
-  drawStatusRow(module);
 }
 
 void renderScrollModule(int module) {
@@ -431,7 +416,6 @@ void renderScrollModule(int module) {
     drawGlyph(module, modules[module].text[i], x, 0, modules[module].color, false);
     x += CHAR_ADVANCE_SCROLL;
   }
-  drawStatusRow(module);
 }
 
 void renderIdleModule(int module) {
@@ -545,7 +529,6 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
-  modules[module].statusActive = false;
   if (modules[module].scrollSpeedMs <= 0) {
     modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
   }
@@ -578,8 +561,6 @@ void showTaskModule(int module, const char *text, uint32_t color, int brightness
   modules[module].text[sizeof(modules[module].text) - 1] = 0;
   modules[module].brightness = clampBrightness(brightness);
   modules[module].color = scaleColor(color, modules[module].brightness);
-  modules[module].statusColor = modules[module].color;
-  modules[module].statusActive = true;
   modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
   modules[module].lastStepAt = 0;
   modules[module].testUntil = 0;
@@ -611,7 +592,6 @@ void setModuleIdle(int module) {
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
-  modules[module].statusActive = false;
   renderModule(module);
 }
 
@@ -628,7 +608,6 @@ void setModuleOff(int module) {
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
-  modules[module].statusActive = false;
   renderModule(module);
 }
 
@@ -659,6 +638,32 @@ void lowerToken(char *s) {
       s[i] = s[i] + 32;
     }
   }
+}
+
+bool equalsIgnoreCase(const char *a, const char *b) {
+  int i = 0;
+  while (a[i] != 0 && b[i] != 0) {
+    char ca = a[i];
+    char cb = b[i];
+    if (ca >= 'A' && ca <= 'Z') {
+      ca = ca + 32;
+    }
+    if (cb >= 'A' && cb <= 'Z') {
+      cb = cb + 32;
+    }
+    if (ca != cb) {
+      return false;
+    }
+    i++;
+  }
+  return a[i] == 0 && b[i] == 0;
+}
+
+bool isControllerTarget(const char *target) {
+  return strcmp(target, "*") == 0 ||
+    equalsIgnoreCase(target, "all") ||
+    equalsIgnoreCase(target, "broadcast") ||
+    equalsIgnoreCase(target, CONTROLLER_ADDRESS);
 }
 
 int splitLine(char *src, char *tokens[], int maxTokens) {
@@ -723,7 +728,6 @@ void setSinglePixel(int module, int row, int column, uint32_t color) {
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
-  modules[module].statusActive = false;
   clearModulePixels(module);
 
   int y = row - 1;
@@ -755,7 +759,6 @@ void fillModule(int module, uint32_t color, int brightness) {
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
-  modules[module].statusActive = false;
   uint32_t scaled = scaleColor(color, modules[module].brightness);
   for (int i = 0; i < LEDS_PER_MODULE; i++) {
     pixels.setPixelColor(module * LEDS_PER_MODULE + i, scaled);
@@ -784,7 +787,6 @@ void blinkModule(int module, uint32_t color, int brightness, unsigned long durat
   modules[module].lastTestStep = -1;
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
-  modules[module].statusActive = false;
   renderRippleModule(module, 0, false);
   pixels.show();
 }
@@ -809,7 +811,6 @@ void locateModule(int module, uint32_t color, int brightness, unsigned long dura
   modules[module].lastLocateStep = -1;
   modules[module].testUntil = 0;
   modules[module].lastTestStep = -1;
-  modules[module].statusActive = false;
   renderRippleModule(module, 0, true);
   pixels.show();
 }
@@ -950,16 +951,33 @@ void handleLine(char *cmdLine) {
   command[sizeof(command) - 1] = 0;
   lowerToken(command);
 
+  if (strcmp(command, "to") == 0 || strcmp(command, "target") == 0) {
+    if (count < 3) {
+      send485("{\"type\":\"error\",\"message\":\"missing-target-command\"}\n");
+      return;
+    }
+    if (!isControllerTarget(tokens[1])) {
+      return;
+    }
+    for (int i = 0; i < count - 2; i++) {
+      tokens[i] = tokens[i + 2];
+    }
+    count -= 2;
+    strncpy(command, tokens[0], sizeof(command) - 1);
+    command[sizeof(command) - 1] = 0;
+    lowerToken(command);
+  }
+
   if (strcmp(command, "ping") == 0) {
-    char msg[128];
-    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
+    char msg[180];
+    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
     send485(msg);
     return;
   }
 
   if (strcmp(command, "version") == 0 || strcmp(command, "status") == 0) {
-    char msg[128];
-    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
+    char msg[180];
+    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
     send485(msg);
     return;
   }
@@ -1159,20 +1177,7 @@ void handleLine(char *cmdLine) {
     }
   }
 
-  const char *color = "red";
-  int speed = DEFAULT_SCROLL_MS;
-  int brightness = DEFAULT_BRIGHTNESS_PERCENT;
-  if (count >= 2) {
-    color = tokens[1];
-  }
-  if (count >= 3) {
-    speed = atoi(tokens[2]);
-  }
-  if (count >= 4) {
-    brightness = atoi(tokens[3]);
-  }
-  showOrScroll(0, tokens[0], colorFor(color), speed, brightness, false);
-  ack("display", 0);
+  send485("{\"type\":\"error\",\"message\":\"unknown-command\"}\n");
 }
 
 void setup() {
@@ -1204,14 +1209,12 @@ void setup() {
     modules[module].locateStartedAt = 0;
     modules[module].locateColor = 0;
     modules[module].lastLocateStep = -1;
-    modules[module].statusActive = false;
-    modules[module].statusColor = 0;
     renderModule(module);
   }
   pixels.show();
 
-  char bootMsg[128];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v10\",\"protocol\":\"%s\",\"controller\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, MODULES);
+  char bootMsg[180];
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v12\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
   send485(bootMsg);
 }
 

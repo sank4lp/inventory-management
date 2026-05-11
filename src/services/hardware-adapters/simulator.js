@@ -33,7 +33,6 @@ export function createSimulatorAdapter({ logger }) {
           cell: line.logical_code,
           hardwareChannel: line.hardware_channel,
           color,
-          statusRow: color,
           taskId: task.id,
           taskType: task.type,
           quantity: line.planned_quantity,
@@ -142,10 +141,11 @@ export function createSimulatorAdapter({ logger }) {
         },
       ]);
     },
-    clearAllCellLocates() {
+    clearAllCellLocates(cells = []) {
       const payload = {
         ts: stamp(),
         type: "cell-locate-clear-all",
+        hardwareChannels: cells.map((cell) => cell.hardware_channel).filter(Boolean),
       };
       emit(payload);
       return wrap([
