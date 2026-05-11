@@ -349,6 +349,79 @@ function wireAdjustmentForms() {
   }
 }
 
+function wirePutPlanForms() {
+  const sections = document.querySelectorAll("[data-put-plan-form]");
+
+  for (const section of sections) {
+    if (section.dataset.putPlanBound === "true") {
+      continue;
+    }
+    section.dataset.putPlanBound = "true";
+
+    const lines = section.querySelector("[data-put-plan-lines]");
+    const template = section.querySelector("template[data-put-plan-template]");
+    const addButton = section.querySelector("[data-put-plan-add]");
+    const totalLabel = section.querySelector("[data-put-plan-total]");
+    const submitButton = section.querySelector("[data-put-plan-submit]");
+    const expectedTotal = Number(section.dataset.expectedTotal || 0);
+    let nextIndex = 1;
+
+    const formatQuantity = (value) =>
+      Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+    const quantityInputs = () => Array.from(section.querySelectorAll("[data-put-plan-qty]"));
+
+    const refreshTotal = () => {
+      const currentTotal = quantityInputs().reduce((sum, input) => {
+        const value = Number(input.value || 0);
+        return Number.isFinite(value) ? sum + value : sum;
+      }, 0);
+      const matches = Math.abs(currentTotal - expectedTotal) < 0.000001;
+      if (totalLabel) {
+        totalLabel.textContent = `Adjusted total: ${formatQuantity(currentTotal)} / ${formatQuantity(expectedTotal)}`;
+        totalLabel.classList.toggle("flash-error", !matches);
+      }
+      if (submitButton) {
+        submitButton.disabled = !matches;
+      }
+    };
+
+    section.addEventListener("input", (event) => {
+      if (event.target.closest("[data-put-plan-qty]")) {
+        refreshTotal();
+      }
+    });
+
+    section.addEventListener("click", (event) => {
+      const removeButton = event.target.closest("[data-put-plan-remove]");
+      if (removeButton) {
+        removeButton.closest("[data-put-plan-row]")?.remove();
+        refreshTotal();
+        return;
+      }
+
+      if (!event.target.closest("[data-put-plan-add]") || !template || !lines) {
+        return;
+      }
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = template.innerHTML.replaceAll("__INDEX__", String(nextIndex)).trim();
+      const row = wrapper.firstElementChild;
+      if (!row) {
+        return;
+      }
+      lines.appendChild(row);
+      wireComboBoxes(row);
+      nextIndex += 1;
+      refreshTotal();
+      row.querySelector("[data-combo-input]")?.focus();
+    });
+
+    if (addButton) {
+      addButton.disabled = !template || !lines;
+    }
+    refreshTotal();
+  }
+}
+
 function firmwareStageLabel(stage) {
   const labels = {
     queued: "Queued",
@@ -1016,6 +1089,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireLiveSearch();
   wireComboBoxes();
   wireAdjustmentForms();
+  wirePutPlanForms();
   wireFirmwareFlash();
   wireLocationLocate();
 });

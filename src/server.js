@@ -251,6 +251,31 @@ function parseTaskReviewForm(form) {
   };
 }
 
+function parsePutPlanForm(form) {
+  const byKey = new Map();
+
+  for (const [key, value] of Object.entries(form)) {
+    if (key.startsWith("plan_qty_")) {
+      const suffix = key.slice("plan_qty_".length);
+      byKey.set(suffix, {
+        ...(byKey.get(suffix) || {}),
+        quantity: value,
+      });
+    }
+    if (key.startsWith("plan_cell_")) {
+      const suffix = key.slice("plan_cell_".length);
+      byKey.set(suffix, {
+        ...(byKey.get(suffix) || {}),
+        cellId: value,
+      });
+    }
+  }
+
+  return Array.from(byKey.values()).filter(
+    (allocation) => String(allocation.quantity || "").trim() || String(allocation.cellId || "").trim(),
+  );
+}
+
 function createAutomaticBackup(source) {
   const { backupService } = getAppState();
 
@@ -679,11 +704,48 @@ export const requestHandler = async (request, response) => {
             task && task.status !== "completed" && task.status !== "cancelled"
               ? taskService.issueActionToken("task-confirm", task.id, user.id)
               : null,
+          putPlan:
+            task && task.type === "put" && task.status !== "completed" && task.status !== "cancelled"
+              ? taskService.issueActionToken("task-put-plan", task.id, user.id)
+              : null,
           correct:
             task && task.status === "completed"
               ? taskService.issueActionToken("task-correct", task.id, user.id)
               : null,
         }),
+      );
+      return;
+    }
+
+    const putPlanMatch = url.pathname.match(/^\/tasks\/(\d+)\/put-plan$/);
+    if (request.method === "POST" && putPlanMatch) {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const task = taskService.getTask(Number(putPlanMatch[1]));
+      if (!task || !pages.canEditTask(user, task)) {
+        sendRedirect(response, appendFlash(`/tasks/${putPlanMatch[1]}`, "You can adjust only your own tasks unless you are an admin.", "error"));
+        return;
+      }
+      const form = await parseForm(request);
+      const updated = taskService.updatePutPlan({
+        taskId: Number(putPlanMatch[1]),
+        allocations: parsePutPlanForm(form),
+        userId: user.id,
+        note: form.note,
+        submissionToken: form.submission_token,
+      });
+      const backupResult = createAutomaticBackup("task-put-plan-adjust");
+      const nextFlash = backupAwareFlash(
+        updated.guidance.degraded
+          ? "Put cells updated. Hardware guidance is unavailable, so continue with manual on-screen guidance."
+          : "Put cells updated and LED quantities refreshed.",
+        updated.guidance.degraded ? "warning" : "success",
+        backupResult,
+      );
+      sendRedirect(
+        response,
+        appendFlash(`/tasks/${updated.task.id}`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -1110,9 +1172,17 @@ export const requestHandler = async (request, response) => {
     }
     let target = user ? url.pathname : "/login";
     const confirmMatch = url.pathname.match(/^\/tasks\/(\d+)\/confirm$/);
+    const putPlanMatch = url.pathname.match(/^\/tasks\/(\d+)\/put-plan$/);
+    const correctMatch = url.pathname.match(/^\/tasks\/(\d+)\/correct$/);
+    const cancelMatch = url.pathname.match(/^\/tasks\/(\d+)\/cancel$/);
     const buttonMatch = url.pathname.match(/^\/tasks\/(\d+)\/simulate-button$/);
-    if (confirmMatch || buttonMatch) {
-      const taskId = confirmMatch?.[1] || buttonMatch?.[1];
+    if (confirmMatch || putPlanMatch || correctMatch || cancelMatch || buttonMatch) {
+      const taskId =
+        confirmMatch?.[1] ||
+        putPlanMatch?.[1] ||
+        correctMatch?.[1] ||
+        cancelMatch?.[1] ||
+        buttonMatch?.[1];
       target = `/tasks/${taskId}`;
     }
     sendRedirect(response, appendFlash(target, error.message, "error"));

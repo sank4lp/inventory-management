@@ -29,6 +29,8 @@ const DEFAULT_RS485_WRITE_REPEATS = 3;
 const DEFAULT_RS485_WRITE_REPEAT_DELAY_MS = 90;
 const DEFAULT_RS485_INTER_COMMAND_DELAY_MS = 35;
 const DEFAULT_RS485_CLEAR_REPEATS = 5;
+const HEARTBEAT_SYNC_INTERVAL_MS = 5000;
+const HEARTBEAT_COLUMN_COUNT = 8;
 
 function numberSetting(value, fallback, { min, max }) {
   const number = Number(value);
@@ -65,6 +67,8 @@ export function createRs485Adapter({ config = {}, logger }) {
   let configured = false;
   let portFd = null;
   let lastWriteAt = 0;
+  let heartbeatSyncStarted = false;
+  let heartbeatSyncTimer = null;
   const locateTimers = new Map();
 
   function controllerAddressFor(record = {}) {
@@ -102,6 +106,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     if (portFd === null) {
       portFd = openSync(port, "a");
     }
+    startHeartbeatSync();
   }
 
   function send(command, options = {}) {
@@ -139,6 +144,35 @@ export function createRs485Adapter({ config = {}, logger }) {
     send(addressedCommand(controllerAddress, `clear ${hardwareChannel}`), {
       repeats: Math.max(writeRepeats, DEFAULT_RS485_CLEAR_REPEATS),
     });
+  }
+
+  function heartbeatColumnForNow() {
+    return Math.floor(Date.now() / HEARTBEAT_SYNC_INTERVAL_MS) % HEARTBEAT_COLUMN_COUNT;
+  }
+
+  function sendHeartbeatSync() {
+    try {
+      send(`sync-heartbeat ${heartbeatColumnForNow()}`, { repeats: 2 });
+    } catch (error) {
+      logger?.warn("hardware.rs485.heartbeat_sync_failed", {
+        port,
+        error: error.message,
+      });
+    }
+  }
+
+  function startHeartbeatSync() {
+    if (heartbeatSyncStarted) {
+      return;
+    }
+    heartbeatSyncStarted = true;
+    const delay = Math.max(10, HEARTBEAT_SYNC_INTERVAL_MS - (Date.now() % HEARTBEAT_SYNC_INTERVAL_MS));
+    heartbeatSyncTimer = setTimeout(() => {
+      sendHeartbeatSync();
+      heartbeatSyncTimer = setInterval(sendHeartbeatSync, HEARTBEAT_SYNC_INTERVAL_MS);
+      heartbeatSyncTimer.unref?.();
+    }, delay);
+    heartbeatSyncTimer.unref?.();
   }
 
   function taskColor(task) {

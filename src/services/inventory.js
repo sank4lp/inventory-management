@@ -13,6 +13,18 @@ function normalizeQuantity(value) {
   return quantity;
 }
 
+function normalizeNonNegativeQuantity(value, message = "Quantity values must be zero or greater.") {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    throw new Error(message);
+  }
+  return quantity;
+}
+
+function quantitiesMatch(left, right) {
+  return Math.abs(Number(left) - Number(right)) < 0.000001;
+}
+
 function normalizeItemsPerCell(value) {
   const capacity = Number(value);
   if (!Number.isFinite(capacity) || capacity <= 0) {
@@ -819,14 +831,23 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
 
   return withTransaction(db, () => {
     const touchedCellIds = new Set();
+    const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
+
+    if (task.type === "put") {
+      const actualTotal = task.lines.reduce((sum, line) => {
+        const actualValue = actualQuantities[line.id] ?? line.planned_quantity;
+        return sum + normalizeNonNegativeQuantity(actualValue, "Put quantities must be zero or greater.");
+      }, 0);
+      if (!quantitiesMatch(actualTotal, plannedTotal)) {
+        throw new Error(
+          `Put quantities must total ${plannedTotal}. Current total is ${actualTotal}. Adjust the cells or cancel the task.`,
+        );
+      }
+    }
 
     for (const line of task.lines) {
       const actualValue = actualQuantities[line.id] ?? line.planned_quantity;
-      const actualQuantity = Number(actualValue);
-
-      if (!Number.isFinite(actualQuantity) || actualQuantity < 0) {
-        throw new Error("Actual quantity values must be zero or greater.");
-      }
+      const actualQuantity = normalizeNonNegativeQuantity(actualValue, "Actual quantity values must be zero or greater.");
 
       if (task.type === "pick" && actualQuantity > Number(line.planned_quantity)) {
         throw new Error("Actual quantities cannot exceed planned quantities in this MVP.");
@@ -931,6 +952,83 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
       task: getTask(db, task.id),
       anomalies: detectAnomalies(db).filter((anomaly) => touchedCellIds.has(anomaly.cellId)),
     };
+  });
+}
+
+export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
+  const task = getTask(db, Number(taskId));
+  if (!task) {
+    throw new Error("Task not found.");
+  }
+
+  if (task.type !== "put") {
+    throw new Error("Only PUT tasks can be adjusted this way.");
+  }
+
+  if (task.status === "completed") {
+    throw new Error("Completed tasks cannot be adjusted.");
+  }
+
+  if (task.status === "cancelled") {
+    throw new Error("Cancelled tasks cannot be adjusted.");
+  }
+
+  const productId = task.lines[0]?.product_id;
+  if (!productId) {
+    throw new Error("Task has no product lines to adjust.");
+  }
+
+  const expectedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
+  const nextAllocations = [];
+  const seenCells = new Set();
+
+  for (const allocation of allocations || []) {
+    const cellId = Number(allocation.cellId);
+    const quantity = normalizeNonNegativeQuantity(
+      allocation.quantity,
+      "Adjusted put quantities must be zero or greater.",
+    );
+    if (quantity <= 0) {
+      continue;
+    }
+    if (!Number.isInteger(cellId) || cellId <= 0) {
+      throw new Error("Choose a valid cell for each adjusted put line.");
+    }
+    if (seenCells.has(cellId)) {
+      throw new Error("Each adjusted put cell can appear only once.");
+    }
+    const cell = db.prepare("SELECT id FROM cells WHERE id = ? AND active = 1").get(cellId);
+    if (!cell) {
+      throw new Error("Selected put cell is not active.");
+    }
+    seenCells.add(cellId);
+    nextAllocations.push({ cellId, quantity });
+  }
+
+  if (!nextAllocations.length) {
+    throw new Error("Add at least one cell with a quantity greater than zero.");
+  }
+
+  const nextTotal = nextAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0);
+  if (!quantitiesMatch(nextTotal, expectedTotal)) {
+    throw new Error(
+      `Adjusted put quantities must total ${expectedTotal}. Current total is ${nextTotal}.`,
+    );
+  }
+
+  return withTransaction(db, () => {
+    db.prepare("DELETE FROM task_lines WHERE task_id = ?").run(task.id);
+    for (const allocation of nextAllocations) {
+      db.prepare(
+        `
+          INSERT INTO task_lines (
+            task_id, product_id, cell_id, planned_quantity, guidance_color, note
+          )
+          VALUES (?, ?, ?, ?, 'red', ?)
+        `,
+      ).run(task.id, productId, allocation.cellId, allocation.quantity, note || null);
+    }
+    return getTask(db, task.id);
   });
 }
 

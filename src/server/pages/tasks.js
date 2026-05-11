@@ -16,6 +16,69 @@ import {
 } from "./shared.js";
 
 export function createTaskPages({ db }) {
+  function renderPutPlanAdjuster(task, cells, actionToken) {
+    const total = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
+    const row = ({ key, cellId = null, quantity = "", removable = false }) => `
+      <div class="put-plan-row" data-put-plan-row>
+        <label>Cell
+          ${cellPickerField(cells, cellId, `put-plan-${key}`, `plan_cell_${key}`, "put-plan-form")}
+        </label>
+        <label>Items
+          <input
+            form="put-plan-form"
+            class="compact-input"
+            type="number"
+            step="0.01"
+            min="0"
+            name="plan_qty_${key}"
+            value="${escapeHtml(quantity)}"
+            data-put-plan-qty
+          />
+        </label>
+        ${
+          removable
+            ? `<button type="button" class="ghost-button" data-put-plan-remove>Remove</button>`
+            : `<span class="muted">Suggested</span>`
+        }
+      </div>
+    `;
+
+    return card(
+      "Adjust Put Cells",
+      `
+        <p class="muted">Change the split before placing items. LEDs update only when the adjusted total matches the original requested quantity.</p>
+        <div
+          data-put-plan-form
+          data-expected-total="${escapeHtml(total)}"
+        >
+          <div class="put-plan-lines" data-put-plan-lines>
+            ${task.lines
+              .map((line) =>
+                row({
+                  key: line.id,
+                  cellId: line.cell_id,
+                  quantity: line.planned_quantity,
+                }),
+              )
+              .join("")}
+          </div>
+          <template data-put-plan-template>
+            ${row({ key: "new___INDEX__", quantity: 0, removable: true })}
+          </template>
+          <div class="mini-actions">
+            <button type="button" class="ghost-button" data-put-plan-add>Adjust in more cells</button>
+          </div>
+          <form id="put-plan-form" method="post" action="/tasks/${task.id}/put-plan" class="stack-form">
+            ${hiddenSubmissionToken(actionToken)}
+            <label>Adjustment note<textarea name="note" rows="2" placeholder="Optional note"></textarea></label>
+            <p class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(total))} / ${escapeHtml(formatQuantity(total))}</p>
+            <button type="submit" class="blue-button" data-put-plan-submit>Update LED quantities</button>
+          </form>
+        </div>
+      `,
+    );
+  }
+
   function renderTask(user, flash, task, mode = "view", actionTokens = {}) {
     if (!task) {
       return page({
@@ -81,8 +144,13 @@ export function createTaskPages({ db }) {
             }
             <p><strong>${escapeHtml(task.summary)}</strong></p>
             <p class="muted">${escapeHtml(guidanceSummary)}</p>
-          `,
+            `,
         )}
+        ${
+          task.type === "put" && taskIsActive && canEditTask(user, task)
+            ? renderPutPlanAdjuster(task, cells, actionTokens.putPlan)
+            : ""
+        }
         ${card(
           editMode ? `Make Changes to ${actionLabel}` : actionLabel,
           `

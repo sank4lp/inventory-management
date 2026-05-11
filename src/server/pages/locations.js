@@ -92,7 +92,7 @@ export function createLocationPages({ db }) {
 
   function renderAllLocations(cells) {
     return table(
-      ["Cell", "Controller", "LED module", "Stock", "Products", "Locate"],
+      ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
       cells.map((cell) => [
         `<a href="/cells/${cell.id}">${escapeHtml(cell.logical_code)}</a>`,
         escapeHtml(cell.controller_code || "No controller"),
@@ -100,14 +100,17 @@ export function createLocationPages({ db }) {
         escapeHtml(formatQuantity(cell.occupied_quantity)),
         cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
         `
-          <button
-            type="button"
-            class="ghost-button locate-button"
-            data-locate-cell
-            data-cell-id="${cell.id}"
-            data-cell-name="${escapeHtml(cell.logical_code)}"
-            aria-pressed="false"
-          >Locate</button>
+          <div class="mini-actions">
+            <a class="mini-link" href="/put?cell_id=${cell.id}">Put item here</a>
+            <button
+              type="button"
+              class="ghost-button locate-button"
+              data-locate-cell
+              data-cell-id="${cell.id}"
+              data-cell-name="${escapeHtml(cell.logical_code)}"
+              aria-pressed="false"
+            >Locate</button>
+          </div>
         `,
       ]),
     );
@@ -178,6 +181,9 @@ export function createLocationPages({ db }) {
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
             <p>${escapeHtml(cell.controller_code || "No controller")} · Channel ${escapeHtml(cell.hardware_channel)}</p>
+            <div class="mini-actions">
+              <a class="mini-link" href="/put?cell_id=${cell.id}">Put any item here</a>
+            </div>
           `,
         )}
         ${card(

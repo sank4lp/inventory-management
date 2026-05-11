@@ -8,6 +8,7 @@ import {
   listRecentTasksForUser,
   markPhysicalConfirmation,
   planPut,
+  updatePendingPutPlan,
 } from "./inventory.js";
 
 export function createTaskService({ db, hardwareService, logger, systemService }) {
@@ -82,6 +83,37 @@ export function createTaskService({ db, hardwareService, logger, systemService }
         anomalies: completion.anomalies.length,
       });
       return completion;
+    },
+    updatePutPlan({ taskId, allocations, userId, note, submissionToken }) {
+      systemService.consumeSubmissionToken({
+        token: submissionToken,
+        scope: "task-put-plan",
+        taskId: Number(taskId),
+        userId,
+      });
+      const previousTask = getTask(db, Number(taskId));
+      const task = updatePendingPutPlan(db, {
+        taskId,
+        allocations,
+        note,
+      });
+      if (previousTask) {
+        hardwareService.clearGuidance(previousTask, previousTask.lines, {
+          source: "task_put_plan_adjust",
+        });
+      }
+      const guidance = hardwareService.activateGuidance(task, task.lines, {
+        source: "task_put_plan_adjust",
+        taskType: task.type,
+      });
+      logger.info("task.put.plan_updated", {
+        taskId: task.id,
+        userId,
+        lineCount: task.lines.length,
+        adapter: hardwareService.adapterName,
+        degradedGuidance: guidance.degraded,
+      });
+      return { task, guidance };
     },
     correctTask({ taskId, actualQuantities, actualCellIds, userId, note, submissionToken }) {
       systemService.consumeSubmissionToken({

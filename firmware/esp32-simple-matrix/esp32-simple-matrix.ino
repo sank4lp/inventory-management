@@ -934,6 +934,24 @@ void updateHeartbeat() {
   }
 }
 
+void syncHeartbeat(int column) {
+  unsigned long now = millis();
+  if (column < 0) {
+    column = 0;
+  }
+  heartbeatColumn = column % W;
+  lastHeartbeatAt = now;
+  heartbeatPulseStartedAt = now;
+  heartbeatPulseOn = true;
+
+  for (int module = 0; module < MODULES; module++) {
+    if (modules[module].mode == MODE_IDLE) {
+      renderModule(module);
+    }
+  }
+  pixels.show();
+}
+
 void handleLine(char *cmdLine) {
   char local[160];
   strncpy(local, cmdLine, sizeof(local) - 1);
@@ -979,6 +997,15 @@ void handleLine(char *cmdLine) {
     char msg[180];
     snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
     send485(msg);
+    return;
+  }
+
+  if (strcmp(command, "sync-heartbeat") == 0 || strcmp(command, "heartbeat-sync") == 0) {
+    int column = heartbeatColumn;
+    if (count >= 2) {
+      column = atoi(tokens[1]);
+    }
+    syncHeartbeat(column);
     return;
   }
 
