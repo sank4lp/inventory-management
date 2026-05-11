@@ -478,10 +478,17 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
   const otherPorts = ports.filter((port) => !primary.has(firmwarePortIdentity(port)));
   target.replaceChildren();
   details.hidden = otherPorts.length === 0;
+  if (otherPorts.length > 0) {
+    details.open = true;
+  }
 
   for (const port of otherPorts) {
-    const item = document.createElement("div");
+    const item = document.createElement("button");
+    item.type = "button";
     item.className = "firmware-other-device";
+    item.dataset.firmwarePortChoice = "true";
+    item.dataset.portPath = port.path;
+    item.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
     const name = document.createElement("strong");
     name.textContent = port.deviceName || port.label || "Serial device";
     const path = document.createElement("code");
@@ -489,8 +496,8 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
     const reason = document.createElement("span");
     reason.textContent =
       port.flashStatus === "configured"
-        ? "Previously configured but not selected"
-        : "Existing serial device ignored";
+        ? "Previously configured ESP32. Select to reflash."
+        : "Existing serial device. Select only if this is the ESP32 you want to flash.";
     item.append(name, path, reason);
     target.appendChild(item);
   }
@@ -549,7 +556,7 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false } = {}) {
       status.textContent = `${flashedCount} already flashed ESP32 controller${flashedCount === 1 ? "" : "s"} detected.`;
     } else {
       status.textContent =
-        "No new ESP32 detected. Existing USB-to-UART devices such as the RS485 adapter are ignored. Plug in the ESP32 USB cable, then click Refresh ports.";
+        "No new ESP32 detected. Existing USB-to-UART devices such as the RS485 adapter are listed below. Plug in the ESP32 USB cable, then click Refresh ports.";
     }
     status.classList.toggle("firmware-port-status-ok", primaryPorts.length > 0);
     status.classList.toggle("firmware-port-status-missing", primaryPorts.length === 0);
@@ -670,6 +677,12 @@ async function pollFirmwareJob(panel, jobId, submitButton) {
   if (submitButton) {
     submitButton.disabled = false;
   }
+
+  if (payload.job.status === "completed") {
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 1200);
+  }
 }
 
 function wireFirmwareFlash() {
@@ -710,7 +723,13 @@ function wireFirmwareFlash() {
       });
 
       const portInput = panel.querySelector("[data-firmware-port-input]");
-      portInput?.addEventListener("input", () => syncFirmwareSubmitState(panel));
+      portInput?.addEventListener("input", () => {
+        const identityInput = panel.querySelector("[data-firmware-device-identity]");
+        if (identityInput) {
+          identityInput.value = "";
+        }
+        syncFirmwareSubmitState(panel);
+      });
       refreshFirmwarePorts(panel, { captureBaseline: true }).catch(() => {});
     }
 

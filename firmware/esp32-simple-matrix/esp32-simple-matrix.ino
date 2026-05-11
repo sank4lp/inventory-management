@@ -9,6 +9,10 @@
 #define LED_MODULE_COUNT 4
 #endif
 
+#ifndef CONTROLLER_NAME
+#define CONTROLLER_NAME "ESP32-01"
+#endif
+
 #define MODULES LED_MODULE_COUNT
 #define W 8
 #define H 8
@@ -586,6 +590,24 @@ void setSinglePixel(int module, int row, int column, uint32_t color) {
   pixels.show();
 }
 
+void fillModule(int module, uint32_t color, int brightness) {
+  if (module < 0) {
+    return;
+  }
+  if (module >= MODULES) {
+    return;
+  }
+
+  modules[module].mode = MODE_STATIC;
+  modules[module].text[0] = 0;
+  modules[module].brightness = clampBrightness(brightness);
+  uint32_t scaled = scaleColor(color, modules[module].brightness);
+  for (int i = 0; i < LEDS_PER_MODULE; i++) {
+    pixels.setPixelColor(module * LEDS_PER_MODULE + i, scaled);
+  }
+  pixels.show();
+}
+
 void updateScrolls() {
   unsigned long now = millis();
   bool changed = false;
@@ -728,6 +750,27 @@ void handleLine(char *cmdLine) {
     }
   }
 
+  if (strcmp(command, "test") == 0 || strcmp(command, "fill") == 0 || strcmp(command, "blink") == 0) {
+    if (count >= 2) {
+      int module = 0;
+      if (!parseModuleNumber(tokens[1], &module)) {
+        send485("{\"type\":\"error\",\"message\":\"invalid-module\"}\n");
+        return;
+      }
+      const char *color = "green";
+      int brightness = DEFAULT_BRIGHTNESS_PERCENT;
+      if (count >= 3) {
+        color = tokens[2];
+      }
+      if (count >= 4) {
+        brightness = atoi(tokens[3]);
+      }
+      fillModule(module, colorFor(color), brightness);
+      ack(command, module);
+      return;
+    }
+  }
+
   if (strcmp(command, "digit") == 0 || strcmp(command, "text") == 0 || strcmp(command, "scroll") == 0) {
     if (count >= 3) {
       int module = 0;
@@ -816,8 +859,8 @@ void setup() {
   }
   pixels.show();
 
-  char bootMsg[88];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v3\",\"modules\":%d}\n", MODULES);
+  char bootMsg[128];
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v3\",\"controller\":\"%s\",\"modules\":%d}\n", CONTROLLER_NAME, MODULES);
   send485(bootMsg);
 }
 

@@ -56,6 +56,7 @@ function renderPortChoices(ports = [], selectedPort = "") {
           class="firmware-port-choice ${port.path === selectedPort ? "firmware-port-choice-active" : ""}"
           data-firmware-port-choice
           data-port-path="${escapeHtml(port.path)}"
+          data-device-identity="${escapeHtml(port.deviceIdentity || port.path)}"
         >
           <strong>${escapeHtml(port.flashRecord?.deviceName || port.deviceName || "ESP32 controller")}</strong>
           <code>${escapeHtml(port.path)}</code>
@@ -160,6 +161,7 @@ export function createLocationPages({ db }) {
     const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
     const moduleCount = lastFirmwareConfig?.moduleCount || firmwareOptions?.moduleCount?.value || 4;
     const port = firmwareOptions?.defaultPort || "";
+    const controllerName = lastFirmwareConfig?.controllerName || lastFirmwareConfig?.deviceName || "ESP32-01";
     const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
     const configuredPorts = (firmwareOptions?.esp32Ports || []).filter(
       (entry) => entry.flashStatus === "configured",
@@ -187,6 +189,14 @@ export function createLocationPages({ db }) {
                     </div>
                     <form class="stack-form" data-firmware-flash-form>
                       <div class="firmware-grid">
+                        <label>Controller name
+                          <input
+                            name="controller_name"
+                            value="${escapeHtml(controllerName)}"
+                            placeholder="ESP32-Z1-A"
+                            required
+                          />
+                        </label>
                         <label>LED modules
                           <input
                             type="number"
@@ -209,7 +219,7 @@ export function createLocationPages({ db }) {
                               required
                             />
                             <input type="hidden" name="device_identity" value="" data-firmware-device-identity />
-                            <button type="button" class="ghost-button" data-firmware-refresh-ports>Detect ESP32</button>
+                            <button type="button" class="ghost-button" data-firmware-refresh-ports>Refresh ports</button>
                           </div>
                         </label>
                         <label>Board FQBN
@@ -219,7 +229,7 @@ export function createLocationPages({ db }) {
                       <datalist id="firmware-ports">
                         ${renderPortOptions(firmwareOptions.esp32Ports)}
                       </datalist>
-                      <p class="muted">Keep existing USB devices connected, then plug in the ESP32 and click Refresh ports. Existing USB-to-UART devices such as the RS485 adapter are ignored unless they were previously flashed here.</p>
+                      <p class="muted">Keep existing USB devices connected, then plug in the ESP32 and click Refresh ports. New ESP32 devices appear in the primary list; existing USB-to-UART devices such as the RS485 adapter remain in the serial-device list unless you select them for reflashing.</p>
                       <div
                         class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
                         data-firmware-port-status
@@ -227,8 +237,8 @@ export function createLocationPages({ db }) {
                       <div class="firmware-port-list" data-firmware-port-list>
                         ${renderPortChoices(configuredPorts, port)}
                       </div>
-                      <details class="firmware-other-devices" data-firmware-other-devices>
-                        <summary>Existing serial devices ignored</summary>
+                      <details class="firmware-other-devices" data-firmware-other-devices open>
+                        <summary>Existing serial devices / reflash existing ESP32</summary>
                         <div class="firmware-other-device-list" data-firmware-other-device-list></div>
                       </details>
                       <div class="mini-actions">
@@ -257,10 +267,11 @@ export function createLocationPages({ db }) {
         ${card(
           "Controllers",
           table(
-            ["Controller", "Health", "Cells", "Test"],
+            ["Controller", "Health", "LED modules", "Cells", "Test"],
             controllers.map((controller) => [
               escapeHtml(controller.controller_code),
               statusBadge(controller.heartbeat_status),
+              escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
               escapeHtml(formatQuantity(controller.mapped_cells)),
               `
                 <form method="post" action="/devices/controller-test">
@@ -274,22 +285,24 @@ export function createLocationPages({ db }) {
         ${card(
           "Cell mapping",
           table(
-            ["Cell", "Channel", "Stock", "Save", "Light"],
+            ["Controller", "LED module", "Cell name", "Stock", "Blink"],
             cells.map((cell) => [
-              escapeHtml(cell.logical_code),
+              escapeHtml(cell.controller_code || "No controller"),
               escapeHtml(cell.hardware_channel),
-              escapeHtml(formatQuantity(cell.occupied_quantity)),
               `
                 <form method="post" action="/mapping" class="inline-form">
                   <input type="hidden" name="cell_id" value="${cell.id}" />
-                  <input class="compact-input" type="number" min="1" name="hardware_channel" value="${escapeHtml(cell.hardware_channel)}" />
+                  <input type="hidden" name="hardware_channel" value="${escapeHtml(cell.hardware_channel)}" />
+                  <input class="compact-input" name="logical_code" value="${escapeHtml(cell.logical_code)}" />
                   <button type="submit" class="ghost-button">Save</button>
                 </form>
               `,
+              escapeHtml(formatQuantity(cell.occupied_quantity)),
               `
                 <form method="post" action="/devices/cell-test">
                   <input type="hidden" name="cell_id" value="${cell.id}" />
-                  <button type="submit" class="ghost-button">Blink</button>
+                  <input type="hidden" name="color" value="green" />
+                  <button type="submit" class="ghost-button">Blink green</button>
                 </form>
               `,
             ]),

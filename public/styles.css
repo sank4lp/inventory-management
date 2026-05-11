@@ -623,11 +623,19 @@ textarea {
 }
 
 .firmware-other-device {
+  border: 1px solid transparent;
+  color: var(--text);
+  text-align: left;
   display: grid;
   gap: 0.16rem;
   padding: 0.55rem;
   border-radius: 0.5rem;
   background: #faf7ef;
+}
+
+.firmware-other-device.firmware-port-choice-active {
+  border-color: rgba(11, 128, 152, 0.44);
+  background: var(--blue-soft);
 }
 
 .firmware-other-device code {

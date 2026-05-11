@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { configureControllerModules } from "./inventory.js";
+
 const DEFAULT_FQBN = "esp32:esp32:esp32";
 const MIN_MODULES = 1;
 const MAX_MODULES = 64;
@@ -40,6 +42,19 @@ function assertSafeFqbn(value) {
     throw new Error("Board FQBN contains unsupported characters.");
   }
   return fqbn;
+}
+
+function normalizeControllerName(value, fallback = "ESP32-01") {
+  const raw = String(value || "").trim() || fallback;
+  const normalized = raw.toUpperCase().replaceAll(/\s+/g, "-");
+  if (!/^[A-Z0-9._:-]+$/.test(normalized)) {
+    throw new Error("Controller name can use letters, numbers, dot, dash, underscore, or colon.");
+  }
+  return normalized;
+}
+
+function cStringLiteral(value) {
+  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function executableExists(command) {
@@ -278,6 +293,8 @@ function publicJob(job) {
     moduleCount: job.moduleCount,
     assignedModules: job.assignedModules,
     port: job.port,
+    controllerId: job.controllerId,
+    controllerName: job.controllerName,
     deviceIdentity: job.deviceIdentity,
     deviceName: job.deviceName,
     flashedBy: job.flashedBy,
@@ -327,13 +344,25 @@ export function createFirmwareService({ db, config = {}, logger }) {
   }
 
   function saveLastConfiguration(job) {
+    const controller = configureControllerModules(db, {
+      controllerCode: job.controllerName,
+      deviceIdentity: job.deviceIdentity,
+      moduleCount: job.moduleCount,
+      configuredBy: job.flashedBy?.id || null,
+      firmwareVersion: "simple-matrix-v3",
+    });
+    job.controllerId = controller.id;
+    job.controllerName = controller.controller_code;
+    job.deviceName = controller.controller_code;
     const payload = {
       jobId: job.id,
+      controllerId: controller.id,
+      controllerName: controller.controller_code,
       moduleCount: job.moduleCount,
       assignedModules: job.assignedModules,
       port: job.port,
       deviceIdentity: job.deviceIdentity,
-      deviceName: job.deviceName,
+      deviceName: controller.controller_code,
       fqbn: job.fqbn,
       sketchPath: job.sketchPath,
       configuredAt: nowIso(),
@@ -410,7 +439,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
         "--fqbn",
         job.fqbn,
         "--build-property",
-        `compiler.cpp.extra_flags=-DLED_MODULE_COUNT=${job.moduleCount}`,
+        `compiler.cpp.extra_flags=-DLED_MODULE_COUNT=${job.moduleCount} -DCONTROLLER_NAME="${cStringLiteral(job.controllerName)}"`,
         "--output-dir",
         buildDir,
         job.sketchPath,
@@ -522,7 +551,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
       const configuredPort = ports.find((port) => port.flashStatus === "configured") || null;
       const newEsp32Port = ports.find((port) => port.flashStatus === "new") || null;
       const recommendedPort = configuredPort || newEsp32Port || ports.find((port) => port.recommended) || null;
-      const esp32Ports = ports.filter((port) => port.recommended);
+      const esp32Ports = ports.filter((port) => port.recommended || port.flashStatus === "configured");
       const otherPorts = ports.filter((port) => !port.recommended);
       const configuredCount = esp32Ports.filter((port) => port.flashStatus === "configured").length;
       return {
@@ -574,9 +603,10 @@ export function createFirmwareService({ db, config = {}, logger }) {
       if (detectedPort.deviceIdentity !== deviceIdentity) {
         throw new Error("Selected ESP32 changed after detection. Refresh ports and select it again.");
       }
-      if (!detectedPort.recommended) {
-        throw new Error("The selected port does not look like an ESP32. Choose a detected ESP32 device or unplug unrelated USB serial devices, then refresh.");
-      }
+      const controllerName = normalizeControllerName(
+        input.controller_name || input.controllerName,
+        `ESP32-${String(Date.now()).slice(-6)}`,
+      );
       const assignedModules = Array.from({ length: moduleCount }, (_, index) => index + 1);
       const job = {
         id: randomUUID(),
@@ -586,8 +616,10 @@ export function createFirmwareService({ db, config = {}, logger }) {
         moduleCount,
         assignedModules,
         port,
+        controllerId: null,
+        controllerName,
         deviceIdentity: detectedPort.deviceIdentity,
-        deviceName: detectedPort.deviceName,
+        deviceName: controllerName,
         flashedBy: actor
           ? {
               id: actor.id,

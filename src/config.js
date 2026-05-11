@@ -1,4 +1,4 @@
-const VALID_HARDWARE_ADAPTERS = new Set(["simulator", "degraded"]);
+const VALID_HARDWARE_ADAPTERS = new Set(["simulator", "degraded", "rs485"]);
 const VALID_LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);
 
 export function resolveConfig(env = process.env) {
@@ -10,6 +10,7 @@ export function resolveConfig(env = process.env) {
   const arduinoCliPath = env.ARDUINO_CLI_PATH || "arduino-cli";
   const esp32Fqbn = env.ESP32_FQBN || "esp32:esp32:esp32";
   const esp32SketchPath = env.ESP32_SKETCH_PATH || "firmware/esp32-simple-matrix";
+  const rs485SerialPort = env.RS485_SERIAL_PORT || "";
   const bootstrapAdmin =
     env.BOOTSTRAP_ADMIN_USERNAME && env.BOOTSTRAP_ADMIN_PASSWORD
       ? {
@@ -49,6 +50,7 @@ export function resolveConfig(env = process.env) {
     arduinoCliPath,
     esp32Fqbn,
     esp32SketchPath,
+    rs485SerialPort,
     bootstrapAdmin,
     allowDevAuthSeeds: nodeEnv !== "production",
   };

@@ -1,4 +1,5 @@
 import { createDegradedAdapter } from "./hardware-adapters/degraded.js";
+import { createRs485Adapter } from "./hardware-adapters/rs485.js";
 import { createSimulatorAdapter } from "./hardware-adapters/simulator.js";
 
 function nowIso() {
@@ -8,6 +9,9 @@ function nowIso() {
 function adapterFactory(config, logger) {
   if (config.hardwareAdapter === "degraded") {
     return createDegradedAdapter({ logger });
+  }
+  if (config.hardwareAdapter === "rs485") {
+    return createRs485Adapter({ config, logger });
   }
   return createSimulatorAdapter({ logger });
 }

@@ -948,7 +948,7 @@ export const requestHandler = async (request, response) => {
       if (!cell) {
         throw new Error("Cell not found.");
       }
-      const result = hardwareService.sendCellTest(cell);
+      const result = hardwareService.sendCellTest(cell, form.color || "green");
       sendRedirect(
         response,
         appendFlash(
@@ -970,6 +970,7 @@ export const requestHandler = async (request, response) => {
       locationService.updateCellMapping({
         cellId: form.cell_id,
         hardwareChannel: form.hardware_channel,
+        logicalCode: form.logical_code,
         mappedBy: user.id,
       });
       const backupResult = createAutomaticBackup("cell-mapping-update");

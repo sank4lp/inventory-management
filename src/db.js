@@ -730,6 +730,10 @@ function initializeSchema(db) {
   `);
 
   ensureColumn(db, "products", "items_per_cell", "REAL NOT NULL DEFAULT 12");
+  ensureColumn(db, "controllers", "device_identity", "TEXT");
+  ensureColumn(db, "controllers", "module_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "controllers", "configured_at", "TEXT");
+  ensureColumn(db, "controllers", "configured_by", "INTEGER REFERENCES users(id)");
   db.prepare(
     `
       INSERT INTO app_metadata (key, value, updated_at)
