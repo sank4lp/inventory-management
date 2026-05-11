@@ -442,6 +442,74 @@ test("reflashing an existing controller migrates mappings to the new RS485 id", 
   assert.equal(migratedCells[0].controller_address, "CTRL-NEW-000001");
 });
 
+test("reflashing the same physical controller preserves what it can when module count changes", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-reflash-modules-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const initial = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-01",
+    controllerAddress: "CTRL-SAME-OLD",
+    deviceIdentity: "usb-same-controller",
+    moduleCount: 3,
+    configuredBy: 1,
+  });
+  const initialCells = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === initial.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  assert.equal(initialCells.length, 3);
+
+  const shrunk = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-01",
+    controllerAddress: "CTRL-SAME-SHRINK",
+    deviceIdentity: "usb-same-controller",
+    moduleCount: 2,
+    configuredBy: 1,
+  });
+  const shrunkCells = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === initial.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  const manualCell = inventory.listCells(db).find((cell) => cell.id === initialCells[2].id);
+
+  assert.equal(shrunk.id, initial.id);
+  assert.equal(shrunk.address, "CTRL-SAME-SHRINK");
+  assert.equal(shrunk.mappingSummary.detached, 1);
+  assert.deepEqual(
+    shrunkCells.map((cell) => cell.id),
+    initialCells.slice(0, 2).map((cell) => cell.id),
+  );
+  assert.equal(manualCell.controller_id, null);
+  assert.equal(manualCell.hardware_channel, null);
+  assert.equal(manualCell.mapping_status, "unmapped");
+  assert.equal(Number(manualCell.active), 1);
+
+  const expanded = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-01",
+    controllerAddress: "CTRL-SAME-EXPAND",
+    deviceIdentity: "usb-same-controller",
+    moduleCount: 4,
+    configuredBy: 1,
+  });
+  const expandedCells = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === initial.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+
+  assert.equal(expanded.id, initial.id);
+  assert.equal(expanded.address, "CTRL-SAME-EXPAND");
+  assert.equal(expandedCells.length, 4);
+  assert.deepEqual(
+    expandedCells.slice(0, 3).map((cell) => cell.id),
+    initialCells.map((cell) => cell.id),
+  );
+});
+
 test("controllers can be health-checked and deleted by an admin", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-delete-"));
   process.chdir(sandbox);

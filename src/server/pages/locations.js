@@ -22,6 +22,25 @@ function renderModuleChips(modules = []) {
     .join("");
 }
 
+function renderFirmwareVerification(config) {
+  if (!config) {
+    return "";
+  }
+
+  const summary = config.mappingSummary
+    ? ` Preserved ${formatQuantity(config.mappingSummary.preserved)} mapping(s), added ${formatQuantity(
+        config.mappingSummary.created,
+      )} new module slot(s), and left ${formatQuantity(config.mappingSummary.detached)} cell(s) in manual mode.`
+    : "";
+  return `
+    <div class="firmware-verify">
+      Flash saved for ${escapeHtml(config.controllerName || config.deviceName || "this controller")}.
+      Use Blink green on each LED module below, then update the cell dropdown if any physical module is assigned to the wrong cell.
+      ${escapeHtml(summary)}
+    </div>
+  `;
+}
+
 function renderPortOptions(ports = []) {
   return ports
     .map((port) => `<option value="${escapeHtml(port.path)}">${escapeHtml(port.label)}</option>`)
@@ -339,6 +358,7 @@ export function createLocationPages({ db }) {
                       data-firmware-modules
                       ${lastFirmwareConfig?.assignedModules?.length ? "" : "hidden"}
                     >${renderModuleChips(lastFirmwareConfig?.assignedModules || [])}</div>
+                    ${renderFirmwareVerification(lastFirmwareConfig)}
                     <div class="firmware-progress" data-firmware-progress hidden>
                       <div class="firmware-progress-head">
                         <strong data-firmware-stage>Queued</strong>

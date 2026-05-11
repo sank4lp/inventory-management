@@ -353,6 +353,7 @@ export const requestHandler = async (request, response) => {
     hardwareService,
     locationService,
     pages,
+    systemService,
     taskService,
   } = getAppState();
   const user = getSessionUser(request, db);

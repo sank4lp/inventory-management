@@ -1800,6 +1800,27 @@ function retireEmptyMappingCell(db, cellId) {
   return "deleted";
 }
 
+function detachCellsForManualOperation(db, cellIds) {
+  const ids = cellIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0);
+  if (!ids.length) {
+    return 0;
+  }
+
+  const placeholders = ids.map(() => "?").join(", ");
+  db.prepare(
+    `
+      UPDATE cells
+      SET
+        controller_id = NULL,
+        hardware_channel = NULL,
+        mapping_status = 'unmapped',
+        active = 1
+      WHERE id IN (${placeholders})
+    `,
+  ).run(...ids);
+  return ids.length;
+}
+
 export function createCell(db, { logicalCode, capacity = 12, createdBy = null } = {}) {
   const code = normalizeLogicalCode(logicalCode);
   const cellCapacity = Number(capacity || 12);
@@ -1976,64 +1997,68 @@ export function configureControllerModules(
   }
 
   return withTransaction(db, () => {
-  const zoneId = getOrCreateZone(db);
-  const requestedCode = controllerCode ? normalizeLogicalCode(controllerCode) : "";
-  const code = requestedCode || nextDefaultControllerCode(db);
-  const now = nowIso();
-  const existingByCode = db.prepare("SELECT * FROM controllers WHERE controller_code = ?").get(code);
-  const existingByDevice =
-    !requestedCode && deviceIdentity
+    const zoneId = getOrCreateZone(db);
+    const requestedCode = controllerCode ? normalizeLogicalCode(controllerCode) : "";
+    const now = nowIso();
+    const existingByDevice = deviceIdentity
       ? db.prepare("SELECT * FROM controllers WHERE device_identity = ? ORDER BY id DESC LIMIT 1").get(deviceIdentity)
       : null;
-  const existing = existingByCode || existingByDevice || null;
-  const address = controllerAddress
-    ? normalizeLogicalCode(controllerAddress)
-    : existing?.address || code;
-  const addressConflict = db
-    .prepare("SELECT id, controller_code FROM controllers WHERE address = ? AND id != ?")
-    .get(address, existing?.id || 0);
-  if (addressConflict) {
-    throw new Error(`Controller RS485 id is already assigned to ${addressConflict.controller_code}.`);
-  }
+    const code = requestedCode || existingByDevice?.controller_code || nextDefaultControllerCode(db);
+    const existingByCode = db.prepare("SELECT * FROM controllers WHERE controller_code = ?").get(code);
+    if (existingByCode && existingByDevice && Number(existingByCode.id) !== Number(existingByDevice.id)) {
+      throw new Error(
+        `This ESP32 was previously configured as ${existingByDevice.controller_code}. Choose that controller name before flashing, or delete the old controller first.`,
+      );
+    }
+    const existing = existingByCode || existingByDevice || null;
+    const address = controllerAddress
+      ? normalizeLogicalCode(controllerAddress)
+      : existing?.address || code;
+    const addressConflict = db
+      .prepare("SELECT id, controller_code FROM controllers WHERE address = ? AND id != ?")
+      .get(address, existing?.id || 0);
+    if (addressConflict) {
+      throw new Error(`Controller RS485 id is already assigned to ${addressConflict.controller_code}.`);
+    }
 
-  let controllerId;
-  if (existing) {
-    controllerId = existing.id;
-    db.prepare(
-      `
-        UPDATE controllers
-        SET
-          zone_id = ?,
-          controller_code = ?,
-          address = ?,
-          firmware_version = ?,
-          heartbeat_status = 'online',
-          last_seen_at = ?,
-          cell_start_column = 1,
-          cell_end_column = ?,
-          active = 1,
-          device_identity = ?,
-          module_count = ?,
-          configured_at = ?,
-          configured_by = ?
-        WHERE id = ?
-      `,
-    ).run(
-      zoneId,
-      code,
-      address,
-      firmwareVersion,
-      now,
-      count,
-      deviceIdentity || existing.device_identity || null,
-      count,
-      now,
-      configuredBy,
-      controllerId,
-    );
-  } else {
-    const result = db
-      .prepare(
+    let controllerId;
+    if (existing) {
+      controllerId = existing.id;
+      db.prepare(
+        `
+          UPDATE controllers
+          SET
+            zone_id = ?,
+            controller_code = ?,
+            address = ?,
+            firmware_version = ?,
+            heartbeat_status = 'online',
+            last_seen_at = ?,
+            cell_start_column = 1,
+            cell_end_column = ?,
+            active = 1,
+            device_identity = ?,
+            module_count = ?,
+            configured_at = ?,
+            configured_by = ?
+          WHERE id = ?
+        `,
+      ).run(
+        zoneId,
+        code,
+        address,
+        firmwareVersion,
+        now,
+        count,
+        deviceIdentity || existing.device_identity || null,
+        count,
+        now,
+        configuredBy,
+        controllerId,
+      );
+    } else {
+      const result = db
+        .prepare(
         `
           INSERT INTO controllers (
             zone_id, controller_code, address, firmware_version, heartbeat_status,
@@ -2042,46 +2067,58 @@ export function configureControllerModules(
           )
           VALUES (?, ?, ?, ?, 'online', ?, 1, ?, 1, ?, ?, ?, ?)
         `,
-      )
-      .run(
-        zoneId,
-        code,
-        address,
-        firmwareVersion,
-        now,
-        count,
-        deviceIdentity || null,
-        count,
-        now,
-        configuredBy,
-      );
-    controllerId = Number(result.lastInsertRowid);
-  }
+        )
+        .run(
+          zoneId,
+          code,
+          address,
+          firmwareVersion,
+          now,
+          count,
+          deviceIdentity || null,
+          count,
+          now,
+          configuredBy,
+        );
+      controllerId = Number(result.lastInsertRowid);
+    }
 
-  db.prepare("UPDATE controllers SET active = 0 WHERE firmware_version = ? AND id != ?").run(
-    "sim-0.1",
-    controllerId,
-  );
-  db.prepare(
-    `
-      UPDATE cells
-      SET active = 0
-      WHERE controller_id IN (SELECT id FROM controllers WHERE active = 0)
-    `,
-  ).run();
-  db.prepare("UPDATE cells SET active = 0 WHERE controller_id = ? AND hardware_channel > ?").run(
-    controllerId,
-    count,
-  );
+    db.prepare("UPDATE controllers SET active = 0 WHERE firmware_version = ? AND id != ?").run(
+      "sim-0.1",
+      controllerId,
+    );
+    db.prepare(
+      `
+        UPDATE cells
+        SET active = 0
+        WHERE controller_id IN (SELECT id FROM controllers WHERE active = 0)
+      `,
+    ).run();
 
-  const activeCellIds = [];
-  for (let channel = 1; channel <= count; channel += 1) {
-    const defaultLogicalCode = `Z1-R1-C${String(channel).padStart(2, "0")}`;
-    const existingControllerCell = db
-      .prepare("SELECT * FROM cells WHERE controller_id = ? AND hardware_channel = ?")
-      .get(controllerId, channel);
-    const reusableDefaultCell = db
-      .prepare(
+    const mappingSummary = {
+      preserved: 0,
+      created: 0,
+      detached: 0,
+      moduleCount: count,
+      needsVerification: true,
+    };
+
+    const overflowCells = db
+      .prepare("SELECT id FROM cells WHERE controller_id = ? AND hardware_channel > ?")
+      .all(controllerId, count);
+    mappingSummary.detached += detachCellsForManualOperation(
+      db,
+      overflowCells.map((cell) => cell.id),
+    );
+
+    const activeCellIds = [];
+    for (let channel = 1; channel <= count; channel += 1) {
+      const defaultLogicalCode = `Z1-R1-C${String(channel).padStart(2, "0")}`;
+      const existingControllerCell = db
+        .prepare("SELECT * FROM cells WHERE controller_id = ? AND hardware_channel = ?")
+        .get(controllerId, channel);
+      const reusableDefaultCell = db
+        .prepare(
         `
           SELECT c.*
           FROM cells c
@@ -2089,57 +2126,69 @@ export function configureControllerModules(
           WHERE c.logical_code = ?
             AND (c.controller_id = ? OR ctrl.active = 0 OR c.controller_id IS NULL)
         `,
-      )
-      .get(defaultLogicalCode, controllerId);
-    const existingCell = existingControllerCell || reusableDefaultCell;
+        )
+        .get(defaultLogicalCode, controllerId);
+      const existingCell = existingControllerCell || reusableDefaultCell;
 
-    if (existingCell) {
-      db.prepare(
+      if (existingCell) {
+        db.prepare(
+          `
+            UPDATE cells
+            SET
+              zone_id = ?,
+              row_number = 1,
+              column_number = ?,
+              controller_id = ?,
+              hardware_channel = ?,
+              mapping_status = 'mapped',
+              active = 1,
+              last_mapped_at = COALESCE(last_mapped_at, ?),
+              mapped_by = COALESCE(mapped_by, ?)
+            WHERE id = ?
+          `,
+        ).run(zoneId, channel, controllerId, channel, now, configuredBy, existingCell.id);
+        activeCellIds.push(Number(existingCell.id));
+        mappingSummary.preserved += 1;
+        continue;
+      }
+
+      const logicalCode = availableLogicalCode(db, defaultLogicalCode, code, channel);
+      const inserted = db.prepare(
         `
-          UPDATE cells
-          SET
-            zone_id = ?,
-            row_number = 1,
-            column_number = ?,
-            controller_id = ?,
-            hardware_channel = ?,
-            mapping_status = 'mapped',
-            active = 1,
-            last_mapped_at = COALESCE(last_mapped_at, ?),
-            mapped_by = COALESCE(mapped_by, ?)
-          WHERE id = ?
+          INSERT INTO cells (
+            logical_code, zone_id, row_number, column_number, controller_id,
+            hardware_channel, mapping_status, active, capacity, last_mapped_at, mapped_by
+          )
+          VALUES (?, ?, 1, ?, ?, ?, 'mapped', 1, 12, ?, ?)
         `,
-      ).run(zoneId, channel, controllerId, channel, now, configuredBy, existingCell.id);
-      activeCellIds.push(Number(existingCell.id));
-      continue;
+      ).run(logicalCode, zoneId, channel, controllerId, channel, now, configuredBy);
+      activeCellIds.push(Number(inserted.lastInsertRowid));
+      mappingSummary.created += 1;
     }
 
-    const logicalCode = availableLogicalCode(db, defaultLogicalCode, code, channel);
-    const inserted = db.prepare(
-      `
-        INSERT INTO cells (
-          logical_code, zone_id, row_number, column_number, controller_id,
-          hardware_channel, mapping_status, active, capacity, last_mapped_at, mapped_by
+    if (activeCellIds.length > 0) {
+      const placeholders = activeCellIds.map(() => "?").join(", ");
+      const staleCells = db
+        .prepare(
+        `
+          SELECT id
+          FROM cells
+          WHERE controller_id = ?
+            AND id NOT IN (${placeholders})
+        `,
         )
-        VALUES (?, ?, 1, ?, ?, ?, 'mapped', 1, 12, ?, ?)
-      `,
-    ).run(logicalCode, zoneId, channel, controllerId, channel, now, configuredBy);
-    activeCellIds.push(Number(inserted.lastInsertRowid));
-  }
+        .all(controllerId, ...activeCellIds);
+      mappingSummary.detached += detachCellsForManualOperation(
+        db,
+        staleCells.map((cell) => cell.id),
+      );
+    }
 
-  if (activeCellIds.length > 0) {
-    const placeholders = activeCellIds.map(() => "?").join(", ");
-    db.prepare(
-      `
-        UPDATE cells
-        SET active = 0
-        WHERE controller_id = ?
-          AND id NOT IN (${placeholders})
-      `,
-    ).run(controllerId, ...activeCellIds);
-  }
-
-  return db.prepare("SELECT * FROM controllers WHERE id = ?").get(controllerId);
+    const controller = db.prepare("SELECT * FROM controllers WHERE id = ?").get(controllerId);
+    return {
+      ...controller,
+      mappingSummary,
+    };
   });
 }
 

@@ -701,6 +701,15 @@ textarea {
   font-weight: 700;
 }
 
+.firmware-verify {
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.65rem;
+  background: var(--blue-soft);
+  border: 1px solid rgba(11, 128, 152, 0.24);
+  color: #175264;
+  font-weight: 700;
+}
+
 .firmware-log {
   max-height: 220px;
   overflow: auto;

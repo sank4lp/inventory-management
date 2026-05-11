@@ -372,6 +372,8 @@ function publicJob(job) {
     commands: job.commands,
     logs: job.logs,
     recoveryHint: job.recoveryHint,
+    verificationHint: job.verificationHint,
+    mappingSummary: job.mappingSummary,
   };
 }
 
@@ -409,9 +411,11 @@ export function createFirmwareService({ db, config = {}, logger }) {
   }
 
   function saveLastConfiguration(job) {
-    const previousController = db
-      .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
-      .get(job.controllerName);
+    const previousController = job.replacingControllerId
+      ? db.prepare("SELECT id, controller_code, address FROM controllers WHERE id = ?").get(job.replacingControllerId)
+      : db
+          .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
+          .get(job.controllerName);
     const controller = configureControllerModules(db, {
       controllerCode: job.controllerName,
       controllerAddress: job.controllerAddress,
@@ -424,6 +428,9 @@ export function createFirmwareService({ db, config = {}, logger }) {
     job.controllerName = controller.controller_code;
     job.controllerAddress = controller.address;
     job.deviceName = controller.controller_code;
+    job.mappingSummary = controller.mappingSummary || null;
+    job.verificationHint =
+      "Flash complete. Use Blink green for each LED module in Cell mapping, then update the cell dropdown if a physical module is assigned to the wrong cell.";
     const payload = {
       jobId: job.id,
       controllerId: controller.id,
@@ -433,6 +440,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
       replacedExistingController: Boolean(previousController),
       moduleCount: job.moduleCount,
       assignedModules: job.assignedModules,
+      mappingSummary: job.mappingSummary,
+      verificationHint: job.verificationHint,
       port: job.port,
       deviceIdentity: job.deviceIdentity,
       deviceName: controller.controller_code,
@@ -564,6 +573,13 @@ export function createFirmwareService({ db, config = {}, logger }) {
       if (job.previousControllerAddress && job.previousControllerAddress !== job.controllerAddress) {
         appendLog(job, `Migrated existing mapping from ${job.previousControllerAddress} to ${job.controllerAddress}`);
       }
+      if (job.mappingSummary) {
+        appendLog(
+          job,
+          `Mapping after flash: preserved ${job.mappingSummary.preserved}, created ${job.mappingSummary.created}, manual ${job.mappingSummary.detached}.`,
+        );
+      }
+      appendLog(job, job.verificationHint);
       appendLog(job, `Controller RS485 id: ${job.controllerAddress}`);
       appendLog(job, `Configured module numbers: ${job.assignedModules.join(", ")}`);
     } catch (error) {
@@ -692,9 +708,20 @@ export function createFirmwareService({ db, config = {}, logger }) {
         input.controller_name || input.controllerName,
         `ESP32-${String(Date.now()).slice(-6)}`,
       );
-      const existingController = db
+      const existingByName = db
         .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
         .get(controllerName);
+      const existingByDevice = deviceIdentity
+        ? db
+            .prepare("SELECT id, controller_code, address FROM controllers WHERE device_identity = ? ORDER BY id DESC LIMIT 1")
+            .get(deviceIdentity)
+        : null;
+      if (existingByName && existingByDevice && Number(existingByName.id) !== Number(existingByDevice.id)) {
+        throw new Error(
+          `This ESP32 was previously configured as ${existingByDevice.controller_code}. Choose that controller name before flashing, or delete the old controller first.`,
+        );
+      }
+      const existingController = existingByName || existingByDevice || null;
       const controllerAddress = normalizeControllerAddress(
         input.controller_address || input.controllerAddress || generateControllerAddress(),
       );
@@ -727,6 +754,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
         finishedAt: null,
         error: null,
         recoveryHint: null,
+        verificationHint: null,
+        mappingSummary: null,
         currentCommand: null,
         commands: [],
         logs: [],

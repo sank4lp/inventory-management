@@ -466,6 +466,10 @@ function firmwarePortIdentity(port) {
   return port.deviceIdentity || port.path;
 }
 
+function firmwareControllerName(port) {
+  return port?.flashRecord?.controllerName || port?.flashRecord?.deviceName || "";
+}
+
 function firmwareTtyPath(port) {
   if (port.ttyPath) {
     return port.ttyPath;
@@ -555,6 +559,7 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
     button.dataset.firmwarePortChoice = "true";
     button.dataset.portPath = port.path;
     button.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
+    button.dataset.controllerName = firmwareControllerName(port);
 
     const label = document.createElement("strong");
     label.textContent = port.newlyConnected
@@ -605,6 +610,7 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
     item.dataset.firmwarePortChoice = "true";
     item.dataset.portPath = port.path;
     item.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
+    item.dataset.controllerName = firmwareControllerName(port);
     const name = document.createElement("strong");
     name.textContent = port.deviceName || port.label || "Serial device";
     const reason = document.createElement("span");
@@ -672,6 +678,11 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
   }
   if (identityInput) {
     identityInput.value = selectedCandidate ? firmwarePortIdentity(selectedCandidate) : "";
+  }
+  const controllerInput = panel.querySelector('input[name="controller_name"]');
+  const selectedControllerName = firmwareControllerName(selectedCandidate);
+  if (controllerInput && selectedControllerName) {
+    controllerInput.value = selectedControllerName;
   }
 
   if (status) {
@@ -767,8 +778,9 @@ function updateFirmwarePanel(panel, job) {
     log.scrollTop = log.scrollHeight;
   }
   if (hint) {
-    hint.textContent = job.recoveryHint || "";
-    hint.hidden = !job.recoveryHint;
+    const message = job.status === "completed" ? job.verificationHint : job.recoveryHint;
+    hint.textContent = message || "";
+    hint.hidden = !message;
   }
   if (job.status === "completed") {
     renderFirmwareModules(modules, job.assignedModules || []);
@@ -862,6 +874,10 @@ function wireFirmwareFlash() {
         }
         if (identityInput) {
           identityInput.value = portChoice.dataset.deviceIdentity || "";
+        }
+        const controllerInput = panel.querySelector('input[name="controller_name"]');
+        if (controllerInput && portChoice.dataset.controllerName) {
+          controllerInput.value = portChoice.dataset.controllerName;
         }
         panel.querySelectorAll("[data-firmware-port-choice]").forEach((choice) => {
           choice.classList.toggle("firmware-port-choice-active", choice === portChoice);
