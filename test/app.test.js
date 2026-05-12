@@ -345,6 +345,78 @@ test("backups can restore previous data and prune old automatic snapshots", asyn
   assert.equal(automaticBackups.length, 2);
 });
 
+test("recommended move guidance displays quantity on source and target with pick and put colors", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recommended-guidance-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createHardwareService } = await freshImport("../src/services/hardware.js");
+  const { createLogger } = await freshImport("../src/logger.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const controller = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-REC",
+    controllerAddress: "CTRL-REC",
+    moduleCount: 2,
+    configuredBy: 1,
+  });
+  const [sourceCell, targetCell] = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === controller.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  const hardwareService = createHardwareService({
+    db,
+    config: {
+      hardwareAdapter: "simulator",
+    },
+    logger: createLogger({ level: "error", siteId: "test-site" }),
+  });
+
+  const guidance = hardwareService.activateGuidance(
+    {
+      id: null,
+      type: "recommended_move",
+    },
+    [
+      {
+        ...sourceCell,
+        cell_id: sourceCell.id,
+        planned_quantity: 10,
+        guidance_color: "green",
+      },
+      {
+        ...targetCell,
+        cell_id: targetCell.id,
+        planned_quantity: 10,
+        guidance_color: "red",
+      },
+    ],
+    {
+      source: "recommended_action_light",
+    },
+  );
+
+  assert.equal(guidance.degraded, false);
+  const payloads = db
+    .prepare("SELECT payload FROM device_events WHERE event_type = 'guidance_activated' ORDER BY id")
+    .all()
+    .map((row) => JSON.parse(row.payload));
+  assert.deepEqual(
+    payloads.map((payload) => payload.color),
+    ["green", "red"],
+  );
+  assert.deepEqual(
+    payloads.map((payload) => Number(payload.quantity)),
+    [10, 10],
+  );
+  assert.deepEqual(
+    payloads.map((payload) => payload.taskType),
+    ["recommended_move", "recommended_move"],
+  );
+});
+
 test("startup recovery records stale guidance cleanup in degraded mode", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recovery-"));
   process.chdir(sandbox);

@@ -19,6 +19,10 @@ export function createSimulatorAdapter({ logger }) {
     return Boolean(record.controller_id) && Boolean(record.hardware_channel);
   }
 
+  function guidanceColor(task, line = {}) {
+    return line.guidance_color || (task.type === "put" ? "red" : "green");
+  }
+
   return {
     name: "simulator",
     healthCheck() {
@@ -28,8 +32,8 @@ export function createSimulatorAdapter({ logger }) {
       };
     },
     activateGuidance(task, lines) {
-      const color = task.type === "put" ? "red" : "green";
       const events = lines.map((line) => {
+        const color = guidanceColor(task, line);
         if (!hasModuleTarget(line)) {
           const payload = {
             ts: stamp(),
@@ -39,6 +43,7 @@ export function createSimulatorAdapter({ logger }) {
             taskId: task.id,
             taskType: task.type,
             quantity: line.planned_quantity,
+            color,
             reason: "cell-not-mapped-to-controller",
           };
           emit(payload);

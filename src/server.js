@@ -276,6 +276,68 @@ function parsePutPlanForm(form) {
   );
 }
 
+function parseRecommendedActionMoves(form) {
+  return Object.entries(form)
+    .filter(([key, value]) => key.startsWith("move_qty_") && String(value).trim())
+    .map(([key, value]) => {
+      const suffix = key.slice("move_qty_".length);
+      return {
+        index: suffix,
+        quantity: value,
+        targetCellId: form[`move_cell_${suffix}`],
+      };
+    });
+}
+
+function recommendationGuidanceTask(form = {}) {
+  return {
+    id: null,
+    type: "recommended_move",
+    summary: form.reason || "Recommended action move",
+  };
+}
+
+function recommendationGuidanceLines(cells, { sourceCellId, targetCellId, quantity }) {
+  const moveQuantity = Number(quantity);
+  if (!Number.isFinite(moveQuantity) || moveQuantity <= 0) {
+    throw new Error("Move quantity must be greater than zero before lighting cells.");
+  }
+
+  const sourceCell = cells.find((entry) => entry.id === Number(sourceCellId));
+  const targetCell = cells.find((entry) => entry.id === Number(targetCellId));
+  if (!sourceCell) {
+    throw new Error("Source cell was not found.");
+  }
+  if (!targetCell) {
+    throw new Error("Choose a target cell before sending the light signal.");
+  }
+
+  return [
+    {
+      ...sourceCell,
+      cell_id: sourceCell.id,
+      planned_quantity: moveQuantity,
+      guidance_color: "green",
+      guidance_role: "pick_source",
+    },
+    {
+      ...targetCell,
+      cell_id: targetCell.id,
+      planned_quantity: moveQuantity,
+      guidance_color: "red",
+      guidance_role: "put_target",
+    },
+  ];
+}
+
+function uniqueGuidanceLines(lines) {
+  const byTarget = new Map();
+  for (const line of lines) {
+    byTarget.set(`${line.controller_id || "manual"}:${line.hardware_channel || line.cell_id}`, line);
+  }
+  return Array.from(byTarget.values());
+}
+
 function createAutomaticBackup(source) {
   const { backupService } = getAppState();
 
@@ -942,21 +1004,26 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const moves = Object.entries(form)
-        .filter(([key, value]) => key.startsWith("move_qty_") && String(value).trim())
-        .map(([key, value]) => {
-          const suffix = key.slice("move_qty_".length);
-          return {
-            quantity: value,
-            targetCellId: form[`move_cell_${suffix}`],
-          };
-        });
+      const moves = parseRecommendedActionMoves(form);
+      const guidanceCells = listCells(db);
+      const guidanceLines = uniqueGuidanceLines(
+        moves.flatMap((move) =>
+          recommendationGuidanceLines(guidanceCells, {
+            sourceCellId: form.source_cell_id,
+            targetCellId: move.targetCellId,
+            quantity: move.quantity,
+          }),
+        ),
+      );
       anomalyService.applyRecommendedAction({
         sourceCellId: form.source_cell_id,
         productId: form.product_id,
         moves,
         userId: user.id,
         reason: form.reason,
+      });
+      hardwareService.clearGuidance(recommendationGuidanceTask(form), guidanceLines, {
+        source: "recommended_action_apply",
       });
       const backupResult = createAutomaticBackup("recommended-action-apply");
       const nextFlash = backupAwareFlash("Recommended action applied.", "success", backupResult);
@@ -973,26 +1040,42 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const moveIndex = String(form.light_move_index || "").trim();
+      const moveQuantity = Number(form[`move_qty_${moveIndex}`]);
       const targetCellId = Number(form[`move_cell_${moveIndex}`]);
-      const cell = listCells(db).find((entry) => entry.id === targetCellId);
-      if (!cell) {
+      const cells = listCells(db);
+      let guidanceLines;
+      try {
+        guidanceLines = recommendationGuidanceLines(cells, {
+          sourceCellId: form.source_cell_id,
+          targetCellId,
+          quantity: moveQuantity,
+        });
+      } catch (error) {
         sendRedirect(
           response,
           appendFlash(
             `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}`,
-            "Choose a target cell before sending the light signal.",
+            error.message,
             "error",
           ),
         );
         return;
       }
-      hardwareService.sendCellTest(cell, "blue");
+      const guidance = hardwareService.activateGuidance(recommendationGuidanceTask(form), guidanceLines, {
+        source: "recommended_action_light",
+        recommendationKey: form.recommendation_key || "",
+      });
+      const sourceCell = guidanceLines[0];
+      const targetCell = guidanceLines[1];
+      const guidanceMessage = guidance.degraded
+        ? `Requested ${moveQuantity} on ${sourceCell.logical_code} for PICK and ${targetCell.logical_code} for PUT. ${guidance.message || "Some cells need manual guidance."}`
+        : `Displayed ${moveQuantity} on ${sourceCell.logical_code} for PICK and ${targetCell.logical_code} for PUT.`;
       sendRedirect(
         response,
         appendFlash(
           `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}`,
-          `Find/Light Cell sent for ${cell.logical_code}.`,
-          "success",
+          guidanceMessage,
+          guidance.degraded ? "warning" : "success",
         ),
       );
       return;

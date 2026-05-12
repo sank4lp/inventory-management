@@ -291,7 +291,10 @@ export function createRs485Adapter({ config = {}, logger }) {
     heartbeatSyncTimer.unref?.();
   }
 
-  function taskColor(task) {
+  function taskColor(task, line = {}) {
+    if (line.guidance_color) {
+      return firmwareWord(line.guidance_color, task?.type === "put" ? "red" : "green");
+    }
     return task?.type === "put" ? "red" : "green";
   }
 
@@ -397,6 +400,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         cell: line.logical_code,
         taskType: task?.type || null,
         quantity: line.planned_quantity,
+        color: taskColor(task, line),
         reason: "cell-not-mapped-to-controller",
       },
     });
@@ -428,7 +432,7 @@ export function createRs485Adapter({ config = {}, logger }) {
           continue;
         }
         const text = String(line.planned_quantity ?? "");
-        const color = taskColor(task);
+        const color = taskColor(task, line);
         const controllerAddress = controllerAddressFor(line);
         const command = addressedCommand(
           controllerAddress,

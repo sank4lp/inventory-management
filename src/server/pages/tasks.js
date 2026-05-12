@@ -270,7 +270,7 @@ export function createTaskPages({ db }) {
                                   name="light_move_index"
                                   value="${index}"
                                 >
-                                  Find/Light Cell
+                                  Show PICK/PUT LEDs
                                 </button>
                               </div>
                             </div>
