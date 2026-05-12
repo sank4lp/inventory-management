@@ -106,6 +106,7 @@ export function page({ title, user, flash, content }) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(title)} · Inventory Management</title>
+    <link rel="stylesheet" href="/theme.css" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
   </head>
@@ -123,9 +124,9 @@ export function page({ title, user, flash, content }) {
 </html>`;
 }
 
-export function card(title, body, actions = "") {
+export function card(title, body, actions = "", attributes = "") {
   return `
-    <section class="card">
+    <section class="card"${attributes ? ` ${attributes}` : ""}>
       <div class="card-header">
         <h2>${escapeHtml(title)}</h2>
         ${actions}

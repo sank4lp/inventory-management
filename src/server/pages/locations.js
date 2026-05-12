@@ -244,6 +244,8 @@ export function createLocationPages({ db }) {
             allCells.length
               ? renderAllLocations(allCells)
               : `<p class="muted">No active locations are configured.</p>`,
+            "",
+            `data-row-collapser data-row-limit="6" data-row-label="locations"`,
           )}
         </div>
       `,
@@ -289,6 +291,8 @@ export function createLocationPages({ db }) {
               quickActionLinks(product.product_id, cell.id),
             ]),
           ),
+          "",
+          `data-row-collapser data-row-limit="4" data-row-label="products"`,
         )}
       `,
     });
@@ -353,7 +357,7 @@ export function createLocationPages({ db }) {
 
     const controllerWizard = firmwareOptions
       ? `
-        <section id="controller-setup" class="app-panel">
+        <section id="controller-setup" class="app-panel" data-config-section="controller-setup" hidden>
           <div class="panel-heading">
             <div>
               <h2>Add Controller</h2>
@@ -528,7 +532,7 @@ export function createLocationPages({ db }) {
         </section>
       `
       : `
-        <section id="controller-setup" class="app-panel">
+        <section id="controller-setup" class="app-panel" data-config-section="controller-setup" hidden>
           <div class="panel-heading">
             <div>
               <h2>Add Controller</h2>
@@ -543,28 +547,35 @@ export function createLocationPages({ db }) {
       user,
       flash,
       content: `
-        <div class="app-console">
+        <div class="app-console" data-config-workspace>
           <section class="operation-grid" aria-label="Configuration actions">
-            <a class="operation-tile" href="#controller-setup">
+            <a class="operation-tile" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
               <span>
                 <strong>Add controller</strong>
                 Flash a new ESP32 through a guided setup.
               </span>
               <span class="operation-kbd">01</span>
             </a>
-            <a class="operation-tile" href="#cell-create">
+            <a class="operation-tile" href="#cell-create" data-config-section-link="cell-create" aria-controls="cell-create">
               <span>
                 <strong>Add cells</strong>
                 Create a storage location with capacity.
               </span>
               <span class="operation-kbd">02</span>
             </a>
-            <a class="operation-tile" href="#cell-management">
+            <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
               <span>
                 <strong>Manage cells</strong>
-                Delete, remap, and test configured modules.
+                Delete and review active storage cells.
               </span>
               <span class="operation-kbd">03</span>
+            </a>
+            <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
+              <span>
+                <strong>Cell mapping</strong>
+                Ping modules and assign them to storage cells.
+              </span>
+              <span class="operation-kbd">04</span>
             </a>
           </section>
 
@@ -595,31 +606,6 @@ export function createLocationPages({ db }) {
             </div>
           </section>
 
-          ${controllerWizard}
-
-          <section id="cell-create" class="app-panel">
-            <div class="panel-heading">
-              <div>
-                <h2>Add Cells</h2>
-                <p class="muted">Create the logical storage cells that operators will pick from and put into.</p>
-              </div>
-            </div>
-            <form method="post" action="/devices/cells" class="inline-form">
-              <label>Cell name
-                <input
-                  name="logical_code"
-                  placeholder="Z1-R1-C01"
-                  pattern="[A-Za-z0-9._:-]+"
-                  required
-                />
-              </label>
-              <label>Capacity
-                <input name="capacity" type="number" min="1" step="1" value="12" required />
-              </label>
-              <button type="submit" class="ghost-button">Add cell</button>
-            </form>
-          </section>
-
           <section id="controller-health" class="app-panel">
             <div class="panel-heading">
               <div>
@@ -633,131 +619,170 @@ export function createLocationPages({ db }) {
             )}
           </section>
 
-          <section id="cell-management" class="app-panel" data-row-collapser data-row-limit="4" data-row-label="cells">
-            <div class="panel-heading">
-              <div>
-                <h2>Manage Cells</h2>
-                <p class="muted">Use this for active storage locations, manual cells, and deletion checks.</p>
+          <div
+            class="modal-backdrop app-alert-modal configuration-flow-modal"
+            data-config-modal
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="configuration-flow-title"
+            hidden
+          >
+            <div class="modal-panel configuration-flow-panel">
+              <div class="modal-header">
+                <div>
+                  <h2 id="configuration-flow-title" data-config-modal-title>Configuration</h2>
+                  <p class="muted" data-config-modal-description>Select a configuration flow to continue.</p>
+                </div>
+                <button type="button" class="icon-button ghost-button" data-config-modal-close aria-label="Close configuration flow" title="Close">x</button>
               </div>
-            </div>
-            ${
-              cells.length
-                ? table(
-                    ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
-                    cells.map((cell) => {
-                      const hasData = cellHasDeletionData(cell);
-                      return [
-                        escapeHtml(cell.logical_code),
-                        cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
-                        cell.hardware_channel ? escapeHtml(cell.hardware_channel) : `<span class="muted">Manual</span>`,
-                        escapeHtml(formatQuantity(cell.occupied_quantity)),
-                        cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
-                        `
-                          <form
-                            method="post"
-                            action="/devices/cells/delete"
-                            class="inline-form"
-                            data-delete-cell-form
-                            data-cell-name="${escapeHtml(cell.logical_code)}"
-                            data-cell-has-data="${hasData ? "true" : "false"}"
-                          >
-                            <input type="hidden" name="cell_id" value="${cell.id}" />
-                            <input type="hidden" name="delete_data_confirmed" value="0" data-delete-data-confirmed />
-                            <button
-                              type="submit"
-                              class="icon-button danger-button"
-                              aria-label="Delete ${escapeHtml(cell.logical_code)}"
-                              title="Delete ${escapeHtml(cell.logical_code)}"
-                            >${trashIcon()}</button>
-                          </form>
-                        `,
-                      ];
-                    }),
-                  )
-                : `<p class="muted">No active cells are configured.</p>`
-            }
-          </section>
+              <div class="configuration-flow-content">
+                ${controllerWizard}
 
-          <section id="cell-mapping" class="app-panel" data-row-collapser data-row-limit="4" data-row-label="mappings">
-            <div class="panel-heading">
-              <div>
-                <h2>Cell Mapping</h2>
-                <p class="muted">Ping a module, then assign it to the physical cell it controls.</p>
-              </div>
-              <div class="mini-actions mapping-toolbar">
-                <span class="mapping-toolbar-status" data-mapping-dirty-count>All mappings saved</span>
-                <button type="submit" form="cell-mapping-form" class="blue-button" data-mapping-save disabled>Save all</button>
-              </div>
-            </div>
-            <form id="cell-mapping-form" method="post" action="/mapping/bulk" data-cell-mapping-form>
-              <input type="hidden" name="return_to" value="/devices#cell-mapping" data-mapping-return-to />
-              ${table(
-                ["Controller", "LED module", "Cell name", "Stock", "Ping"],
-                mappedCells.map((cell) => [
-                  escapeHtml(cell.controller_code || "No controller"),
-                  escapeHtml(cell.hardware_channel),
-                  `
-                    <input type="hidden" name="hardware_channel_${cell.id}" value="${escapeHtml(cell.hardware_channel)}" />
-                    <input type="hidden" name="original_target_cell_id_${cell.id}" value="${cell.id}" />
-                    <div class="mapping-cell-control">
-                      <span
-                        class="mapping-cell-name mapping-cell-name-saved"
-                        data-mapping-cell-name
-                        data-original-label="${escapeHtml(cell.logical_code)}"
-                      >${escapeHtml(cell.logical_code)}</span>
-                      <select
-                        class="compact-input cell-mapping-select"
-                        name="target_cell_id_${cell.id}"
-                        required
-                        data-mapping-select
-                        data-original-value="${cell.id}"
-                        data-original-label="${escapeHtml(cell.logical_code)}"
-                        data-controller-name="${escapeHtml(cell.controller_code || "No controller")}"
-                        data-module-name="${escapeHtml(cell.hardware_channel)}"
-                      >
-                        ${renderCellMappingOptions(cellCatalog, cell.id)}
-                      </select>
+                <section id="cell-create" class="app-panel" data-config-section="cell-create" hidden>
+                  <div class="panel-heading">
+                    <div>
+                      <h2>Add Cells</h2>
+                      <p class="muted">Create the logical storage cells that operators will pick from and put into.</p>
                     </div>
-                  `,
-                  escapeHtml(formatQuantity(cell.occupied_quantity)),
-                  `
-                    <button
-                      type="submit"
-                      form="cell-ping-${cell.id}"
-                      class="green-button ping-button"
-                      title="Ping ${escapeHtml(cell.logical_code)}"
-                    >Ping</button>
-                  `,
-                ]),
-              )}
-            </form>
-            ${mappedCells
-              .map(
-                (cell) => `
-                  <form id="cell-ping-${cell.id}" method="post" action="/devices/cell-test" hidden>
-                    <input type="hidden" name="cell_id" value="${cell.id}" />
-                    <input type="hidden" name="color" value="green" />
-                  </form>
-                `,
-              )
-              .join("")}
-            <div class="modal-backdrop app-alert-modal" data-mapping-unsaved-modal role="dialog" aria-modal="true" aria-labelledby="mapping-unsaved-title" hidden>
-              <div class="modal-panel mapping-unsaved-panel">
-                <div class="modal-header">
-                  <div>
-                    <h2 id="mapping-unsaved-title">Unsaved cell mapping changes</h2>
-                    <p class="muted">Save or discard the pending mapping changes before leaving this section.</p>
                   </div>
-                </div>
-                <ul class="mapping-unsaved-list" data-mapping-unsaved-list></ul>
-                <div class="modal-actions">
-                  <button type="button" class="blue-button" data-mapping-modal-save>Save all</button>
-                  <button type="button" class="ghost-button danger-button" data-mapping-modal-discard>Discard</button>
-                  <button type="button" class="ghost-button" data-mapping-modal-review>Review</button>
-                </div>
+                  <form method="post" action="/devices/cells" class="inline-form">
+                    <label>Cell name
+                      <input
+                        name="logical_code"
+                        placeholder="Z1-R1-C01"
+                        pattern="[A-Za-z0-9._:-]+"
+                        required
+                      />
+                    </label>
+                    <label>Capacity
+                      <input name="capacity" type="number" min="1" step="1" value="12" required />
+                    </label>
+                    <button type="submit" class="ghost-button">Add cell</button>
+                  </form>
+                </section>
+
+                <section id="cell-management" class="configuration-table-section" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells" hidden>
+                  ${
+                    cells.length
+                      ? table(
+                          ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
+                          cells.map((cell) => {
+                            const hasData = cellHasDeletionData(cell);
+                            return [
+                              escapeHtml(cell.logical_code),
+                              cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
+                              cell.hardware_channel ? escapeHtml(cell.hardware_channel) : `<span class="muted">Manual</span>`,
+                              escapeHtml(formatQuantity(cell.occupied_quantity)),
+                              cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
+                              `
+                                <form
+                                  method="post"
+                                  action="/devices/cells/delete"
+                                  class="inline-form"
+                                  data-delete-cell-form
+                                  data-cell-name="${escapeHtml(cell.logical_code)}"
+                                  data-cell-has-data="${hasData ? "true" : "false"}"
+                                >
+                                  <input type="hidden" name="cell_id" value="${cell.id}" />
+                                  <input type="hidden" name="delete_data_confirmed" value="0" data-delete-data-confirmed />
+                                  <button
+                                    type="submit"
+                                    class="icon-button danger-button"
+                                    aria-label="Delete ${escapeHtml(cell.logical_code)}"
+                                    title="Delete ${escapeHtml(cell.logical_code)}"
+                                  >${trashIcon()}</button>
+                                </form>
+                              `,
+                            ];
+                          }),
+                        )
+                      : `<p class="muted">No active cells are configured.</p>`
+                  }
+                </section>
+
+                <section id="cell-mapping" class="app-panel" data-config-section="cell-mapping" data-row-collapser data-row-limit="4" data-row-label="mappings" hidden>
+                  <div class="panel-heading">
+                    <div>
+                      <h2>Module Assignments</h2>
+                      <p class="muted">Ping a module, then assign it to the physical cell it controls.</p>
+                    </div>
+                    <div class="mini-actions mapping-toolbar">
+                      <span class="mapping-toolbar-status" data-mapping-dirty-count>All mappings saved</span>
+                      <button type="submit" form="cell-mapping-form" class="blue-button" data-mapping-save disabled>Save all</button>
+                    </div>
+                  </div>
+                  <form id="cell-mapping-form" method="post" action="/mapping/bulk" data-cell-mapping-form>
+                    <input type="hidden" name="return_to" value="/devices#cell-mapping" data-mapping-return-to />
+                    ${table(
+                      ["Controller", "LED module", "Cell name", "Stock", "Ping"],
+                      mappedCells.map((cell) => [
+                        escapeHtml(cell.controller_code || "No controller"),
+                        escapeHtml(cell.hardware_channel),
+                        `
+                          <input type="hidden" name="hardware_channel_${cell.id}" value="${escapeHtml(cell.hardware_channel)}" />
+                          <input type="hidden" name="original_target_cell_id_${cell.id}" value="${cell.id}" />
+                          <div class="mapping-cell-control">
+                            <span
+                              class="mapping-cell-name mapping-cell-name-saved"
+                              data-mapping-cell-name
+                              data-original-label="${escapeHtml(cell.logical_code)}"
+                            >${escapeHtml(cell.logical_code)}</span>
+                            <select
+                              class="compact-input cell-mapping-select"
+                              name="target_cell_id_${cell.id}"
+                              required
+                              data-mapping-select
+                              data-original-value="${cell.id}"
+                              data-original-label="${escapeHtml(cell.logical_code)}"
+                              data-controller-name="${escapeHtml(cell.controller_code || "No controller")}"
+                              data-module-name="${escapeHtml(cell.hardware_channel)}"
+                            >
+                              ${renderCellMappingOptions(cellCatalog, cell.id)}
+                            </select>
+                          </div>
+                        `,
+                        escapeHtml(formatQuantity(cell.occupied_quantity)),
+                        `
+                          <button
+                            type="submit"
+                            form="cell-ping-${cell.id}"
+                            class="green-button ping-button"
+                            title="Ping ${escapeHtml(cell.logical_code)}"
+                          >Ping</button>
+                        `,
+                      ]),
+                    )}
+                  </form>
+                  ${mappedCells
+                    .map(
+                      (cell) => `
+                        <form id="cell-ping-${cell.id}" method="post" action="/devices/cell-test" hidden>
+                          <input type="hidden" name="cell_id" value="${cell.id}" />
+                          <input type="hidden" name="color" value="green" />
+                        </form>
+                      `,
+                    )
+                    .join("")}
+                  <div class="modal-backdrop app-alert-modal" data-mapping-unsaved-modal role="dialog" aria-modal="true" aria-labelledby="mapping-unsaved-title" hidden>
+                    <div class="modal-panel mapping-unsaved-panel">
+                      <div class="modal-header">
+                        <div>
+                          <h2 id="mapping-unsaved-title">Unsaved cell mapping changes</h2>
+                          <p class="muted">Save or discard the pending mapping changes before leaving this section.</p>
+                        </div>
+                      </div>
+                      <ul class="mapping-unsaved-list" data-mapping-unsaved-list></ul>
+                      <div class="modal-actions">
+                        <button type="button" class="blue-button" data-mapping-modal-save>Save all</button>
+                        <button type="button" class="ghost-button danger-button" data-mapping-modal-discard>Discard</button>
+                        <button type="button" class="ghost-button" data-mapping-modal-review>Review</button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
               </div>
             </div>
-          </section>
+          </div>
         </div>
       `,
     });

@@ -107,6 +107,8 @@ export function createAdminPages({ db }) {
                 ]),
               )}
             `,
+            "",
+            `data-row-collapser data-row-limit="4" data-row-label="keys"`,
           )}
           ${card(
             "Users",
@@ -118,6 +120,8 @@ export function createAdminPages({ db }) {
                 statusBadge(entry.status),
               ]),
             ),
+            "",
+            `data-row-collapser data-row-limit="4" data-row-label="users"`,
           )}
         </section>
         ${card(

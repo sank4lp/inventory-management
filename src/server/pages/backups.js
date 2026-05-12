@@ -83,6 +83,8 @@ export function createBackupPages({ backupService }) {
                 ]),
               )
             : `<p class="muted">No backups have been created yet.</p>`,
+          "",
+          `data-row-collapser data-row-limit="5" data-row-label="backups"`,
         )}
       `,
     });

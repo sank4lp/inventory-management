@@ -432,6 +432,8 @@ function serveStatic(request, response, pathname) {
   const filename =
     pathname === "/styles.css"
       ? "styles.css"
+      : pathname === "/theme.css"
+        ? "theme.css"
       : pathname === "/app.js"
         ? "app.js"
         : null;
@@ -1135,8 +1137,8 @@ export const requestHandler = async (request, response) => {
       const sourceCell = guidanceLines[0];
       const targetCell = guidanceLines[1];
       const guidanceMessage = guidance.degraded
-        ? `Requested ${moveQuantity} on ${sourceCell.logical_code} for PICK and ${targetCell.logical_code} for PUT. ${guidance.message || "Some cells need manual guidance."}`
-        : `Displayed ${moveQuantity} on ${sourceCell.logical_code} for PICK and ${targetCell.logical_code} for PUT.`;
+        ? `GREEN LED: pick ${moveQuantity} from cell ${sourceCell.logical_code}. RED LED: put ${moveQuantity} into cell ${targetCell.logical_code}. ${guidance.message || "Some cells need manual guidance."}`
+        : `GREEN LED: pick ${moveQuantity} from cell ${sourceCell.logical_code}. RED LED: put ${moveQuantity} into cell ${targetCell.logical_code}.`;
       sendRedirect(
         response,
         appendFlash(

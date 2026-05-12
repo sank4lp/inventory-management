@@ -130,6 +130,11 @@ async function updateLiveResults(form) {
   const query = input.value.trim();
   if (!query && !showResultsWhenEmpty) {
     target.innerHTML = emptyHtml;
+    const rowCollapser = target.closest("[data-row-collapser]");
+    if (rowCollapser) {
+      resetRowCollapser(rowCollapser);
+      wireRowCollapsers(rowCollapser);
+    }
     return;
   }
 
@@ -148,6 +153,11 @@ async function updateLiveResults(form) {
   }
 
   target.innerHTML = await response.text();
+  const rowCollapser = target.closest("[data-row-collapser]");
+  if (rowCollapser) {
+    resetRowCollapser(rowCollapser);
+    wireRowCollapsers(rowCollapser);
+  }
 }
 
 function wireLiveSearch() {
@@ -1363,6 +1373,126 @@ function wireLocationLocate() {
   });
 }
 
+function wireConfigurationWorkspace() {
+  const workspace = document.querySelector("[data-config-workspace]");
+  if (!workspace || workspace.dataset.configWorkspaceBound === "true") {
+    return;
+  }
+  workspace.dataset.configWorkspaceBound = "true";
+
+  const modal = workspace.querySelector("[data-config-modal]");
+  const modalTitle = workspace.querySelector("[data-config-modal-title]");
+  const modalDescription = workspace.querySelector("[data-config-modal-description]");
+  const modalClose = workspace.querySelector("[data-config-modal-close]");
+  const sectionGroups = {
+    "controller-setup": ["controller-setup"],
+    "cell-create": ["cell-create"],
+    "cell-management": ["cell-management"],
+    "cell-mapping": ["cell-mapping"],
+  };
+  const sectionCopy = {
+    "controller-setup": {
+      title: "Add Controller",
+      description: "Follow the guided ESP32 setup without leaving the Configuration console.",
+    },
+    "cell-create": {
+      title: "Add Cells",
+      description: "Create storage cells in a focused dialog, then return to the console.",
+    },
+    "cell-management": {
+      title: "Manage Cells",
+      description: "Delete and review active storage cells in a focused flow.",
+    },
+    "cell-mapping": {
+      title: "Cell Mapping",
+      description: "Ping modules and assign them to physical storage cells.",
+    },
+  };
+  const sections = Array.from(workspace.querySelectorAll("[data-config-section]"));
+  const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link]"));
+  const activeFromHash = () => window.location.hash.replace(/^#/, "");
+  const clearActiveHash = () => {
+    if (window.location.hash) {
+      window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+    render();
+  };
+
+  const render = () => {
+    const activeKey = activeFromHash();
+    const visibleIds = new Set(sectionGroups[activeKey] || []);
+    const activeCopy = sectionCopy[activeKey] || null;
+
+    sections.forEach((section) => {
+      section.hidden = !visibleIds.has(section.id);
+    });
+
+    if (modal) {
+      modal.hidden = visibleIds.size === 0;
+      document.body.classList.toggle("modal-open", visibleIds.size > 0);
+    }
+    if (modalTitle && activeCopy) {
+      modalTitle.textContent = activeCopy.title;
+    }
+    if (modalDescription && activeCopy) {
+      modalDescription.textContent = activeCopy.description;
+    }
+
+    sectionLinks.forEach((link) => {
+      const linkKey = link.dataset.configSectionLink || "";
+      const active = linkKey === activeKey;
+      link.classList.toggle("operation-tile-active", active);
+      link.setAttribute("aria-expanded", active ? "true" : "false");
+      if (active) {
+        link.setAttribute("aria-current", "page");
+      } else {
+        link.removeAttribute("aria-current");
+      }
+    });
+  };
+
+  sectionLinks.forEach((link) => {
+    link.setAttribute("aria-expanded", "false");
+    link.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+
+      event.preventDefault();
+      const nextKey = link.dataset.configSectionLink;
+      if (!nextKey) {
+        return;
+      }
+
+      const nextHash = `#${nextKey}`;
+      if (window.location.hash !== nextHash) {
+        window.history.pushState(null, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+      }
+      render();
+    });
+  });
+
+  modalClose?.addEventListener("click", clearActiveHash);
+  modal?.addEventListener("click", (event) => {
+    if (event.target === modal) {
+      clearActiveHash();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !modal || modal.hidden) {
+      return;
+    }
+    if (document.querySelector("[data-mapping-unsaved-modal]:not([hidden])")) {
+      return;
+    }
+    event.preventDefault();
+    clearActiveHash();
+  });
+  window.addEventListener("hashchange", render);
+  window.addEventListener("popstate", render);
+  render();
+}
+
 function mappingOptionLabel(select) {
   const selected = select.selectedOptions?.[0];
   return (selected?.textContent || select.value || "")
@@ -1603,12 +1733,33 @@ function wireCellDeleteForms() {
   });
 }
 
-function wireRowCollapsers() {
-  document.querySelectorAll("[data-row-collapser]").forEach((section) => {
+function resetRowCollapser(section) {
+  section.querySelectorAll("[data-row-collapse-footer]").forEach((footer) => footer.remove());
+  section.querySelectorAll("tbody tr[hidden]").forEach((row) => {
+    row.hidden = false;
+  });
+  delete section.dataset.rowCollapserBound;
+}
+
+function rowCollapseIcon() {
+  return `
+    <svg class="row-collapse-chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  `;
+}
+
+function wireRowCollapsers(root = document) {
+  const sections = [];
+  if (root instanceof Element && root.matches("[data-row-collapser]")) {
+    sections.push(root);
+  }
+  root.querySelectorAll?.("[data-row-collapser]").forEach((section) => sections.push(section));
+
+  sections.forEach((section) => {
     if (section.dataset.rowCollapserBound === "true") {
       return;
     }
-    section.dataset.rowCollapserBound = "true";
 
     const tableWrap = section.querySelector(".table-wrap");
     const tbody = tableWrap?.querySelector("tbody");
@@ -1618,18 +1769,27 @@ function wireRowCollapsers() {
     if (!tableWrap || !tbody || rows.length <= limit) {
       return;
     }
+    section.dataset.rowCollapserBound = "true";
 
     const label = section.dataset.rowLabel || "rows";
+    const iconToggle = true;
     const footer = document.createElement("div");
     footer.className = "row-collapse-footer";
+    footer.dataset.rowCollapseFooter = "true";
+    if (iconToggle) {
+      footer.classList.add("row-collapse-footer-glow");
+    }
 
     const status = document.createElement("span");
     status.className = "muted row-collapse-status";
 
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "ghost-button";
+    button.className = iconToggle ? "row-collapse-icon-button" : "ghost-button";
     button.setAttribute("aria-expanded", "false");
+    if (iconToggle) {
+      button.innerHTML = rowCollapseIcon();
+    }
 
     footer.append(status, button);
 
@@ -1644,7 +1804,13 @@ function wireRowCollapsers() {
       rows.forEach((row, index) => {
         row.hidden = !expanded && index >= limit;
       });
-      button.textContent = expanded ? "Show less" : "Show more";
+      if (iconToggle) {
+        footer.classList.toggle("row-collapse-footer-expanded", expanded);
+        button.classList.toggle("row-collapse-icon-button-expanded", expanded);
+        button.setAttribute("aria-label", expanded ? `Show fewer ${label}` : `Show more ${label}`);
+      } else {
+        button.textContent = expanded ? "Show less" : "Show more";
+      }
       button.setAttribute("aria-expanded", expanded ? "true" : "false");
       status.textContent = expanded
         ? `Showing all ${rows.length} ${label}`
@@ -1669,6 +1835,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wirePutPlanForms();
   wireFirmwareFlash();
   wireLocationLocate();
+  wireConfigurationWorkspace();
   wireCellMappingForm();
   wireCellDeleteForms();
   wireRowCollapsers();

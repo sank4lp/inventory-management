@@ -60,6 +60,8 @@ export function createProductPages({ db }) {
                 ${renderCatalogProductResults(products)}
               </div>
             `,
+            "",
+            `data-row-collapser data-row-limit="8" data-row-label="products"`,
           )}
         </section>
         ${
@@ -150,6 +152,8 @@ export function createProductPages({ db }) {
               `,
             ]),
           ),
+          "",
+          `data-row-collapser data-row-limit="4" data-row-label="cells"`,
         )}
       `,
     });
@@ -189,7 +193,7 @@ export function createProductPages({ db }) {
               <p class="muted">
                 ${selectedProduct ? `Selected product: ${escapeHtml(selectedProduct.name)}. ` : ""}
                 ${selectedCell ? `The system will try ${escapeHtml(selectedCell.logical_code)} first, then add more cells only if needed. ` : ""}
-                The system chooses the cells for you and highlights them in green.
+                After the task is created, each row will say "Pick from cell" and show the GREEN LED color to follow.
               </p>
             `,
           )}
@@ -300,7 +304,7 @@ export function createProductPages({ db }) {
               <p class="muted">
                 ${selectedProduct ? `Selected product: ${escapeHtml(selectedProduct.name)}. ` : ""}
                 ${selectedCell ? `The system will try ${escapeHtml(selectedCell.logical_code)} first, then add more cells only if needed. ` : ""}
-                The system suggests the nearest free cells and lights them in blue.
+                After the task is created, each row will say "Put into cell" and show the RED LED color to follow.
               </p>
             `,
           )}
