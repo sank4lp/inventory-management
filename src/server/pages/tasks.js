@@ -117,11 +117,11 @@ export function createTaskPages({ db }) {
           <div class="mini-actions">
             <button type="button" class="ghost-button" data-put-plan-add>Adjust in more cells</button>
           </div>
-          <form id="put-plan-form" method="post" action="/tasks/${task.id}/put-plan" class="stack-form">
+          <form id="put-plan-form" method="post" action="/tasks/${task.id}/put-plan" class="stack-form" data-led-command-form data-led-loading-label="Updating">
             ${hiddenSubmissionToken(actionToken)}
             <label>Adjustment note<textarea name="note" rows="2" placeholder="Optional note"></textarea></label>
             <p class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(total))} / ${escapeHtml(formatQuantity(total))}</p>
-            <button type="submit" class="blue-button" data-put-plan-submit>Update LED quantities</button>
+            <button type="submit" class="blue-button" data-put-plan-submit data-led-command-submit data-led-loading-label="Updating">Update LED quantities</button>
           </form>
         </div>
       `,
@@ -165,9 +165,9 @@ export function createTaskPages({ db }) {
           ${
             taskIsActive && canEditTask(user, task)
               ? `
-                <form method="post" action="/tasks/${task.id}/cancel">
+                <form method="post" action="/tasks/${task.id}/cancel" data-led-command-form data-led-loading-label="Cancelling">
                   ${hiddenSubmissionToken(actionTokens.cancel)}
-                  <button class="ghost-button" type="submit">Cancel Task</button>
+                  <button class="ghost-button" type="submit" data-led-command-submit data-led-loading-label="Cancelling">Cancel Task</button>
                 </form>
               `
               : ""
@@ -233,10 +233,10 @@ export function createTaskPages({ db }) {
             ${
               editable || taskIsActive
                 ? `
-                    <form id="confirm-form" method="post" action="/tasks/${task.id}/${editSubmitPath}" class="stack-form">
+                    <form id="confirm-form" method="post" action="/tasks/${task.id}/${editSubmitPath}" class="stack-form"${editMode ? "" : ` data-led-command-form data-led-loading-label="Finishing"`}>
                       ${hiddenSubmissionToken(editMode ? actionTokens.correct : actionTokens.confirm)}
                       <label>Note<textarea name="note" rows="3" placeholder="Optional note"></textarea></label>
-                      <button type="submit">${editMode ? "Save Correction" : "Finish task"}</button>
+                      <button type="submit"${editMode ? "" : ` data-led-command-submit data-led-loading-label="Finishing"`}>${editMode ? "Save Correction" : "Finish task"}</button>
                     </form>
                   `
                 : `<p class="muted">${
@@ -290,7 +290,7 @@ export function createTaskPages({ db }) {
                         ? `<p class="flash flash-error">The system could not find room for ${escapeHtml(formatQuantity(action.unresolvedQuantity))} item(s). Please review manually.</p>`
                         : ""
                     }
-                    <form method="post" action="/recommended-actions/apply" class="stack-form">
+                    <form method="post" action="/recommended-actions/apply" class="stack-form" data-led-command-form data-led-loading-label="Working">
                       <input type="hidden" name="source_cell_id" value="${action.cellId}" />
                       <input type="hidden" name="product_id" value="${action.productId}" />
                       <input type="hidden" name="reason" value="${escapeHtml(action.title)}" />
@@ -341,6 +341,8 @@ export function createTaskPages({ db }) {
                                   formaction="/recommended-actions/light-cell"
                                   name="light_move_index"
                                   value="${index}"
+                                  data-led-command-submit
+                                  data-led-loading-label="Sending LEDs"
                                 >
                                   Show PICK/PUT LEDs
                                 </button>
@@ -349,7 +351,7 @@ export function createTaskPages({ db }) {
                           `;
                         })
                         .join("")}
-                      <button type="submit">Apply recommendation</button>
+                      <button type="submit" data-led-command-submit data-led-loading-label="Applying">Apply recommendation</button>
                     </form>
                   `,
                 ),

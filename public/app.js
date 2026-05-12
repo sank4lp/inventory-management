@@ -74,6 +74,104 @@ function restoreActionScrollPosition() {
   });
 }
 
+function currentReturnPath(fallbackHash = "") {
+  const hash = window.location.hash || fallbackHash || "";
+  return `${window.location.pathname}${window.location.search}${hash}`;
+}
+
+function restoreAttribute(element, name, value) {
+  if (value === undefined || value === "__unset__") {
+    element.removeAttribute(name);
+    return;
+  }
+  element.setAttribute(name, value);
+}
+
+function setButtonLoading(button, loading, options = {}) {
+  if (!button) {
+    return;
+  }
+
+  const isIconButton =
+    button.classList.contains("icon-button") ||
+    (button.children.length === 1 && Boolean(button.querySelector(".button-icon")));
+
+  if (loading) {
+    if (button.dataset.loadingActive === "true") {
+      return;
+    }
+
+    const label =
+      options.label ||
+      button.dataset.loadingLabel ||
+      button.dataset.ledLoadingLabel ||
+      "Working";
+    const title = options.title || button.dataset.loadingTitle || label;
+
+    button.dataset.loadingActive = "true";
+    button.dataset.loadingOriginalHtml = button.innerHTML;
+    button.dataset.loadingOriginalDisabled = button.disabled ? "true" : "false";
+    button.dataset.loadingOriginalTitle = button.getAttribute("title") ?? "__unset__";
+    button.dataset.loadingOriginalAriaLabel = button.getAttribute("aria-label") ?? "__unset__";
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-label", title);
+    button.setAttribute("title", title);
+    button.classList.add("button-loading");
+
+    if (isIconButton) {
+      button.classList.add("icon-button-loading");
+      return;
+    }
+
+    button.textContent = "";
+    const spinner = document.createElement("span");
+    spinner.className = "button-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.textContent = label;
+    button.append(spinner, text);
+    return;
+  }
+
+  if (button.dataset.loadingActive !== "true") {
+    return;
+  }
+
+  if (button.dataset.loadingOriginalHtml !== undefined) {
+    button.innerHTML = button.dataset.loadingOriginalHtml;
+  }
+  button.disabled = button.dataset.loadingOriginalDisabled === "true";
+  button.removeAttribute("aria-busy");
+  restoreAttribute(button, "title", button.dataset.loadingOriginalTitle);
+  restoreAttribute(button, "aria-label", button.dataset.loadingOriginalAriaLabel);
+  button.classList.remove("button-loading", "icon-button-loading");
+  delete button.dataset.loadingActive;
+  delete button.dataset.loadingOriginalHtml;
+  delete button.dataset.loadingOriginalDisabled;
+  delete button.dataset.loadingOriginalTitle;
+  delete button.dataset.loadingOriginalAriaLabel;
+}
+
+function findFormSubmitButton(form, event, selector) {
+  if (event?.submitter?.matches?.(selector)) {
+    return event.submitter;
+  }
+
+  const localButton = form.querySelector(selector);
+  if (localButton) {
+    return localButton;
+  }
+
+  if (!form.id) {
+    return null;
+  }
+
+  return Array.from(document.querySelectorAll(selector)).find(
+    (button) => button.getAttribute("form") === form.id,
+  );
+}
+
 function wireActionScrollRestore() {
   restoreActionScrollPosition();
 
@@ -93,6 +191,70 @@ function wireActionScrollRestore() {
     }
 
     saveActionScrollPosition();
+  });
+}
+
+function wireControllerHealthForms() {
+  document.querySelectorAll("[data-controller-health-form]").forEach((form) => {
+    if (form.dataset.controllerHealthBound === "true") {
+      return;
+    }
+    form.dataset.controllerHealthBound = "true";
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const returnTo = form.querySelector("[data-controller-health-return-to]");
+      if (returnTo) {
+        returnTo.value = currentReturnPath("#controller-health");
+      }
+
+      const button = form.querySelector("[data-controller-health-submit]");
+      if (!button) {
+        return;
+      }
+
+      window.setTimeout(() => {
+        setButtonLoading(button, true, {
+          label: "Checking",
+          title: "Checking controller health",
+        });
+      }, 0);
+    });
+  });
+}
+
+function wireLedCommandForms() {
+  document.querySelectorAll("[data-led-command-form]").forEach((form) => {
+    if (form.dataset.ledCommandBound === "true") {
+      return;
+    }
+    form.dataset.ledCommandBound = "true";
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const returnTo = form.querySelector("[data-led-command-return-to]");
+      if (returnTo) {
+        returnTo.value = currentReturnPath(form.dataset.ledReturnHash || "");
+      }
+
+      const button = findFormSubmitButton(form, event, "[data-led-command-submit]");
+      if (!button) {
+        return;
+      }
+
+      window.setTimeout(() => {
+        setButtonLoading(button, true, {
+          label: button.dataset.ledLoadingLabel || form.dataset.ledLoadingLabel || "Sending",
+          title: button.dataset.ledLoadingTitle || form.dataset.ledLoadingTitle || "Sending command",
+        });
+      }, 0);
+    });
   });
 }
 
@@ -1311,16 +1473,21 @@ function wireLocationLocate() {
     }
 
     const activeEntry = activeLocates.get(String(cellId));
-    button.disabled = true;
+    setButtonLoading(button, true, {
+      label: activeEntry ? "Clearing" : "Sending",
+      title: activeEntry ? "Clearing locate command" : "Sending locate command",
+    });
 
     try {
       if (activeEntry) {
         await sendLocateCommand(cellId, false);
+        setButtonLoading(button, false);
         clearLocateUi(cellId);
         return;
       }
 
       await sendLocateCommand(cellId, true);
+      setButtonLoading(button, false);
       setLocateButtonState(button, true);
       activeLocates.set(String(cellId), {
         button,
@@ -1332,6 +1499,7 @@ function wireLocationLocate() {
         }, LOCATION_LOCATE_TIMEOUT_MS),
       });
     } catch (error) {
+      setButtonLoading(button, false);
       button.textContent = "Failed";
       window.setTimeout(() => {
         if (!activeLocates.has(String(cellId))) {
@@ -1339,7 +1507,7 @@ function wireLocationLocate() {
         }
       }, 1400);
     } finally {
-      button.disabled = false;
+      setButtonLoading(button, false);
     }
   });
 
@@ -1384,6 +1552,7 @@ function wireConfigurationWorkspace() {
   const modalTitle = workspace.querySelector("[data-config-modal-title]");
   const modalDescription = workspace.querySelector("[data-config-modal-description]");
   const modalClose = workspace.querySelector("[data-config-modal-close]");
+  const sectionHost = workspace.querySelector("[data-config-section-host]");
   const sectionGroups = {
     "controller-setup": ["controller-setup"],
     "cell-create": ["cell-create"],
@@ -1408,10 +1577,89 @@ function wireConfigurationWorkspace() {
       description: "Ping modules and assign them to physical storage cells.",
     },
   };
-  const sections = Array.from(workspace.querySelectorAll("[data-config-section]"));
   const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link]"));
+  let sectionRequestId = 0;
   const activeFromHash = () => window.location.hash.replace(/^#/, "");
+  const hasDirtyMapping = () =>
+    document.querySelector("[data-cell-mapping-form]")?.dataset.mappingDirty === "true";
+  const sectionLoadingHtml = (message = "Loading configuration flow...") =>
+    `<div class="configuration-flow-loading">${message}</div>`;
+
+  const bindLoadedSection = (section) => {
+    if (!section) {
+      return;
+    }
+    wireFirmwareFlash();
+    wireLedCommandForms();
+    wireCellMappingForm();
+    wireCellDeleteForms();
+    wireRowCollapsers(section);
+  };
+
+  const loadSection = async (activeKey) => {
+    if (!sectionHost || !sectionGroups[activeKey]) {
+      return;
+    }
+    if (
+      sectionHost.dataset.activeSection === activeKey &&
+      sectionHost.querySelector(`[data-config-section="${activeKey}"]`)
+    ) {
+      bindLoadedSection(sectionHost.querySelector(`[data-config-section="${activeKey}"]`));
+      return;
+    }
+
+    const requestId = ++sectionRequestId;
+    sectionHost.dataset.activeSection = activeKey;
+    sectionHost.innerHTML = sectionLoadingHtml();
+
+    try {
+      const response = await fetch(`/devices/sections/${encodeURIComponent(activeKey)}`, {
+        headers: {
+          "X-Requested-With": "fetch",
+        },
+      });
+      if (!response.ok) {
+        throw new Error("Configuration flow could not be loaded.");
+      }
+      const html = await response.text();
+      if (requestId !== sectionRequestId || sectionHost.dataset.activeSection !== activeKey) {
+        return;
+      }
+      sectionHost.innerHTML = html;
+      const section = sectionHost.querySelector(`[data-config-section="${activeKey}"]`);
+      if (section) {
+        section.hidden = false;
+      }
+      bindLoadedSection(section);
+    } catch (error) {
+      if (requestId !== sectionRequestId) {
+        return;
+      }
+      sectionHost.innerHTML = sectionLoadingHtml(error.message || "Configuration flow could not be loaded.");
+    }
+  };
+
+  const unloadInactiveSection = () => {
+    if (!sectionHost || hasDirtyMapping()) {
+      return;
+    }
+    sectionRequestId += 1;
+    sectionHost.dataset.activeSection = "";
+    sectionHost.innerHTML = sectionLoadingHtml("Select a configuration flow to continue.");
+  };
+
   const clearActiveHash = () => {
+    if (hasDirtyMapping()) {
+      document.dispatchEvent(
+        new CustomEvent("inventory:mapping-request-navigation", {
+          detail: {
+            kind: "link",
+            href: `${window.location.pathname}${window.location.search}`,
+          },
+        }),
+      );
+      return;
+    }
     if (window.location.hash) {
       window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
     }
@@ -1422,10 +1670,6 @@ function wireConfigurationWorkspace() {
     const activeKey = activeFromHash();
     const visibleIds = new Set(sectionGroups[activeKey] || []);
     const activeCopy = sectionCopy[activeKey] || null;
-
-    sections.forEach((section) => {
-      section.hidden = !visibleIds.has(section.id);
-    });
 
     if (modal) {
       modal.hidden = visibleIds.size === 0;
@@ -1449,6 +1693,12 @@ function wireConfigurationWorkspace() {
         link.removeAttribute("aria-current");
       }
     });
+
+    if (visibleIds.size > 0) {
+      loadSection(activeKey).catch(() => {});
+    } else {
+      unloadInactiveSection();
+    }
   };
 
   sectionLinks.forEach((link) => {
@@ -1493,11 +1743,18 @@ function wireConfigurationWorkspace() {
   render();
 }
 
-function mappingOptionLabel(select) {
-  const selected = select.selectedOptions?.[0];
-  return (selected?.textContent || select.value || "")
+function cleanMappingLabel(label) {
+  return (label || "")
     .split("·")[0]
     .trim();
+}
+
+function mappingControlLabel(control) {
+  if (control.matches("select")) {
+    const selected = control.selectedOptions?.[0];
+    return cleanMappingLabel(selected?.textContent || control.value || "");
+  }
+  return cleanMappingLabel(control.dataset.currentLabel || control.value || "");
 }
 
 function wireCellMappingForm() {
@@ -1507,7 +1764,16 @@ function wireCellMappingForm() {
   }
   form.dataset.mappingBound = "true";
 
-  const selects = Array.from(form.querySelectorAll("[data-mapping-select]"));
+  const controls = Array.from(form.querySelectorAll("[data-mapping-control], [data-mapping-select]"));
+  const optionsByLabel = new Map();
+  form.querySelectorAll("#cell-mapping-options option").forEach((option) => {
+    const id = option.dataset.cellId || option.value;
+    const label = option.dataset.cellLabel || option.value;
+    const keys = [option.value, option.getAttribute("label"), label]
+      .map((value) => cleanMappingLabel(value).toLowerCase())
+      .filter(Boolean);
+    keys.forEach((key) => optionsByLabel.set(key, { id, label }));
+  });
   const saveButton = document.querySelector("[data-mapping-save]");
   const returnToInput = form.querySelector("[data-mapping-return-to]");
   const dirtyCount = document.querySelector("[data-mapping-dirty-count]");
@@ -1523,27 +1789,68 @@ function wireCellMappingForm() {
   };
 
   const changedSelections = () =>
-    selects.filter((select) => String(select.value) !== String(select.dataset.originalValue || ""));
+    controls.filter((control) => String(control.value) !== String(control.dataset.originalValue || ""));
 
-  const describeChange = (select) => {
-    const from = select.dataset.originalLabel || "Unassigned";
-    const to = mappingOptionLabel(select) || "Unassigned";
-    const controller = select.dataset.controllerName || "Controller";
-    const module = select.dataset.moduleName || "?";
+  const inputFor = (control) => {
+    const key = control.dataset.mappingKey;
+    return key ? form.querySelector(`[data-mapping-input-for="${key}"]`) : null;
+  };
+
+  const syncControlFromInput = (control) => {
+    if (control.matches("select")) {
+      return true;
+    }
+
+    const input = inputFor(control);
+    if (!input) {
+      return true;
+    }
+
+    const match = optionsByLabel.get(cleanMappingLabel(input.value).toLowerCase());
+    if (match) {
+      control.value = match.id;
+      control.dataset.currentLabel = match.label;
+      input.setCustomValidity("");
+      return true;
+    }
+
+    control.value = "";
+    control.dataset.currentLabel = input.value;
+    input.setCustomValidity(input.value.trim() ? "Choose a cell from the list." : "");
+    return !input.value.trim();
+  };
+
+  const syncAllMappingControls = () => {
+    let valid = true;
+    for (const control of controls) {
+      if (!syncControlFromInput(control)) {
+        valid = false;
+      }
+    }
+    return valid;
+  };
+
+  const describeChange = (control) => {
+    const from = control.dataset.originalLabel || "Unassigned";
+    const to = mappingControlLabel(control) || "Unassigned";
+    const controller = control.dataset.controllerName || "Controller";
+    const module = control.dataset.moduleName || "?";
     return `${controller} module ${module}: ${from} -> ${to}`;
   };
 
   const refreshMappingState = () => {
+    syncAllMappingControls();
     const changes = changedSelections();
-    for (const select of selects) {
-      const changed = String(select.value) !== String(select.dataset.originalValue || "");
-      const label = select.closest(".mapping-cell-control")?.querySelector("[data-mapping-cell-name]");
+    for (const control of controls) {
+      const changed = String(control.value) !== String(control.dataset.originalValue || "");
+      const field = control.matches("select") ? control : inputFor(control);
+      const label = control.closest(".mapping-cell-control")?.querySelector("[data-mapping-cell-name]");
       if (label) {
-        label.textContent = mappingOptionLabel(select) || label.dataset.originalLabel || "";
+        label.textContent = mappingControlLabel(control) || label.dataset.originalLabel || "";
         label.classList.toggle("mapping-cell-name-dirty", changed);
         label.classList.toggle("mapping-cell-name-saved", !changed);
       }
-      select.classList.toggle("cell-mapping-select-dirty", changed);
+      field?.classList.toggle("cell-mapping-select-dirty", changed);
     }
 
     form.dataset.mappingDirty = changes.length ? "true" : "false";
@@ -1581,14 +1888,33 @@ function wireCellMappingForm() {
 
   const localPath = (url) => `${url.pathname}${url.search}${url.hash}`;
 
-  selects.forEach((select) => {
-    if (select.dataset.originalValue) {
-      select.value = select.dataset.originalValue;
+  document.addEventListener("inventory:mapping-request-navigation", (event) => {
+    if (!isDirty() || state.allowNavigation || state.submittingMapping) {
+      return;
     }
-    select.addEventListener("change", refreshMappingState);
+    showUnsavedModal(event.detail || {
+      kind: "link",
+      href: `${window.location.pathname}${window.location.search}`,
+    });
+  });
+
+  controls.forEach((control) => {
+    if (control.dataset.originalValue) {
+      control.value = control.dataset.originalValue;
+    }
+    const field = control.matches("select") ? control : inputFor(control);
+    field?.addEventListener("input", refreshMappingState);
+    field?.addEventListener("change", refreshMappingState);
   });
 
   form.addEventListener("submit", (event) => {
+    const valid = syncAllMappingControls();
+    if (!valid) {
+      event.preventDefault();
+      inputFor(controls.find((control) => !control.value))?.reportValidity();
+      refreshMappingState();
+      return;
+    }
     if (!isDirty()) {
       event.preventDefault();
       refreshMappingState();
@@ -1835,6 +2161,8 @@ document.addEventListener("DOMContentLoaded", () => {
   wirePutPlanForms();
   wireFirmwareFlash();
   wireLocationLocate();
+  wireControllerHealthForms();
+  wireLedCommandForms();
   wireConfigurationWorkspace();
   wireCellMappingForm();
   wireCellDeleteForms();

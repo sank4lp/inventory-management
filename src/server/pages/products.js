@@ -184,11 +184,11 @@ export function createProductPages({ db }) {
           ${card(
             "Pick items",
             `
-              <form method="post" action="/pick" class="stack-form">
+              <form method="post" action="/pick" class="stack-form" data-led-command-form data-led-loading-label="Creating">
                 ${productPickerField(products, selectedProductId, "pick-product")}
                 ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
                 <label>Requested quantity<input type="number" min="1" step="1" name="quantity" required /></label>
-                <button class="green-button" type="submit">Create pick task</button>
+                <button class="green-button" type="submit" data-led-command-submit data-led-loading-label="Creating">Create pick task</button>
               </form>
               <p class="muted">
                 ${selectedProduct ? `Selected product: ${escapeHtml(selectedProduct.name)}. ` : ""}
@@ -295,11 +295,11 @@ export function createProductPages({ db }) {
           ${card(
             "Put items away",
             `
-              <form method="post" action="/put" class="stack-form">
+              <form method="post" action="/put" class="stack-form" data-led-command-form data-led-loading-label="Creating">
                 ${productPickerField(products, selectedProductId, "put-product")}
                 ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
                 <label>Quantity to place<input type="number" min="1" step="1" name="quantity" value="${escapeHtml(requestedQuantity)}" required /></label>
-                <button class="blue-button" type="submit">Create put task</button>
+                <button class="blue-button" type="submit" data-led-command-submit data-led-loading-label="Creating">Create put task</button>
               </form>
               <p class="muted">
                 ${selectedProduct ? `Selected product: ${escapeHtml(selectedProduct.name)}. ` : ""}

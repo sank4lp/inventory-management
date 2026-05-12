@@ -727,6 +727,17 @@ body.modal-open {
   display: none;
 }
 
+.configuration-flow-loading {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-align: center;
+}
+
 .configuration-table-section {
   min-width: 0;
 }
@@ -866,6 +877,55 @@ button[disabled] {
 .refresh-button:hover {
   background: var(--primary-soft);
   border-color: #d8b4fe;
+}
+
+.button-loading,
+.button-loading:disabled,
+.button-loading[disabled],
+.icon-button-loading,
+.icon-button-loading:disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+  opacity: 1;
+}
+
+.button-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: button-spinner-rotate 680ms linear infinite;
+}
+
+.icon-button-loading .button-icon {
+  opacity: 0;
+}
+
+.icon-button-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  margin-left: -9px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: button-spinner-rotate 680ms linear infinite;
+}
+
+@keyframes button-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .icon-button {

@@ -453,7 +453,10 @@ function serveStatic(request, response, pathname) {
       : extension === ".js"
         ? "application/javascript; charset=utf-8"
         : "application/octet-stream";
-  response.writeHead(200, { "Content-Type": contentType });
+  response.writeHead(200, {
+    "Content-Type": contentType,
+    "Cache-Control": "no-store",
+  });
   createReadStream(filePath).pipe(response);
   return true;
 }
@@ -1150,11 +1153,24 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    const deviceSectionMatch = url.pathname.match(/^\/devices\/sections\/([a-z-]+)$/);
+    if (request.method === "GET" && deviceSectionMatch) {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1]);
+      if (!sectionHtml) {
+        sendText(response, "Unknown configuration section.", 404);
+        return;
+      }
+      sendHtml(response, sectionHtml, 200, { "Cache-Control": "no-store" });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/devices") {
       if (!ensureAuth(response, user)) {
         return;
       }
-      systemService.refreshControllerHealths();
       sendHtml(response, pages.renderDevices(user, flash));
       return;
     }
@@ -1208,14 +1224,88 @@ export const requestHandler = async (request, response) => {
         controllerId: controller.id,
         status: healthStatus,
       });
+      const returnTo = safeLocalPath(form.return_to, "/devices#controller-health");
       sendRedirect(
         response,
         appendFlash(
-          "/devices",
+          returnTo,
           healthStatus === "online"
             ? `${controller.controller_code} responded on RS485.`
             : `No healthy response from ${controller.controller_code}. Check power, A/B wiring, RS485 id, and that the controller is flashed.`,
           healthStatus === "online" ? "success" : "warning",
+        ),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/devices/controller-ping") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const controller = locationService
+        .listControllers()
+        .find((entry) => entry.id === Number(form.controller_id));
+      if (!controller) {
+        throw new Error("Controller not found.");
+      }
+
+      const mappedCells = locationService
+        .listCells()
+        .filter((cell) => cell.controller_id === controller.id && cell.hardware_channel);
+      const moduleTargets = new Map();
+      const moduleCount = Number(controller.module_count || 0);
+      for (let channel = 1; channel <= moduleCount; channel += 1) {
+        moduleTargets.set(String(channel), {
+          id: null,
+          logical_code: `${controller.controller_code} module ${channel}`,
+          controller_id: controller.id,
+          controller_code: controller.controller_code,
+          controller_address: controller.address,
+          address: controller.address,
+          hardware_channel: channel,
+        });
+      }
+      for (const cell of mappedCells) {
+        moduleTargets.set(String(cell.hardware_channel), {
+          ...cell,
+          controller_address: cell.controller_address || controller.address,
+          address: cell.address || controller.address,
+        });
+      }
+
+      const targets = Array.from(moduleTargets.values()).sort((left, right) => {
+        const leftChannel = Number(left.hardware_channel);
+        const rightChannel = Number(right.hardware_channel);
+        if (Number.isFinite(leftChannel) && Number.isFinite(rightChannel)) {
+          return leftChannel - rightChannel;
+        }
+        return String(left.hardware_channel).localeCompare(String(right.hardware_channel));
+      });
+      const returnTo = safeLocalPath(form.return_to, "/devices#controller-health");
+      if (!targets.length) {
+        sendRedirect(
+          response,
+          appendFlash(
+            returnTo,
+            `No LED modules are mapped or configured for ${controller.controller_code}.`,
+            "warning",
+          ),
+        );
+        return;
+      }
+
+      const results = targets.map((target) => hardwareService.sendCellTest(target, form.color || "green"));
+      const degradedCount = results.filter((result) => result.degraded).length;
+      const sentCount = targets.length - degradedCount;
+      sendRedirect(
+        response,
+        appendFlash(
+          returnTo,
+          degradedCount
+            ? `Ping sent to ${sentCount} of ${targets.length} LED module(s) on ${controller.controller_code}. ${degradedCount} module(s) need manual checking.`
+            : `Ping sent to ${targets.length} LED module(s) on ${controller.controller_code}.`,
+          degradedCount ? "warning" : "success",
         ),
       );
       return;
