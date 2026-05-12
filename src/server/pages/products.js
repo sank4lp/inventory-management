@@ -212,7 +212,7 @@ export function createProductPages({ db }) {
     return `/put${params.toString() ? `?${params.toString()}` : ""}`;
   }
 
-  function renderPutCapacityRecovery(user, product, returnTo) {
+  function renderPutCapacityRecovery(user, product, returnTo, flash) {
     if (!product) {
       return "";
     }
@@ -223,28 +223,44 @@ export function createProductPages({ db }) {
     `;
 
     if (user.role !== "admin") {
-      return card(
-        "Product capacity",
-        `
-          ${message}
-          <p class="flash flash-warning">Admin access is required to update product capacity.</p>
-        `,
-      );
+      return `
+        <section class="modal-backdrop app-alert-modal" role="dialog" aria-modal="true" aria-labelledby="put-capacity-title">
+          <div class="modal-panel">
+            <div class="modal-header">
+              <div>
+                <h2 id="put-capacity-title">Not enough cell capacity</h2>
+                <p class="muted">${escapeHtml(flash?.message || "The requested quantity cannot fit in the available cells.")}</p>
+              </div>
+              <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
+            </div>
+            ${message}
+            <p class="flash flash-warning">Admin access is required to update product capacity.</p>
+          </div>
+        </section>
+      `;
     }
 
-    return card(
-      "Product capacity",
-      `
-        ${message}
-        <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form">
-          <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
-          <label>Items per cell
-            <input type="number" min="1" step="1" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
-          </label>
-          <button type="submit">Update items per cell</button>
-        </form>
-      `,
-    );
+    return `
+      <section class="modal-backdrop app-alert-modal" role="dialog" aria-modal="true" aria-labelledby="put-capacity-title">
+        <div class="modal-panel">
+          <div class="modal-header">
+            <div>
+              <h2 id="put-capacity-title">Not enough cell capacity</h2>
+              <p class="muted">${escapeHtml(flash?.message || "The requested quantity cannot fit in the available cells.")}</p>
+            </div>
+            <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
+          </div>
+          ${message}
+          <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form">
+            <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
+            <label>Items per cell
+              <input type="number" min="1" step="1" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
+            </label>
+            <button type="submit">Update items per cell</button>
+          </form>
+        </div>
+      </section>
+    `;
   }
 
   function renderPut(user, flash, url) {
@@ -264,7 +280,7 @@ export function createProductPages({ db }) {
     return page({
       title: "Put",
       user,
-      flash,
+      flash: showCapacityRecovery ? null : flash,
       content: `
         <section class="single-column">
           <section class="guide-strip">
@@ -272,7 +288,6 @@ export function createProductPages({ db }) {
             <span class="guide-pill">Step 2: Enter quantity</span>
             <span class="guide-pill">Step 3: Review cells</span>
           </section>
-          ${showCapacityRecovery ? renderPutCapacityRecovery(user, selectedProduct, returnTo) : ""}
           ${card(
             "Put items away",
             `
@@ -290,6 +305,7 @@ export function createProductPages({ db }) {
             `,
           )}
         </section>
+        ${showCapacityRecovery ? renderPutCapacityRecovery(user, selectedProduct, returnTo, flash) : ""}
       `,
     });
   }

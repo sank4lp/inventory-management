@@ -168,7 +168,7 @@ function appendFlash(path, message, tone = "info") {
   const url = new URL(path, "http://localhost");
   url.searchParams.set("flash", message);
   url.searchParams.set("tone", tone);
-  return `${url.pathname}${url.search}`;
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function safeLocalPath(value, fallback = "/") {
@@ -182,7 +182,7 @@ function safeLocalPath(value, fallback = "/") {
     if (url.origin !== "http://localhost") {
       return fallback;
     }
-    return `${url.pathname}${url.search}`;
+    return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return fallback;
   }
@@ -307,6 +307,26 @@ function parsePutPlanForm(form) {
   return Array.from(byKey.values()).filter(
     (allocation) => String(allocation.quantity || "").trim() || String(allocation.cellId || "").trim(),
   );
+}
+
+function parseCellMappingForm(form) {
+  return Object.entries(form)
+    .filter(([key]) => key.startsWith("target_cell_id_"))
+    .map(([key, targetCellId]) => {
+      const sourceCellId = key.slice("target_cell_id_".length);
+      return {
+        sourceCellId,
+        targetCellId,
+        originalTargetCellId: form[`original_target_cell_id_${sourceCellId}`],
+        hardwareChannel: form[`hardware_channel_${sourceCellId}`],
+      };
+    })
+    .filter(
+      (mapping) =>
+        String(mapping.targetCellId || "").trim() &&
+        String(mapping.hardwareChannel || "").trim() &&
+        String(mapping.targetCellId) !== String(mapping.originalTargetCellId),
+    );
 }
 
 function parseRecommendedActionMoves(form) {
@@ -1265,6 +1285,37 @@ export const requestHandler = async (request, response) => {
       const backupResult = createAutomaticBackup("cell-mapping-update");
       const nextFlash = backupAwareFlash("Cell mapping updated.", "success", backupResult);
       sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/mapping/bulk") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const mappings = parseCellMappingForm(form);
+      const returnTo = safeLocalPath(form.return_to, "/devices#cell-mapping");
+
+      if (!mappings.length) {
+        sendRedirect(response, appendFlash(returnTo, "No cell mapping changes to save.", "info"));
+        return;
+      }
+
+      for (const mapping of mappings) {
+        locationService.updateCellMapping({
+          cellId: mapping.sourceCellId,
+          hardwareChannel: mapping.hardwareChannel,
+          targetCellId: mapping.targetCellId,
+          mappedBy: user.id,
+        });
+      }
+      const backupResult = createAutomaticBackup("cell-mapping-bulk-update");
+      const nextFlash = backupAwareFlash(
+        `${mappings.length} cell mapping${mappings.length === 1 ? "" : "s"} updated.`,
+        "success",
+        backupResult,
+      );
+      sendRedirect(response, appendFlash(returnTo, nextFlash.message, nextFlash.tone));
       return;
     }
 

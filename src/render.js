@@ -89,6 +89,17 @@ export function page({ title, user, flash, content }) {
           systemHealth.message,
         )} Adapter: ${escapeHtml(runtime.startup?.hardware?.message || runtime.config?.hardwareAdapter || "unknown")}.</div>`
       : "";
+  const toast =
+    flash
+      ? `
+        <div class="toast-stack" aria-live="${flash.tone === "error" ? "assertive" : "polite"}" aria-atomic="true">
+          <div class="toast toast-${escapeHtml(flash.tone || "info")}" role="${flash.tone === "error" ? "alert" : "status"}" data-toast>
+            <span>${escapeHtml(flash.message)}</span>
+            <button type="button" class="toast-close" data-toast-close aria-label="Dismiss notification">x</button>
+          </div>
+        </div>
+      `
+      : "";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -100,15 +111,11 @@ export function page({ title, user, flash, content }) {
   </head>
   <body>
     ${nav(user, title)}
+    ${toast}
     <main class="page-shell">
       <header class="page-header">
         <h1>${escapeHtml(title)}</h1>
       </header>
-      ${
-        flash
-          ? `<div class="flash flash-${escapeHtml(flash.tone || "info")}">${escapeHtml(flash.message)}</div>`
-          : ""
-      }
       ${systemNotice}
       ${content}
     </main>
