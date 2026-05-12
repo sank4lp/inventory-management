@@ -183,6 +183,8 @@ export function createReportsPages({ db }) {
               escapeHtml(formatQuantity(row.available)),
             ]),
           ),
+          "",
+          `data-row-collapser data-row-limit="6" data-row-label="products"`,
         )}
         ${card(
           "Movement",
@@ -195,6 +197,8 @@ export function createReportsPages({ db }) {
               escapeHtml(formatQuantity(row.net_change)),
             ]),
           ),
+          "",
+          `data-row-collapser data-row-limit="6" data-row-label="days"`,
         )}
         ${card(
           "Team activity",
@@ -220,6 +224,8 @@ export function createReportsPages({ db }) {
               escapeHtml(formatDate(row.completed_at)),
             ]),
           ),
+          "",
+          `data-row-collapser data-row-limit="5" data-row-label="tasks"`,
         )}
         ${card(
           "Issues",

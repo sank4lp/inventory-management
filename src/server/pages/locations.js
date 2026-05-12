@@ -16,6 +16,35 @@ import {
   table,
 } from "./shared.js";
 
+function trashIcon() {
+  return `
+    <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="M3 6h18" />
+      <path d="M8 6V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v2" />
+      <path d="M19 6l-1 14c-.1 1.1-1 2-2.1 2H8.1c-1.1 0-2-.9-2.1-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  `;
+}
+
+function refreshIcon() {
+  return `
+    <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4" />
+      <path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" />
+    </svg>
+  `;
+}
+
+function wizardCheckIcon() {
+  return `
+    <svg class="wizard-step-check" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  `;
+}
+
 function renderModuleChips(modules = []) {
   return modules
     .map((moduleNumber) => `<span class="module-chip">Module ${escapeHtml(moduleNumber)}</span>`)
@@ -35,7 +64,7 @@ function renderFirmwareVerification(config) {
   return `
     <div class="firmware-verify">
       Flash saved for ${escapeHtml(config.controllerName || config.deviceName || "this controller")}.
-      Use Blink green on each LED module below, then update the cell dropdown if any physical module is assigned to the wrong cell.
+      Use Ping on each LED module below, then update the cell dropdown if any physical module is assigned to the wrong cell.
       ${escapeHtml(summary)}
     </div>
   `;
@@ -215,6 +244,8 @@ export function createLocationPages({ db }) {
             allCells.length
               ? renderAllLocations(allCells)
               : `<p class="muted">No active locations are configured.</p>`,
+            "",
+            `data-row-collapser data-row-limit="6" data-row-label="locations"`,
           )}
         </div>
       `,
@@ -260,16 +291,14 @@ export function createLocationPages({ db }) {
               quickActionLinks(product.product_id, cell.id),
             ]),
           ),
+          "",
+          `data-row-collapser data-row-limit="4" data-row-label="products"`,
         )}
       `,
     });
   }
 
-  function renderDevices(user, flash) {
-    const controllers = listControllers(db);
-    const cells = listCells(db);
-    const cellCatalog = listCellCatalog(db);
-    const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
+  function renderControllerSetupSection(controllers) {
     const runtime = getRuntimeContext();
     const firmwareOptions = runtime.firmwareService?.getFlashOptions();
     const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
@@ -279,173 +308,227 @@ export function createLocationPages({ db }) {
     const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
     const hasPorts = false;
 
-    return page({
-      title: "Devices and Mapping",
-      user,
-      flash,
-      content: `
+    if (!firmwareOptions) {
+      return `
+        <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
+          <div class="panel-heading">
+            <div>
+              <h2>Add Controller</h2>
+              <p class="muted">Firmware flashing is not available in this runtime.</p>
+            </div>
+          </div>
+        </section>
+      `;
+    }
+
+    return `
+      <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
+        <div class="panel-heading">
+          <div>
+            <h2>Add Controller</h2>
+            <p class="muted">Follow the same connection order every time so the app can identify the newly attached ESP32.</p>
+          </div>
+          ${statusBadge(firmwareOptions.arduinoCli.available ? "available" : "missing")}
+        </div>
+        <div class="firmware-panel" data-firmware-panel>
+          <div class="meta-grid compact-meta-grid">
+            <div><strong>Arduino CLI</strong><br />${statusBadge(
+              firmwareOptions.arduinoCli.available ? "available" : "missing",
+            )}</div>
+            <div><strong>Sketch</strong><br /><code>${escapeHtml(firmwareOptions.sketchPath)}</code></div>
+          </div>
+          <form class="stack-form firmware-wizard" data-firmware-flash-form data-firmware-wizard data-current-step="0">
+            <ol class="wizard-steps" aria-label="Controller setup progress">
+              <li class="wizard-step-indicator wizard-step-indicator-active" data-firmware-step-indicator="0" aria-current="step">
+                <span class="wizard-step-node" aria-hidden="true">
+                  <span class="wizard-step-number">1</span>
+                  ${wizardCheckIcon()}
+                </span>
+                <span class="wizard-step-copy">
+                  <strong>Disconnect</strong>
+                  <span>Save current ports</span>
+                </span>
+              </li>
+              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="1">
+                <span class="wizard-step-node" aria-hidden="true">
+                  <span class="wizard-step-number">2</span>
+                  ${wizardCheckIcon()}
+                </span>
+                <span class="wizard-step-copy">
+                  <strong>Attach</strong>
+                  <span>Find new ESP32</span>
+                </span>
+              </li>
+              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="2">
+                <span class="wizard-step-node" aria-hidden="true">
+                  <span class="wizard-step-number">3</span>
+                  ${wizardCheckIcon()}
+                </span>
+                <span class="wizard-step-copy">
+                  <strong>Configure</strong>
+                  <span>Name and modules</span>
+                </span>
+              </li>
+              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="3">
+                <span class="wizard-step-node" aria-hidden="true">
+                  <span class="wizard-step-number">4</span>
+                  ${wizardCheckIcon()}
+                </span>
+                <span class="wizard-step-copy">
+                  <strong>Flash</strong>
+                  <span>Upload firmware</span>
+                </span>
+              </li>
+            </ol>
+
+            <section class="firmware-step" data-firmware-step="0">
+              <h3>Disconnect ESP32 controllers</h3>
+              <p class="muted">Keep RS485, keyboard, and mouse connected. Unplug only the ESP32 controller that you want to add or replace.</p>
+              <div class="mini-actions">
+                <button type="button" class="blue-button" data-firmware-scan-baseline data-firmware-next-on-success>Next</button>
+              </div>
+            </section>
+
+            <section class="firmware-step" data-firmware-step="1" hidden>
+              <h3>Attach one ESP32 controller</h3>
+              <p class="muted">Connect the ESP32 over USB. If the app does not find a newly added serial device, go back and repeat the disconnect step.</p>
+              <div class="mini-actions">
+                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
+                <button type="button" class="blue-button" data-firmware-refresh-ports data-firmware-next-on-success>Next</button>
+              </div>
+              <div class="firmware-port-status firmware-port-status-missing" data-firmware-detect-status hidden></div>
+            </section>
+
+            <section class="firmware-step" data-firmware-step="2" hidden>
+              <h3>Select and configure the controller</h3>
+              <div class="firmware-grid">
+                <label>Controller name
+                  <input
+                    name="controller_name"
+                    list="firmware-controller-names"
+                    value="${escapeHtml(controllerName)}"
+                    placeholder="ESP32-Z1-A"
+                    required
+                  />
+                </label>
+                <label>LED modules
+                  <input
+                    type="number"
+                    name="module_count"
+                    min="${firmwareOptions.moduleCount.min}"
+                    max="${firmwareOptions.moduleCount.max}"
+                    step="1"
+                    value="${escapeHtml(moduleCount)}"
+                    required
+                  />
+                </label>
+                <label>Serial port
+                  <div class="firmware-port-input-row">
+                    <input
+                      name="port"
+                      list="firmware-ports"
+                      value="${escapeHtml(port)}"
+                      placeholder="/dev/ttyUSB0"
+                      data-firmware-port-input
+                      required
+                    />
+                    <input type="hidden" name="device_identity" value="" data-firmware-device-identity />
+                  </div>
+                </label>
+                <label>Board FQBN
+                  <input name="fqbn" value="${escapeHtml(fqbn)}" required />
+                </label>
+              </div>
+              <datalist id="firmware-ports">
+                ${renderPortOptions([])}
+              </datalist>
+              <datalist id="firmware-controller-names">
+                ${controllers
+                  .map(
+                    (controller) =>
+                      `<option value="${escapeHtml(controller.controller_code)}">${escapeHtml(
+                        `${controller.controller_code} · replace/migrate existing mapping`,
+                      )}</option>`,
+                  )
+                  .join("")}
+              </datalist>
+              <div
+                class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
+                data-firmware-port-status
+              >${escapeHtml(firmwareOptions.portStatus)}</div>
+              <div class="firmware-port-list" data-firmware-port-list>
+                ${renderPortChoices([], port)}
+              </div>
+              <details class="firmware-other-devices" data-firmware-other-devices>
+                <summary>Other serial devices / manual reflash</summary>
+                <div class="firmware-other-device-list" data-firmware-other-device-list></div>
+              </details>
+              <div class="mini-actions">
+                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
+                <button type="button" class="blue-button" data-firmware-next>Next</button>
+              </div>
+            </section>
+
+            <section class="firmware-step" data-firmware-step="3" hidden>
+              <h3>Flash firmware</h3>
+              <p class="muted">If upload cannot connect, hold BOOT, start flashing, tap EN/RESET once while Connecting is shown, then release BOOT after upload starts.</p>
+              <div class="mini-actions">
+                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
+                <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Flash controller</button>
+              </div>
+              <div class="firmware-progress" data-firmware-progress hidden>
+                <div class="firmware-progress-head">
+                  <strong data-firmware-stage>Queued</strong>
+                  <span data-firmware-percent>0%</span>
+                </div>
+                <progress data-firmware-progress-bar value="0" max="100"></progress>
+                <div class="firmware-hint" data-firmware-hint hidden></div>
+                <pre class="firmware-log" data-firmware-log></pre>
+              </div>
+            </section>
+          </form>
+          <div
+            class="module-assignment-strip"
+            data-firmware-modules
+            ${lastFirmwareConfig?.assignedModules?.length ? "" : "hidden"}
+          >${renderModuleChips(lastFirmwareConfig?.assignedModules || [])}</div>
+          ${renderFirmwareVerification(lastFirmwareConfig)}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderCellCreateSection() {
+    return `
+      <section id="cell-create" class="app-panel" data-config-section="cell-create">
+        <div class="panel-heading">
+          <div>
+            <h2>Add Cells</h2>
+            <p class="muted">Create the logical storage cells that operators will pick from and put into.</p>
+          </div>
+        </div>
+        <form method="post" action="/devices/cells" class="inline-form">
+          <label>Cell name
+            <input
+              name="logical_code"
+              placeholder="Z1-R1-C01"
+              pattern="[A-Za-z0-9._:-]+"
+              required
+            />
+          </label>
+          <label>Capacity
+            <input name="capacity" type="number" min="1" step="1" value="12" required />
+          </label>
+          <button type="submit" class="ghost-button">Add cell</button>
+        </form>
+      </section>
+    `;
+  }
+
+  function renderCellManagementSection(cells) {
+    return `
+      <section id="cell-management" class="configuration-table-section" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
         ${
-          firmwareOptions
-            ? card(
-                "ESP32 firmware",
-                `
-                  <div class="firmware-panel" data-firmware-panel>
-                    <div class="meta-grid compact-meta-grid">
-                      <div><strong>Arduino CLI</strong><br />${statusBadge(
-                        firmwareOptions.arduinoCli.available ? "available" : "missing",
-                      )}</div>
-                      <div><strong>Sketch</strong><br /><code>${escapeHtml(
-                        firmwareOptions.sketchPath,
-                      )}</code></div>
-                    </div>
-                    <form class="stack-form" data-firmware-flash-form>
-                      <div class="firmware-grid">
-                        <label>Controller name / reflash target
-                          <input
-                            name="controller_name"
-                            list="firmware-controller-names"
-                            value="${escapeHtml(controllerName)}"
-                            placeholder="ESP32-Z1-A"
-                            required
-                          />
-                        </label>
-                        <label>LED modules
-                          <input
-                            type="number"
-                            name="module_count"
-                            min="${firmwareOptions.moduleCount.min}"
-                            max="${firmwareOptions.moduleCount.max}"
-                            step="1"
-                            value="${escapeHtml(moduleCount)}"
-                            required
-                          />
-                        </label>
-                        <label>Serial port
-                          <div class="firmware-port-input-row">
-                            <input
-                              name="port"
-                              list="firmware-ports"
-                              value="${escapeHtml(port)}"
-                              placeholder="/dev/ttyUSB0"
-                              data-firmware-port-input
-                              required
-                            />
-                            <input type="hidden" name="device_identity" value="" data-firmware-device-identity />
-                          </div>
-                          <div class="firmware-detect-actions">
-                            <button type="button" class="ghost-button" data-firmware-scan-baseline>1. Scan without ESP32</button>
-                            <button type="button" class="ghost-button" data-firmware-refresh-ports>2. Detect added ESP32</button>
-                          </div>
-                        </label>
-                        <label>Board FQBN
-                          <input name="fqbn" value="${escapeHtml(fqbn)}" required />
-                        </label>
-                      </div>
-                      <datalist id="firmware-ports">
-                        ${renderPortOptions([])}
-                      </datalist>
-                      <datalist id="firmware-controller-names">
-                        ${controllers
-                          .map(
-                            (controller) =>
-                              `<option value="${escapeHtml(controller.controller_code)}">${escapeHtml(
-                                `${controller.controller_code} · replace/migrate existing mapping`,
-                              )}</option>`,
-                          )
-                          .join("")}
-                      </datalist>
-                      <p class="muted">Setup flow: keep RS485, mouse, and keyboard connected; unplug the ESP32; scan without ESP32; plug in the ESP32; then detect the added serial device.</p>
-                      <p class="muted">The serial port is only the upload path. To reflash controller A, choose controller A's existing name here; to add controller B, keep a new name. USB-UART adapter names can be shared and are not used to merge controllers.</p>
-                      <p class="muted">If upload cannot connect, hold BOOT, start flashing, tap EN/RESET once while Connecting is shown, then release BOOT after upload starts.</p>
-                      <div
-                        class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
-                        data-firmware-port-status
-                      >${escapeHtml(firmwareOptions.portStatus)}</div>
-                      <div class="firmware-port-list" data-firmware-port-list>
-                        ${renderPortChoices([], port)}
-                      </div>
-                      <details class="firmware-other-devices" data-firmware-other-devices>
-                        <summary>Other serial devices / manual reflash</summary>
-                        <div class="firmware-other-device-list" data-firmware-other-device-list></div>
-                      </details>
-                      <div class="mini-actions">
-                        <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Compile and flash</button>
-                      </div>
-                    </form>
-                    <div
-                      class="module-assignment-strip"
-                      data-firmware-modules
-                      ${lastFirmwareConfig?.assignedModules?.length ? "" : "hidden"}
-                    >${renderModuleChips(lastFirmwareConfig?.assignedModules || [])}</div>
-                    ${renderFirmwareVerification(lastFirmwareConfig)}
-                    <div class="firmware-progress" data-firmware-progress hidden>
-                      <div class="firmware-progress-head">
-                        <strong data-firmware-stage>Queued</strong>
-                        <span data-firmware-percent>0%</span>
-                      </div>
-                      <progress data-firmware-progress-bar value="0" max="100"></progress>
-                      <div class="firmware-hint" data-firmware-hint hidden></div>
-                      <pre class="firmware-log" data-firmware-log></pre>
-                    </div>
-                  </div>
-                `,
-              )
-            : ""
-        }
-        ${card(
-          "Controllers",
-          `
-            <p class="muted">Health is checked with an addressed RS485 ping when this page loads. Delete removes only the controller; its cells stay active for manual pick/put until they are remapped.</p>
-            ${table(
-              ["Controller", "RS485 id", "Health", "Last seen", "LED modules", "Cells", "Actions"],
-              controllers.map((controller) => [
-                escapeHtml(controller.controller_code),
-                `<code>${escapeHtml(controller.address || "")}</code>`,
-                statusBadge(controller.heartbeat_status),
-                escapeHtml(formatDate(controller.last_seen_at)),
-                escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
-                escapeHtml(formatQuantity(controller.mapped_cells)),
-                `
-                  <div class="mini-actions">
-                    <form method="post" action="/devices/controller-test">
-                      <input type="hidden" name="controller_id" value="${controller.id}" />
-                      <button type="submit" class="ghost-button">Check health</button>
-                    </form>
-                    <form
-                      method="post"
-                      action="/devices/controller-delete"
-                      onsubmit="return confirm('Delete this controller? Its cells will stay active for manual pick/put until remapped.');"
-                    >
-                      <input type="hidden" name="controller_id" value="${controller.id}" />
-                      <button type="submit" class="ghost-button danger-button">Delete</button>
-                    </form>
-                  </div>
-                `,
-              ]),
-            )}
-          `,
-        )}
-        ${card(
-          "Add cells",
-          `
-            <form method="post" action="/devices/cells" class="inline-form">
-              <label>Cell name
-                <input
-                  name="logical_code"
-                  placeholder="Z1-R1-C01"
-                  pattern="[A-Za-z0-9._:-]+"
-                  required
-                />
-              </label>
-              <label>Capacity
-                <input name="capacity" type="number" min="1" step="1" value="12" required />
-              </label>
-              <button type="submit" class="ghost-button">Add cell</button>
-            </form>
-          `,
-        )}
-        ${card(
-          "Manage cells",
           cells.length
             ? table(
                 ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
@@ -468,42 +551,331 @@ export function createLocationPages({ db }) {
                       >
                         <input type="hidden" name="cell_id" value="${cell.id}" />
                         <input type="hidden" name="delete_data_confirmed" value="0" data-delete-data-confirmed />
-                        <button type="submit" class="ghost-button danger-button">Delete</button>
+                        <button
+                          type="submit"
+                          class="icon-button danger-button"
+                          aria-label="Delete ${escapeHtml(cell.logical_code)}"
+                          title="Delete ${escapeHtml(cell.logical_code)}"
+                        >${trashIcon()}</button>
                       </form>
                     `,
                   ];
                 }),
               )
-            : `<p class="muted">No active cells are configured.</p>`,
-        )}
-        ${card(
-          "Cell mapping",
-          table(
-            ["Controller", "LED module", "Cell name", "Stock", "Blink"],
+            : `<p class="muted">No active cells are configured.</p>`
+        }
+      </section>
+    `;
+  }
+
+  function renderCellMappingSection(cells) {
+    const cellCatalog = listCellCatalog(db);
+    const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
+
+    return `
+      <section id="cell-mapping" class="app-panel" data-config-section="cell-mapping" data-row-collapser data-row-limit="4" data-row-label="mappings">
+        <div class="panel-heading">
+          <div>
+            <h2>Module Assignments</h2>
+            <p class="muted">Ping a module, then assign it to the physical cell it controls.</p>
+          </div>
+          <div class="mini-actions mapping-toolbar">
+            <span class="mapping-toolbar-status" data-mapping-dirty-count>All mappings saved</span>
+            <button type="submit" form="cell-mapping-form" class="blue-button" data-mapping-save disabled>Save all</button>
+          </div>
+        </div>
+        <form id="cell-mapping-form" method="post" action="/mapping/bulk" data-cell-mapping-form>
+          <input type="hidden" name="return_to" value="/devices#cell-mapping" data-mapping-return-to />
+          <datalist id="cell-mapping-options">
+            ${cellCatalog
+              .map(
+                (catalogCell) => `
+                  <option
+                    value="${escapeHtml(catalogCell.logical_code)}"
+                    label="${escapeHtml(cellMappingOptionLabel(catalogCell))}"
+                    data-cell-id="${catalogCell.id}"
+                    data-cell-label="${escapeHtml(catalogCell.logical_code)}"
+                  ></option>
+                `,
+              )
+              .join("")}
+          </datalist>
+          ${table(
+            ["Controller", "LED module", "Cell name", "Stock", "Ping"],
             mappedCells.map((cell) => [
               escapeHtml(cell.controller_code || "No controller"),
               escapeHtml(cell.hardware_channel),
               `
-                <form method="post" action="/mapping" class="inline-form">
-                  <input type="hidden" name="cell_id" value="${cell.id}" />
-                  <input type="hidden" name="hardware_channel" value="${escapeHtml(cell.hardware_channel)}" />
-                  <select class="compact-input" name="target_cell_id" required>
-                    ${renderCellMappingOptions(cellCatalog, cell.id)}
-                  </select>
-                  <button type="submit" class="ghost-button">Save</button>
-                </form>
+                <input type="hidden" name="hardware_channel_${cell.id}" value="${escapeHtml(cell.hardware_channel)}" />
+                <input type="hidden" name="original_target_cell_id_${cell.id}" value="${cell.id}" />
+                <div class="mapping-cell-control">
+                  <span
+                    class="mapping-cell-name mapping-cell-name-saved"
+                    data-mapping-cell-name
+                    data-original-label="${escapeHtml(cell.logical_code)}"
+                  >${escapeHtml(cell.logical_code)}</span>
+                  <input
+                    type="hidden"
+                    name="target_cell_id_${cell.id}"
+                    value="${cell.id}"
+                    data-mapping-control
+                    data-mapping-key="${cell.id}"
+                    data-original-value="${cell.id}"
+                    data-original-label="${escapeHtml(cell.logical_code)}"
+                    data-current-label="${escapeHtml(cell.logical_code)}"
+                    data-controller-name="${escapeHtml(cell.controller_code || "No controller")}"
+                    data-module-name="${escapeHtml(cell.hardware_channel)}"
+                  />
+                  <input
+                    class="compact-input cell-mapping-select"
+                    list="cell-mapping-options"
+                    value="${escapeHtml(cell.logical_code)}"
+                    required
+                    autocomplete="off"
+                    data-mapping-input
+                    data-mapping-input-for="${cell.id}"
+                  />
+                </div>
               `,
               escapeHtml(formatQuantity(cell.occupied_quantity)),
               `
-                <form method="post" action="/devices/cell-test">
-                  <input type="hidden" name="cell_id" value="${cell.id}" />
-                  <input type="hidden" name="color" value="green" />
-                  <button type="submit" class="ghost-button">Blink green</button>
-                </form>
+                <button
+                  type="submit"
+                  form="cell-ping-${cell.id}"
+                  class="green-button ping-button"
+                  data-led-command-submit
+                  data-led-loading-label="Pinging"
+                  data-led-loading-title="Sending ping to ${escapeHtml(cell.logical_code)}"
+                  title="Ping ${escapeHtml(cell.logical_code)}"
+                >Ping</button>
               `,
             ]),
-          ),
-        )}
+          )}
+        </form>
+        ${mappedCells
+          .map(
+            (cell) => `
+              <form
+                id="cell-ping-${cell.id}"
+                method="post"
+                action="/devices/cell-test"
+                data-led-command-form
+                data-led-loading-label="Pinging"
+                data-led-return-hash="#cell-mapping"
+                hidden
+              >
+                <input type="hidden" name="cell_id" value="${cell.id}" />
+                <input type="hidden" name="color" value="green" />
+                <input type="hidden" name="return_to" value="/devices#cell-mapping" data-led-command-return-to />
+              </form>
+            `,
+          )
+          .join("")}
+        <div class="modal-backdrop app-alert-modal" data-mapping-unsaved-modal role="dialog" aria-modal="true" aria-labelledby="mapping-unsaved-title" hidden>
+          <div class="modal-panel mapping-unsaved-panel">
+            <div class="modal-header">
+              <div>
+                <h2 id="mapping-unsaved-title">Unsaved cell mapping changes</h2>
+                <p class="muted">Save or discard the pending mapping changes before leaving this section.</p>
+              </div>
+            </div>
+            <ul class="mapping-unsaved-list" data-mapping-unsaved-list></ul>
+            <div class="modal-actions">
+              <button type="button" class="blue-button" data-mapping-modal-save>Save all</button>
+              <button type="button" class="ghost-button danger-button" data-mapping-modal-discard>Discard</button>
+              <button type="button" class="ghost-button" data-mapping-modal-review>Review</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderDeviceConfigSection(sectionKey) {
+    const controllers = listControllers(db);
+    const cells = listCells(db);
+
+    switch (sectionKey) {
+      case "controller-setup":
+        return renderControllerSetupSection(controllers);
+      case "cell-create":
+        return renderCellCreateSection();
+      case "cell-management":
+        return renderCellManagementSection(cells);
+      case "cell-mapping":
+        return renderCellMappingSection(cells);
+      default:
+        return "";
+    }
+  }
+
+  function renderDevices(user, flash) {
+    const controllers = listControllers(db);
+    const cells = listCells(db);
+    const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
+    const onlineControllers = controllers.filter(
+      (controller) => String(controller.heartbeat_status || "").toLowerCase() === "online",
+    ).length;
+    const manualCells = cells.length - mappedCells.length;
+    const moduleTotal = controllers.reduce(
+      (sum, controller) => sum + Number(controller.module_count || controller.mapped_cells || 0),
+      0,
+    );
+
+    const controllerRows = controllers.map((controller) => [
+      escapeHtml(controller.controller_code),
+      `<code>${escapeHtml(controller.address || "")}</code>`,
+      statusBadge(controller.heartbeat_status),
+      escapeHtml(formatDate(controller.last_seen_at)),
+      escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
+      escapeHtml(formatQuantity(controller.mapped_cells)),
+      `
+        <div class="mini-actions">
+          <form method="post" action="/devices/controller-test" data-controller-health-form>
+            <input type="hidden" name="controller_id" value="${controller.id}" />
+            <input type="hidden" name="return_to" value="/devices#controller-health" data-controller-health-return-to />
+            <button
+              type="submit"
+              class="icon-button refresh-button"
+              data-controller-health-submit
+              aria-label="Refresh health ${escapeHtml(controller.controller_code)}"
+              title="Refresh health ${escapeHtml(controller.controller_code)}"
+            >${refreshIcon()}</button>
+          </form>
+          <form
+            method="post"
+            action="/devices/controller-ping"
+            data-led-command-form
+            data-led-loading-label="Pinging"
+            data-led-loading-title="Pinging ${escapeHtml(controller.controller_code)} modules"
+          >
+            <input type="hidden" name="controller_id" value="${controller.id}" />
+            <input type="hidden" name="return_to" value="/devices#controller-health" data-led-command-return-to />
+            <button
+              type="submit"
+              class="green-button ping-button"
+              data-led-command-submit
+              data-led-loading-label="Pinging"
+              data-led-loading-title="Pinging ${escapeHtml(controller.controller_code)} modules"
+              title="Ping all LED modules on ${escapeHtml(controller.controller_code)}"
+            >Ping</button>
+          </form>
+          <form
+            method="post"
+            action="/devices/controller-delete"
+            onsubmit="return confirm('Delete this controller? Its cells will stay active for manual pick/put until remapped.');"
+          >
+            <input type="hidden" name="controller_id" value="${controller.id}" />
+            <button
+              type="submit"
+              class="icon-button danger-button"
+              aria-label="Delete ${escapeHtml(controller.controller_code)}"
+              title="Delete ${escapeHtml(controller.controller_code)}"
+            >${trashIcon()}</button>
+          </form>
+        </div>
+      `,
+    ]);
+
+    return page({
+      title: "Configuration Console",
+      user,
+      flash,
+      content: `
+        <div class="app-console" data-config-workspace>
+          <section class="operation-grid" aria-label="Configuration actions">
+            <a class="operation-tile" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
+              <span>
+                <strong>Add controller</strong>
+                Flash a new ESP32 through a guided setup.
+              </span>
+              <span class="operation-kbd">01</span>
+            </a>
+            <a class="operation-tile" href="#cell-create" data-config-section-link="cell-create" aria-controls="cell-create">
+              <span>
+                <strong>Add cells</strong>
+                Create a storage location with capacity.
+              </span>
+              <span class="operation-kbd">02</span>
+            </a>
+            <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
+              <span>
+                <strong>Manage cells</strong>
+                Delete and review active storage cells.
+              </span>
+              <span class="operation-kbd">03</span>
+            </a>
+            <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
+              <span>
+                <strong>Cell mapping</strong>
+                Ping modules and assign them to storage cells.
+              </span>
+              <span class="operation-kbd">04</span>
+            </a>
+          </section>
+
+          <section class="app-panel" aria-labelledby="configuration-status-heading">
+            <div class="panel-heading">
+              <div>
+                <h2 id="configuration-status-heading">System Status</h2>
+                <p class="muted">Controller health shows the latest saved check. Use refresh on a controller when you need a live RS485 check.</p>
+              </div>
+            </div>
+            <div class="status-strip">
+              <div class="status-metric">
+                <span class="muted">Controllers online</span>
+                <strong>${escapeHtml(`${onlineControllers}/${controllers.length}`)}</strong>
+              </div>
+              <div class="status-metric">
+                <span class="muted">LED modules</span>
+                <strong>${escapeHtml(formatQuantity(moduleTotal))}</strong>
+              </div>
+              <div class="status-metric">
+                <span class="muted">Mapped cells</span>
+                <strong>${escapeHtml(formatQuantity(mappedCells.length))}</strong>
+              </div>
+              <div class="status-metric">
+                <span class="muted">Manual cells</span>
+                <strong>${escapeHtml(formatQuantity(manualCells))}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section id="controller-health" class="app-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Controller Health</h2>
+                <p class="muted">Delete removes only the controller. Its cells stay active for manual pick and put until remapped.</p>
+              </div>
+            </div>
+            ${table(
+              ["Controller", "RS485 id", "Health", "Last seen", "LED modules", "Cells", "Actions"],
+              controllerRows,
+            )}
+          </section>
+
+          <div
+            class="modal-backdrop app-alert-modal configuration-flow-modal"
+            data-config-modal
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="configuration-flow-title"
+            hidden
+          >
+            <div class="modal-panel configuration-flow-panel">
+              <div class="modal-header">
+                <div>
+                  <h2 id="configuration-flow-title" data-config-modal-title>Configuration</h2>
+                  <p class="muted" data-config-modal-description>Select a configuration flow to continue.</p>
+                </div>
+                <button type="button" class="icon-button ghost-button" data-config-modal-close aria-label="Close configuration flow" title="Close">x</button>
+              </div>
+              <div class="configuration-flow-content" data-config-section-host>
+                <div class="configuration-flow-loading">Select a configuration flow to continue.</div>
+              </div>
+            </div>
+          </div>
+        </div>
       `,
     });
   }
@@ -512,6 +884,7 @@ export function createLocationPages({ db }) {
     renderCellDetail,
     renderCells,
     renderCellSearchResults,
+    renderDeviceConfigSection,
     renderDevices,
   };
 }

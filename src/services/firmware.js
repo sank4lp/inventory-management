@@ -444,7 +444,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
     job.deviceName = controller.controller_code;
     job.mappingSummary = controller.mappingSummary || null;
     job.verificationHint =
-      "Flash complete. Use Blink green for each LED module in Cell mapping, then update the cell dropdown if a physical module is assigned to the wrong cell.";
+      "Flash complete. Use Ping for each LED module in Cell mapping, then update the cell dropdown if a physical module is assigned to the wrong cell.";
     const payload = {
       jobId: job.id,
       controllerId: controller.id,

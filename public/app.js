@@ -6,6 +6,278 @@ function debounce(callback, delay) {
   };
 }
 
+const ACTION_SCROLL_KEY = "inventory-management:action-scroll";
+
+function saveActionScrollPosition() {
+  try {
+    window.sessionStorage.setItem(
+      ACTION_SCROLL_KEY,
+      JSON.stringify({
+        pathname: window.location.pathname,
+        x: window.scrollX,
+        y: window.scrollY,
+        savedAt: Date.now(),
+      }),
+    );
+  } catch {
+    // Session storage can be unavailable in strict browser modes.
+  }
+}
+
+function restoreActionScrollPosition() {
+  let position = null;
+
+  try {
+    const raw = window.sessionStorage.getItem(ACTION_SCROLL_KEY);
+    if (!raw) {
+      return;
+    }
+    window.sessionStorage.removeItem(ACTION_SCROLL_KEY);
+    position = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  if (!position || position.pathname !== window.location.pathname || Date.now() - Number(position.savedAt || 0) > 15000) {
+    return;
+  }
+
+  const left = Number(position.x || 0);
+  const top = Number(position.y || 0);
+  if (!Number.isFinite(top)) {
+    return;
+  }
+
+  const previousScrollRestoration =
+    "scrollRestoration" in window.history ? window.history.scrollRestoration : null;
+  if (previousScrollRestoration !== null) {
+    window.history.scrollRestoration = "manual";
+  }
+
+  const restore = () => {
+    window.scrollTo({
+      left: Number.isFinite(left) ? left : 0,
+      top,
+      behavior: "auto",
+    });
+  };
+
+  window.requestAnimationFrame(() => {
+    restore();
+    window.requestAnimationFrame(restore);
+    window.setTimeout(() => {
+      restore();
+      if (previousScrollRestoration !== null) {
+        window.history.scrollRestoration = previousScrollRestoration;
+      }
+    }, 120);
+  });
+}
+
+function currentReturnPath(fallbackHash = "") {
+  const hash = window.location.hash || fallbackHash || "";
+  return `${window.location.pathname}${window.location.search}${hash}`;
+}
+
+function restoreAttribute(element, name, value) {
+  if (value === undefined || value === "__unset__") {
+    element.removeAttribute(name);
+    return;
+  }
+  element.setAttribute(name, value);
+}
+
+function setButtonLoading(button, loading, options = {}) {
+  if (!button) {
+    return;
+  }
+
+  const isIconButton =
+    button.classList.contains("icon-button") ||
+    (button.children.length === 1 && Boolean(button.querySelector(".button-icon")));
+
+  if (loading) {
+    if (button.dataset.loadingActive === "true") {
+      return;
+    }
+
+    const label =
+      options.label ||
+      button.dataset.loadingLabel ||
+      button.dataset.ledLoadingLabel ||
+      "Working";
+    const title = options.title || button.dataset.loadingTitle || label;
+
+    button.dataset.loadingActive = "true";
+    button.dataset.loadingOriginalHtml = button.innerHTML;
+    button.dataset.loadingOriginalDisabled = button.disabled ? "true" : "false";
+    button.dataset.loadingOriginalTitle = button.getAttribute("title") ?? "__unset__";
+    button.dataset.loadingOriginalAriaLabel = button.getAttribute("aria-label") ?? "__unset__";
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-label", title);
+    button.setAttribute("title", title);
+    button.classList.add("button-loading");
+
+    if (isIconButton) {
+      button.classList.add("icon-button-loading");
+      return;
+    }
+
+    button.textContent = "";
+    const spinner = document.createElement("span");
+    spinner.className = "button-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.textContent = label;
+    button.append(spinner, text);
+    return;
+  }
+
+  if (button.dataset.loadingActive !== "true") {
+    return;
+  }
+
+  if (button.dataset.loadingOriginalHtml !== undefined) {
+    button.innerHTML = button.dataset.loadingOriginalHtml;
+  }
+  button.disabled = button.dataset.loadingOriginalDisabled === "true";
+  button.removeAttribute("aria-busy");
+  restoreAttribute(button, "title", button.dataset.loadingOriginalTitle);
+  restoreAttribute(button, "aria-label", button.dataset.loadingOriginalAriaLabel);
+  button.classList.remove("button-loading", "icon-button-loading");
+  delete button.dataset.loadingActive;
+  delete button.dataset.loadingOriginalHtml;
+  delete button.dataset.loadingOriginalDisabled;
+  delete button.dataset.loadingOriginalTitle;
+  delete button.dataset.loadingOriginalAriaLabel;
+}
+
+function findFormSubmitButton(form, event, selector) {
+  if (event?.submitter?.matches?.(selector)) {
+    return event.submitter;
+  }
+
+  const localButton = form.querySelector(selector);
+  if (localButton) {
+    return localButton;
+  }
+
+  if (!form.id) {
+    return null;
+  }
+
+  return Array.from(document.querySelectorAll(selector)).find(
+    (button) => button.getAttribute("form") === form.id,
+  );
+}
+
+function wireActionScrollRestore() {
+  restoreActionScrollPosition();
+
+  document.addEventListener("submit", (event) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+
+    const method = (form.getAttribute("method") || "get").toLowerCase();
+    if (method !== "post" || form.target || form.dataset.disableScrollRestore === "true") {
+      return;
+    }
+
+    saveActionScrollPosition();
+  });
+}
+
+function wireControllerHealthForms() {
+  document.querySelectorAll("[data-controller-health-form]").forEach((form) => {
+    if (form.dataset.controllerHealthBound === "true") {
+      return;
+    }
+    form.dataset.controllerHealthBound = "true";
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const returnTo = form.querySelector("[data-controller-health-return-to]");
+      if (returnTo) {
+        returnTo.value = currentReturnPath("#controller-health");
+      }
+
+      const button = form.querySelector("[data-controller-health-submit]");
+      if (!button) {
+        return;
+      }
+
+      window.setTimeout(() => {
+        setButtonLoading(button, true, {
+          label: "Checking",
+          title: "Checking controller health",
+        });
+      }, 0);
+    });
+  });
+}
+
+function wireLedCommandForms() {
+  document.querySelectorAll("[data-led-command-form]").forEach((form) => {
+    if (form.dataset.ledCommandBound === "true") {
+      return;
+    }
+    form.dataset.ledCommandBound = "true";
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const returnTo = form.querySelector("[data-led-command-return-to]");
+      if (returnTo) {
+        returnTo.value = currentReturnPath(form.dataset.ledReturnHash || "");
+      }
+
+      const button = findFormSubmitButton(form, event, "[data-led-command-submit]");
+      if (!button) {
+        return;
+      }
+
+      window.setTimeout(() => {
+        setButtonLoading(button, true, {
+          label: button.dataset.ledLoadingLabel || form.dataset.ledLoadingLabel || "Sending",
+          title: button.dataset.ledLoadingTitle || form.dataset.ledLoadingTitle || "Sending command",
+        });
+      }, 0);
+    });
+  });
+}
+
+function wireToasts() {
+  document.querySelectorAll("[data-toast]").forEach((toast) => {
+    if (toast.dataset.toastBound === "true") {
+      return;
+    }
+    toast.dataset.toastBound = "true";
+
+    const close = toast.querySelector("[data-toast-close]");
+    const dismiss = () => {
+      toast.hidden = true;
+      if (!toast.parentElement?.querySelector("[data-toast]:not([hidden])")) {
+        toast.parentElement?.remove();
+      }
+    };
+
+    close?.addEventListener("click", dismiss);
+    window.setTimeout(dismiss, 7000);
+  });
+}
+
 async function updateLiveResults(form) {
   const input = form.querySelector("[data-live-input]");
   const target = document.querySelector(form.dataset.target);
@@ -20,6 +292,11 @@ async function updateLiveResults(form) {
   const query = input.value.trim();
   if (!query && !showResultsWhenEmpty) {
     target.innerHTML = emptyHtml;
+    const rowCollapser = target.closest("[data-row-collapser]");
+    if (rowCollapser) {
+      resetRowCollapser(rowCollapser);
+      wireRowCollapsers(rowCollapser);
+    }
     return;
   }
 
@@ -38,6 +315,11 @@ async function updateLiveResults(form) {
   }
 
   target.innerHTML = await response.text();
+  const rowCollapser = target.closest("[data-row-collapser]");
+  if (rowCollapser) {
+    resetRowCollapser(rowCollapser);
+    wireRowCollapsers(rowCollapser);
+  }
 }
 
 function wireLiveSearch() {
@@ -128,8 +410,8 @@ function wireComboBoxes(root = document) {
       activeIndex = index;
     };
 
-    const syncVisibleOptions = () => {
-      const query = normalizedValue(input.value);
+    const syncVisibleOptions = (forcedQuery = null) => {
+      const query = normalizedValue(forcedQuery === null ? input.value : forcedQuery);
       let visibleCount = 0;
 
       for (const option of options) {
@@ -150,6 +432,13 @@ function wireComboBoxes(root = document) {
       setActiveOption(visibleCount > 0 ? 0 : -1);
     };
 
+    const inputMatchesSelection = () =>
+      options.some(
+        (option) =>
+          option.dataset.value === hidden.value &&
+          normalizedValue(option.dataset.label || "") === normalizedValue(input.value),
+      );
+
     const syncSelectionFromInput = () => {
       const query = normalizedValue(input.value);
       const exactMatch = options.find((option) => normalizedValue(option.dataset.label || "") === query);
@@ -164,9 +453,9 @@ function wireComboBoxes(root = document) {
       return true;
     };
 
-    const openPanel = () => {
+    const openPanel = ({ showAll = false } = {}) => {
       closeAllCombos(combo);
-      syncVisibleOptions();
+      syncVisibleOptions(showAll ? "" : null);
       panel.hidden = false;
       combo.classList.add("combo-open");
     };
@@ -192,8 +481,8 @@ function wireComboBoxes(root = document) {
       });
     };
 
-    input.addEventListener("focus", openPanel);
-    input.addEventListener("click", openPanel);
+    input.addEventListener("focus", () => openPanel({ showAll: inputMatchesSelection() }));
+    input.addEventListener("click", () => openPanel({ showAll: inputMatchesSelection() }));
     input.addEventListener("input", () => {
       clearSelection();
       openPanel();
@@ -201,7 +490,7 @@ function wireComboBoxes(root = document) {
 
     toggle.addEventListener("click", () => {
       if (panel.hidden) {
-        openPanel();
+        openPanel({ showAll: true });
       } else {
         closePanel();
       }
@@ -228,7 +517,7 @@ function wireComboBoxes(root = document) {
       const currentVisible = visibleOptions();
 
       if ((event.key === "ArrowDown" || event.key === "ArrowUp") && panel.hidden) {
-        openPanel();
+        openPanel({ showAll: inputMatchesSelection() });
         return;
       }
 
@@ -536,6 +825,79 @@ function syncFirmwareSubmitState(panel) {
   }
 }
 
+function selectedFirmwarePort(panel) {
+  const input = panel.querySelector("[data-firmware-port-input]");
+  const identity = panel.querySelector("[data-firmware-device-identity]");
+  return Boolean(input?.value.trim() && identity?.value.trim());
+}
+
+function currentFirmwareWizardStep(panel) {
+  const wizard = panel.querySelector("[data-firmware-wizard]");
+  return Number(wizard?.dataset.currentStep || 0);
+}
+
+function setFirmwareWizardStep(panel, nextStep) {
+  const wizard = panel.querySelector("[data-firmware-wizard]");
+  if (!wizard) {
+    return;
+  }
+
+  const steps = Array.from(wizard.querySelectorAll("[data-firmware-step]"));
+  const maxStep = Math.max(0, steps.length - 1);
+  const safeStep = Math.min(Math.max(Number(nextStep) || 0, 0), maxStep);
+  wizard.dataset.currentStep = String(safeStep);
+
+  for (const step of steps) {
+    step.hidden = Number(step.dataset.firmwareStep || 0) !== safeStep;
+  }
+
+  wizard.querySelectorAll("[data-firmware-step-indicator]").forEach((indicator) => {
+    const indicatorStep = Number(indicator.dataset.firmwareStepIndicator || 0);
+    const isComplete = indicatorStep < safeStep;
+    const isActive = indicatorStep === safeStep;
+    const isUpcoming = indicatorStep > safeStep;
+    indicator.classList.toggle("wizard-step-indicator-complete", isComplete);
+    indicator.classList.toggle("wizard-step-indicator-active", isActive);
+    indicator.classList.toggle("wizard-step-indicator-upcoming", isUpcoming);
+    if (isActive) {
+      indicator.setAttribute("aria-current", "step");
+    } else {
+      indicator.removeAttribute("aria-current");
+    }
+  });
+}
+
+function setFirmwareDetectStatus(panel, message, tone = "missing") {
+  const status = panel.querySelector("[data-firmware-detect-status]");
+  if (!status) {
+    return;
+  }
+  status.textContent = message || "";
+  status.hidden = !message;
+  status.classList.toggle("firmware-port-status-ok", tone === "ok");
+  status.classList.toggle("firmware-port-status-missing", tone !== "ok");
+}
+
+function advanceFirmwareWizardAfterDetection(panel) {
+  const status = panel.querySelector("[data-firmware-port-status]");
+  if (selectedFirmwarePort(panel)) {
+    setFirmwareDetectStatus(panel, "");
+    setFirmwareWizardStep(panel, 2);
+    return;
+  }
+
+  setFirmwareDetectStatus(
+    panel,
+    "No new ESP32 was detected. Click Back, disconnect the controller, then repeat the setup flow.",
+  );
+  if (status) {
+    status.textContent =
+      "No new ESP32 was selected. Go Back, disconnect the controller, then run the setup flow again.";
+    status.classList.add("firmware-port-status-missing");
+    status.classList.remove("firmware-port-status-ok");
+  }
+}
+
 function renderFirmwarePortList(panel, ports, selectedPort) {
   const target = panel.querySelector("[data-firmware-port-list]");
   if (!target) {
@@ -547,8 +909,8 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
     const empty = document.createElement("p");
     empty.className = "muted";
     empty.textContent = hasFirmwareBaseline(panel)
-      ? "No added serial device detected yet. Plug in the ESP32 USB cable, then click Detect added ESP32."
-      : "Unplug the ESP32 and click Scan without ESP32 to capture the current peripherals first.";
+      ? "No added serial device detected yet. Plug in the ESP32 USB cable, then click Next."
+      : "Unplug the ESP32 and click Next to capture the current peripherals first.";
     target.appendChild(empty);
     return;
   }
@@ -714,7 +1076,7 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
     const flashedCount = primaryPorts.filter((port) => port.flashStatus === "configured").length;
     const ambiguousCount = primaryPorts.filter((port) => port.flashStatus === "ambiguous").length;
     if (mode === "baseline") {
-      status.textContent = `Baseline saved with ${ports.length} serial device${ports.length === 1 ? "" : "s"}. Now plug in the ESP32 and click Detect added ESP32.`;
+      status.textContent = `Baseline saved with ${ports.length} serial device${ports.length === 1 ? "" : "s"}. Now plug in the ESP32 and click Next.`;
     } else if (newCount > 0) {
       status.textContent = `New serial device connected. If this is the ESP32, select it and flash it.`;
     } else if (ambiguousCount > 0) {
@@ -723,10 +1085,10 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
       status.textContent = `${flashedCount} already flashed ESP32 controller${flashedCount === 1 ? "" : "s"} detected.`;
     } else if (baselineAvailable) {
       status.textContent =
-        "No newly added serial device detected. Keep the existing peripherals connected, plug in the ESP32, then click Detect added ESP32 again.";
+        "No newly added serial device detected. Keep the existing peripherals connected, plug in the ESP32, then click Next again.";
     } else {
       status.textContent =
-        "Start by unplugging the ESP32 and clicking Scan without ESP32. Then plug in the ESP32 and detect the added port.";
+        "Start by unplugging the ESP32 and clicking Next. Then plug in the ESP32 and continue.";
     }
     status.classList.toggle("firmware-port-status-ok", primaryPorts.length > 0);
     status.classList.toggle("firmware-port-status-missing", primaryPorts.length === 0);
@@ -749,6 +1111,11 @@ async function refreshFirmwarePorts(panel, settings = {}) {
         ? "Scanning current serial devices. Keep the ESP32 unplugged..."
         : "Checking for a serial device added after the baseline scan...";
   }
+  if (settings.mode === "detect") {
+    setFirmwareDetectStatus(panel, "Checking for a serial device added after the baseline scan...");
+  } else {
+    setFirmwareDetectStatus(panel, "");
+  }
 
   try {
     const response = await fetch("/api/firmware/options", {
@@ -764,11 +1131,17 @@ async function refreshFirmwarePorts(panel, settings = {}) {
       captureBaseline: settings.captureBaseline === true,
       mode: settings.mode || "detect",
     });
+    if (settings.mode === "detect" && selectedFirmwarePort(panel)) {
+      setFirmwareDetectStatus(panel, "ESP32 serial device detected. Continue to configure it.", "ok");
+    }
   } catch (error) {
     if (status) {
       status.textContent = error.message;
       status.classList.add("firmware-port-status-missing");
       status.classList.remove("firmware-port-status-ok");
+    }
+    if (settings.mode === "detect") {
+      setFirmwareDetectStatus(panel, error.message);
     }
   } finally {
     syncFirmwareSubmitState(panel);
@@ -871,6 +1244,8 @@ function wireFirmwareFlash() {
     const panel = form.closest("[data-firmware-panel]");
 
     if (panel) {
+      setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel));
+
       panel.addEventListener("click", (event) => {
         const baselineButton = event.target.closest("[data-firmware-scan-baseline]");
         if (baselineButton) {
@@ -878,6 +1253,9 @@ function wireFirmwareFlash() {
             .then(() => {
               clearFirmwareSelection(panel);
               syncFirmwareSubmitState(panel);
+              if (baselineButton.dataset.firmwareNextOnSuccess !== undefined) {
+                setFirmwareWizardStep(panel, 1);
+              }
             })
             .catch(() => {});
           return;
@@ -885,7 +1263,29 @@ function wireFirmwareFlash() {
 
         const refreshButton = event.target.closest("[data-firmware-refresh-ports]");
         if (refreshButton) {
-          refreshFirmwarePorts(panel, { mode: "detect" }).catch(() => {});
+          refreshFirmwarePorts(panel, { mode: "detect" })
+            .then(() => {
+              if (refreshButton.dataset.firmwareNextOnSuccess !== undefined) {
+                advanceFirmwareWizardAfterDetection(panel);
+              }
+            })
+            .catch(() => {});
+          return;
+        }
+
+        const previousButton = event.target.closest("[data-firmware-prev]");
+        if (previousButton) {
+          setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel) - 1);
+          return;
+        }
+
+        const nextButton = event.target.closest("[data-firmware-next]");
+        if (nextButton) {
+          if (currentFirmwareWizardStep(panel) === 2 && !selectedFirmwarePort(panel)) {
+            advanceFirmwareWizardAfterDetection(panel);
+            return;
+          }
+          setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel) + 1);
           return;
         }
 
@@ -1073,16 +1473,21 @@ function wireLocationLocate() {
     }
 
     const activeEntry = activeLocates.get(String(cellId));
-    button.disabled = true;
+    setButtonLoading(button, true, {
+      label: activeEntry ? "Clearing" : "Sending",
+      title: activeEntry ? "Clearing locate command" : "Sending locate command",
+    });
 
     try {
       if (activeEntry) {
         await sendLocateCommand(cellId, false);
+        setButtonLoading(button, false);
         clearLocateUi(cellId);
         return;
       }
 
       await sendLocateCommand(cellId, true);
+      setButtonLoading(button, false);
       setLocateButtonState(button, true);
       activeLocates.set(String(cellId), {
         button,
@@ -1094,6 +1499,7 @@ function wireLocationLocate() {
         }, LOCATION_LOCATE_TIMEOUT_MS),
       });
     } catch (error) {
+      setButtonLoading(button, false);
       button.textContent = "Failed";
       window.setTimeout(() => {
         if (!activeLocates.has(String(cellId))) {
@@ -1101,7 +1507,7 @@ function wireLocationLocate() {
         }
       }, 1400);
     } finally {
-      button.disabled = false;
+      setButtonLoading(button, false);
     }
   });
 
@@ -1133,6 +1539,492 @@ function wireLocationLocate() {
     sendLocateClearAll();
     clearAllLocateUi();
   });
+}
+
+function wireConfigurationWorkspace() {
+  const workspace = document.querySelector("[data-config-workspace]");
+  if (!workspace || workspace.dataset.configWorkspaceBound === "true") {
+    return;
+  }
+  workspace.dataset.configWorkspaceBound = "true";
+
+  const modal = workspace.querySelector("[data-config-modal]");
+  const modalTitle = workspace.querySelector("[data-config-modal-title]");
+  const modalDescription = workspace.querySelector("[data-config-modal-description]");
+  const modalClose = workspace.querySelector("[data-config-modal-close]");
+  const sectionHost = workspace.querySelector("[data-config-section-host]");
+  const sectionGroups = {
+    "controller-setup": ["controller-setup"],
+    "cell-create": ["cell-create"],
+    "cell-management": ["cell-management"],
+    "cell-mapping": ["cell-mapping"],
+  };
+  const sectionCopy = {
+    "controller-setup": {
+      title: "Add Controller",
+      description: "Follow the guided ESP32 setup without leaving the Configuration console.",
+    },
+    "cell-create": {
+      title: "Add Cells",
+      description: "Create storage cells in a focused dialog, then return to the console.",
+    },
+    "cell-management": {
+      title: "Manage Cells",
+      description: "Delete and review active storage cells in a focused flow.",
+    },
+    "cell-mapping": {
+      title: "Cell Mapping",
+      description: "Ping modules and assign them to physical storage cells.",
+    },
+  };
+  const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link]"));
+  let sectionRequestId = 0;
+  const activeFromHash = () => window.location.hash.replace(/^#/, "");
+  const hasDirtyMapping = () =>
+    document.querySelector("[data-cell-mapping-form]")?.dataset.mappingDirty === "true";
+  const sectionLoadingHtml = (message = "Loading configuration flow...") =>
+    `<div class="configuration-flow-loading">${message}</div>`;
+
+  const bindLoadedSection = (section) => {
+    if (!section) {
+      return;
+    }
+    wireFirmwareFlash();
+    wireLedCommandForms();
+    wireCellMappingForm();
+    wireCellDeleteForms();
+    wireRowCollapsers(section);
+  };
+
+  const loadSection = async (activeKey) => {
+    if (!sectionHost || !sectionGroups[activeKey]) {
+      return;
+    }
+    if (
+      sectionHost.dataset.activeSection === activeKey &&
+      sectionHost.querySelector(`[data-config-section="${activeKey}"]`)
+    ) {
+      bindLoadedSection(sectionHost.querySelector(`[data-config-section="${activeKey}"]`));
+      return;
+    }
+
+    const requestId = ++sectionRequestId;
+    sectionHost.dataset.activeSection = activeKey;
+    sectionHost.innerHTML = sectionLoadingHtml();
+
+    try {
+      const response = await fetch(`/devices/sections/${encodeURIComponent(activeKey)}`, {
+        headers: {
+          "X-Requested-With": "fetch",
+        },
+      });
+      if (!response.ok) {
+        throw new Error("Configuration flow could not be loaded.");
+      }
+      const html = await response.text();
+      if (requestId !== sectionRequestId || sectionHost.dataset.activeSection !== activeKey) {
+        return;
+      }
+      sectionHost.innerHTML = html;
+      const section = sectionHost.querySelector(`[data-config-section="${activeKey}"]`);
+      if (section) {
+        section.hidden = false;
+      }
+      bindLoadedSection(section);
+    } catch (error) {
+      if (requestId !== sectionRequestId) {
+        return;
+      }
+      sectionHost.innerHTML = sectionLoadingHtml(error.message || "Configuration flow could not be loaded.");
+    }
+  };
+
+  const unloadInactiveSection = () => {
+    if (!sectionHost || hasDirtyMapping()) {
+      return;
+    }
+    sectionRequestId += 1;
+    sectionHost.dataset.activeSection = "";
+    sectionHost.innerHTML = sectionLoadingHtml("Select a configuration flow to continue.");
+  };
+
+  const clearActiveHash = () => {
+    if (hasDirtyMapping()) {
+      document.dispatchEvent(
+        new CustomEvent("inventory:mapping-request-navigation", {
+          detail: {
+            kind: "link",
+            href: `${window.location.pathname}${window.location.search}`,
+          },
+        }),
+      );
+      return;
+    }
+    if (window.location.hash) {
+      window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+    render();
+  };
+
+  const render = () => {
+    const activeKey = activeFromHash();
+    const visibleIds = new Set(sectionGroups[activeKey] || []);
+    const activeCopy = sectionCopy[activeKey] || null;
+
+    if (modal) {
+      modal.hidden = visibleIds.size === 0;
+      document.body.classList.toggle("modal-open", visibleIds.size > 0);
+    }
+    if (modalTitle && activeCopy) {
+      modalTitle.textContent = activeCopy.title;
+    }
+    if (modalDescription && activeCopy) {
+      modalDescription.textContent = activeCopy.description;
+    }
+
+    sectionLinks.forEach((link) => {
+      const linkKey = link.dataset.configSectionLink || "";
+      const active = linkKey === activeKey;
+      link.classList.toggle("operation-tile-active", active);
+      link.setAttribute("aria-expanded", active ? "true" : "false");
+      if (active) {
+        link.setAttribute("aria-current", "page");
+      } else {
+        link.removeAttribute("aria-current");
+      }
+    });
+
+    if (visibleIds.size > 0) {
+      loadSection(activeKey).catch(() => {});
+    } else {
+      unloadInactiveSection();
+    }
+  };
+
+  sectionLinks.forEach((link) => {
+    link.setAttribute("aria-expanded", "false");
+    link.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+
+      event.preventDefault();
+      const nextKey = link.dataset.configSectionLink;
+      if (!nextKey) {
+        return;
+      }
+
+      const nextHash = `#${nextKey}`;
+      if (window.location.hash !== nextHash) {
+        window.history.pushState(null, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+      }
+      render();
+    });
+  });
+
+  modalClose?.addEventListener("click", clearActiveHash);
+  modal?.addEventListener("click", (event) => {
+    if (event.target === modal) {
+      clearActiveHash();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !modal || modal.hidden) {
+      return;
+    }
+    if (document.querySelector("[data-mapping-unsaved-modal]:not([hidden])")) {
+      return;
+    }
+    event.preventDefault();
+    clearActiveHash();
+  });
+  window.addEventListener("hashchange", render);
+  window.addEventListener("popstate", render);
+  render();
+}
+
+function cleanMappingLabel(label) {
+  return (label || "")
+    .split("·")[0]
+    .trim();
+}
+
+function mappingControlLabel(control) {
+  if (control.matches("select")) {
+    const selected = control.selectedOptions?.[0];
+    return cleanMappingLabel(selected?.textContent || control.value || "");
+  }
+  return cleanMappingLabel(control.dataset.currentLabel || control.value || "");
+}
+
+function wireCellMappingForm() {
+  const form = document.querySelector("[data-cell-mapping-form]");
+  if (!form || form.dataset.mappingBound === "true") {
+    return;
+  }
+  form.dataset.mappingBound = "true";
+
+  const controls = Array.from(form.querySelectorAll("[data-mapping-control], [data-mapping-select]"));
+  const optionsByLabel = new Map();
+  form.querySelectorAll("#cell-mapping-options option").forEach((option) => {
+    const id = option.dataset.cellId || option.value;
+    const label = option.dataset.cellLabel || option.value;
+    const keys = [option.value, option.getAttribute("label"), label]
+      .map((value) => cleanMappingLabel(value).toLowerCase())
+      .filter(Boolean);
+    keys.forEach((key) => optionsByLabel.set(key, { id, label }));
+  });
+  const saveButton = document.querySelector("[data-mapping-save]");
+  const returnToInput = form.querySelector("[data-mapping-return-to]");
+  const dirtyCount = document.querySelector("[data-mapping-dirty-count]");
+  const modal = document.querySelector("[data-mapping-unsaved-modal]");
+  const modalList = modal?.querySelector("[data-mapping-unsaved-list]");
+  const modalSave = modal?.querySelector("[data-mapping-modal-save]");
+  const modalDiscard = modal?.querySelector("[data-mapping-modal-discard]");
+  const modalReview = modal?.querySelector("[data-mapping-modal-review]");
+  const state = {
+    allowNavigation: false,
+    pending: null,
+    submittingMapping: false,
+  };
+
+  const changedSelections = () =>
+    controls.filter((control) => String(control.value) !== String(control.dataset.originalValue || ""));
+
+  const inputFor = (control) => {
+    const key = control.dataset.mappingKey;
+    return key ? form.querySelector(`[data-mapping-input-for="${key}"]`) : null;
+  };
+
+  const syncControlFromInput = (control) => {
+    if (control.matches("select")) {
+      return true;
+    }
+
+    const input = inputFor(control);
+    if (!input) {
+      return true;
+    }
+
+    const match = optionsByLabel.get(cleanMappingLabel(input.value).toLowerCase());
+    if (match) {
+      control.value = match.id;
+      control.dataset.currentLabel = match.label;
+      input.setCustomValidity("");
+      return true;
+    }
+
+    control.value = "";
+    control.dataset.currentLabel = input.value;
+    input.setCustomValidity(input.value.trim() ? "Choose a cell from the list." : "");
+    return !input.value.trim();
+  };
+
+  const syncAllMappingControls = () => {
+    let valid = true;
+    for (const control of controls) {
+      if (!syncControlFromInput(control)) {
+        valid = false;
+      }
+    }
+    return valid;
+  };
+
+  const describeChange = (control) => {
+    const from = control.dataset.originalLabel || "Unassigned";
+    const to = mappingControlLabel(control) || "Unassigned";
+    const controller = control.dataset.controllerName || "Controller";
+    const module = control.dataset.moduleName || "?";
+    return `${controller} module ${module}: ${from} -> ${to}`;
+  };
+
+  const refreshMappingState = () => {
+    syncAllMappingControls();
+    const changes = changedSelections();
+    for (const control of controls) {
+      const changed = String(control.value) !== String(control.dataset.originalValue || "");
+      const field = control.matches("select") ? control : inputFor(control);
+      const label = control.closest(".mapping-cell-control")?.querySelector("[data-mapping-cell-name]");
+      if (label) {
+        label.textContent = mappingControlLabel(control) || label.dataset.originalLabel || "";
+        label.classList.toggle("mapping-cell-name-dirty", changed);
+        label.classList.toggle("mapping-cell-name-saved", !changed);
+      }
+      field?.classList.toggle("cell-mapping-select-dirty", changed);
+    }
+
+    form.dataset.mappingDirty = changes.length ? "true" : "false";
+    if (saveButton) {
+      saveButton.disabled = changes.length === 0;
+    }
+    if (dirtyCount) {
+      dirtyCount.textContent = changes.length
+        ? `${changes.length} unsaved mapping${changes.length === 1 ? "" : "s"}`
+        : "All mappings saved";
+    }
+  };
+
+  const isDirty = () => changedSelections().length > 0;
+
+  const closeModal = () => {
+    if (modal) {
+      modal.hidden = true;
+    }
+  };
+
+  const showUnsavedModal = (pending) => {
+    state.pending = pending;
+    if (!modal || !modalList) {
+      return;
+    }
+    modalList.replaceChildren();
+    for (const select of changedSelections()) {
+      const item = document.createElement("li");
+      item.textContent = describeChange(select);
+      modalList.appendChild(item);
+    }
+    modal.hidden = false;
+  };
+
+  const localPath = (url) => `${url.pathname}${url.search}${url.hash}`;
+
+  document.addEventListener("inventory:mapping-request-navigation", (event) => {
+    if (!isDirty() || state.allowNavigation || state.submittingMapping) {
+      return;
+    }
+    showUnsavedModal(event.detail || {
+      kind: "link",
+      href: `${window.location.pathname}${window.location.search}`,
+    });
+  });
+
+  controls.forEach((control) => {
+    if (control.dataset.originalValue) {
+      control.value = control.dataset.originalValue;
+    }
+    const field = control.matches("select") ? control : inputFor(control);
+    field?.addEventListener("input", refreshMappingState);
+    field?.addEventListener("change", refreshMappingState);
+  });
+
+  form.addEventListener("submit", (event) => {
+    const valid = syncAllMappingControls();
+    if (!valid) {
+      event.preventDefault();
+      inputFor(controls.find((control) => !control.value))?.reportValidity();
+      refreshMappingState();
+      return;
+    }
+    if (!isDirty()) {
+      event.preventDefault();
+      refreshMappingState();
+      return;
+    }
+    state.submittingMapping = true;
+  });
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!isDirty() || state.allowNavigation || state.submittingMapping) {
+        return;
+      }
+      if (event.target.closest("[data-mapping-unsaved-modal]")) {
+        return;
+      }
+
+      const link = event.target.closest("a[href]");
+      if (!link || link.target || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+
+      const nextUrl = new URL(link.href, window.location.href);
+      if (nextUrl.origin !== window.location.origin || nextUrl.href === window.location.href) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      showUnsavedModal({
+        kind: "link",
+        href: localPath(nextUrl),
+      });
+    },
+    { capture: true },
+  );
+
+  document.addEventListener(
+    "submit",
+    (event) => {
+      if (!isDirty() || state.allowNavigation || state.submittingMapping || event.target === form) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      showUnsavedModal({
+        kind: "form",
+        form: event.target,
+        submitter: event.submitter || null,
+      });
+    },
+    { capture: true },
+  );
+
+  modalSave?.addEventListener("click", () => {
+    if (returnToInput) {
+      returnToInput.value =
+        state.pending?.kind === "link"
+          ? state.pending.href
+          : `${window.location.pathname}${window.location.search}#cell-mapping`;
+    }
+    state.submittingMapping = true;
+    closeModal();
+    if (saveButton) {
+      form.requestSubmit(saveButton);
+    } else {
+      form.requestSubmit();
+    }
+  });
+
+  modalDiscard?.addEventListener("click", () => {
+    const pending = state.pending;
+    closeModal();
+    state.pending = null;
+    state.allowNavigation = true;
+
+    if (pending?.kind === "link") {
+      window.location.href = pending.href;
+      return;
+    }
+
+    if (pending?.kind === "form" && pending.form) {
+      if (pending.submitter && typeof pending.form.requestSubmit === "function") {
+        pending.form.requestSubmit(pending.submitter);
+      } else {
+        pending.form.submit();
+      }
+      window.setTimeout(() => {
+        state.allowNavigation = false;
+      }, 500);
+    }
+  });
+
+  modalReview?.addEventListener("click", () => {
+    closeModal();
+    state.pending = null;
+    document.querySelector("#cell-mapping")?.scrollIntoView({ block: "start" });
+  });
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!isDirty() || state.allowNavigation || state.submittingMapping) {
+      return;
+    }
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
+  refreshMappingState();
 }
 
 function wireCellDeleteForms() {
@@ -1167,7 +2059,101 @@ function wireCellDeleteForms() {
   });
 }
 
+function resetRowCollapser(section) {
+  section.querySelectorAll("[data-row-collapse-footer]").forEach((footer) => footer.remove());
+  section.querySelectorAll("tbody tr[hidden]").forEach((row) => {
+    row.hidden = false;
+  });
+  delete section.dataset.rowCollapserBound;
+}
+
+function rowCollapseIcon() {
+  return `
+    <svg class="row-collapse-chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  `;
+}
+
+function wireRowCollapsers(root = document) {
+  const sections = [];
+  if (root instanceof Element && root.matches("[data-row-collapser]")) {
+    sections.push(root);
+  }
+  root.querySelectorAll?.("[data-row-collapser]").forEach((section) => sections.push(section));
+
+  sections.forEach((section) => {
+    if (section.dataset.rowCollapserBound === "true") {
+      return;
+    }
+
+    const tableWrap = section.querySelector(".table-wrap");
+    const tbody = tableWrap?.querySelector("tbody");
+    const rows = Array.from(tbody?.querySelectorAll("tr") || []);
+    const limit = Math.max(1, Number(section.dataset.rowLimit || 4));
+
+    if (!tableWrap || !tbody || rows.length <= limit) {
+      return;
+    }
+    section.dataset.rowCollapserBound = "true";
+
+    const label = section.dataset.rowLabel || "rows";
+    const iconToggle = true;
+    const footer = document.createElement("div");
+    footer.className = "row-collapse-footer";
+    footer.dataset.rowCollapseFooter = "true";
+    if (iconToggle) {
+      footer.classList.add("row-collapse-footer-glow");
+    }
+
+    const status = document.createElement("span");
+    status.className = "muted row-collapse-status";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = iconToggle ? "row-collapse-icon-button" : "ghost-button";
+    button.setAttribute("aria-expanded", "false");
+    if (iconToggle) {
+      button.innerHTML = rowCollapseIcon();
+    }
+
+    footer.append(status, button);
+
+    const tableOwner = tableWrap.closest("form");
+    if (tableOwner && section.contains(tableOwner)) {
+      tableOwner.insertAdjacentElement("afterend", footer);
+    } else {
+      tableWrap.insertAdjacentElement("afterend", footer);
+    }
+
+    const render = (expanded) => {
+      rows.forEach((row, index) => {
+        row.hidden = !expanded && index >= limit;
+      });
+      if (iconToggle) {
+        footer.classList.toggle("row-collapse-footer-expanded", expanded);
+        button.classList.toggle("row-collapse-icon-button-expanded", expanded);
+        button.setAttribute("aria-label", expanded ? `Show fewer ${label}` : `Show more ${label}`);
+      } else {
+        button.textContent = expanded ? "Show less" : "Show more";
+      }
+      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+      status.textContent = expanded
+        ? `Showing all ${rows.length} ${label}`
+        : `Showing ${limit} of ${rows.length} ${label}`;
+    };
+
+    button.addEventListener("click", () => {
+      render(button.getAttribute("aria-expanded") !== "true");
+    });
+
+    render(false);
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  wireActionScrollRestore();
+  wireToasts();
   wireNavState();
   wireLiveSearch();
   wireComboBoxes();
@@ -1175,5 +2161,10 @@ document.addEventListener("DOMContentLoaded", () => {
   wirePutPlanForms();
   wireFirmwareFlash();
   wireLocationLocate();
+  wireControllerHealthForms();
+  wireLedCommandForms();
+  wireConfigurationWorkspace();
+  wireCellMappingForm();
   wireCellDeleteForms();
+  wireRowCollapsers();
 });

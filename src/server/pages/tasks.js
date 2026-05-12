@@ -16,6 +16,55 @@ import {
 } from "./shared.js";
 
 export function createTaskPages({ db }) {
+  function ledColorLabel(color) {
+    return String(color || "").trim().toUpperCase() || "LED";
+  }
+
+  function taskActionLabel(taskType) {
+    return taskType === "put" ? "Put into" : "Pick from";
+  }
+
+  function renderLedInstruction({
+    action,
+    cellCode,
+    color,
+    quantity = "",
+    unit = "",
+    mapped = true,
+    detail = "",
+  }) {
+    const safeColor = String(color || "manual").toLowerCase();
+    const visualTone = mapped ? safeColor : "manual";
+    const colorLabel = mapped ? `${ledColorLabel(safeColor)} LED` : "Manual";
+    const quantityText = quantity ? `Quantity: ${formatQuantity(quantity)}${unit ? ` ${unit}` : ""}` : "";
+    const detailText =
+      detail ||
+      (mapped
+        ? `Follow the ${safeColor} light for this instruction.`
+        : "No LED is mapped for this cell; follow the on-screen instruction.");
+
+    return `
+      <div class="led-instruction led-instruction-${escapeHtml(visualTone)}">
+        <span class="led-chip led-chip-${escapeHtml(visualTone)}">${escapeHtml(colorLabel)}</span>
+        <strong>${escapeHtml(action)} cell ${escapeHtml(cellCode)}</strong>
+        ${quantityText ? `<span>${escapeHtml(quantityText)}</span>` : ""}
+        <small>${escapeHtml(detailText)}</small>
+      </div>
+    `;
+  }
+
+  function renderTaskLineInstruction(task, line) {
+    const color = line.guidance_color || (task.type === "put" ? "red" : "green");
+    return renderLedInstruction({
+      action: taskActionLabel(task.type),
+      cellCode: line.logical_code,
+      color,
+      quantity: line.planned_quantity,
+      unit: line.unit_of_measure,
+      mapped: Boolean(line.controller_id && line.hardware_channel),
+    });
+  }
+
   function renderPutPlanAdjuster(task, cells, actionToken) {
     const total = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
     const row = ({ key, cellId = null, quantity = "", removable = false }) => `
@@ -46,7 +95,7 @@ export function createTaskPages({ db }) {
     return card(
       "Adjust Put Cells",
       `
-        <p class="muted">Change the split before placing items. LEDs update only when the adjusted total matches the original requested quantity.</p>
+        <p class="muted">Change the split before placing items. The task will show each adjusted cell as a RED LED put instruction after the total matches the original requested quantity.</p>
         <div
           data-put-plan-form
           data-expected-total="${escapeHtml(total)}"
@@ -68,11 +117,11 @@ export function createTaskPages({ db }) {
           <div class="mini-actions">
             <button type="button" class="ghost-button" data-put-plan-add>Adjust in more cells</button>
           </div>
-          <form id="put-plan-form" method="post" action="/tasks/${task.id}/put-plan" class="stack-form">
+          <form id="put-plan-form" method="post" action="/tasks/${task.id}/put-plan" class="stack-form" data-led-command-form data-led-loading-label="Updating">
             ${hiddenSubmissionToken(actionToken)}
             <label>Adjustment note<textarea name="note" rows="2" placeholder="Optional note"></textarea></label>
             <p class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(total))} / ${escapeHtml(formatQuantity(total))}</p>
-            <button type="submit" class="blue-button" data-put-plan-submit>Update LED quantities</button>
+            <button type="submit" class="blue-button" data-put-plan-submit data-led-command-submit data-led-loading-label="Updating">Update LED quantities</button>
           </form>
         </div>
       `,
@@ -90,9 +139,7 @@ export function createTaskPages({ db }) {
     }
 
     const guidanceSummary =
-      task.type === "pick"
-        ? "Pick from the cells below. Mapped cells light green; unmapped cells are manual."
-        : "Place into the cells below. Mapped cells light red; unmapped cells are manual.";
+      "Follow each row as a direct instruction. The row tells you the action, the cell, the quantity, and the LED color to look for.";
     const firstLine = task.lines[0];
     const cells = task.type === "put" ? listCells(db) : [];
     const editMode = mode === "edit";
@@ -118,9 +165,9 @@ export function createTaskPages({ db }) {
           ${
             taskIsActive && canEditTask(user, task)
               ? `
-                <form method="post" action="/tasks/${task.id}/cancel">
+                <form method="post" action="/tasks/${task.id}/cancel" data-led-command-form data-led-loading-label="Cancelling">
                   ${hiddenSubmissionToken(actionTokens.cancel)}
-                  <button class="ghost-button" type="submit">Cancel Task</button>
+                  <button class="ghost-button" type="submit" data-led-command-submit data-led-loading-label="Cancelling">Cancel Task</button>
                 </form>
               `
               : ""
@@ -166,17 +213,17 @@ export function createTaskPages({ db }) {
             }
             ${table(
               task.type === "put"
-                ? ["Suggested cell", "Final cell", "Planned", "Actual"]
-                : ["Cell", "Planned", "Actual"],
+                ? ["Instruction", "Final cell", "Planned", "Actual"]
+                : ["Instruction", "Planned", "Actual"],
               task.lines.map((line) => [
                 ...(task.type === "put"
                   ? [
-                      escapeHtml(line.logical_code),
+                      renderTaskLineInstruction(task, line),
                       editable || taskIsActive
                         ? cellPickerField(cells, line.cell_id, `line-${line.id}`, `actual_cell_${line.id}`, "confirm-form")
                         : escapeHtml(line.logical_code),
                     ]
-                  : [escapeHtml(line.logical_code)]),
+                  : [renderTaskLineInstruction(task, line)]),
                 `${escapeHtml(formatQuantity(line.planned_quantity))} ${escapeHtml(line.unit_of_measure)}`,
                 editable || taskIsActive
                   ? `<input form="confirm-form" class="compact-input" type="number" step="0.01" min="0" ${task.type === "pick" ? `max="${escapeHtml(line.planned_quantity)}"` : ""} name="actual_${line.id}" value="${escapeHtml(line.actual_quantity || line.planned_quantity)}" />`
@@ -186,10 +233,10 @@ export function createTaskPages({ db }) {
             ${
               editable || taskIsActive
                 ? `
-                    <form id="confirm-form" method="post" action="/tasks/${task.id}/${editSubmitPath}" class="stack-form">
+                    <form id="confirm-form" method="post" action="/tasks/${task.id}/${editSubmitPath}" class="stack-form"${editMode ? "" : ` data-led-command-form data-led-loading-label="Finishing"`}>
                       ${hiddenSubmissionToken(editMode ? actionTokens.correct : actionTokens.confirm)}
                       <label>Note<textarea name="note" rows="3" placeholder="Optional note"></textarea></label>
-                      <button type="submit">${editMode ? "Save Correction" : "Finish task"}</button>
+                      <button type="submit"${editMode ? "" : ` data-led-command-submit data-led-loading-label="Finishing"`}>${editMode ? "Save Correction" : "Finish task"}</button>
                     </form>
                   `
                 : `<p class="muted">${
@@ -210,6 +257,11 @@ export function createTaskPages({ db }) {
       ? allActions.filter((action) => action.key === selectedKey)
       : allActions;
     const cells = listCells(db);
+    const cellById = new Map(cells.map((cell) => [Number(cell.id), cell]));
+    const cellHasMappedLed = (cellId) => {
+      const cell = cellById.get(Number(cellId));
+      return Boolean(cell?.controller_id && cell?.hardware_channel);
+    };
 
     return page({
       title: selectedKey ? "Recommended Action" : "Recommended Actions",
@@ -238,18 +290,38 @@ export function createTaskPages({ db }) {
                         ? `<p class="flash flash-error">The system could not find room for ${escapeHtml(formatQuantity(action.unresolvedQuantity))} item(s). Please review manually.</p>`
                         : ""
                     }
-                    <form method="post" action="/recommended-actions/apply" class="stack-form">
+                    <form method="post" action="/recommended-actions/apply" class="stack-form" data-led-command-form data-led-loading-label="Working">
                       <input type="hidden" name="source_cell_id" value="${action.cellId}" />
                       <input type="hidden" name="product_id" value="${action.productId}" />
                       <input type="hidden" name="reason" value="${escapeHtml(action.title)}" />
                       <input type="hidden" name="recommendation_key" value="${escapeHtml(action.key)}" />
                       ${action.recommendedMoves
-                        .map(
-                          (move, index) => `
+                        .map((move, index) => {
+                          const sourceMapped = cellHasMappedLed(action.cellId);
+                          const targetMapped = cellHasMappedLed(move.targetCellId);
+                          return `
                             <div class="recommendation-row">
                               <div class="recommendation-summary">
                                 <strong>${escapeHtml(action.productSku)}</strong>
                                 <p class="muted">Move ${escapeHtml(formatQuantity(move.quantity))} item(s) from ${escapeHtml(action.logicalCode)} to the target cell below.</p>
+                                <div class="recommended-led-plan">
+                                  ${renderLedInstruction({
+                                    action: "Pick from",
+                                    cellCode: action.logicalCode,
+                                    color: "green",
+                                    quantity: move.quantity,
+                                    mapped: sourceMapped,
+                                    detail: sourceMapped ? "The source cell will show this GREEN LED instruction." : "",
+                                  })}
+                                  ${renderLedInstruction({
+                                    action: "Put into",
+                                    cellCode: move.targetLogicalCode || "selected target",
+                                    color: "red",
+                                    quantity: move.quantity,
+                                    mapped: targetMapped,
+                                    detail: targetMapped ? "The selected target cell will show this RED LED instruction." : "",
+                                  })}
+                                </div>
                               </div>
                               <div class="recommendation-fields">
                                 <label>Move quantity
@@ -265,19 +337,21 @@ export function createTaskPages({ db }) {
                                 </label>
                                 <button
                                   type="submit"
-                                  class="ghost-button"
+                                  class="ghost-button led-action-button"
                                   formaction="/recommended-actions/light-cell"
                                   name="light_move_index"
                                   value="${index}"
+                                  data-led-command-submit
+                                  data-led-loading-label="Sending LEDs"
                                 >
                                   Show PICK/PUT LEDs
                                 </button>
                               </div>
                             </div>
-                          `,
-                        )
+                          `;
+                        })
                         .join("")}
-                      <button type="submit">Apply recommendation</button>
+                      <button type="submit" data-led-command-submit data-led-loading-label="Applying">Apply recommendation</button>
                     </form>
                   `,
                 ),

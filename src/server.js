@@ -168,7 +168,7 @@ function appendFlash(path, message, tone = "info") {
   const url = new URL(path, "http://localhost");
   url.searchParams.set("flash", message);
   url.searchParams.set("tone", tone);
-  return `${url.pathname}${url.search}`;
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function safeLocalPath(value, fallback = "/") {
@@ -182,7 +182,7 @@ function safeLocalPath(value, fallback = "/") {
     if (url.origin !== "http://localhost") {
       return fallback;
     }
-    return `${url.pathname}${url.search}`;
+    return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return fallback;
   }
@@ -309,6 +309,26 @@ function parsePutPlanForm(form) {
   );
 }
 
+function parseCellMappingForm(form) {
+  return Object.entries(form)
+    .filter(([key]) => key.startsWith("target_cell_id_"))
+    .map(([key, targetCellId]) => {
+      const sourceCellId = key.slice("target_cell_id_".length);
+      return {
+        sourceCellId,
+        targetCellId,
+        originalTargetCellId: form[`original_target_cell_id_${sourceCellId}`],
+        hardwareChannel: form[`hardware_channel_${sourceCellId}`],
+      };
+    })
+    .filter(
+      (mapping) =>
+        String(mapping.targetCellId || "").trim() &&
+        String(mapping.hardwareChannel || "").trim() &&
+        String(mapping.targetCellId) !== String(mapping.originalTargetCellId),
+    );
+}
+
 function parseRecommendedActionMoves(form) {
   return Object.entries(form)
     .filter(([key, value]) => key.startsWith("move_qty_") && String(value).trim())
@@ -412,6 +432,8 @@ function serveStatic(request, response, pathname) {
   const filename =
     pathname === "/styles.css"
       ? "styles.css"
+      : pathname === "/theme.css"
+        ? "theme.css"
       : pathname === "/app.js"
         ? "app.js"
         : null;
@@ -431,7 +453,10 @@ function serveStatic(request, response, pathname) {
       : extension === ".js"
         ? "application/javascript; charset=utf-8"
         : "application/octet-stream";
-  response.writeHead(200, { "Content-Type": contentType });
+  response.writeHead(200, {
+    "Content-Type": contentType,
+    "Cache-Control": "no-store",
+  });
   createReadStream(filePath).pipe(response);
   return true;
 }
@@ -1115,8 +1140,8 @@ export const requestHandler = async (request, response) => {
       const sourceCell = guidanceLines[0];
       const targetCell = guidanceLines[1];
       const guidanceMessage = guidance.degraded
-        ? `Requested ${moveQuantity} on ${sourceCell.logical_code} for PICK and ${targetCell.logical_code} for PUT. ${guidance.message || "Some cells need manual guidance."}`
-        : `Displayed ${moveQuantity} on ${sourceCell.logical_code} for PICK and ${targetCell.logical_code} for PUT.`;
+        ? `GREEN LED: pick ${moveQuantity} from cell ${sourceCell.logical_code}. RED LED: put ${moveQuantity} into cell ${targetCell.logical_code}. ${guidance.message || "Some cells need manual guidance."}`
+        : `GREEN LED: pick ${moveQuantity} from cell ${sourceCell.logical_code}. RED LED: put ${moveQuantity} into cell ${targetCell.logical_code}.`;
       sendRedirect(
         response,
         appendFlash(
@@ -1128,11 +1153,24 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    const deviceSectionMatch = url.pathname.match(/^\/devices\/sections\/([a-z-]+)$/);
+    if (request.method === "GET" && deviceSectionMatch) {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1]);
+      if (!sectionHtml) {
+        sendText(response, "Unknown configuration section.", 404);
+        return;
+      }
+      sendHtml(response, sectionHtml, 200, { "Cache-Control": "no-store" });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/devices") {
       if (!ensureAuth(response, user)) {
         return;
       }
-      systemService.refreshControllerHealths();
       sendHtml(response, pages.renderDevices(user, flash));
       return;
     }
@@ -1186,14 +1224,88 @@ export const requestHandler = async (request, response) => {
         controllerId: controller.id,
         status: healthStatus,
       });
+      const returnTo = safeLocalPath(form.return_to, "/devices#controller-health");
       sendRedirect(
         response,
         appendFlash(
-          "/devices",
+          returnTo,
           healthStatus === "online"
             ? `${controller.controller_code} responded on RS485.`
             : `No healthy response from ${controller.controller_code}. Check power, A/B wiring, RS485 id, and that the controller is flashed.`,
           healthStatus === "online" ? "success" : "warning",
+        ),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/devices/controller-ping") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const controller = locationService
+        .listControllers()
+        .find((entry) => entry.id === Number(form.controller_id));
+      if (!controller) {
+        throw new Error("Controller not found.");
+      }
+
+      const mappedCells = locationService
+        .listCells()
+        .filter((cell) => cell.controller_id === controller.id && cell.hardware_channel);
+      const moduleTargets = new Map();
+      const moduleCount = Number(controller.module_count || 0);
+      for (let channel = 1; channel <= moduleCount; channel += 1) {
+        moduleTargets.set(String(channel), {
+          id: null,
+          logical_code: `${controller.controller_code} module ${channel}`,
+          controller_id: controller.id,
+          controller_code: controller.controller_code,
+          controller_address: controller.address,
+          address: controller.address,
+          hardware_channel: channel,
+        });
+      }
+      for (const cell of mappedCells) {
+        moduleTargets.set(String(cell.hardware_channel), {
+          ...cell,
+          controller_address: cell.controller_address || controller.address,
+          address: cell.address || controller.address,
+        });
+      }
+
+      const targets = Array.from(moduleTargets.values()).sort((left, right) => {
+        const leftChannel = Number(left.hardware_channel);
+        const rightChannel = Number(right.hardware_channel);
+        if (Number.isFinite(leftChannel) && Number.isFinite(rightChannel)) {
+          return leftChannel - rightChannel;
+        }
+        return String(left.hardware_channel).localeCompare(String(right.hardware_channel));
+      });
+      const returnTo = safeLocalPath(form.return_to, "/devices#controller-health");
+      if (!targets.length) {
+        sendRedirect(
+          response,
+          appendFlash(
+            returnTo,
+            `No LED modules are mapped or configured for ${controller.controller_code}.`,
+            "warning",
+          ),
+        );
+        return;
+      }
+
+      const results = targets.map((target) => hardwareService.sendCellTest(target, form.color || "green"));
+      const degradedCount = results.filter((result) => result.degraded).length;
+      const sentCount = targets.length - degradedCount;
+      sendRedirect(
+        response,
+        appendFlash(
+          returnTo,
+          degradedCount
+            ? `Ping sent to ${sentCount} of ${targets.length} LED module(s) on ${controller.controller_code}. ${degradedCount} module(s) need manual checking.`
+            : `Ping sent to ${targets.length} LED module(s) on ${controller.controller_code}.`,
+          degradedCount ? "warning" : "success",
         ),
       );
       return;
@@ -1238,10 +1350,11 @@ export const requestHandler = async (request, response) => {
         throw new Error("Cell not found.");
       }
       const result = hardwareService.sendCellTest(cell, form.color || "green");
+      const returnTo = safeLocalPath(form.return_to, "/devices#cell-mapping");
       sendRedirect(
         response,
         appendFlash(
-          "/devices",
+          returnTo,
           result.degraded
             ? `Light test skipped for ${cell.logical_code}. Manual mode is active.`
             : `Light test sent for ${cell.logical_code}.`,
@@ -1265,6 +1378,37 @@ export const requestHandler = async (request, response) => {
       const backupResult = createAutomaticBackup("cell-mapping-update");
       const nextFlash = backupAwareFlash("Cell mapping updated.", "success", backupResult);
       sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/mapping/bulk") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const mappings = parseCellMappingForm(form);
+      const returnTo = safeLocalPath(form.return_to, "/devices#cell-mapping");
+
+      if (!mappings.length) {
+        sendRedirect(response, appendFlash(returnTo, "No cell mapping changes to save.", "info"));
+        return;
+      }
+
+      for (const mapping of mappings) {
+        locationService.updateCellMapping({
+          cellId: mapping.sourceCellId,
+          hardwareChannel: mapping.hardwareChannel,
+          targetCellId: mapping.targetCellId,
+          mappedBy: user.id,
+        });
+      }
+      const backupResult = createAutomaticBackup("cell-mapping-bulk-update");
+      const nextFlash = backupAwareFlash(
+        `${mappings.length} cell mapping${mappings.length === 1 ? "" : "s"} updated.`,
+        "success",
+        backupResult,
+      );
+      sendRedirect(response, appendFlash(returnTo, nextFlash.message, nextFlash.tone));
       return;
     }
 
