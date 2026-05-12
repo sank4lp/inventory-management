@@ -759,6 +759,7 @@ export function createLocationPages({ db }) {
                         <form id="cell-ping-${cell.id}" method="post" action="/devices/cell-test" hidden>
                           <input type="hidden" name="cell_id" value="${cell.id}" />
                           <input type="hidden" name="color" value="green" />
+                          <input type="hidden" name="return_to" value="/devices#cell-mapping" />
                         </form>
                       `,
                     )

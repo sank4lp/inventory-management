@@ -1260,10 +1260,11 @@ export const requestHandler = async (request, response) => {
         throw new Error("Cell not found.");
       }
       const result = hardwareService.sendCellTest(cell, form.color || "green");
+      const returnTo = safeLocalPath(form.return_to, "/devices#cell-mapping");
       sendRedirect(
         response,
         appendFlash(
-          "/devices",
+          returnTo,
           result.degraded
             ? `Light test skipped for ${cell.logical_code}. Manual mode is active.`
             : `Light test sent for ${cell.logical_code}.`,
