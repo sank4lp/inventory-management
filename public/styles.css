@@ -63,6 +63,10 @@ a:hover {
 code {
   font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: var(--font-size-sm);
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 button,
@@ -105,6 +109,47 @@ small {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+:where(
+  .stat-card,
+  .card,
+  .app-panel,
+  .modal-panel,
+  .secondary-panel,
+  .operation-tile,
+  .overview-action-tile,
+  .action-tile,
+  .status-metric,
+  .meta-grid > div,
+  .firmware-step,
+  .firmware-port-choice,
+  .firmware-other-device,
+  .toast,
+  .led-instruction
+) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+:where(
+  .stat-card,
+  .card,
+  .app-panel,
+  .modal-panel,
+  .secondary-panel,
+  .operation-tile,
+  .overview-action-tile,
+  .action-tile,
+  .status-metric,
+  .meta-grid > div,
+  .firmware-step,
+  .firmware-port-choice,
+  .firmware-other-device,
+  .toast,
+  .led-instruction
+) > * {
+  min-width: 0;
 }
 
 .top-nav {
@@ -378,7 +423,7 @@ small {
 }
 
 .stats-grid {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   margin-bottom: 12px;
 }
 
@@ -485,16 +530,19 @@ small {
 }
 
 .operation-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 12px;
 }
 
 .operation-tile {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  flex: 1 1 156px;
   gap: 10px;
   align-items: center;
+  min-width: min(100%, 156px);
   min-height: 96px;
   padding: 14px;
   color: var(--text);
@@ -557,7 +605,7 @@ small {
 
 .status-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 8px;
 }
 
@@ -970,7 +1018,7 @@ button[disabled] {
 
 .action-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 10px;
 }
 
@@ -1018,7 +1066,7 @@ button[disabled] {
 
 .overview-action-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 156px), 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -1094,7 +1142,7 @@ button[disabled] {
 
 .overview-secondary-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: 1fr;
   gap: 12px;
   align-items: start;
 }
@@ -1355,7 +1403,7 @@ tbody tr:last-child td {
 
 .meta-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   gap: 10px;
 }
 
@@ -1555,7 +1603,7 @@ tbody tr:last-child td {
 
 .firmware-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 10px;
   align-items: end;
 }
@@ -1600,7 +1648,7 @@ tbody tr:last-child td {
 
 .firmware-port-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 8px;
 }
 
@@ -1921,7 +1969,7 @@ tbody tr:last-child td {
 
 .recommended-led-plan {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 8px;
   margin-top: 10px;
 }
@@ -2033,9 +2081,6 @@ tbody tr:last-child td {
     justify-content: flex-end;
   }
 
-  .operation-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 700px) {
@@ -2052,13 +2097,9 @@ tbody tr:last-child td {
     display: none;
   }
 
-  .operation-grid,
-  .overview-action-grid,
   .overview-secondary-grid,
-  .firmware-grid,
   .hero-grid,
   .two-column,
-  .recommended-led-plan,
   .recommendation-fields,
   .adjustment-line-grid,
   .put-plan-row {
@@ -2068,10 +2109,6 @@ tbody tr:last-child td {
   .operation-tile {
     grid-template-columns: 1fr;
     min-height: 84px;
-  }
-
-  .overview-action-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .overview-action-tile {

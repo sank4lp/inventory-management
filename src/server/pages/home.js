@@ -65,27 +65,9 @@ export function createHomePages({ db }) {
           </a>
         </section>
         <section class="overview-secondary-grid">
-          <section class="secondary-panel" data-row-collapser data-row-limit="3" data-row-label="actions">
-            <div class="secondary-panel-header">
-              <h2>Recommended actions</h2>
-              <a class="mini-link" href="/recommended-actions">Open all</a>
-            </div>
-            ${
-              actions.length
-                ? table(
-                    ["Issue", "Why", "Action"],
-                    actions.map((action) => [
-                      `<strong>${escapeHtml(action.title)}</strong><br /><small>${escapeHtml(action.logicalCode)}</small>`,
-                      escapeHtml(action.description),
-                      `<a class="mini-link" href="/recommended-actions?key=${encodeURIComponent(action.key)}">Adjust</a>`,
-                    ]),
-                  )
-                : `<p class="muted">No cell anomalies detected right now.</p>`
-            }
-          </section>
           <section class="secondary-panel recent-tasks-panel" data-row-collapser data-row-limit="3" data-row-label="tasks" data-row-toggle-style="glow">
             <div class="secondary-panel-header">
-              <h2>Recent tasks</h2>
+              <h2>Recent Tasks</h2>
             </div>
             ${
               tasks.length
@@ -101,6 +83,24 @@ export function createHomePages({ db }) {
                     ]),
                   )
                 : `<p class="muted">No recent tasks yet.</p>`
+            }
+          </section>
+          <section class="secondary-panel" data-row-collapser data-row-limit="3" data-row-label="actions">
+            <div class="secondary-panel-header">
+              <h2>Recommended Actions</h2>
+              <a class="mini-link" href="/recommended-actions">Open all</a>
+            </div>
+            ${
+              actions.length
+                ? table(
+                    ["Issue", "Why", "Action"],
+                    actions.map((action) => [
+                      `<strong>${escapeHtml(action.title)}</strong><br /><small>${escapeHtml(action.logicalCode)}</small>`,
+                      escapeHtml(action.description),
+                      `<a class="mini-link" href="/recommended-actions?key=${encodeURIComponent(action.key)}">Adjust</a>`,
+                    ]),
+                  )
+                : `<p class="muted">No cell anomalies detected right now.</p>`
             }
           </section>
         </section>
