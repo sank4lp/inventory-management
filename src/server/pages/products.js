@@ -198,6 +198,55 @@ export function createProductPages({ db }) {
     });
   }
 
+  function putRetryReturnPath({ selectedProductId, selectedCellId, requestedQuantity }) {
+    const params = new URLSearchParams();
+    if (selectedProductId) {
+      params.set("product_id", selectedProductId);
+    }
+    if (requestedQuantity) {
+      params.set("quantity", requestedQuantity);
+    }
+    if (selectedCellId) {
+      params.set("cell_id", selectedCellId);
+    }
+    return `/put${params.toString() ? `?${params.toString()}` : ""}`;
+  }
+
+  function renderPutCapacityRecovery(user, product, returnTo) {
+    if (!product) {
+      return "";
+    }
+
+    const message = `
+      <p><strong>Can adjust more in the cell?</strong> Update the items per cell for this product.</p>
+      <p class="muted">Current capacity for ${escapeHtml(product.sku)} is ${escapeHtml(formatQuantity(product.items_per_cell))} item(s) per cell.</p>
+    `;
+
+    if (user.role !== "admin") {
+      return card(
+        "Product capacity",
+        `
+          ${message}
+          <p class="flash flash-warning">Admin access is required to update product capacity.</p>
+        `,
+      );
+    }
+
+    return card(
+      "Product capacity",
+      `
+        ${message}
+        <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form">
+          <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
+          <label>Items per cell
+            <input type="number" min="1" step="1" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
+          </label>
+          <button type="submit">Update items per cell</button>
+        </form>
+      `,
+    );
+  }
+
   function renderPut(user, flash, url) {
     const products = listProducts(db);
     const selectedProductId = Number(url.searchParams.get("product_id") || 0);
@@ -208,6 +257,9 @@ export function createProductPages({ db }) {
     const selectedCell = selectedCellId
       ? listCells(db).find((cell) => cell.id === selectedCellId)
       : null;
+    const requestedQuantity = url.searchParams.get("quantity") || "";
+    const showCapacityRecovery = url.searchParams.get("capacity_help") === "1" && selectedProduct;
+    const returnTo = putRetryReturnPath({ selectedProductId, selectedCellId, requestedQuantity });
 
     return page({
       title: "Put",
@@ -220,13 +272,14 @@ export function createProductPages({ db }) {
             <span class="guide-pill">Step 2: Enter quantity</span>
             <span class="guide-pill">Step 3: Review cells</span>
           </section>
+          ${showCapacityRecovery ? renderPutCapacityRecovery(user, selectedProduct, returnTo) : ""}
           ${card(
             "Put items away",
             `
               <form method="post" action="/put" class="stack-form">
                 ${productPickerField(products, selectedProductId, "put-product")}
                 ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
-                <label>Quantity to place<input type="number" min="1" step="1" name="quantity" required /></label>
+                <label>Quantity to place<input type="number" min="1" step="1" name="quantity" value="${escapeHtml(requestedQuantity)}" required /></label>
                 <button class="blue-button" type="submit">Create put task</button>
               </form>
               <p class="muted">

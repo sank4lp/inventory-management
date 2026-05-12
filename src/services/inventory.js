@@ -605,6 +605,8 @@ export function allocatePick(db, { userId, productId, quantity, preferredCellId 
   });
 }
 
+export const PUT_CAPACITY_ERROR_MESSAGE = "Not enough free cells are available for this product capacity.";
+
 export function planPut(db, { userId, productId, quantity, preferredCellId = null }) {
   const requestedQuantity = normalizeQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
@@ -746,7 +748,7 @@ export function planPut(db, { userId, productId, quantity, preferredCellId = nul
   }
 
   if (remaining > 0) {
-    throw new Error("Not enough free cells are available for this product capacity.");
+    throw new Error(PUT_CAPACITY_ERROR_MESSAGE);
   }
 
   return withTransaction(db, () => {

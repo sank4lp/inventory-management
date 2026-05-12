@@ -268,6 +268,36 @@ test("database-backed settings and inventory survive an app restart", async () =
   );
 });
 
+test("put capacity error page offers an inline items-per-cell update", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-put-capacity-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createProductPages } = await freshImport("../src/server/pages/products.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+
+  const pages = createProductPages({ db });
+  const html = pages.renderPut(
+    { id: 1, name: "Admin", username: "admin", role: "admin" },
+    {
+      message: "Not enough free cells are available for this product capacity.",
+      tone: "error",
+    },
+    new URL(`http://localhost/put?product_id=${shoe.id}&quantity=99&capacity_help=1`),
+  );
+
+  assert.match(html, /Can adjust more in the cell\?/);
+  assert.match(html, new RegExp(`action="/products/${shoe.id}/items-per-cell"`));
+  assert.match(html, /name="items_per_cell"/);
+  assert.match(html, /name="quantity" value="99"/);
+  assert.match(html, /name="return_to" value="\/put\?product_id=\d+&amp;quantity=99"/);
+});
+
 test("backups can restore previous data and prune old automatic snapshots", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-backups-"));
   process.chdir(sandbox);

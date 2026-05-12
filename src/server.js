@@ -33,6 +33,7 @@ import {
   listCells,
   listControllers,
   listProducts,
+  PUT_CAPACITY_ERROR_MESSAGE,
   registerUser,
   searchCells,
 } from "./services/inventory.js";
@@ -168,6 +169,38 @@ function appendFlash(path, message, tone = "info") {
   url.searchParams.set("flash", message);
   url.searchParams.set("tone", tone);
   return `${url.pathname}${url.search}`;
+}
+
+function safeLocalPath(value, fallback = "/") {
+  const text = String(value || "").trim();
+  if (!text) {
+    return fallback;
+  }
+
+  try {
+    const url = new URL(text, "http://localhost");
+    if (url.origin !== "http://localhost") {
+      return fallback;
+    }
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return fallback;
+  }
+}
+
+function putCapacityRetryPath(form) {
+  const params = new URLSearchParams();
+  if (form.product_id) {
+    params.set("product_id", form.product_id);
+  }
+  if (form.quantity) {
+    params.set("quantity", form.quantity);
+  }
+  if (form.preferred_cell_id) {
+    params.set("cell_id", form.preferred_cell_id);
+  }
+  params.set("capacity_help", "1");
+  return `/put?${params.toString()}`;
 }
 
 async function parseForm(request) {
@@ -587,9 +620,10 @@ export const requestHandler = async (request, response) => {
       });
       const backupResult = createAutomaticBackup("product-capacity-update");
       const nextFlash = backupAwareFlash("Items per cell updated.", "success", backupResult);
+      const returnTo = safeLocalPath(form.return_to, `/products/${productCapacityMatch[1]}`);
       sendRedirect(
         response,
-        appendFlash(`/products/${productCapacityMatch[1]}`, nextFlash.message, nextFlash.tone),
+        appendFlash(returnTo, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -724,12 +758,25 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const { task, guidance } = taskService.createPutTask({
-        userId: user.id,
-        productId: form.product_id,
-        quantity: form.quantity,
-        preferredCellId: form.preferred_cell_id || null,
-      });
+      let task;
+      let guidance;
+      try {
+        ({ task, guidance } = taskService.createPutTask({
+          userId: user.id,
+          productId: form.product_id,
+          quantity: form.quantity,
+          preferredCellId: form.preferred_cell_id || null,
+        }));
+      } catch (error) {
+        if (error.message === PUT_CAPACITY_ERROR_MESSAGE) {
+          sendRedirect(
+            response,
+            appendFlash(putCapacityRetryPath(form), error.message, "error"),
+          );
+          return;
+        }
+        throw error;
+      }
       const backupResult = createAutomaticBackup("task-put-create");
       const nextFlash = backupAwareFlash(
         guidance.degraded
