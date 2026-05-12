@@ -707,6 +707,68 @@ test("mapping a new module to an existing cell preserves that cell inventory", a
   assert.ok(inventory.listCellCatalog(db).some((cell) => cell.id === added.id));
 });
 
+test("deleting a cell requires explicit data confirmation when stock or history exists", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-cell-delete-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const emptyCell = inventory.createCell(db, {
+    logicalCode: "Z9-R9-C01",
+    capacity: 5,
+    createdBy: 1,
+  });
+  const deletedEmpty = inventory.deleteCell(db, {
+    cellId: emptyCell.id,
+  });
+  assert.equal(deletedEmpty.deleted, true);
+  assert.equal(db.prepare("SELECT * FROM cells WHERE id = ?").get(emptyCell.id), undefined);
+
+  const product = inventory.listProducts(db).find((entry) => entry.sku === "SKU-SHOE-001");
+  const stockedCell = inventory
+    .listCells(db)
+    .find((cell) => String(cell.inventory_summary || "").includes(product.sku));
+  assert.ok(stockedCell);
+  const task = inventory.allocatePick(db, {
+    userId: 1,
+    productId: product.id,
+    quantity: 1,
+    preferredCellId: stockedCell.id,
+  });
+  db.prepare(
+    `
+      INSERT INTO device_events (controller_id, cell_id, task_id, event_type, payload, created_at)
+      VALUES (NULL, ?, ?, 'cell_delete_test', '{}', ?)
+    `,
+  ).run(stockedCell.id, task.id, new Date().toISOString());
+
+  assert.throws(
+    () =>
+      inventory.deleteCell(db, {
+        cellId: stockedCell.id,
+      }),
+    /Confirm deleting associated data/,
+  );
+  assert.ok(db.prepare("SELECT * FROM cells WHERE id = ?").get(stockedCell.id));
+
+  const deletedWithData = inventory.deleteCell(db, {
+    cellId: stockedCell.id,
+    deleteDataConfirmed: true,
+  });
+  assert.equal(deletedWithData.deleted, true);
+  assert.equal(deletedWithData.hasData, true);
+  assert.ok(deletedWithData.balanceRows > 0);
+  assert.ok(deletedWithData.taskLines > 0);
+  assert.ok(deletedWithData.deviceEvents > 0);
+  assert.equal(db.prepare("SELECT * FROM cells WHERE id = ?").get(stockedCell.id), undefined);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM inventory_balances WHERE cell_id = ?").get(stockedCell.id).count, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM task_lines WHERE cell_id = ?").get(stockedCell.id).count, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM device_events WHERE cell_id = ?").get(stockedCell.id).count, 0);
+});
+
 test("submission tokens are one-time use and production config requires a session secret", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-token-"));
   process.chdir(sandbox);

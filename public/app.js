@@ -1135,6 +1135,38 @@ function wireLocationLocate() {
   });
 }
 
+function wireCellDeleteForms() {
+  document.querySelectorAll("[data-delete-cell-form]").forEach((form) => {
+    if (form.dataset.deleteCellBound === "true") {
+      return;
+    }
+    form.dataset.deleteCellBound = "true";
+    form.addEventListener("submit", (event) => {
+      const cellName = form.dataset.cellName || "this cell";
+      const hasData = form.dataset.cellHasData === "true";
+      const deleteDataInput = form.querySelector("[data-delete-data-confirmed]");
+
+      if (!window.confirm(`Delete ${cellName}? This cannot be undone.`)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (hasData) {
+        const confirmed = window.confirm(
+          `${cellName} has stock, task history, or hardware events. Deleting it will delete that associated data too. Continue?`,
+        );
+        if (!confirmed) {
+          event.preventDefault();
+          return;
+        }
+        if (deleteDataInput) {
+          deleteDataInput.value = "1";
+        }
+      }
+    });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   wireNavState();
   wireLiveSearch();
@@ -1143,4 +1175,5 @@ document.addEventListener("DOMContentLoaded", () => {
   wirePutPlanForms();
   wireFirmwareFlash();
   wireLocationLocate();
+  wireCellDeleteForms();
 });

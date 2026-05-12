@@ -1525,6 +1525,16 @@ export function listCells(db) {
           ctrl.controller_code,
           ctrl.address AS controller_address,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
+          COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
+          (
+            SELECT COUNT(*)
+            FROM inventory_balances balance_count
+            WHERE balance_count.cell_id = c.id
+              AND (balance_count.available_quantity != 0 OR balance_count.reserved_quantity != 0)
+          ) AS balance_record_count,
+          (SELECT COUNT(*) FROM task_lines tl_count WHERE tl_count.cell_id = c.id) AS task_line_count,
+          (SELECT COUNT(*) FROM transactions tr_count WHERE tr_count.cell_id = c.id) AS transaction_count,
+          (SELECT COUNT(*) FROM device_events event_count WHERE event_count.cell_id = c.id) AS device_event_count,
           COALESCE(
             GROUP_CONCAT(
               CASE
@@ -1558,6 +1568,16 @@ export function listCellCatalog(db) {
           ctrl.controller_code,
           ctrl.address AS controller_address,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
+          COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
+          (
+            SELECT COUNT(*)
+            FROM inventory_balances balance_count
+            WHERE balance_count.cell_id = c.id
+              AND (balance_count.available_quantity != 0 OR balance_count.reserved_quantity != 0)
+          ) AS balance_record_count,
+          (SELECT COUNT(*) FROM task_lines tl_count WHERE tl_count.cell_id = c.id) AS task_line_count,
+          (SELECT COUNT(*) FROM transactions tr_count WHERE tr_count.cell_id = c.id) AS transaction_count,
+          (SELECT COUNT(*) FROM device_events event_count WHERE event_count.cell_id = c.id) AS device_event_count,
           COALESCE(
             GROUP_CONCAT(
               CASE
@@ -1772,6 +1792,82 @@ function cellHasHistory(db, cellId) {
     )
     .get(Number(cellId), Number(cellId));
   return Number(row?.task_lines || 0) > 0 || Number(row?.transactions || 0) > 0;
+}
+
+export function getCellDeletionImpact(db, cellId) {
+  const id = Number(cellId);
+  const cell = db
+    .prepare(
+      `
+        SELECT
+          c.*,
+          ctrl.controller_code,
+          ctrl.address AS controller_address,
+          COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
+          COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity
+        FROM cells c
+        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
+        LEFT JOIN inventory_balances b ON b.cell_id = c.id
+        WHERE c.id = ? AND c.active = 1
+        GROUP BY c.id
+      `,
+    )
+    .get(id);
+
+  if (!cell) {
+    throw new Error("Cell not found.");
+  }
+
+  const counts = db
+    .prepare(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM inventory_balances WHERE cell_id = ?) AS balanceRows,
+          (SELECT COUNT(*) FROM task_lines WHERE cell_id = ?) AS taskLines,
+          (SELECT COUNT(*) FROM transactions WHERE cell_id = ?) AS transactions,
+          (SELECT COUNT(*) FROM device_events WHERE cell_id = ?) AS deviceEvents
+      `,
+    )
+    .get(id, id, id, id);
+  const hasData =
+    Number(cell.occupied_quantity || 0) !== 0 ||
+    Number(cell.reserved_quantity || 0) !== 0 ||
+    Number(counts.balanceRows || 0) > 0 ||
+    Number(counts.taskLines || 0) > 0 ||
+    Number(counts.transactions || 0) > 0 ||
+    Number(counts.deviceEvents || 0) > 0;
+
+  return {
+    cell,
+    hasData,
+    occupiedQuantity: Number(cell.occupied_quantity || 0),
+    reservedQuantity: Number(cell.reserved_quantity || 0),
+    balanceRows: Number(counts.balanceRows || 0),
+    taskLines: Number(counts.taskLines || 0),
+    transactions: Number(counts.transactions || 0),
+    deviceEvents: Number(counts.deviceEvents || 0),
+  };
+}
+
+export function deleteCell(db, { cellId, deleteDataConfirmed = false } = {}) {
+  return withTransaction(db, () => {
+    const impact = getCellDeletionImpact(db, cellId);
+    if (impact.hasData && !deleteDataConfirmed) {
+      throw new Error("This cell has stock, task history, or hardware events. Confirm deleting associated data first.");
+    }
+
+    const id = Number(cellId);
+    db.prepare("DELETE FROM device_events WHERE cell_id = ?").run(id);
+    db.prepare("DELETE FROM transactions WHERE cell_id = ?").run(id);
+    db.prepare("DELETE FROM task_lines WHERE cell_id = ?").run(id);
+    db.prepare("DELETE FROM inventory_balances WHERE cell_id = ?").run(id);
+    db.prepare("DELETE FROM cells WHERE id = ?").run(id);
+
+    return {
+      ...impact,
+      deleted: true,
+    };
+  });
 }
 
 function retireEmptyMappingCell(db, cellId) {

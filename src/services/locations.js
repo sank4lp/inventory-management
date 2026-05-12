@@ -1,7 +1,9 @@
 import {
   createCell,
+  deleteCell,
   deleteController,
   getCellDetail,
+  getCellDeletionImpact,
   listCellCatalog,
   listCells,
   listControllers,
@@ -24,6 +26,9 @@ export function createLocationService({ db }) {
     getCellDetail(cellId) {
       return getCellDetail(db, cellId);
     },
+    getCellDeletionImpact(cellId) {
+      return getCellDeletionImpact(db, cellId);
+    },
     listControllers() {
       return listControllers(db);
     },
@@ -32,6 +37,9 @@ export function createLocationService({ db }) {
     },
     deleteController(input) {
       return deleteController(db, input);
+    },
+    deleteCell(input) {
+      return deleteCell(db, input);
     },
     createCell(input) {
       return createCell(db, input);

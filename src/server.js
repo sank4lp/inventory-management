@@ -1154,6 +1154,40 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/devices/cells/delete") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const deleteDataConfirmed = ["1", "true", "yes"].includes(
+        String(form.delete_data_confirmed || "").toLowerCase(),
+      );
+      const impact = locationService.getCellDeletionImpact(form.cell_id);
+      if (impact.hasData && !deleteDataConfirmed) {
+        throw new Error("This cell has stock, task history, or hardware events. Confirm deleting associated data first.");
+      }
+      if (impact.cell.controller_id && impact.cell.hardware_channel) {
+        hardwareService.setCellLocate(impact.cell, false);
+      }
+      const backupResult = createAutomaticBackup(
+        impact.hasData ? "cell-delete-with-data-before" : "cell-delete-before",
+      );
+      const deleted = locationService.deleteCell({
+        cellId: form.cell_id,
+        deleteDataConfirmed,
+      });
+      const dataSummary = deleted.hasData
+        ? ` Deleted ${deleted.balanceRows} balance row(s), ${deleted.taskLines} task line(s), ${deleted.transactions} transaction(s), and ${deleted.deviceEvents} hardware event(s).`
+        : "";
+      const nextFlash = backupAwareFlash(
+        `Cell ${deleted.cell.logical_code} deleted.${dataSummary}`,
+        "success",
+        backupResult,
+      );
+      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/admin") {
       if (!ensureAdmin(response, user)) {
         return;

@@ -115,6 +115,17 @@ function cellMappingOptionLabel(cell) {
   return `${cell.logical_code}${stock}${controller}${state}`;
 }
 
+function cellHasDeletionData(cell) {
+  return (
+    Number(cell.occupied_quantity || 0) !== 0 ||
+    Number(cell.reserved_quantity || 0) !== 0 ||
+    Number(cell.balance_record_count || 0) > 0 ||
+    Number(cell.task_line_count || 0) > 0 ||
+    Number(cell.transaction_count || 0) > 0 ||
+    Number(cell.device_event_count || 0) > 0
+  );
+}
+
 function renderCellMappingOptions(cellCatalog, selectedCellId) {
   return cellCatalog
     .map(
@@ -432,6 +443,38 @@ export function createLocationPages({ db }) {
               <button type="submit" class="ghost-button">Add cell</button>
             </form>
           `,
+        )}
+        ${card(
+          "Manage cells",
+          cells.length
+            ? table(
+                ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
+                cells.map((cell) => {
+                  const hasData = cellHasDeletionData(cell);
+                  return [
+                    escapeHtml(cell.logical_code),
+                    cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
+                    cell.hardware_channel ? escapeHtml(cell.hardware_channel) : `<span class="muted">Manual</span>`,
+                    escapeHtml(formatQuantity(cell.occupied_quantity)),
+                    cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
+                    `
+                      <form
+                        method="post"
+                        action="/devices/cells/delete"
+                        class="inline-form"
+                        data-delete-cell-form
+                        data-cell-name="${escapeHtml(cell.logical_code)}"
+                        data-cell-has-data="${hasData ? "true" : "false"}"
+                      >
+                        <input type="hidden" name="cell_id" value="${cell.id}" />
+                        <input type="hidden" name="delete_data_confirmed" value="0" data-delete-data-confirmed />
+                        <button type="submit" class="ghost-button danger-button">Delete</button>
+                      </form>
+                    `,
+                  ];
+                }),
+              )
+            : `<p class="muted">No active cells are configured.</p>`,
         )}
         ${card(
           "Cell mapping",
