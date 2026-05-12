@@ -2000,17 +2000,9 @@ export function configureControllerModules(
     const zoneId = getOrCreateZone(db);
     const requestedCode = controllerCode ? normalizeLogicalCode(controllerCode) : "";
     const now = nowIso();
-    const existingByDevice = deviceIdentity
-      ? db.prepare("SELECT * FROM controllers WHERE device_identity = ? ORDER BY id DESC LIMIT 1").get(deviceIdentity)
-      : null;
-    const code = requestedCode || existingByDevice?.controller_code || nextDefaultControllerCode(db);
+    const code = requestedCode || nextDefaultControllerCode(db);
     const existingByCode = db.prepare("SELECT * FROM controllers WHERE controller_code = ?").get(code);
-    if (existingByCode && existingByDevice && Number(existingByCode.id) !== Number(existingByDevice.id)) {
-      throw new Error(
-        `This ESP32 was previously configured as ${existingByDevice.controller_code}. Choose that controller name before flashing, or delete the old controller first.`,
-      );
-    }
-    const existing = existingByCode || existingByDevice || null;
+    const existing = existingByCode || null;
     const address = controllerAddress
       ? normalizeLogicalCode(controllerAddress)
       : existing?.address || code;

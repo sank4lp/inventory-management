@@ -467,6 +467,9 @@ function firmwarePortIdentity(port) {
 }
 
 function firmwareControllerName(port) {
+  if (port?.flashRecordAmbiguous) {
+    return "";
+  }
   return port?.flashRecord?.controllerName || port?.flashRecord?.deviceName || "";
 }
 
@@ -526,9 +529,10 @@ function clearFirmwareSelection(panel) {
 function syncFirmwareSubmitState(panel) {
   const input = panel.querySelector("[data-firmware-port-input]");
   const identity = panel.querySelector("[data-firmware-device-identity]");
+  const controller = panel.querySelector('input[name="controller_name"]');
   const submitButton = panel.querySelector("[data-firmware-flash-form] button[type='submit']");
-  if (submitButton && input && identity) {
-    submitButton.disabled = !input.value.trim() || !identity.value.trim();
+  if (submitButton && input && identity && controller) {
+    submitButton.disabled = !input.value.trim() || !identity.value.trim() || !controller.value.trim();
   }
 }
 
@@ -550,6 +554,7 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
   }
 
   for (const port of ports) {
+    const ambiguous = port.flashRecordAmbiguous || (port.flashRecords || []).length > 1;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "firmware-port-choice";
@@ -560,18 +565,27 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
     button.dataset.portPath = port.path;
     button.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
     button.dataset.controllerName = firmwareControllerName(port);
+    button.dataset.controllerAmbiguous = ambiguous ? "true" : "false";
 
     const label = document.createElement("strong");
     label.textContent = port.newlyConnected
       ? "Added serial device"
-      : port.flashRecord?.deviceName || port.deviceName || "ESP32 controller";
+      : ambiguous
+        ? "Shared USB adapter identity"
+        : port.flashRecord?.deviceName || port.deviceName || "ESP32 controller";
     const badge = document.createElement("span");
     const flashed = port.flashStatus === "configured";
     badge.className = `badge ${flashed ? "badge-flashed" : "badge-new"}`;
-    badge.textContent = flashed ? "flashed" : port.badge || "new";
+    badge.textContent = ambiguous ? "choose target" : flashed ? "flashed" : port.badge || "new";
     const summary = document.createElement("span");
     summary.className = "firmware-device-summary";
-    if (flashed && port.flashRecord) {
+    if (ambiguous) {
+      const names = (port.flashRecords || [])
+        .map((record) => record.controllerName || record.deviceName)
+        .filter(Boolean)
+        .join(", ");
+      summary.textContent = `This USB-UART identity is shared by ${names || "multiple controllers"}. Choose the exact Controller name above before flashing.`;
+    } else if (flashed && port.flashRecord) {
       const flashedBy = port.flashRecord.flashedBy?.name || port.flashRecord.flashedBy?.username || "unknown user";
       const configuredAt = port.flashRecord.configuredAt
         ? new Date(port.flashRecord.configuredAt).toLocaleString()
@@ -604,6 +618,7 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
   details.hidden = otherPorts.length === 0;
 
   for (const port of otherPorts) {
+    const ambiguous = port.flashRecordAmbiguous || (port.flashRecords || []).length > 1;
     const item = document.createElement("button");
     item.type = "button";
     item.className = "firmware-other-device";
@@ -611,11 +626,14 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
     item.dataset.portPath = port.path;
     item.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
     item.dataset.controllerName = firmwareControllerName(port);
+    item.dataset.controllerAmbiguous = ambiguous ? "true" : "false";
     const name = document.createElement("strong");
     name.textContent = port.deviceName || port.label || "Serial device";
     const reason = document.createElement("span");
     reason.textContent =
-      port.flashStatus === "configured"
+      ambiguous
+        ? "Shared USB adapter identity. Select only as an upload port, then choose the exact controller name before flashing."
+        : port.flashStatus === "configured"
         ? "Previously configured ESP32. Select to reflash."
         : "Existing serial device. Select only if this is the ESP32 you want to flash.";
     item.append(name);
@@ -651,7 +669,8 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
       (port) =>
         baselineAvailable
           ? port.newlyConnected
-          : port.flashStatus === "configured" && esp32Identities.has(firmwarePortIdentity(port)),
+          : (port.flashStatus === "configured" || port.flashStatus === "ambiguous") &&
+              esp32Identities.has(firmwarePortIdentity(port)),
     );
   if (mode === "baseline") {
     primaryPorts = [];
@@ -681,17 +700,25 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
   }
   const controllerInput = panel.querySelector('input[name="controller_name"]');
   const selectedControllerName = firmwareControllerName(selectedCandidate);
-  if (controllerInput && selectedControllerName) {
-    controllerInput.value = selectedControllerName;
+  const selectedAmbiguous = selectedCandidate?.flashRecordAmbiguous || (selectedCandidate?.flashRecords || []).length > 1;
+  if (controllerInput) {
+    if (selectedAmbiguous) {
+      controllerInput.value = "";
+    } else if (selectedControllerName) {
+      controllerInput.value = selectedControllerName;
+    }
   }
 
   if (status) {
     const newCount = primaryPorts.filter((port) => port.newlyConnected).length;
     const flashedCount = primaryPorts.filter((port) => port.flashStatus === "configured").length;
+    const ambiguousCount = primaryPorts.filter((port) => port.flashStatus === "ambiguous").length;
     if (mode === "baseline") {
       status.textContent = `Baseline saved with ${ports.length} serial device${ports.length === 1 ? "" : "s"}. Now plug in the ESP32 and click Detect added ESP32.`;
     } else if (newCount > 0) {
       status.textContent = `New serial device connected. If this is the ESP32, select it and flash it.`;
+    } else if (ambiguousCount > 0) {
+      status.textContent = `${ambiguousCount} serial port${ambiguousCount === 1 ? "" : "s"} match multiple configured controllers. Choose the exact Controller name before flashing.`;
     } else if (flashedCount > 0) {
       status.textContent = `${flashedCount} already flashed ESP32 controller${flashedCount === 1 ? "" : "s"} detected.`;
     } else if (baselineAvailable) {
@@ -876,8 +903,12 @@ function wireFirmwareFlash() {
           identityInput.value = portChoice.dataset.deviceIdentity || "";
         }
         const controllerInput = panel.querySelector('input[name="controller_name"]');
-        if (controllerInput && portChoice.dataset.controllerName) {
-          controllerInput.value = portChoice.dataset.controllerName;
+        if (controllerInput) {
+          if (portChoice.dataset.controllerAmbiguous === "true") {
+            controllerInput.value = "";
+          } else if (portChoice.dataset.controllerName) {
+            controllerInput.value = portChoice.dataset.controllerName;
+          }
         }
         panel.querySelectorAll("[data-firmware-port-choice]").forEach((choice) => {
           choice.classList.toggle("firmware-port-choice-active", choice === portChoice);
@@ -891,6 +922,10 @@ function wireFirmwareFlash() {
         if (identityInput) {
           identityInput.value = "";
         }
+        syncFirmwareSubmitState(panel);
+      });
+      const controllerInput = panel.querySelector('input[name="controller_name"]');
+      controllerInput?.addEventListener("input", () => {
         syncFirmwareSubmitState(panel);
       });
       syncFirmwareSubmitState(panel);

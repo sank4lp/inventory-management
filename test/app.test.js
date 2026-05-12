@@ -510,6 +510,77 @@ test("reflashing the same physical controller preserves what it can when module 
   );
 });
 
+test("controllers with the same USB adapter identity stay separate unless the same controller name is selected", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-shared-usb-identity-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const sharedIdentity = "by-id:usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0";
+  const controllerA = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-A",
+    controllerAddress: "CTRL-A-OLD",
+    deviceIdentity: sharedIdentity,
+    moduleCount: 2,
+    configuredBy: 1,
+  });
+  const controllerB = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-B",
+    controllerAddress: "CTRL-B-KEEP",
+    deviceIdentity: sharedIdentity,
+    moduleCount: 2,
+    configuredBy: 1,
+  });
+
+  assert.notEqual(controllerA.id, controllerB.id);
+
+  const aBefore = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === controllerA.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  const bBefore = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === controllerB.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  assert.equal(aBefore.length, 2);
+  assert.equal(bBefore.length, 2);
+
+  const reflashedA = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-A",
+    controllerAddress: "CTRL-A-NEW",
+    deviceIdentity: sharedIdentity,
+    moduleCount: 1,
+    configuredBy: 1,
+  });
+  const controllers = inventory.listControllers(db);
+  const bAfter = controllers.find((controller) => controller.id === controllerB.id);
+  const aAfterCells = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === controllerA.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  const bAfterCells = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === controllerB.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+
+  assert.equal(reflashedA.id, controllerA.id);
+  assert.equal(reflashedA.address, "CTRL-A-NEW");
+  assert.equal(reflashedA.mappingSummary.detached, 1);
+  assert.equal(bAfter.address, "CTRL-B-KEEP");
+  assert.equal(Number(bAfter.module_count), 2);
+  assert.deepEqual(
+    aAfterCells.map((cell) => cell.id),
+    [aBefore[0].id],
+  );
+  assert.deepEqual(
+    bAfterCells.map((cell) => cell.id),
+    bBefore.map((cell) => cell.id),
+  );
+});
+
 test("controllers can be health-checked and deleted by an admin", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-delete-"));
   process.chdir(sandbox);

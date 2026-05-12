@@ -1064,6 +1064,7 @@ th {
 .badge-planned,
 .badge-new,
 .badge-serial,
+.badge-shared,
 .badge-operator {
   background: var(--blue-soft);
   color: var(--blue);

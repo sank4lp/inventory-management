@@ -342,6 +342,20 @@ function parseMetadata(value) {
   }
 }
 
+function publicControllerRecord(controller, flashedDevices = {}) {
+  const saved = flashedDevices[controller.address] || {};
+  return {
+    ...saved,
+    controllerId: controller.id,
+    controllerName: controller.controller_code,
+    controllerAddress: controller.address,
+    deviceName: controller.controller_code,
+    deviceIdentity: controller.device_identity || saved.deviceIdentity || "",
+    moduleCount: controller.module_count || saved.moduleCount || 0,
+    configuredAt: saved.configuredAt || controller.configured_at || null,
+  };
+}
+
 function publicJob(job) {
   if (!job) {
     return null;
@@ -464,7 +478,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
       delete devices[previousController.address];
     }
     devices[controller.address] = payload;
-    devices[job.deviceIdentity || job.port] = payload;
+    delete devices[job.deviceIdentity];
+    delete devices[job.port];
     db.prepare(
       `
         INSERT INTO app_metadata (key, value, updated_at)
@@ -630,13 +645,33 @@ export function createFirmwareService({ db, config = {}, logger }) {
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   }
 
-  function annotatePorts(ports, flashedDevices) {
+  function listControllerFlashRecords(flashedDevices) {
+    return db
+      .prepare(
+        `
+          SELECT id, controller_code, address, device_identity, module_count, configured_at
+          FROM controllers
+          WHERE active = 1
+          ORDER BY controller_code
+        `,
+      )
+      .all()
+      .map((controller) => publicControllerRecord(controller, flashedDevices));
+  }
+
+  function annotatePorts(ports, flashedDevices, controllerFlashRecords) {
     return ports.map((port) => {
-      const flashRecord = flashedDevices[port.deviceIdentity] || flashedDevices[port.path] || null;
+      const matchingRecords = controllerFlashRecords.filter(
+        (record) => record.deviceIdentity && record.deviceIdentity === port.deviceIdentity,
+      );
+      const flashRecord = matchingRecords.length === 1 ? matchingRecords[0] : null;
+      const flashRecordAmbiguous = matchingRecords.length > 1;
       return {
         ...port,
-        flashStatus: flashRecord ? "configured" : port.recommended ? "new" : "other",
+        flashStatus: flashRecord ? "configured" : flashRecordAmbiguous ? "ambiguous" : port.recommended ? "new" : "other",
         flashRecord,
+        flashRecords: matchingRecords,
+        flashRecordAmbiguous,
       };
     });
   }
@@ -644,7 +679,8 @@ export function createFirmwareService({ db, config = {}, logger }) {
   return {
     getFlashOptions() {
       const flashedDevices = getFlashedDevices();
-      const ports = annotatePorts(listSerialPorts(arduinoCliPath), flashedDevices);
+      const controllerFlashRecords = listControllerFlashRecords(flashedDevices);
+      const ports = annotatePorts(listSerialPorts(arduinoCliPath), flashedDevices, controllerFlashRecords);
       const lastConfiguration = getLastConfiguration();
       const lastPortAvailable = ports.some(
         (port) =>
@@ -652,9 +688,14 @@ export function createFirmwareService({ db, config = {}, logger }) {
           port.deviceIdentity === lastConfiguration?.deviceIdentity,
       );
       const configuredPort = ports.find((port) => port.flashStatus === "configured") || null;
-      const esp32Ports = ports.filter((port) => port.recommended || port.flashStatus === "configured");
+      const esp32Ports = ports.filter(
+        (port) => port.recommended || port.flashStatus === "configured" || port.flashStatus === "ambiguous",
+      );
       const otherPorts = ports.filter((port) => !port.recommended);
-      const configuredCount = esp32Ports.filter((port) => port.flashStatus === "configured").length;
+      const configuredCount = esp32Ports.filter(
+        (port) => port.flashStatus === "configured" || port.flashStatus === "ambiguous",
+      ).length;
+      const ambiguousCount = esp32Ports.filter((port) => port.flashStatus === "ambiguous").length;
       return {
         arduinoCli: {
           command: arduinoCliPath,
@@ -667,7 +708,9 @@ export function createFirmwareService({ db, config = {}, logger }) {
         otherPorts,
         defaultPort: lastPortAvailable ? lastConfiguration.port : configuredPort?.path || "",
         portStatus: esp32Ports.length
-          ? configuredCount
+          ? ambiguousCount
+            ? `${ambiguousCount} serial port${ambiguousCount === 1 ? "" : "s"} match multiple configured controllers. Choose the exact controller name before flashing.`
+            : configuredCount
             ? `${configuredCount} configured ESP32 controller${configuredCount === 1 ? "" : "s"} detected.`
             : "Step 1: unplug the ESP32 and scan without it. Then plug it in and detect the added port."
           : "Step 1: unplug the ESP32 and scan without it. Then plug it in and detect the added port.",
@@ -678,6 +721,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
         },
         lastConfiguration,
         flashedDevices,
+        controllerFlashRecords,
       };
     },
     getLastConfiguration,
@@ -711,17 +755,7 @@ export function createFirmwareService({ db, config = {}, logger }) {
       const existingByName = db
         .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
         .get(controllerName);
-      const existingByDevice = deviceIdentity
-        ? db
-            .prepare("SELECT id, controller_code, address FROM controllers WHERE device_identity = ? ORDER BY id DESC LIMIT 1")
-            .get(deviceIdentity)
-        : null;
-      if (existingByName && existingByDevice && Number(existingByName.id) !== Number(existingByDevice.id)) {
-        throw new Error(
-          `This ESP32 was previously configured as ${existingByDevice.controller_code}. Choose that controller name before flashing, or delete the old controller first.`,
-        );
-      }
-      const existingController = existingByName || existingByDevice || null;
+      const existingController = existingByName || null;
       const controllerAddress = normalizeControllerAddress(
         input.controller_address || input.controllerAddress || generateControllerAddress(),
       );

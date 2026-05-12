@@ -57,6 +57,14 @@ function nextControllerName(controllers = []) {
 }
 
 function flashRecordSummary(port) {
+  if (port.flashRecordAmbiguous || port.flashRecords?.length > 1) {
+    const names = (port.flashRecords || [])
+      .map((record) => record.controllerName || record.deviceName)
+      .filter(Boolean)
+      .join(", ");
+    return `<span class="firmware-device-summary">Shared USB-UART identity${names ? ` for ${escapeHtml(names)}` : ""}. Choose the exact controller name before flashing.</span>`;
+  }
+
   if (!port.flashRecord) {
     return `<span class="firmware-device-summary">New ESP32 detected. Flash this controller before mapping cells.</span>`;
   }
@@ -90,7 +98,7 @@ function renderPortChoices(ports = [], selectedPort = "") {
         >
           <strong>${escapeHtml(port.flashRecord?.deviceName || port.deviceName || "ESP32 controller")}</strong>
           <code>${escapeHtml(port.path)}</code>
-          ${statusBadge(port.flashStatus === "configured" ? "flashed" : "new")}
+          ${statusBadge(port.flashRecordAmbiguous ? "shared" : port.flashStatus === "configured" ? "flashed" : "new")}
           ${flashRecordSummary(port)}
         </button>
       `,
@@ -281,7 +289,7 @@ export function createLocationPages({ db }) {
                     </div>
                     <form class="stack-form" data-firmware-flash-form>
                       <div class="firmware-grid">
-                        <label>Controller name
+                        <label>Controller name / reflash target
                           <input
                             name="controller_name"
                             list="firmware-controller-names"
@@ -336,7 +344,7 @@ export function createLocationPages({ db }) {
                           .join("")}
                       </datalist>
                       <p class="muted">Setup flow: keep RS485, mouse, and keyboard connected; unplug the ESP32; scan without ESP32; plug in the ESP32; then detect the added serial device.</p>
-                      <p class="muted">To replace a controller but keep its cell mapping, choose its existing controller name before flashing. The system will assign a fresh RS485 id and migrate the mapping to it.</p>
+                      <p class="muted">The serial port is only the upload path. To reflash controller A, choose controller A's existing name here; to add controller B, keep a new name. USB-UART adapter names can be shared and are not used to merge controllers.</p>
                       <p class="muted">If upload cannot connect, hold BOOT, start flashing, tap EN/RESET once while Connecting is shown, then release BOOT after upload starts.</p>
                       <div
                         class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
