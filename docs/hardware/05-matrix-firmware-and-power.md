@@ -52,6 +52,30 @@ Rules:
 - brightness is clamped from `0` to `100`,
 - each module keeps its own state, so changing module `3` does not stop module `1`.
 
+## Software brightness policy
+
+The inventory application now sends an explicit brightness value with every task,
+test, locate, and adjustment-preview LED command:
+
+```text
+daytime: 20%
+night: 8%
+```
+
+By default, daytime is `06:00` through `17:59` in the server's local time.
+Night is `18:00` through `05:59`. These values can be changed without code
+changes:
+
+```text
+LED_DAY_BRIGHTNESS_PERCENT=20
+LED_NIGHT_BRIGHTNESS_PERCENT=8
+LED_DAY_START_HOUR=6
+LED_NIGHT_START_HOUR=18
+```
+
+The `8%` night value matches the current firmware default/minimum operating
+brightness used in the power estimates below.
+
 ### Control commands
 
 ```text

@@ -7,15 +7,18 @@ Provide administrative control over users, products, devices, corrections, and s
 ## Admin capabilities
 
 ### User management
-- create registration keys
+- generate one-time operator or admin registration keys
+- revoke unused active registration keys
 - review users
 - change roles
-- deactivate/reactivate users
+- deactivate/reactivate users so inactive users cannot log in
 - reset passwords
 
 ### Inventory oversight
 - review transaction history
 - perform controlled inventory adjustments
+- locate the selected adjustment cell before recording a count
+- preview the entered final quantity total on the selected cell's LED module
 - review recommended actions and unresolved anomalies
 - reopen and correct any completed task
 
@@ -37,9 +40,12 @@ Provide administrative control over users, products, devices, corrections, and s
 
 ## Current software behavior
 
-- The home screen shows recommended actions for mixed-product and over-capacity cells.
-- Admins can open a single recommendation from Home, or open the full `/recommended-actions` page.
-- Admins can review recent tasks from Home and use **Make Correction** to enter task edit mode.
+- Recommended actions for mixed-product and over-capacity cells live in the `/recommended-actions` page.
+- Active registration keys can be copied or deleted from Admin by revoking them; used keys stay in the audit trail.
+- The recommended onboarding model is one key per person, not one shared operator/admin key. This keeps registration auditable and prevents accidental reuse.
+- User access can be suspended or restored from Admin, while the signed-in admin account cannot suspend itself.
+- The Adjustment form can locate the selected cell and send the entered final quantity total to the cell LED before the adjustment batch is committed.
+- Admins can review recent tasks from Overview and use **Correct** to enter task edit mode.
 - Task correction uses compensating adjustment transactions so the audit trail stays intact.
 
 ## Important audit rule

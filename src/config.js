@@ -1,6 +1,14 @@
 const VALID_HARDWARE_ADAPTERS = new Set(["simulator", "degraded", "rs485"]);
 const VALID_LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);
 
+function numberSetting(value, fallback, { min, max }) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.trunc(number)));
+}
+
 export function resolveConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV || "development";
   const hardwareAdapter = env.HARDWARE_ADAPTER || "simulator";
@@ -11,6 +19,22 @@ export function resolveConfig(env = process.env) {
   const esp32Fqbn = env.ESP32_FQBN || "esp32:esp32:esp32";
   const esp32SketchPath = env.ESP32_SKETCH_PATH || "firmware/esp32-simple-matrix";
   const rs485SerialPort = env.RS485_SERIAL_PORT || "";
+  const ledDayBrightnessPercent = numberSetting(env.LED_DAY_BRIGHTNESS_PERCENT, 20, {
+    min: 1,
+    max: 100,
+  });
+  const ledNightBrightnessPercent = numberSetting(env.LED_NIGHT_BRIGHTNESS_PERCENT, 8, {
+    min: 1,
+    max: 100,
+  });
+  const ledDayStartHour = numberSetting(env.LED_DAY_START_HOUR, 6, {
+    min: 0,
+    max: 23,
+  });
+  const ledNightStartHour = numberSetting(env.LED_NIGHT_START_HOUR, 18, {
+    min: 0,
+    max: 23,
+  });
   const bootstrapAdmin =
     env.BOOTSTRAP_ADMIN_USERNAME && env.BOOTSTRAP_ADMIN_PASSWORD
       ? {
@@ -51,6 +75,10 @@ export function resolveConfig(env = process.env) {
     esp32Fqbn,
     esp32SketchPath,
     rs485SerialPort,
+    ledDayBrightnessPercent,
+    ledNightBrightnessPercent,
+    ledDayStartHour,
+    ledNightStartHour,
     bootstrapAdmin,
     allowDevAuthSeeds: nodeEnv !== "production",
   };

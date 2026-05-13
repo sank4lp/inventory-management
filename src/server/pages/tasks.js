@@ -24,6 +24,17 @@ export function createTaskPages({ db }) {
     return taskType === "put" ? "Put into" : "Pick from";
   }
 
+  function operatorTaskSummary(task) {
+    const firstLine = task.lines[0];
+    if (!firstLine) {
+      return task.summary;
+    }
+
+    const totalQuantity = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity || 0), 0);
+    const action = task.type === "put" ? "Put" : "Pick";
+    return `${action} ${formatQuantity(totalQuantity)} ${firstLine.unit_of_measure} of ${firstLine.sku}`;
+  }
+
   function renderLedInstruction({
     action,
     cellCode,
@@ -65,6 +76,26 @@ export function createTaskPages({ db }) {
     });
   }
 
+  function renderPhysicalConfirmationControl(task, line) {
+    const confirmationStatus = line.physical_confirmed_at
+      ? `<span class="badge badge-confirmed">confirmed</span>`
+      : `<span class="badge badge-pending">pending</span>`;
+
+    return `
+      <form method="post" action="/tasks/${task.id}/simulate-button" class="inline-form" data-led-command-form data-led-loading-label="Recording">
+        <input type="hidden" name="line_id" value="${line.id}" />
+        <button
+          type="submit"
+          class="ghost-button"
+          data-led-command-submit
+          data-led-loading-label="Recording"
+          title="Mark that you reached ${escapeHtml(line.logical_code)}"
+        >Mark reached</button>
+        ${confirmationStatus}
+      </form>
+    `;
+  }
+
   function renderPutPlanAdjuster(task, cells, actionToken) {
     const total = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
     const row = ({ key, cellId = null, quantity = "", removable = false }) => `
@@ -93,9 +124,9 @@ export function createTaskPages({ db }) {
     `;
 
     return card(
-      "Adjust Put Cells",
+      "Change put locations",
       `
-        <p class="muted">Change the split before placing items. The task will show each adjusted cell as a RED LED put instruction after the total matches the original requested quantity.</p>
+        <p class="muted">Change the split before placing items. The task will update the RED LED instructions after the total matches the original quantity.</p>
         <div
           data-put-plan-form
           data-expected-total="${escapeHtml(total)}"
@@ -115,13 +146,13 @@ export function createTaskPages({ db }) {
             ${row({ key: "new___INDEX__", quantity: 0, removable: true })}
           </template>
           <div class="mini-actions">
-            <button type="button" class="ghost-button" data-put-plan-add>Adjust in more cells</button>
+            <button type="button" class="ghost-button" data-put-plan-add>Add another cell</button>
           </div>
           <form id="put-plan-form" method="post" action="/tasks/${task.id}/put-plan" class="stack-form" data-led-command-form data-led-loading-label="Updating">
             ${hiddenSubmissionToken(actionToken)}
-            <label>Adjustment note<textarea name="note" rows="2" placeholder="Optional note"></textarea></label>
+            <label>Reason for change<textarea name="note" rows="2" placeholder="Optional note"></textarea></label>
             <p class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(total))} / ${escapeHtml(formatQuantity(total))}</p>
-            <button type="submit" class="blue-button" data-put-plan-submit data-led-command-submit data-led-loading-label="Updating">Update LED quantities</button>
+            <button type="submit" class="blue-button" data-put-plan-submit data-led-command-submit data-led-loading-label="Updating">Update LED plan</button>
           </form>
         </div>
       `,
@@ -139,18 +170,35 @@ export function createTaskPages({ db }) {
     }
 
     const guidanceSummary =
-      "Follow each row as a direct instruction. The row tells you the action, the cell, the quantity, and the LED color to look for.";
+      "Use the row below as the work instruction. Check the cell, LED color, and quantity before completing the task.";
     const firstLine = task.lines[0];
     const cells = task.type === "put" ? listCells(db) : [];
     const editMode = mode === "edit";
     const taskIsActive = task.status !== "completed" && task.status !== "cancelled";
     const editable = editMode && canEditTask(user, task) && task.status === "completed";
+    const canRecordPhysicalConfirmation = taskIsActive && canEditTask(user, task);
     const taskLabel = task.type === "pick" ? "Pick Task" : "Put Task";
-    const actionLabel = task.type === "pick" ? "Finish Pick Action" : "Finish Put Action";
+    const movementLabel = task.type === "pick" ? "pick" : "put";
+    const actionLabel = task.type === "pick" ? "Complete pick" : "Complete put";
+    const taskTitle = `${editMode ? "Correct" : task.type === "pick" ? "Pick" : "Put"} Task #${task.id}`;
     const editSubmitPath = editMode && task.status === "completed" ? "correct" : "confirm";
+    const reviewHeaders = task.type === "put"
+      ? [
+          "Instruction",
+          ...(canRecordPhysicalConfirmation ? ["Physical"] : []),
+          "Final cell",
+          "Planned",
+          "Actual",
+        ]
+      : [
+          "Instruction",
+          ...(canRecordPhysicalConfirmation ? ["Physical"] : []),
+          "Planned",
+          "Actual",
+        ];
 
     return page({
-      title: `${editMode ? "Edit" : task.type === "pick" ? "Pick Action Initiated" : "Put Action Initiated"} - Task #${task.id}`,
+      title: taskTitle,
       user,
       flash,
       content: `
@@ -159,15 +207,21 @@ export function createTaskPages({ db }) {
             canEditTask(user, task) && task.status === "completed"
               ? editMode
                 ? `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}">Back to task</a>`
-                : `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}?mode=edit">Edit</a>`
+                : `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}?mode=edit">Correct task</a>`
               : ""
           }
           ${
             taskIsActive && canEditTask(user, task)
               ? `
-                <form method="post" action="/tasks/${task.id}/cancel" data-led-command-form data-led-loading-label="Cancelling">
+                <form
+                  method="post"
+                  action="/tasks/${task.id}/cancel"
+                  data-led-command-form
+                  data-led-loading-label="Cancelling"
+                  onsubmit="return confirm('Cancel this task? Inventory has not been changed yet, but the LED guidance will stop.');"
+                >
                   ${hiddenSubmissionToken(actionTokens.cancel)}
-                  <button class="ghost-button" type="submit" data-led-command-submit data-led-loading-label="Cancelling">Cancel Task</button>
+                  <button class="ghost-button danger-button" type="submit" data-led-command-submit data-led-loading-label="Cancelling">Cancel task</button>
                 </form>
               `
               : ""
@@ -178,7 +232,7 @@ export function createTaskPages({ db }) {
           <span class="guide-pill active-guide">Review cells</span>
         </section>
         ${card(
-          editMode ? `Edit ${actionLabel}` : "Task",
+          editMode ? `Correct ${movementLabel} result` : "Task summary",
           `
             <div class="meta-grid compact-meta-grid">
               <div><strong>Status</strong><br />${statusBadge(task.status)}</div>
@@ -189,7 +243,7 @@ export function createTaskPages({ db }) {
                 ? `<p><strong>${escapeHtml(firstLine.product_name)}</strong> · ${escapeHtml(firstLine.sku)}</p>`
                 : ""
             }
-            <p><strong>${escapeHtml(task.summary)}</strong></p>
+            <p><strong>${escapeHtml(operatorTaskSummary(task))}</strong></p>
             <p class="muted">${escapeHtml(guidanceSummary)}</p>
             `,
         )}
@@ -199,11 +253,11 @@ export function createTaskPages({ db }) {
             : ""
         }
         ${card(
-          editMode ? `Make Changes to ${actionLabel}` : actionLabel,
+          editMode ? "Save corrected result" : actionLabel,
           `
             ${
               task.type === "put"
-                ? `<p class="muted">You may change cell or quantity. If the final placement overfills a cell or mixes products, Home will flag it under Recommended actions.</p>`
+                ? `<p class="muted">You may change cell or quantity. If the final placement overfills a cell or mixes products, the Recommended Actions page will flag it for cleanup.</p>`
                 : ""
             }
             ${
@@ -212,18 +266,24 @@ export function createTaskPages({ db }) {
                 : ""
             }
             ${table(
-              task.type === "put"
-                ? ["Instruction", "Final cell", "Planned", "Actual"]
-                : ["Instruction", "Planned", "Actual"],
+              reviewHeaders,
               task.lines.map((line) => [
                 ...(task.type === "put"
                   ? [
                       renderTaskLineInstruction(task, line),
+                      ...(canRecordPhysicalConfirmation
+                        ? [renderPhysicalConfirmationControl(task, line)]
+                        : []),
                       editable || taskIsActive
                         ? cellPickerField(cells, line.cell_id, `line-${line.id}`, `actual_cell_${line.id}`, "confirm-form")
                         : escapeHtml(line.logical_code),
                     ]
-                  : [renderTaskLineInstruction(task, line)]),
+                  : [
+                      renderTaskLineInstruction(task, line),
+                      ...(canRecordPhysicalConfirmation
+                        ? [renderPhysicalConfirmationControl(task, line)]
+                        : []),
+                    ]),
                 `${escapeHtml(formatQuantity(line.planned_quantity))} ${escapeHtml(line.unit_of_measure)}`,
                 editable || taskIsActive
                   ? `<input form="confirm-form" class="compact-input" type="number" step="0.01" min="0" ${task.type === "pick" ? `max="${escapeHtml(line.planned_quantity)}"` : ""} name="actual_${line.id}" value="${escapeHtml(line.actual_quantity || line.planned_quantity)}" />`
@@ -236,7 +296,7 @@ export function createTaskPages({ db }) {
                     <form id="confirm-form" method="post" action="/tasks/${task.id}/${editSubmitPath}" class="stack-form"${editMode ? "" : ` data-led-command-form data-led-loading-label="Finishing"`}>
                       ${hiddenSubmissionToken(editMode ? actionTokens.correct : actionTokens.confirm)}
                       <label>Note<textarea name="note" rows="3" placeholder="Optional note"></textarea></label>
-                      <button type="submit"${editMode ? "" : ` data-led-command-submit data-led-loading-label="Finishing"`}>${editMode ? "Save Correction" : "Finish task"}</button>
+                      <button type="submit"${editMode ? "" : ` data-led-command-submit data-led-loading-label="Finishing"`}>${editMode ? "Save correction" : actionLabel}</button>
                     </form>
                   `
                 : `<p class="muted">${
@@ -253,6 +313,33 @@ export function createTaskPages({ db }) {
 
   function renderRecommendedActions(user, flash, selectedKey = "") {
     const allActions = getRecommendedActions(db);
+    if (!selectedKey) {
+      return page({
+        title: "Recommended Actions",
+        user,
+        flash,
+        content: `
+          ${card(
+            "Recommended cleanup",
+            allActions.length
+              ? table(
+                  ["Issue", "Location", "Product", "Suggested next step", "Action"],
+                  allActions.map((action) => [
+                    `<strong>${escapeHtml(action.title)}</strong>`,
+                    escapeHtml(action.logicalCode),
+                    escapeHtml(action.productSku),
+                    escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`),
+                    `<a class="mini-link" href="/recommended-actions?key=${encodeURIComponent(action.key)}">Review</a>`,
+                  ]),
+                )
+              : `<p class="muted">No recommended actions right now.</p>`,
+            "",
+            `data-row-collapser data-row-limit="8" data-row-label="recommendations"`,
+          )}
+        `,
+      });
+    }
+
     const actions = selectedKey
       ? allActions.filter((action) => action.key === selectedKey)
       : allActions;

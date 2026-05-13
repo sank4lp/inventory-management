@@ -154,6 +154,19 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       return task;
     },
     recordPhysicalConfirmation({ lineId, taskId, userId }) {
+      const task = getTask(db, Number(taskId));
+      if (!task) {
+        throw new Error("Task not found.");
+      }
+      if (task.status === "completed") {
+        throw new Error("Completed tasks can only be changed through correction mode.");
+      }
+      if (task.status === "cancelled") {
+        throw new Error("Cancelled tasks cannot be continued.");
+      }
+      if (!task.lines.some((line) => Number(line.id) === Number(lineId))) {
+        throw new Error("Task line does not belong to this task.");
+      }
       const line = markPhysicalConfirmation(db, Number(lineId));
       hardwareService.recordPhysicalConfirmation({ ...line, task_id: Number(taskId) }, userId);
       logger.info("task.physical_confirmation", {

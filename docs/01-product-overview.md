@@ -130,7 +130,7 @@ Phase 1 should support:
 
 - user authentication and controlled registration,
 - home screen with **Pick** and **Put** primary actions,
-- live product and cell search from the home screen,
+- focused home screen with primary actions and recent tasks,
 - product search and product creation,
 - product detail and cell detail lookup,
 - pick task creation and pick confirmation,

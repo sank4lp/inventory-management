@@ -1,71 +1,81 @@
 import {
-  getRecommendedActions,
-  listProducts,
   listRecentTasksForUser,
-  searchCells,
 } from "../../services/inventory.js";
 import {
   escapeHtml,
   formatDate,
-  formatQuantity,
-  quickActionLinks,
   statusBadge,
   table,
   page,
 } from "./shared.js";
 
+function overviewActionIcon(type) {
+  const icons = {
+    pick: `
+      <path d="M7 7h10" />
+      <path d="M9 3h6l1 4H8l1-4Z" />
+      <path d="M7 7l-1 13h12L17 7" />
+      <path d="m14 12-4 4" />
+      <path d="M10 12h4v4" />
+    `,
+    put: `
+      <path d="M4 17h16" />
+      <path d="M7 17V7h10v10" />
+      <path d="M9 7l3-3 3 3" />
+      <path d="M12 4v9" />
+    `,
+    inventory: `
+      <path d="M4 7.5 12 3l8 4.5-8 4.5L4 7.5Z" />
+      <path d="M4 7.5v9L12 21l8-4.5v-9" />
+      <path d="M12 12v9" />
+    `,
+    reports: `
+      <path d="M4 19V5" />
+      <path d="M4 19h16" />
+      <path d="M8 15v-4" />
+      <path d="M12 15V8" />
+      <path d="M16 15v-6" />
+    `,
+  };
+
+  return `
+    <span class="overview-action-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none">
+        ${icons[type] || icons.inventory}
+      </svg>
+    </span>
+  `;
+}
+
 export function createHomePages({ db }) {
-  function renderHomeProductResults(products) {
-    return products.length
-      ? table(
-          ["Product", "Stock", "Action"],
-          products.map((product) => [
-            `${escapeHtml(product.name)}<br /><small>${escapeHtml(product.sku)}</small>`,
-            `${escapeHtml(formatQuantity(product.total_available))} ${escapeHtml(product.unit_of_measure)}`,
-            quickActionLinks(product.id),
-          ]),
-        )
-      : `<p class="muted">No matching products found.</p>`;
-  }
-
-  function renderHomeCellResults(cells) {
-    return cells.length
-      ? table(
-          ["Cell", "Stock", "Open"],
-          cells.map((cell) => [
-            escapeHtml(cell.logical_code),
-            escapeHtml(formatQuantity(cell.occupied_quantity)),
-            `<a class="mini-link" href="/cells/${cell.id}">View</a>`,
-          ]),
-        )
-      : `<p class="muted">No matching cells found.</p>`;
-  }
-
   function renderHome(user, flash, url) {
     const tasks = listRecentTasksForUser(db, user);
-    const actions = getRecommendedActions(db).slice(0, 6);
 
     return page({
-      title: "Home",
+      title: "Overview",
       user,
       flash,
       content: `
         <section class="overview-action-grid" aria-label="Primary workflows">
           <a class="overview-action-tile overview-action-pick" href="/pick" aria-label="Pick">
-            <span>PICK</span>
+            ${overviewActionIcon("pick")}
+            <span class="overview-action-label">Pick</span>
           </a>
           <a class="overview-action-tile overview-action-put" href="/put" aria-label="Put">
-            <span>PUT</span>
+            ${overviewActionIcon("put")}
+            <span class="overview-action-label">Put</span>
           </a>
           <a class="overview-action-tile overview-action-inventory" href="/products" aria-label="Inventory">
-            <span>INVENTORY</span>
+            ${overviewActionIcon("inventory")}
+            <span class="overview-action-label">Inventory</span>
           </a>
           <a class="overview-action-tile overview-action-reports" href="/reports" aria-label="Reports">
-            <span>REPORTS</span>
+            ${overviewActionIcon("reports")}
+            <span class="overview-action-label">Reports</span>
           </a>
         </section>
-        <section class="overview-secondary-grid">
-          <section class="secondary-panel recent-tasks-panel" data-row-collapser data-row-limit="3" data-row-label="tasks" data-row-toggle-style="glow">
+        <section class="overview-secondary-grid overview-recent-grid">
+          <section class="secondary-panel recent-tasks-panel" data-row-collapser data-row-limit="3" data-row-label="tasks">
             <div class="secondary-panel-header">
               <h2>Recent Tasks</h2>
             </div>
@@ -79,28 +89,12 @@ export function createHomePages({ db }) {
                       statusBadge(task.type),
                       statusBadge(task.status),
                       escapeHtml(formatDate(task.started_at)),
-                      `<a class="mini-link" href="/tasks/${task.id}?mode=edit">Correct</a>`,
+                      task.status === "completed"
+                        ? `<a class="mini-link" href="/tasks/${task.id}?mode=edit">Correct</a>`
+                        : `<span class="muted">—</span>`,
                     ]),
                   )
                 : `<p class="muted">No recent tasks yet.</p>`
-            }
-          </section>
-          <section class="secondary-panel" data-row-collapser data-row-limit="3" data-row-label="actions">
-            <div class="secondary-panel-header">
-              <h2>Recommended Actions</h2>
-              <a class="mini-link" href="/recommended-actions">Open all</a>
-            </div>
-            ${
-              actions.length
-                ? table(
-                    ["Issue", "Why", "Action"],
-                    actions.map((action) => [
-                      `<strong>${escapeHtml(action.title)}</strong><br /><small>${escapeHtml(action.logicalCode)}</small>`,
-                      escapeHtml(action.description),
-                      `<a class="mini-link" href="/recommended-actions?key=${encodeURIComponent(action.key)}">Adjust</a>`,
-                    ]),
-                  )
-                : `<p class="muted">No cell anomalies detected right now.</p>`
             }
           </section>
         </section>
@@ -110,7 +104,5 @@ export function createHomePages({ db }) {
 
   return {
     renderHome,
-    renderHomeCellResults,
-    renderHomeProductResults,
   };
 }

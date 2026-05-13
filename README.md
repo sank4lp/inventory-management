@@ -11,7 +11,7 @@ Phase-1 local-first software implementation based on the docs in `docs/`.
 - Pick and put task planning
 - Final review and confirmation for every task
 - Inventory balances and immutable transactions
-- Admin adjustments and registration key issuing
+- Admin adjustments, registration key control, and user access suspension
 - Task correction mode with owner-or-admin edit permissions
 - Recommended actions for mixed-product cells and over-capacity cells
 - Device, controller, and cell mapping visibility
@@ -40,9 +40,10 @@ Then open [http://localhost:3000](http://localhost:3000).
 - Runtime configuration is controlled with environment variables:
   - `NODE_ENV`
   - `SESSION_SECRET`
-  - `HARDWARE_ADAPTER` (`simulator` or `degraded`)
+  - `HARDWARE_ADAPTER` (`simulator`, `degraded`, or `rs485`)
   - `WAREHOUSE_SITE_ID`
   - `LOG_LEVEL`
+  - LED brightness policy vars: `LED_DAY_BRIGHTNESS_PERCENT` (default `20`), `LED_NIGHT_BRIGHTNESS_PERCENT` (default `8`), `LED_DAY_START_HOUR` (default `6`), `LED_NIGHT_START_HOUR` (default `18`)
   - optional production bootstrap admin vars: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD`, `BOOTSTRAP_ADMIN_NAME`
 - The seeded catalog includes items like combat boots, field uniforms, helmets, gloves, canteens, batteries, ration packs, medical pouches, and other field gear.
 - The software does not use a reservation step for stock. Inventory is either still present in the cell or it has been picked.
@@ -52,3 +53,7 @@ Then open [http://localhost:3000](http://localhost:3000).
 - Server-rendered UI code is intended to stay organized by feature/domain with shared helpers for reusable rendering logic, so future edits remain understandable and scalable.
 - On startup, the app now runs integrity checks, validates runtime config, clears stale hardware guidance for unfinished tasks, and records recovery events for the admin system view.
 - If `HARDWARE_ADAPTER=degraded`, the app stays usable in manual guidance mode and records skipped hardware actions instead of failing task execution.
+
+## Architecture
+
+The codebase is organized as a local-first modular monolith with explicit UI, HTTP, service, domain, data-access, and shared layers. See `docs/architecture/02-codebase-architecture.md` for folder responsibilities and extension rules.

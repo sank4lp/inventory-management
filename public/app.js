@@ -1,10 +1,9 @@
-function debounce(callback, delay) {
-  let timeoutId = null;
-  return (...args) => {
-    clearTimeout(timeoutId);
-    timeoutId = window.setTimeout(() => callback(...args), delay);
-  };
-}
+import {
+  currentReturnPath,
+  debounce,
+  findFormSubmitButton,
+  setButtonLoading,
+} from "./client/dom.js";
 
 const ACTION_SCROLL_KEY = "inventory-management:action-scroll";
 
@@ -72,104 +71,6 @@ function restoreActionScrollPosition() {
       }
     }, 120);
   });
-}
-
-function currentReturnPath(fallbackHash = "") {
-  const hash = window.location.hash || fallbackHash || "";
-  return `${window.location.pathname}${window.location.search}${hash}`;
-}
-
-function restoreAttribute(element, name, value) {
-  if (value === undefined || value === "__unset__") {
-    element.removeAttribute(name);
-    return;
-  }
-  element.setAttribute(name, value);
-}
-
-function setButtonLoading(button, loading, options = {}) {
-  if (!button) {
-    return;
-  }
-
-  const isIconButton =
-    button.classList.contains("icon-button") ||
-    (button.children.length === 1 && Boolean(button.querySelector(".button-icon")));
-
-  if (loading) {
-    if (button.dataset.loadingActive === "true") {
-      return;
-    }
-
-    const label =
-      options.label ||
-      button.dataset.loadingLabel ||
-      button.dataset.ledLoadingLabel ||
-      "Working";
-    const title = options.title || button.dataset.loadingTitle || label;
-
-    button.dataset.loadingActive = "true";
-    button.dataset.loadingOriginalHtml = button.innerHTML;
-    button.dataset.loadingOriginalDisabled = button.disabled ? "true" : "false";
-    button.dataset.loadingOriginalTitle = button.getAttribute("title") ?? "__unset__";
-    button.dataset.loadingOriginalAriaLabel = button.getAttribute("aria-label") ?? "__unset__";
-    button.disabled = true;
-    button.setAttribute("aria-busy", "true");
-    button.setAttribute("aria-label", title);
-    button.setAttribute("title", title);
-    button.classList.add("button-loading");
-
-    if (isIconButton) {
-      button.classList.add("icon-button-loading");
-      return;
-    }
-
-    button.textContent = "";
-    const spinner = document.createElement("span");
-    spinner.className = "button-spinner";
-    spinner.setAttribute("aria-hidden", "true");
-    const text = document.createElement("span");
-    text.textContent = label;
-    button.append(spinner, text);
-    return;
-  }
-
-  if (button.dataset.loadingActive !== "true") {
-    return;
-  }
-
-  if (button.dataset.loadingOriginalHtml !== undefined) {
-    button.innerHTML = button.dataset.loadingOriginalHtml;
-  }
-  button.disabled = button.dataset.loadingOriginalDisabled === "true";
-  button.removeAttribute("aria-busy");
-  restoreAttribute(button, "title", button.dataset.loadingOriginalTitle);
-  restoreAttribute(button, "aria-label", button.dataset.loadingOriginalAriaLabel);
-  button.classList.remove("button-loading", "icon-button-loading");
-  delete button.dataset.loadingActive;
-  delete button.dataset.loadingOriginalHtml;
-  delete button.dataset.loadingOriginalDisabled;
-  delete button.dataset.loadingOriginalTitle;
-  delete button.dataset.loadingOriginalAriaLabel;
-}
-
-function findFormSubmitButton(form, event, selector) {
-  if (event?.submitter?.matches?.(selector)) {
-    return event.submitter;
-  }
-
-  const localButton = form.querySelector(selector);
-  if (localButton) {
-    return localButton;
-  }
-
-  if (!form.id) {
-    return null;
-  }
-
-  return Array.from(document.querySelectorAll(selector)).find(
-    (button) => button.getAttribute("form") === form.id,
-  );
 }
 
 function wireActionScrollRestore() {
@@ -278,6 +179,43 @@ function wireToasts() {
   });
 }
 
+function wireCopyButtons() {
+  document.querySelectorAll("[data-copy-value]").forEach((button) => {
+    if (button.dataset.copyBound === "true") {
+      return;
+    }
+    button.dataset.copyBound = "true";
+
+    button.addEventListener("click", async () => {
+      const value = button.dataset.copyValue || "";
+      const status =
+        button.closest(".card")?.querySelector("[data-copy-status]") ||
+        document.querySelector("[data-copy-status]");
+
+      try {
+        await navigator.clipboard.writeText(value);
+        button.classList.add("copy-button-done");
+        if (status) {
+          status.textContent = "Registration key copied.";
+          status.className = "copy-status flash flash-success";
+        }
+        window.setTimeout(() => {
+          button.classList.remove("copy-button-done");
+          if (status) {
+            status.textContent = "";
+            status.className = "copy-status";
+          }
+        }, 2400);
+      } catch {
+        if (status) {
+          status.textContent = "Copy failed. Select the key text and copy it manually.";
+          status.className = "copy-status flash flash-warning";
+        }
+      }
+    });
+  });
+}
+
 async function updateLiveResults(form) {
   const input = form.querySelector("[data-live-input]");
   const target = document.querySelector(form.dataset.target);
@@ -342,6 +280,26 @@ function wireLiveSearch() {
   }
 }
 
+function wireQuantityShortcuts() {
+  document.querySelectorAll("[data-fill-quantity]").forEach((button) => {
+    if (button.dataset.quantityShortcutBound === "true") {
+      return;
+    }
+    button.dataset.quantityShortcutBound = "true";
+
+    button.addEventListener("click", () => {
+      const form = button.closest("form");
+      const quantityInput = form?.querySelector('input[name="quantity"]');
+      if (!quantityInput) {
+        return;
+      }
+      quantityInput.value = button.dataset.fillQuantity || "";
+      quantityInput.dispatchEvent(new Event("input", { bubbles: true }));
+      quantityInput.focus();
+    });
+  });
+}
+
 function wireNavState() {
   const pathname = window.location.pathname;
   const links = document.querySelectorAll(".nav-links a");
@@ -360,6 +318,208 @@ function wireNavState() {
     }
 
     link.classList.toggle("nav-link-active", isActive);
+  }
+}
+
+function wireReportsWorkspace() {
+  const workspace = document.querySelector("[data-reports-workspace]");
+  if (!workspace || workspace.dataset.reportsWorkspaceBound === "true") {
+    return;
+  }
+  workspace.dataset.reportsWorkspaceBound = "true";
+
+  const modal = workspace.querySelector("[data-report-modal]");
+  const modalTitle = workspace.querySelector("[data-report-modal-title]");
+  const modalDescription = workspace.querySelector("[data-report-modal-description]");
+  const modalContent = workspace.querySelector("[data-report-modal-content]");
+  const printMenu = workspace.querySelector("[data-report-print-menu]");
+  const reportButtons = Array.from(workspace.querySelectorAll("[data-report-open]"));
+  const reportTemplates = new Map(
+    Array.from(workspace.querySelectorAll("[data-report-template]")).map((template) => [
+      template.dataset.reportTemplate,
+      template,
+    ]),
+  );
+
+  let activeReportKey = "";
+  let lastFocusedElement = null;
+
+  const reportKeyFromHash = () => window.location.hash.replace(/^#/, "");
+  const hasOpenReportSurface = () => Boolean((modal && !modal.hidden) || (printMenu && !printMenu.hidden));
+  const syncBodyModalState = () => {
+    document.body.classList.toggle("modal-open", hasOpenReportSurface());
+  };
+  const restoreFocus = () => {
+    if (lastFocusedElement instanceof HTMLElement && document.contains(lastFocusedElement)) {
+      lastFocusedElement.focus();
+    }
+    lastFocusedElement = null;
+  };
+  const setActiveReportButton = (key) => {
+    reportButtons.forEach((button) => {
+      const active = button.dataset.reportOpen === key;
+      button.classList.toggle("report-overview-card-active", active);
+      if (active) {
+        button.setAttribute("aria-expanded", "true");
+      } else {
+        button.setAttribute("aria-expanded", "false");
+      }
+    });
+  };
+
+  const closePrintMenu = ({ restore = true } = {}) => {
+    if (printMenu) {
+      printMenu.hidden = true;
+    }
+    syncBodyModalState();
+    if (restore) {
+      restoreFocus();
+    }
+  };
+
+  const openReport = (key, { updateHash = false, focus = true } = {}) => {
+    const template = reportTemplates.get(key);
+    if (!template || !modal || !modalContent) {
+      return false;
+    }
+
+    if (focus) {
+      lastFocusedElement = document.activeElement;
+    }
+    activeReportKey = key;
+    modalTitle.textContent = template.dataset.reportTitle || "Report";
+    modalDescription.textContent = template.dataset.reportDescription || "";
+    modalContent.innerHTML = template.innerHTML;
+    modal.hidden = false;
+    if (printMenu) {
+      printMenu.hidden = true;
+    }
+    setActiveReportButton(key);
+    syncBodyModalState();
+
+    if (updateHash && window.location.hash !== `#${key}`) {
+      window.history.pushState(null, "", `${window.location.pathname}${window.location.search}#${key}`);
+    }
+
+    if (focus) {
+      modal.querySelector("[data-report-close]")?.focus();
+    }
+    return true;
+  };
+
+  const closeReport = ({ clearHash = true, restore = true } = {}) => {
+    if (modal) {
+      modal.hidden = true;
+    }
+    if (modalContent) {
+      modalContent.replaceChildren();
+    }
+    activeReportKey = "";
+    setActiveReportButton("");
+    syncBodyModalState();
+
+    if (clearHash && reportTemplates.has(reportKeyFromHash())) {
+      window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+    if (restore) {
+      restoreFocus();
+    }
+  };
+
+  const openPrintMenu = () => {
+    if (!printMenu) {
+      return;
+    }
+    lastFocusedElement = document.activeElement;
+    printMenu.hidden = false;
+    syncBodyModalState();
+    printMenu.querySelector("[data-report-print-close]")?.focus();
+  };
+
+  const printActiveReport = () => {
+    if (!activeReportKey) {
+      openPrintMenu();
+      return;
+    }
+
+    document.body.classList.add("report-printing");
+    window.setTimeout(() => {
+      document.body.classList.remove("report-printing");
+    }, 60000);
+    window.print();
+  };
+
+  reportButtons.forEach((button) => {
+    button.setAttribute("aria-expanded", "false");
+    button.addEventListener("click", () => {
+      openReport(button.dataset.reportOpen || "", { updateHash: true });
+    });
+  });
+
+  workspace.querySelector("[data-report-print-open]")?.addEventListener("click", openPrintMenu);
+  workspace.querySelector("[data-report-print-current]")?.addEventListener("click", printActiveReport);
+  workspace.querySelectorAll("[data-report-close]").forEach((button) => {
+    button.addEventListener("click", () => closeReport());
+  });
+  workspace.querySelectorAll("[data-report-print-close]").forEach((button) => {
+    button.addEventListener("click", () => closePrintMenu());
+  });
+  workspace.querySelectorAll("[data-report-print-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.reportPrintOption || "";
+      closePrintMenu({ restore: false });
+      if (openReport(key, { updateHash: true, focus: false })) {
+        printActiveReport();
+      }
+    });
+  });
+
+  modal?.addEventListener("click", (event) => {
+    if (event.target === modal) {
+      closeReport();
+    }
+  });
+  printMenu?.addEventListener("click", (event) => {
+    if (event.target === printMenu) {
+      closePrintMenu();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (printMenu && !printMenu.hidden) {
+      event.preventDefault();
+      closePrintMenu();
+      return;
+    }
+    if (modal && !modal.hidden) {
+      event.preventDefault();
+      closeReport();
+    }
+  });
+  window.addEventListener("afterprint", () => {
+    document.body.classList.remove("report-printing");
+  });
+  window.addEventListener("hashchange", () => {
+    const key = reportKeyFromHash();
+    if (reportTemplates.has(key)) {
+      openReport(key, { focus: false });
+    } else if (modal && !modal.hidden) {
+      closeReport({ clearHash: false, restore: false });
+    }
+  });
+  window.addEventListener("popstate", () => {
+    const key = reportKeyFromHash();
+    if (reportTemplates.has(key)) {
+      openReport(key, { focus: false });
+    } else if (modal && !modal.hidden) {
+      closeReport({ clearHash: false, restore: false });
+    }
+  });
+
+  if (reportTemplates.has(reportKeyFromHash())) {
+    openReport(reportKeyFromHash(), { focus: false });
   }
 }
 
@@ -450,6 +610,7 @@ function wireComboBoxes(root = document) {
       hidden.value = exactMatch.dataset.value || "";
       input.value = exactMatch.dataset.label || "";
       input.setCustomValidity("");
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
       return true;
     };
 
@@ -468,12 +629,14 @@ function wireComboBoxes(root = document) {
     const clearSelection = () => {
       hidden.value = "";
       input.setCustomValidity("");
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
     };
 
     const selectOption = (option) => {
       input.value = option.dataset.label || "";
       hidden.value = option.dataset.value || "";
       input.setCustomValidity("");
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
       closePanel();
       window.requestAnimationFrame(() => {
         input.focus();
@@ -591,12 +754,41 @@ function wireAdjustmentForms() {
     const lines = form.querySelector("[data-adjustment-lines]");
     const template = form.querySelector("template[data-adjustment-template]");
     const addButton = form.querySelector("[data-adjustment-add]");
+    const locateButton = form.querySelector("[data-adjustment-locate-cell]");
+    const lightQuantityButton = form.querySelector("[data-adjustment-light-quantity]");
+    const status = form.querySelector("[data-adjustment-led-status]");
 
     if (!lines || !template || !addButton) {
       continue;
     }
 
     let nextIndex = lines.querySelectorAll("[data-adjustment-line]").length;
+    const selectedCellId = () => form.querySelector('input[name="cell_id"]')?.value || "";
+    const enteredQuantities = () =>
+      Array.from(form.querySelectorAll('input[name^="absolute_quantity_"]'))
+        .map((input) => input.value.trim())
+        .filter(Boolean);
+
+    const setAdjustmentStatus = (message, tone = "info") => {
+      if (!status) {
+        return;
+      }
+      status.textContent = message || "";
+      status.className = message
+        ? `adjustment-guidance-status flash flash-${tone}`
+        : "adjustment-guidance-status";
+    };
+
+    const refreshActionControls = () => {
+      const cellId = selectedCellId();
+      if (locateButton) {
+        locateButton.disabled = !cellId;
+        setLocateButtonState(locateButton, Boolean(cellId && activeLocates.has(String(cellId))));
+      }
+      if (lightQuantityButton) {
+        lightQuantityButton.disabled = !cellId || enteredQuantities().length === 0;
+      }
+    };
 
     const refreshLineControls = () => {
       const currentLines = Array.from(lines.querySelectorAll("[data-adjustment-line]"));
@@ -619,6 +811,7 @@ function wireAdjustmentForms() {
       wireComboBoxes(line);
       nextIndex += 1;
       refreshLineControls();
+      refreshActionControls();
       line.querySelector("[data-combo-input]")?.focus();
     });
 
@@ -632,9 +825,114 @@ function wireAdjustmentForms() {
       }
       removeButton.closest("[data-adjustment-line]")?.remove();
       refreshLineControls();
+      refreshActionControls();
+    });
+
+    form.addEventListener("input", refreshActionControls);
+    form.addEventListener("change", refreshActionControls);
+    form.addEventListener("click", (event) => {
+      if (event.target.closest("[data-adjustment-locate-cell], [data-adjustment-light-quantity]")) {
+        return;
+      }
+      window.requestAnimationFrame(refreshActionControls);
+    });
+
+    locateButton?.addEventListener("click", async () => {
+      const cellId = selectedCellId();
+      if (!cellId || locateButton.disabled) {
+        setAdjustmentStatus("Choose a cell before locating it.", "warning");
+        return;
+      }
+
+      for (const [activeCellId, activeEntry] of Array.from(activeLocates.entries())) {
+        if (activeEntry.button === locateButton && activeCellId !== String(cellId)) {
+          await sendLocateCommand(activeCellId, false).catch(() => {});
+          clearLocateUi(activeCellId);
+        }
+      }
+
+      const activeEntry = activeLocates.get(String(cellId));
+      setButtonLoading(locateButton, true, {
+        label: activeEntry ? "Clearing" : "Sending",
+        title: activeEntry ? "Clearing locate command" : "Sending locate command",
+      });
+
+      try {
+        if (activeEntry) {
+          await sendLocateCommand(cellId, false);
+          setButtonLoading(locateButton, false);
+          clearLocateUi(cellId);
+          setAdjustmentStatus("Locate cleared.", "info");
+          return;
+        }
+
+        const payload = await sendLocateCommand(cellId, true);
+        setButtonLoading(locateButton, false);
+        setLocateButtonState(locateButton, true);
+        activeLocates.set(String(cellId), {
+          button: locateButton,
+          timeoutId: window.setTimeout(() => {
+            if (!activeLocates.has(String(cellId))) {
+              return;
+            }
+            sendLocateCommand(cellId, false).catch(() => {}).finally(() => clearLocateUi(cellId));
+          }, LOCATION_LOCATE_TIMEOUT_MS),
+        });
+        setAdjustmentStatus(`Locating ${payload.cell?.logicalCode || "selected cell"}.`, "success");
+      } catch (error) {
+        setButtonLoading(locateButton, false);
+        setAdjustmentStatus(error.message || "Locate command failed.", "error");
+      } finally {
+        refreshActionControls();
+      }
+    });
+
+    lightQuantityButton?.addEventListener("click", async () => {
+      if (!selectedCellId()) {
+        setAdjustmentStatus("Choose a cell before lighting the quantity.", "warning");
+        return;
+      }
+      if (!enteredQuantities().length) {
+        setAdjustmentStatus("Enter at least one quantity before lighting the LED.", "warning");
+        return;
+      }
+
+      const body = new URLSearchParams(new FormData(form));
+      setButtonLoading(lightQuantityButton, true, {
+        label: "Sending",
+        title: "Sending quantity to LED",
+      });
+
+      try {
+        const response = await fetch("/api/admin/adjustments/light", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Requested-With": "fetch",
+          },
+          body,
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Quantity LED command failed.");
+        }
+        setAdjustmentStatus(
+          payload.message ||
+            `Showing ${payload.displayQuantity || "the entered quantity"} on ${
+              payload.cell?.logicalCode || "the selected cell"
+            }.`,
+          payload.degraded ? "warning" : "success",
+        );
+      } catch (error) {
+        setAdjustmentStatus(error.message || "Quantity LED command failed.", "error");
+      } finally {
+        setButtonLoading(lightQuantityButton, false);
+        refreshActionControls();
+      }
     });
 
     refreshLineControls();
+    refreshActionControls();
   }
 }
 
@@ -1565,16 +1863,16 @@ function wireConfigurationWorkspace() {
       description: "Follow the guided ESP32 setup without leaving the Configuration console.",
     },
     "cell-create": {
-      title: "Add Cells",
-      description: "Create storage cells in a focused dialog, then return to the console.",
+      title: "Add Locations",
+      description: "Create storage locations in a focused dialog, then return to the console.",
     },
     "cell-management": {
-      title: "Manage Cells",
-      description: "Delete and review active storage cells in a focused flow.",
+      title: "Manage Locations",
+      description: "Delete and review active storage locations in a focused flow.",
     },
     "cell-mapping": {
       title: "Cell Mapping",
-      description: "Ping modules and assign them to physical storage cells.",
+      description: "Ping modules and assign them to physical storage locations.",
     },
   };
   const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link]"));
@@ -2061,6 +2359,13 @@ function wireCellDeleteForms() {
 
 function resetRowCollapser(section) {
   section.querySelectorAll("[data-row-collapse-footer]").forEach((footer) => footer.remove());
+  section.querySelectorAll("[data-row-collapse-frame]").forEach((frame) => {
+    const tableWrap = Array.from(frame.children).find((child) => child.classList?.contains("table-wrap"));
+    if (tableWrap) {
+      frame.insertAdjacentElement("beforebegin", tableWrap);
+    }
+    frame.remove();
+  });
   section.querySelectorAll("tbody tr[hidden]").forEach((row) => {
     row.hidden = false;
   });
@@ -2073,6 +2378,20 @@ function rowCollapseIcon() {
       <path d="M6 9l6 6 6-6" />
     </svg>
   `;
+}
+
+function createRowCollapseFrame(tableWrap) {
+  const existingFrame = tableWrap.closest("[data-row-collapse-frame]");
+  if (existingFrame) {
+    return existingFrame;
+  }
+
+  const frame = document.createElement("div");
+  frame.className = "row-collapse-frame";
+  frame.dataset.rowCollapseFrame = "true";
+  tableWrap.insertAdjacentElement("beforebegin", frame);
+  frame.append(tableWrap);
+  return frame;
 }
 
 function wireRowCollapsers(root = document) {
@@ -2098,7 +2417,7 @@ function wireRowCollapsers(root = document) {
     section.dataset.rowCollapserBound = "true";
 
     const label = section.dataset.rowLabel || "rows";
-    const iconToggle = true;
+    const iconToggle = section.dataset.rowToggleStyle !== "plain";
     const footer = document.createElement("div");
     footer.className = "row-collapse-footer";
     footer.dataset.rowCollapseFooter = "true";
@@ -2119,17 +2438,15 @@ function wireRowCollapsers(root = document) {
 
     footer.append(status, button);
 
-    const tableOwner = tableWrap.closest("form");
-    if (tableOwner && section.contains(tableOwner)) {
-      tableOwner.insertAdjacentElement("afterend", footer);
-    } else {
-      tableWrap.insertAdjacentElement("afterend", footer);
-    }
+    const frame = createRowCollapseFrame(tableWrap);
+    frame.append(footer);
 
     const render = (expanded) => {
       rows.forEach((row, index) => {
         row.hidden = !expanded && index >= limit;
       });
+      frame.classList.toggle("row-collapse-frame-collapsed", !expanded);
+      frame.classList.toggle("row-collapse-frame-expanded", expanded);
       if (iconToggle) {
         footer.classList.toggle("row-collapse-footer-expanded", expanded);
         button.classList.toggle("row-collapse-icon-button-expanded", expanded);
@@ -2154,8 +2471,11 @@ function wireRowCollapsers(root = document) {
 document.addEventListener("DOMContentLoaded", () => {
   wireActionScrollRestore();
   wireToasts();
+  wireCopyButtons();
   wireNavState();
   wireLiveSearch();
+  wireQuantityShortcuts();
+  wireReportsWorkspace();
   wireComboBoxes();
   wireAdjustmentForms();
   wirePutPlanForms();

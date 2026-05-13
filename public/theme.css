@@ -1,15 +1,15 @@
 :root {
-  --workflow-pick-base: #10b981;
-  --workflow-pick-soft: #dcfce7;
-  --workflow-pick-subtle: #f0fdf4;
-  --workflow-pick-border: #bbf7d0;
-  --workflow-pick-border-strong: #86efac;
-  --workflow-pick-text: #166534;
+  --workflow-pick-base: #059669;
+  --workflow-pick-soft: #d1fae5;
+  --workflow-pick-subtle: #ecfdf5;
+  --workflow-pick-border: #a7f3d0;
+  --workflow-pick-border-strong: #34d399;
+  --workflow-pick-text: #065f46;
 
-  --workflow-put-base: #ef4444;
+  --workflow-put-base: #dc2626;
   --workflow-put-soft: #fee2e2;
-  --workflow-put-subtle: #fef2f2;
+  --workflow-put-subtle: #fff1f2;
   --workflow-put-border: #fecaca;
-  --workflow-put-border-strong: #fca5a5;
+  --workflow-put-border-strong: #f87171;
   --workflow-put-text: #991b1b;
 }

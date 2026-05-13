@@ -70,14 +70,16 @@ export function createBackupPages({ backupService }) {
                   `
                     <form method="post" action="/backups/restore" class="inline-form inline-form-wrap">
                       <input type="hidden" name="filename" value="${escapeHtml(backup.filename)}" />
-                      <input
-                        name="confirm_restore"
-                        placeholder="Type RESTORE"
-                        pattern="RESTORE"
-                        title="Type RESTORE to confirm"
-                        required
-                      />
-                      <button type="submit" class="ghost-button">Restore</button>
+                      <label>Confirm restore
+                        <input
+                          name="confirm_restore"
+                          placeholder="Type RESTORE"
+                          pattern="RESTORE"
+                          title="Type RESTORE to confirm"
+                          required
+                        />
+                      </label>
+                      <button type="submit" class="ghost-button danger-button">Restore database</button>
                     </form>
                   `,
                 ]),
