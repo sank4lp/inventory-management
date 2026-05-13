@@ -26,6 +26,27 @@ export function hiddenSubmissionToken(token) {
     : "";
 }
 
+export function trashIcon() {
+  return `
+    <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <path d="M3 6h18" />
+      <path d="M8 6V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v2" />
+      <path d="M19 6l-1 14c-.1 1.1-1 2-2.1 2H8.1c-1.1 0-2-.9-2.1-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  `;
+}
+
+export function copyIcon() {
+  return `
+    <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4c0-1.1.9-2 2-2h9c1.1 0 2 .9 2 2v1" />
+    </svg>
+  `;
+}
+
 export function quickActionLinks(productId, cellId = "") {
   return `
     <div class="mini-actions">
@@ -242,8 +263,8 @@ export function renderAdjustmentLine(products, index) {
           "",
           false,
         )}
-        <label>Final quantity in cell
-          <input type="number" min="0" step="0.01" name="absolute_quantity_${index}" placeholder="0, 3, 12" />
+        <label>Final counted quantity
+          <input type="number" min="0" step="0.01" inputmode="decimal" name="absolute_quantity_${index}" placeholder="0, 3, 12" />
         </label>
       </div>
       <div class="mini-actions">

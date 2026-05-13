@@ -1,3 +1,5 @@
+import { resolveLedBrightness } from "../hardware-brightness.js";
+
 function stamp() {
   return new Date().toISOString();
 }
@@ -13,7 +15,19 @@ function createSkippedEvent({ controllerId = null, cellId = null, taskId = null,
   };
 }
 
-export function createDegradedAdapter() {
+export function createDegradedAdapter({ config = {} } = {}) {
+  const now = typeof config.ledBrightnessClock === "function"
+    ? config.ledBrightnessClock
+    : () => new Date();
+
+  function brightnessPayload() {
+    const policy = resolveLedBrightness(config, now());
+    return {
+      brightnessPercent: policy.brightnessPercent,
+      brightnessMode: policy.mode,
+    };
+  }
+
   function skipped(operation, extra = {}) {
     return {
       ok: false,
@@ -63,7 +77,7 @@ export function createDegradedAdapter() {
       return skipped("cell_test_skipped", {
         controllerId: cell.controller_id,
         cellId: cell.id,
-        payload: { color },
+        payload: { color, ...brightnessPayload() },
       });
     },
     setCellLocate(cell, active = true) {
@@ -73,6 +87,7 @@ export function createDegradedAdapter() {
         payload: {
           color: "red",
           active,
+          ...brightnessPayload(),
         },
       });
     },

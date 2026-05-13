@@ -60,19 +60,20 @@ The system should distinguish between:
 4. User enters required fields
 5. System validates uniqueness rules
 6. Product is saved
-7. Product becomes searchable in Pick, Put, Home search, and catalog flows
+7. Product becomes searchable in Pick, Put, and catalog flows
 
 ## Product detail behavior
 
 - Clicking a product opens a product detail view.
 - The detail view shows which cells currently contain that product and how much is in each cell.
 - Each listed cell can expose direct **Pick** and **Put** actions.
-- The home screen also includes product search so operators can reach these actions directly without first opening the catalog.
 
 ## Cell search behavior
 
-- The software also supports cell search.
+- The software supports cell search from the Locations flow.
 - Opening a cell detail view shows which products are currently present in that cell.
+- The Locations list and cell detail view expose direct **Pick** and **Put** actions for each cell.
+- A location-started **Pick** only offers products currently stocked in that location.
 - This allows users to inspect a location from either direction: product-to-cells or cell-to-products.
 
 ## Items-per-cell rule

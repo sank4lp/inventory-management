@@ -12,21 +12,11 @@ import {
   formatQuantity,
   page,
   quickActionLinks,
+  statsGrid,
   statusBadge,
   table,
+  trashIcon,
 } from "./shared.js";
-
-function trashIcon() {
-  return `
-    <svg class="button-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
-      <path d="M3 6h18" />
-      <path d="M8 6V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v2" />
-      <path d="M19 6l-1 14c-.1 1.1-1 2-2.1 2H8.1c-1.1 0-2-.9-2.1-2L5 6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
-  `;
-}
 
 function refreshIcon() {
   return `
@@ -167,21 +157,43 @@ function renderCellMappingOptions(cellCatalog, selectedCellId) {
     .join("");
 }
 
+function renderLocationWorkflowActions(cell) {
+  return `
+    <a class="mini-link" href="/pick?cell_id=${cell.id}">Pick</a>
+    <a class="mini-link" href="/put?cell_id=${cell.id}">Put</a>
+  `;
+}
+
 export function createLocationPages({ db }) {
-  function renderCellSearchResults(cells) {
-    return table(
-      ["Cell", "Stock", "Open"],
-      cells.map((cell) => [
-        escapeHtml(cell.logical_code),
-        escapeHtml(formatQuantity(cell.occupied_quantity)),
-        `<a class="mini-link" href="/cells/${cell.id}">View</a>`,
-      ]),
-    );
+  function renderCellSearchResults(cells, search = "") {
+    const searchLabel = String(search || "").trim();
+    return `
+      ${
+        searchLabel
+          ? `<p class="muted">${escapeHtml(formatQuantity(cells.length))} location(s) match "${escapeHtml(searchLabel)}".</p>`
+          : ""
+      }
+      ${table(
+        ["Location", "Stock", "Products", "Actions"],
+        cells.map((cell) => [
+          `<a href="/cells/${cell.id}">${escapeHtml(cell.logical_code)}</a>`,
+          escapeHtml(formatQuantity(cell.occupied_quantity)),
+          cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
+          `
+            <div class="mini-actions">
+              <a class="mini-link" href="/cells/${cell.id}">View</a>
+              ${renderLocationWorkflowActions(cell)}
+            </div>
+          `,
+        ]),
+        "No locations match that search.",
+      )}
+    `;
   }
 
   function renderAllLocations(cells) {
     return table(
-      ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
+      ["Location", "Light controller", "LED module", "Stock", "Products", "Actions"],
       cells.map((cell) => [
         `<a href="/cells/${cell.id}">${escapeHtml(cell.logical_code)}</a>`,
         cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
@@ -190,7 +202,7 @@ export function createLocationPages({ db }) {
         cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
         `
           <div class="mini-actions">
-            <a class="mini-link" href="/put?cell_id=${cell.id}">Put item here</a>
+            ${renderLocationWorkflowActions(cell)}
             <button
               type="button"
               class="ghost-button locate-button"
@@ -208,15 +220,24 @@ export function createLocationPages({ db }) {
   function renderCells(user, flash, search) {
     const cells = search ? searchCells(db, search) : [];
     const allCells = listCells(db);
+    const occupiedCount = allCells.filter((cell) => Number(cell.occupied_quantity || 0) > 0).length;
+    const emptyCount = allCells.length - occupiedCount;
+    const mappedCount = allCells.filter((cell) => cell.controller_code && cell.hardware_channel).length;
 
     return page({
-      title: "Cells",
+      title: "Locations",
       user,
       flash,
       content: `
         <div data-location-page>
+          ${statsGrid([
+            { label: "Locations", value: formatQuantity(allCells.length) },
+            { label: "With stock", value: formatQuantity(occupiedCount) },
+            { label: "Empty", value: formatQuantity(emptyCount) },
+            { label: "LED mapped", value: formatQuantity(mappedCount) },
+          ])}
           ${card(
-            "Find a cell",
+            "Find a location",
             `
               <form
                 method="get"
@@ -225,16 +246,18 @@ export function createLocationPages({ db }) {
                 data-live-search-form
                 data-endpoint="/fragments/cell-search"
                 data-target="#cell-search-results"
-                data-empty-html="<p class=&quot;muted&quot;>Search a cell to see what products are inside it.</p>"
+                data-empty-html="<p class=&quot;muted&quot;>Search a location to see what products are inside it.</p>"
               >
-                <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by logical code" />
+                <label class="inline-form-wrap">Search locations
+                  <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Type a location code, for example Z1-R1-C01" />
+                </label>
                 <button type="submit">Search</button>
               </form>
               <div id="cell-search-results">
                 ${
                   search
-                    ? renderCellSearchResults(cells)
-                    : `<p class="muted">Search a cell to see what products are inside it.</p>`
+                    ? renderCellSearchResults(cells, search)
+                    : `<p class="muted">Search a location to see what products are inside it.</p>`
                 }
               </div>
             `,
@@ -243,7 +266,7 @@ export function createLocationPages({ db }) {
             "All locations",
             allCells.length
               ? renderAllLocations(allCells)
-              : `<p class="muted">No active locations are configured.</p>`,
+              : `<p class="muted">No active locations are configured. Ask an admin to add cells in Configuration.</p>`,
             "",
             `data-row-collapser data-row-limit="6" data-row-label="locations"`,
           )}
@@ -268,21 +291,21 @@ export function createLocationPages({ db }) {
       flash,
       content: `
         ${card(
-          "Cell summary",
+          "Location summary",
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
             <p>${
               cell.controller_code && cell.hardware_channel
                 ? `${escapeHtml(cell.controller_code)} · Channel ${escapeHtml(cell.hardware_channel)}`
-                : "Manual pick/put · no controller mapped"
+                : "Manual pick/put · no light controller mapped"
             }</p>
             <div class="mini-actions">
-              <a class="mini-link" href="/put?cell_id=${cell.id}">Put any item here</a>
+              ${renderLocationWorkflowActions(cell)}
             </div>
           `,
         )}
         ${card(
-          "Products in this cell",
+          "Products in this location",
           table(
             ["Product", "Available", "Action"],
             cell.products.map((product) => [
@@ -290,6 +313,7 @@ export function createLocationPages({ db }) {
               escapeHtml(formatQuantity(product.available_quantity)),
               quickActionLinks(product.product_id, cell.id),
             ]),
+            "This location is empty right now.",
           ),
           "",
           `data-row-collapser data-row-limit="4" data-row-label="products"`,
@@ -503,12 +527,12 @@ export function createLocationPages({ db }) {
       <section id="cell-create" class="app-panel" data-config-section="cell-create">
         <div class="panel-heading">
           <div>
-            <h2>Add Cells</h2>
-            <p class="muted">Create the logical storage cells that operators will pick from and put into.</p>
+            <h2>Add locations</h2>
+            <p class="muted">Create the logical storage locations that operators will pick from and put into.</p>
           </div>
         </div>
         <form method="post" action="/devices/cells" class="inline-form">
-          <label>Cell name
+          <label>Location name
             <input
               name="logical_code"
               placeholder="Z1-R1-C01"
@@ -519,7 +543,7 @@ export function createLocationPages({ db }) {
           <label>Capacity
             <input name="capacity" type="number" min="1" step="1" value="12" required />
           </label>
-          <button type="submit" class="ghost-button">Add cell</button>
+          <button type="submit" class="ghost-button">Add location</button>
         </form>
       </section>
     `;
@@ -601,7 +625,7 @@ export function createLocationPages({ db }) {
               .join("")}
           </datalist>
           ${table(
-            ["Controller", "LED module", "Cell name", "Stock", "Ping"],
+            ["Controller", "LED module", "Location name", "Stock", "Ping"],
             mappedCells.map((cell) => [
               escapeHtml(cell.controller_code || "No controller"),
               escapeHtml(cell.hardware_channel),
@@ -793,22 +817,22 @@ export function createLocationPages({ db }) {
             </a>
             <a class="operation-tile" href="#cell-create" data-config-section-link="cell-create" aria-controls="cell-create">
               <span>
-                <strong>Add cells</strong>
+                <strong>Add locations</strong>
                 Create a storage location with capacity.
               </span>
               <span class="operation-kbd">02</span>
             </a>
             <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
               <span>
-                <strong>Manage cells</strong>
-                Delete and review active storage cells.
+                <strong>Manage locations</strong>
+                Review or remove active storage locations.
               </span>
               <span class="operation-kbd">03</span>
             </a>
             <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
               <span>
                 <strong>Cell mapping</strong>
-                Ping modules and assign them to storage cells.
+                Ping modules and assign them to storage locations.
               </span>
               <span class="operation-kbd">04</span>
             </a>

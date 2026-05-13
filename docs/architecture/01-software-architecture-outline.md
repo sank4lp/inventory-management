@@ -151,3 +151,4 @@ The hardware integration layer should be isolated so that:
 - Task correction is handled as a first-class workflow rather than an ad hoc admin-only database edit.
 - Stock handling is intentionally simplified so picks and puts operate against live available quantities without a separate reservation layer.
 - Shared rendering and UI-building logic should live in helper modules, while page files should stay organized by feature/domain so both humans and coding agents can find the correct file quickly.
+- Current code placement rules and extension guidance are documented in `docs/architecture/02-codebase-architecture.md`.

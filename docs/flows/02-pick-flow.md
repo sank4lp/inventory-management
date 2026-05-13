@@ -19,7 +19,7 @@ That means the system should:
 ## Primary user path
 
 1. User logs in
-2. User selects **Pick** from home screen or starts from the home search area
+2. User selects **Pick** from the home screen
 3. User searches for one or more products with the software-rendered searchable picker
 4. User enters required quantity per product
 5. System validates stock availability
@@ -36,6 +36,8 @@ That means the system should:
 12. Final review screen is auto-filled
 13. User approves or edits actual quantities
 14. System records transactions and updates balances
+
+Users may also start a pick from the Locations view by selecting **Pick** on a specific cell. In that case, the product picker should only offer products currently stocked in that cell, so the task remains a true “pick from this location” workflow.
 
 ## Multi-cell allocation example
 

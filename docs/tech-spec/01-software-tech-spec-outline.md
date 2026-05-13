@@ -129,7 +129,7 @@ To be finalized later:
 - navigation rules
 - kiosk behavior
 - modal product creation over the catalog view
-- home screen search for both products and cells
+- focused home screen with primary actions and recent tasks
 - software-rendered searchable comboboxes
 
 ## 10. Error and exception handling

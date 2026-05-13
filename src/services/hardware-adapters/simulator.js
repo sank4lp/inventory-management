@@ -1,3 +1,5 @@
+import { resolveLedBrightness } from "../hardware-brightness.js";
+
 function stamp() {
   return new Date().toISOString();
 }
@@ -6,7 +8,19 @@ function emit(event) {
   process.stdout.write(`[RS485-SIM] ${JSON.stringify(event)}\n`);
 }
 
-export function createSimulatorAdapter({ logger }) {
+export function createSimulatorAdapter({ config = {}, logger }) {
+  const now = typeof config.ledBrightnessClock === "function"
+    ? config.ledBrightnessClock
+    : () => new Date();
+
+  function brightnessPayload() {
+    const policy = resolveLedBrightness(config, now());
+    return {
+      brightnessPercent: policy.brightnessPercent,
+      brightnessMode: policy.mode,
+    };
+  }
+
   function wrap(events) {
     return {
       ok: true,
@@ -34,6 +48,7 @@ export function createSimulatorAdapter({ logger }) {
     activateGuidance(task, lines) {
       const events = lines.map((line) => {
         const color = guidanceColor(task, line);
+        const brightness = brightnessPayload();
         if (!hasModuleTarget(line)) {
           const payload = {
             ts: stamp(),
@@ -44,6 +59,7 @@ export function createSimulatorAdapter({ logger }) {
             taskType: task.type,
             quantity: line.planned_quantity,
             color,
+            ...brightness,
             reason: "cell-not-mapped-to-controller",
           };
           emit(payload);
@@ -63,6 +79,7 @@ export function createSimulatorAdapter({ logger }) {
           cell: line.logical_code,
           hardwareChannel: line.hardware_channel,
           color,
+          ...brightness,
           taskId: task.id,
           taskType: task.type,
           quantity: line.planned_quantity,
@@ -174,6 +191,7 @@ export function createSimulatorAdapter({ logger }) {
       };
     },
     sendCellTest(cell, color = "amber") {
+      const brightness = brightnessPayload();
       if (!hasModuleTarget(cell)) {
         const payload = {
           ts: stamp(),
@@ -181,6 +199,7 @@ export function createSimulatorAdapter({ logger }) {
           controllerId: cell.controller_id,
           cell: cell.logical_code,
           color,
+          ...brightness,
           reason: "cell-not-mapped-to-controller",
         };
         emit(payload);
@@ -206,6 +225,7 @@ export function createSimulatorAdapter({ logger }) {
         cell: cell.logical_code,
         hardwareChannel: cell.hardware_channel,
         color,
+        ...brightness,
       };
       emit(payload);
       return wrap([
@@ -219,6 +239,7 @@ export function createSimulatorAdapter({ logger }) {
       ]);
     },
     setCellLocate(cell, active = true) {
+      const brightness = brightnessPayload();
       if (!hasModuleTarget(cell)) {
         const payload = {
           ts: stamp(),
@@ -227,6 +248,7 @@ export function createSimulatorAdapter({ logger }) {
           cell: cell.logical_code,
           color: "red",
           active,
+          ...brightness,
           reason: "cell-not-mapped-to-controller",
         };
         emit(payload);
@@ -253,6 +275,7 @@ export function createSimulatorAdapter({ logger }) {
         hardwareChannel: cell.hardware_channel,
         color: "red",
         active,
+        ...brightness,
         timeoutMs: 120000,
       };
       emit(payload);

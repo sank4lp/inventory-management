@@ -72,7 +72,7 @@ If lights/buttons are integrated in the workflow:
 If a user records a real-world result that violates the ideal layout rules, the software should:
 - save the real result,
 - flag the affected cell as an anomaly,
-- show a recommended follow-up action on the home screen and in the recommended actions view.
+- show a recommended follow-up action in the recommended actions view.
 
 ## Shared task lifecycle
 
@@ -139,6 +139,8 @@ Planned next strategy direction:
 
 ## Current implementation direction
 
-- The home screen exposes live search for both products and cells.
+- The home screen stays intentionally focused: primary workflow buttons and recent tasks only.
+- Product and cell lookup live in the dedicated Products, Locations, Pick, and Put flows.
+- Locations expose direct Pick and Put actions; location-started Pick is constrained to products stocked in that cell.
 - Reports remain admin-focused, while operators use task, product, cell, and recommended-action flows.
 - Completed tasks may be reopened in a separate edit / correction mode, but only by the task owner or an admin.

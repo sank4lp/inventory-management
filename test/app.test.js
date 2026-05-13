@@ -2,10 +2,40 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import test from "node:test";
 
 async function freshImport(specifier) {
   return import(`${specifier}?t=${Date.now()}-${Math.random()}`);
+}
+
+class MockResponse {
+  constructor() {
+    this.statusCode = null;
+    this.headers = {};
+    this.body = "";
+  }
+
+  writeHead(statusCode, headers = {}) {
+    this.statusCode = statusCode;
+    this.headers = headers;
+  }
+
+  end(body = "") {
+    this.body += body;
+  }
+}
+
+function formRequest({ method = "POST", url, body, cookie }) {
+  const request = Readable.from([Buffer.from(body)]);
+  request.method = method;
+  request.url = url;
+  request.headers = {
+    host: "localhost",
+    cookie,
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  return request;
 }
 
 test("core inventory flows work against a fresh seeded database", async () => {
@@ -16,6 +46,7 @@ test("core inventory flows work against a fresh seeded database", async () => {
   const auth = await freshImport("../src/services/auth.js");
   const inventory = await freshImport("../src/services/inventory.js");
   const reports = await freshImport("../src/services/reports.js");
+  const { createReportsPages } = await freshImport("../src/server/pages/reports.js");
 
   const db = createDatabase({ hashPassword: auth.hashPassword });
 
@@ -204,6 +235,21 @@ test("core inventory flows work against a fresh seeded database", async () => {
     ),
   );
 
+  const reportHtml = createReportsPages({ db }).renderReports(
+    { id: 1, name: "Admin", username: "admin", role: "admin" },
+    null,
+    new URL("http://localhost/reports"),
+  );
+  assert.match(reportHtml, /report-overview-grid/);
+  assert.match(reportHtml, /data-report-open="stock-snapshot"/);
+  assert.match(reportHtml, /data-report-open="movement"/);
+  assert.match(reportHtml, /data-report-open="team-activity"/);
+  assert.match(reportHtml, /data-report-open="issues"/);
+  assert.match(reportHtml, /data-report-open="adjustments"/);
+  assert.match(reportHtml, /data-report-print-open/);
+  assert.match(reportHtml, /data-report-print-option="stock-snapshot"/);
+  assert.match(reportHtml, /data-report-template="movement"/);
+
   const mixedCell = inventory.searchCells(db, "Z1-R1-C04")[0];
 
   const mixedPutTask = inventory.planPut(db, {
@@ -296,6 +342,299 @@ test("put capacity error page offers an inline items-per-cell update", async () 
   assert.match(html, /name="items_per_cell"/);
   assert.match(html, /name="quantity" value="99"/);
   assert.match(html, /name="return_to" value="\/put\?product_id=\d+&amp;quantity=99"/);
+});
+
+test("locations expose direct pick and put actions", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-location-actions-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createLocationPages } = await freshImport("../src/server/pages/locations.js");
+  const { createProductPages } = await freshImport("../src/server/pages/products.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const stockedCell = inventory
+    .listCells(db)
+    .find((cell) => Number(cell.occupied_quantity || 0) > 0);
+  assert.ok(stockedCell);
+
+  const cellDetail = inventory.getCellDetail(db, stockedCell.id);
+  assert.ok(cellDetail.products.length > 0);
+
+  const locationPages = createLocationPages({ db });
+  const locationsHtml = locationPages.renderCells(user, null, "");
+  assert.match(locationsHtml, new RegExp(`href="/pick\\?cell_id=${stockedCell.id}"`));
+  assert.match(locationsHtml, new RegExp(`href="/put\\?cell_id=${stockedCell.id}"`));
+  assert.doesNotMatch(locationsHtml, /Put item here|Put any item here/);
+
+  const searchHtml = locationPages.renderCells(user, null, stockedCell.logical_code);
+  assert.match(searchHtml, /Search locations/);
+  assert.match(searchHtml, /location\(s\) match/);
+  assert.match(searchHtml, new RegExp(`href="/pick\\?cell_id=${stockedCell.id}"`));
+  assert.match(searchHtml, new RegExp(`href="/put\\?cell_id=${stockedCell.id}"`));
+
+  const productPages = createProductPages({ db });
+  const pickHtml = productPages.renderPick(
+    user,
+    null,
+    new URL(`http://localhost/pick?cell_id=${stockedCell.id}`),
+  );
+  assert.ok(pickHtml.includes(`<strong>${cellDetail.products[0].sku}</strong>`));
+  assert.match(pickHtml, /only offers products currently stocked there/);
+
+  const outsideProduct = inventory
+    .listProducts(db)
+    .find(
+      (product) =>
+        !cellDetail.products.some(
+          (cellProduct) => Number(cellProduct.product_id) === Number(product.id),
+        ),
+    );
+  if (outsideProduct) {
+    assert.ok(!pickHtml.includes(`data-value="${outsideProduct.id}"`));
+    const unavailablePickHtml = productPages.renderPick(
+      user,
+      null,
+      new URL(`http://localhost/pick?cell_id=${stockedCell.id}&product_id=${outsideProduct.id}`),
+    );
+    assert.match(unavailablePickHtml, /not currently stocked/);
+  }
+});
+
+test("operator movement screens keep context and use plain task actions", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-operator-ux-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createProductPages } = await freshImport("../src/server/pages/products.js");
+  const { createTaskPages } = await freshImport("../src/server/pages/tasks.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+
+  const productDetail = inventory.getProductDetail(db, shoe.id);
+  assert.ok(productDetail.locations.length > 0);
+  const preferredCellId = productDetail.locations[0].cell_id;
+
+  const productPages = createProductPages({ db });
+  const addProductHtml = productPages.renderProducts(user, null, "", true);
+  assert.match(addProductHtml, /Save and put stock/);
+  assert.match(addProductHtml, /Optional catalog details/);
+  const productSearchHtml = productPages.renderCatalogProductResults(
+    inventory.listProducts(db, "shoe"),
+    "No products match that search.",
+    "shoe",
+  );
+  assert.match(productSearchHtml, /product\(s\) match &quot;shoe&quot;/);
+  assert.match(productSearchHtml, /Open/);
+  assert.match(productSearchHtml, /Pick/);
+  assert.match(productSearchHtml, /Put/);
+
+  const pickHtml = productPages.renderPick(
+    user,
+    null,
+    new URL(`http://localhost/pick?product_id=${shoe.id}&cell_id=${preferredCellId}&quantity=2`),
+  );
+  assert.match(pickHtml, /name="quantity"[\s\S]*value="2"/);
+  assert.match(pickHtml, /Quick quantity/);
+  assert.match(pickHtml, /Available to pick/);
+
+  const task = inventory.allocatePick(db, {
+    userId: user.id,
+    productId: shoe.id,
+    quantity: 1,
+    preferredCellId,
+  });
+  const taskPages = createTaskPages({ db });
+  const taskHtml = taskPages.renderTask(user, null, task, "view", {
+    cancel: "cancel-token",
+    confirm: "confirm-token",
+  });
+
+  assert.match(taskHtml, new RegExp(`Pick Task #${task.id}`));
+  assert.match(taskHtml, /Mark reached/);
+  assert.match(taskHtml, /Complete pick/);
+  assert.match(taskHtml, /Cancel task/);
+  assert.match(taskHtml, /Cancel this task\?/);
+  assert.doesNotMatch(taskHtml, /Simulate button|Finish task|Cancel Task|Pick Action Initiated/);
+});
+
+test("recommended actions open as a scan-friendly list before detailed cleanup", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recommended-actions-ux-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createTaskPages } = await freshImport("../src/server/pages/tasks.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+  const mixedCell = inventory.searchCells(db, "Z1-R1-C04")[0];
+  assert.ok(mixedCell);
+
+  const putTask = inventory.planPut(db, {
+    userId: user.id,
+    productId: shoe.id,
+    quantity: 1,
+  });
+  inventory.completeTask(db, {
+    taskId: putTask.id,
+    actualQuantities: { [putTask.lines[0].id]: 1 },
+    actualCellIds: { [putTask.lines[0].id]: mixedCell.id },
+    userId: user.id,
+    note: "Create recommended action for UX test",
+  });
+
+  const actions = inventory.getRecommendedActions(db);
+  assert.ok(actions.length > 0);
+
+  const taskPages = createTaskPages({ db });
+  const listHtml = taskPages.renderRecommendedActions(user, null, "");
+  assert.match(listHtml, /Recommended cleanup/);
+  assert.match(listHtml, /Review/);
+  assert.doesNotMatch(listHtml, /Apply recommendation/);
+
+  const detailHtml = taskPages.renderRecommendedActions(user, null, actions[0].key);
+  assert.match(detailHtml, /Apply recommendation/);
+  assert.match(detailHtml, /Show PICK\/PUT LEDs/);
+});
+
+test("admins can revoke registration keys and suspend user access", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-admin-access-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const generatedKey = inventory.issueRegistrationKey(db, {
+    role: "operator",
+    userId: 1,
+  });
+  assert.match(generatedKey.key_value, /^OP-/);
+  assert.equal(generatedKey.status, "active");
+
+  inventory.issueRegistrationKey(db, {
+    keyValue: "TEMP-OP-KEY",
+    role: "operator",
+    userId: 1,
+  });
+  const key = inventory
+    .listRegistrationKeys(db)
+    .find((entry) => entry.key_value === "TEMP-OP-KEY");
+  assert.ok(key);
+
+  const revokedKey = inventory.revokeRegistrationKey(db, { keyId: key.id });
+  assert.equal(revokedKey.status, "revoked");
+  assert.throws(
+    () =>
+      inventory.registerUser(db, {
+        registrationKey: "TEMP-OP-KEY",
+        name: "Temporary Operator",
+        username: "temp-operator",
+        password: "operator123",
+        hashPassword: auth.hashPassword,
+      }),
+    /Registration key is not active\./,
+  );
+
+  const operator = inventory.listUsers(db).find((entry) => entry.username === "operator");
+  assert.ok(operator);
+  const suspended = inventory.setUserStatus(db, {
+    userId: operator.id,
+    status: "inactive",
+    actingUserId: 1,
+  });
+  assert.equal(suspended.status, "inactive");
+  assert.throws(
+    () =>
+      inventory.authenticateUser(db, {
+        username: "operator",
+        password: "operator123",
+        verifyPassword: auth.verifyPassword,
+      }),
+    /Invalid username or password\./,
+  );
+
+  const restored = inventory.setUserStatus(db, {
+    userId: operator.id,
+    status: "active",
+    actingUserId: 1,
+  });
+  assert.equal(restored.status, "active");
+  assert.equal(
+    inventory.authenticateUser(db, {
+      username: "operator",
+      password: "operator123",
+      verifyPassword: auth.verifyPassword,
+    }).status,
+    "active",
+  );
+  assert.throws(
+    () =>
+      inventory.setUserStatus(db, {
+        userId: 1,
+        status: "inactive",
+        actingUserId: 1,
+      }),
+    /You cannot suspend your own account\./,
+  );
+
+  const { createAdminPages } = await freshImport("../src/server/pages/admin.js");
+  const adminHtml = createAdminPages({ db }).renderAdmin(
+    { id: 1, name: "Admin", username: "admin", role: "admin" },
+    null,
+  );
+  assert.match(adminHtml, /Generate operator key/);
+  assert.match(adminHtml, /Generate admin key/);
+  assert.match(adminHtml, /one-time key per person/);
+  assert.match(adminHtml, /data-copy-value=/);
+  assert.match(adminHtml, /Preview quantity LED/);
+  assert.match(adminHtml, /1\. Choose location/);
+});
+
+test("adjustment preview guidance targets selected cell with entered quantity total", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-adjustment-preview-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { adjustmentQuantityGuidance } = await freshImport("../src/server/guidance/adjustments.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const cell = inventory.listCells(db)[0];
+  const preview = adjustmentQuantityGuidance(inventory.listCells(db), {
+    cellId: cell.id,
+    lines: [
+      { absoluteQuantity: "2" },
+      { absoluteQuantity: "3.5" },
+    ],
+  });
+
+  assert.equal(preview.displayQuantity, "5.5");
+  assert.equal(preview.lines[0].cell_id, cell.id);
+  assert.equal(preview.lines[0].guidance_color, "amber");
+  assert.equal(preview.lines[0].planned_quantity, "5.5");
+  assert.throws(
+    () =>
+      adjustmentQuantityGuidance(inventory.listCells(db), {
+        cellId: cell.id,
+        lines: [{ absoluteQuantity: "" }],
+      }),
+    /Enter at least one adjustment quantity/,
+  );
 });
 
 test("backups can restore previous data and prune old automatic snapshots", async () => {
@@ -807,6 +1146,77 @@ test("mapping a new module to an existing cell preserves that cell inventory", a
   assert.equal(added.logical_code, "Z1-R1-C99");
   assert.equal(Number(added.capacity), 8);
   assert.ok(inventory.listCellCatalog(db).some((cell) => cell.id === added.id));
+});
+
+test("mapping form errors return to the mapping workflow", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-mapping-http-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const auth = await freshImport("../src/services/auth.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+  const response = new MockResponse();
+  const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
+  const body = new URLSearchParams({
+    return_to: "/devices#cell-mapping",
+    hardware_channel_1: "1",
+    original_target_cell_id_1: "1",
+    target_cell_id_1: "2",
+  }).toString();
+
+  await requestHandler(
+    formRequest({
+      url: "/mapping/bulk",
+      body,
+      cookie,
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 302);
+  assert.match(response.headers.Location, /^\/devices\?/);
+  assert.match(response.headers.Location, /tone=error/);
+  assert.match(response.headers.Location, /#cell-mapping$/);
+  const redirectUrl = new URL(response.headers.Location, "http://localhost");
+  assert.equal(
+    redirectUrl.searchParams.get("flash"),
+    "Move stock out of the current mapped cell before replacing it.",
+  );
+});
+
+test("no-op adjustments return to admin with informational feedback", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-adjustment-http-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const auth = await freshImport("../src/services/auth.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+  const response = new MockResponse();
+  const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
+  const body = new URLSearchParams({
+    cell_id: "1",
+    product_id_0: "1",
+    absolute_quantity_0: "3",
+    reason: "No-op count check",
+  }).toString();
+
+  await requestHandler(
+    formRequest({
+      url: "/admin/adjustments",
+      body,
+      cookie,
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 302);
+  assert.match(response.headers.Location, /^\/admin\?/);
+  assert.match(response.headers.Location, /tone=info/);
+  const redirectUrl = new URL(response.headers.Location, "http://localhost");
+  assert.equal(
+    redirectUrl.searchParams.get("flash"),
+    "No adjustment was needed because the entered quantities already match the current values.",
+  );
 });
 
 test("deleting a cell requires explicit data confirmation when stock or history exists", async () => {

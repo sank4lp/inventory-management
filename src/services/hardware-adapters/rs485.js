@@ -1,6 +1,8 @@
 import { accessSync, closeSync, constants, openSync, readSync, writeSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
+import { resolveLedBrightness } from "../hardware-brightness.js";
+
 function stamp() {
   return new Date().toISOString();
 }
@@ -85,6 +87,9 @@ export function createRs485Adapter({ config = {}, logger }) {
   let heartbeatSyncStarted = false;
   let heartbeatSyncTimer = null;
   const locateTimers = new Map();
+  const now = typeof config.ledBrightnessClock === "function"
+    ? config.ledBrightnessClock
+    : () => new Date();
 
   function controllerAddressFor(record = {}) {
     return record.controller_address || record.address || "";
@@ -298,6 +303,17 @@ export function createRs485Adapter({ config = {}, logger }) {
     return task?.type === "put" ? "red" : "green";
   }
 
+  function currentBrightness() {
+    return resolveLedBrightness(config, now());
+  }
+
+  function brightnessPayload(policy = currentBrightness()) {
+    return {
+      brightnessPercent: policy.brightnessPercent,
+      brightnessMode: policy.mode,
+    };
+  }
+
   function locateKey(hardwareChannel, controllerAddress = "") {
     return `${firmwareAddress(controllerAddress)}:${Number(hardwareChannel)}`;
   }
@@ -401,6 +417,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         taskType: task?.type || null,
         quantity: line.planned_quantity,
         color: taskColor(task, line),
+        ...brightnessPayload(),
         reason: "cell-not-mapped-to-controller",
       },
     });
@@ -434,9 +451,10 @@ export function createRs485Adapter({ config = {}, logger }) {
         const text = String(line.planned_quantity ?? "");
         const color = taskColor(task, line);
         const controllerAddress = controllerAddressFor(line);
+        const brightness = currentBrightness();
         const command = addressedCommand(
           controllerAddress,
-          `digit ${line.hardware_channel} ${firmwareToken(text)} ${color} 120 80`,
+          `digit ${line.hardware_channel} ${firmwareToken(text)} ${color} 120 ${brightness.brightnessPercent}`,
         );
         clearLocateTimer(line.hardware_channel, controllerAddress);
         send(command);
@@ -455,6 +473,7 @@ export function createRs485Adapter({ config = {}, logger }) {
               taskType: task.type,
               quantity: line.planned_quantity,
               color,
+              ...brightnessPayload(brightness),
             },
           }),
         );
@@ -525,6 +544,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     },
     checkControllerHealth,
     sendCellTest(cell, color = "green") {
+      const brightness = currentBrightness();
       if (!hasModuleTarget(cell)) {
         return {
           ok: true,
@@ -540,6 +560,7 @@ export function createRs485Adapter({ config = {}, logger }) {
                 type: "manual-guidance",
                 cell: cell.logical_code,
                 color,
+                ...brightnessPayload(brightness),
                 reason: "cell-not-mapped-to-controller",
               },
             }),
@@ -549,7 +570,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       const controllerAddress = controllerAddressFor(cell);
       const command = addressedCommand(
         controllerAddress,
-        `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} 80 ${BLINK_TEST_DURATION_MS}`,
+        `blink ${cell.hardware_channel} ${firmwareWord(color, "green")} ${brightness.brightnessPercent} ${BLINK_TEST_DURATION_MS}`,
       );
       clearLocateTimer(cell.hardware_channel, controllerAddress);
       send(command);
@@ -567,12 +588,14 @@ export function createRs485Adapter({ config = {}, logger }) {
               hardwareChannel: cell.hardware_channel,
               controllerAddress,
               color,
+              ...brightnessPayload(brightness),
             },
           }),
         ],
       };
     },
     setCellLocate(cell, active = true) {
+      const brightness = currentBrightness();
       if (!hasModuleTarget(cell)) {
         return {
           ok: true,
@@ -588,6 +611,7 @@ export function createRs485Adapter({ config = {}, logger }) {
                 type: "manual-guidance",
                 cell: cell.logical_code,
                 active,
+                ...brightnessPayload(brightness),
                 reason: "cell-not-mapped-to-controller",
               },
             }),
@@ -596,7 +620,10 @@ export function createRs485Adapter({ config = {}, logger }) {
       }
       const controllerAddress = controllerAddressFor(cell);
       const command = active
-        ? addressedCommand(controllerAddress, `locate ${cell.hardware_channel} red 80 ${LOCATE_TIMEOUT_MS}`)
+        ? addressedCommand(
+            controllerAddress,
+            `locate ${cell.hardware_channel} red ${brightness.brightnessPercent} ${LOCATE_TIMEOUT_MS}`,
+          )
         : addressedCommand(controllerAddress, `clear ${cell.hardware_channel}`);
       clearLocateTimer(cell.hardware_channel, controllerAddress);
       if (active) {
@@ -622,6 +649,7 @@ export function createRs485Adapter({ config = {}, logger }) {
               hardwareChannel: cell.hardware_channel,
               controllerAddress,
               color: "red",
+              ...brightnessPayload(brightness),
               timeoutMs: LOCATE_TIMEOUT_MS,
             },
           }),

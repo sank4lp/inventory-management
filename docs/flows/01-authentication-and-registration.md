@@ -15,7 +15,10 @@ Registration is controlled through a **registration key** issued outside the sys
 
 Current software behavior:
 - only users with a valid registration key can register,
-- admins can issue keys from the admin console,
+- admins can generate operator or admin keys from the admin console,
+- admins can revoke unused active keys so they can no longer create accounts,
+- admins can suspend or restore user access from the admin console,
+- each key is intended for one person and is marked used after registration,
 - the seeded demo key is `INVITE-OP-2026`.
 
 ## Registration flow
@@ -29,7 +32,7 @@ Current software behavior:
    - optional contact details
 3. System validates the key
 4. System creates the user with the appropriate role/policy
-5. System marks the key as used or partially consumed depending on policy
+5. System marks the key as used
 6. User is redirected to login or automatically signed in
 
 ## Login flow
@@ -52,8 +55,10 @@ Recommended for kiosk safety:
 
 Admin can:
 - create registration keys,
+- generate separate one-time operator/admin registration keys,
+- revoke unused active registration keys,
 - view users,
-- deactivate users,
+- deactivate/reactivate users,
 - reset passwords,
 - change roles,
 - view user activity logs.

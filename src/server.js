@@ -1,37 +1,53 @@
-import { createReadStream, existsSync } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { URL } from "node:url";
 
-import { appConfig } from "./config.js";
-import { createDatabase } from "./db.js";
-import { createLogger } from "./logger.js";
-import { createPageRenderer } from "./server/pages/index.js";
-import { setRuntimeContext } from "./server/runtime-context.js";
+import { getAppState, logger } from "./server/app-state.js";
+import {
+  ensureAdmin,
+  ensureApiAdmin,
+  ensureApiAuth,
+  ensureAuth,
+} from "./server/http/auth-guards.js";
+import { parseForm } from "./server/http/request-body.js";
+import {
+  appendFlash,
+  getFlash,
+  safeLocalPath,
+  sendHtml,
+  sendJson,
+  sendRedirect,
+  sendText,
+} from "./server/http/responses.js";
+import {
+  parseAdjustmentLines,
+  parseCellMappingForm,
+  parsePutPlanForm,
+  parseRecommendedActionMoves,
+  parseTaskReviewForm,
+} from "./server/forms/inventory-forms.js";
+import {
+  adjustmentPreviewTask,
+  adjustmentQuantityGuidance,
+} from "./server/guidance/adjustments.js";
+import {
+  recommendationGuidanceLines,
+  recommendationGuidanceTask,
+  uniqueGuidanceLines,
+} from "./server/guidance/recommended-actions.js";
+import { serveStatic } from "./server/static-assets.js";
 import {
   clearSessionCookie,
   createSessionCookie,
   getSessionUser,
   hashPassword,
-  requireRole,
   verifyPassword,
 } from "./services/auth.js";
-import { createAdminService } from "./services/admin.js";
-import { createAnomalyService } from "./services/anomalies.js";
-import { createBackupService } from "./services/backups.js";
-import { createCatalogService } from "./services/catalog.js";
-import { createFirmwareService } from "./services/firmware.js";
-import { createHardwareService } from "./services/hardware.js";
-import { createLocationService } from "./services/locations.js";
-import { createSystemService } from "./services/system.js";
-import { createTaskService } from "./services/tasks.js";
 import {
   authenticateUser,
   getCellDetail,
   getProductDetail,
-  getTask,
   listCells,
-  listControllers,
   listProducts,
   PUT_CAPACITY_ERROR_MESSAGE,
   registerUser,
@@ -39,156 +55,16 @@ import {
 } from "./services/inventory.js";
 
 const PORT = Number(process.env.PORT || 3000);
-const logger = createLogger({
-  level: appConfig.logLevel,
-  siteId: appConfig.siteId,
-});
 const publicDir = join(process.cwd(), "public");
-let appState = null;
-
-function buildAppState() {
-  const db = createDatabase({
-    hashPassword,
-    bootstrapAdmin: appConfig.bootstrapAdmin,
-    allowDevAuthSeeds: appConfig.allowDevAuthSeeds,
-  });
-  const hardwareService = createHardwareService({
-    db,
-    config: appConfig,
-    logger,
-  });
-  const firmwareService = createFirmwareService({
-    db,
-    config: appConfig,
-    logger,
-  });
-  const systemService = createSystemService({
-    db,
-    config: appConfig,
-    logger,
-    hardwareService,
-    getTask,
-  });
-  const startup = systemService.runStartupChecks();
-  startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
-  const catalogService = createCatalogService({ db });
-  const locationService = createLocationService({ db });
-  const anomalyService = createAnomalyService({ db });
-  const adminService = createAdminService({ db });
-  const taskService = createTaskService({
-    db,
-    hardwareService,
-    logger,
-    systemService,
-  });
-  const backupService = createBackupService({
-    getDb: () => appState?.db || db,
-    reloadAppState,
-    logger,
-  });
-  const pages = createPageRenderer({ db, backupService });
-
-  setRuntimeContext({
-    config: appConfig,
-    firmwareService,
-    logger,
-    systemService,
-    startup,
-  });
-
-  return {
-    adminService,
-    anomalyService,
-    backupService,
-    catalogService,
-    db,
-    firmwareService,
-    hardwareService,
-    locationService,
-    pages,
-    startup,
-    systemService,
-    taskService,
-  };
-}
-
-function reloadAppState({ closeCurrentDb = true } = {}) {
-  if (closeCurrentDb && appState?.db) {
-    appState.db.close();
-  }
-
-  appState = buildAppState();
-  return appState;
-}
-
-function getAppState() {
-  if (!appState) {
-    appState = buildAppState();
-  }
-
-  return appState;
-}
 
 getAppState();
 
-function sendHtml(response, html, statusCode = 200, headers = {}) {
-  response.writeHead(statusCode, {
-    "Content-Type": "text/html; charset=utf-8",
-    ...headers,
-  });
-  response.end(html);
-}
-
-function sendText(response, text, statusCode = 200, headers = {}) {
-  response.writeHead(statusCode, {
-    "Content-Type": "text/plain; charset=utf-8",
-    ...headers,
-  });
-  response.end(text);
-}
-
-function sendJson(response, payload, statusCode = 200, headers = {}) {
-  response.writeHead(statusCode, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-    ...headers,
-  });
-  response.end(JSON.stringify(payload));
-}
-
-function sendRedirect(response, location, headers = {}) {
-  response.writeHead(302, {
-    Location: location,
-    ...headers,
-  });
-  response.end();
-}
-
-function appendFlash(path, message, tone = "info") {
-  const url = new URL(path, "http://localhost");
-  url.searchParams.set("flash", message);
-  url.searchParams.set("tone", tone);
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
-function safeLocalPath(value, fallback = "/") {
-  const text = String(value || "").trim();
-  if (!text) {
-    return fallback;
-  }
-
-  try {
-    const url = new URL(text, "http://localhost");
-    if (url.origin !== "http://localhost") {
-      return fallback;
-    }
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return fallback;
-  }
-}
-
 function putCapacityRetryPath(form) {
+  const retryPath = movementRetryPath("/put", form);
+  return `${retryPath}${retryPath.includes("?") ? "&" : "?"}capacity_help=1`;
+}
+
+function movementRetryPath(path, form) {
   const params = new URLSearchParams();
   if (form.product_id) {
     params.set("product_id", form.product_id);
@@ -199,196 +75,7 @@ function putCapacityRetryPath(form) {
   if (form.preferred_cell_id) {
     params.set("cell_id", form.preferred_cell_id);
   }
-  params.set("capacity_help", "1");
-  return `/put?${params.toString()}`;
-}
-
-async function parseForm(request) {
-  const chunks = [];
-  for await (const chunk of request) {
-    chunks.push(chunk);
-  }
-  const raw = Buffer.concat(chunks).toString("utf8");
-  const params = new URLSearchParams(raw);
-  return Object.fromEntries(params.entries());
-}
-
-function getFlash(url) {
-  const message = url.searchParams.get("flash");
-  if (!message) {
-    return null;
-  }
-
-  return {
-    message,
-    tone: url.searchParams.get("tone") || "info",
-  };
-}
-
-function ensureAuth(response, user) {
-  if (!user) {
-    sendRedirect(response, "/login");
-    return false;
-  }
-  return true;
-}
-
-function ensureAdmin(response, user) {
-  if (!user) {
-    sendRedirect(response, "/login");
-    return false;
-  }
-
-  if (!requireRole(user, "admin")) {
-    sendRedirect(response, appendFlash("/", "Admin access is required.", "error"));
-    return false;
-  }
-
-  return true;
-}
-
-function ensureApiAdmin(response, user) {
-  if (!user) {
-    sendJson(response, { error: "Authentication is required." }, 401);
-    return false;
-  }
-
-  if (!requireRole(user, "admin")) {
-    sendJson(response, { error: "Admin access is required." }, 403);
-    return false;
-  }
-
-  return true;
-}
-
-function ensureApiAuth(response, user) {
-  if (!user) {
-    sendJson(response, { error: "Authentication is required." }, 401);
-    return false;
-  }
-  return true;
-}
-
-function parseTaskReviewForm(form) {
-  return {
-    actualQuantities: Object.fromEntries(
-      Object.entries(form)
-        .filter(([key]) => key.startsWith("actual_") && !key.startsWith("actual_cell_"))
-        .map(([key, value]) => [Number(key.slice(7)), value]),
-    ),
-    actualCellIds: Object.fromEntries(
-      Object.entries(form)
-        .filter(([key]) => key.startsWith("actual_cell_"))
-        .map(([key, value]) => [Number(key.slice(12)), value]),
-    ),
-  };
-}
-
-function parsePutPlanForm(form) {
-  const byKey = new Map();
-
-  for (const [key, value] of Object.entries(form)) {
-    if (key.startsWith("plan_qty_")) {
-      const suffix = key.slice("plan_qty_".length);
-      byKey.set(suffix, {
-        ...(byKey.get(suffix) || {}),
-        quantity: value,
-      });
-    }
-    if (key.startsWith("plan_cell_")) {
-      const suffix = key.slice("plan_cell_".length);
-      byKey.set(suffix, {
-        ...(byKey.get(suffix) || {}),
-        cellId: value,
-      });
-    }
-  }
-
-  return Array.from(byKey.values()).filter(
-    (allocation) => String(allocation.quantity || "").trim() || String(allocation.cellId || "").trim(),
-  );
-}
-
-function parseCellMappingForm(form) {
-  return Object.entries(form)
-    .filter(([key]) => key.startsWith("target_cell_id_"))
-    .map(([key, targetCellId]) => {
-      const sourceCellId = key.slice("target_cell_id_".length);
-      return {
-        sourceCellId,
-        targetCellId,
-        originalTargetCellId: form[`original_target_cell_id_${sourceCellId}`],
-        hardwareChannel: form[`hardware_channel_${sourceCellId}`],
-      };
-    })
-    .filter(
-      (mapping) =>
-        String(mapping.targetCellId || "").trim() &&
-        String(mapping.hardwareChannel || "").trim() &&
-        String(mapping.targetCellId) !== String(mapping.originalTargetCellId),
-    );
-}
-
-function parseRecommendedActionMoves(form) {
-  return Object.entries(form)
-    .filter(([key, value]) => key.startsWith("move_qty_") && String(value).trim())
-    .map(([key, value]) => {
-      const suffix = key.slice("move_qty_".length);
-      return {
-        index: suffix,
-        quantity: value,
-        targetCellId: form[`move_cell_${suffix}`],
-      };
-    });
-}
-
-function recommendationGuidanceTask(form = {}) {
-  return {
-    id: null,
-    type: "recommended_move",
-    summary: form.reason || "Recommended action move",
-  };
-}
-
-function recommendationGuidanceLines(cells, { sourceCellId, targetCellId, quantity }) {
-  const moveQuantity = Number(quantity);
-  if (!Number.isFinite(moveQuantity) || moveQuantity <= 0) {
-    throw new Error("Move quantity must be greater than zero before lighting cells.");
-  }
-
-  const sourceCell = cells.find((entry) => entry.id === Number(sourceCellId));
-  const targetCell = cells.find((entry) => entry.id === Number(targetCellId));
-  if (!sourceCell) {
-    throw new Error("Source cell was not found.");
-  }
-  if (!targetCell) {
-    throw new Error("Choose a target cell before sending the light signal.");
-  }
-
-  return [
-    {
-      ...sourceCell,
-      cell_id: sourceCell.id,
-      planned_quantity: moveQuantity,
-      guidance_color: "green",
-      guidance_role: "pick_source",
-    },
-    {
-      ...targetCell,
-      cell_id: targetCell.id,
-      planned_quantity: moveQuantity,
-      guidance_color: "red",
-      guidance_role: "put_target",
-    },
-  ];
-}
-
-function uniqueGuidanceLines(lines) {
-  const byTarget = new Map();
-  for (const line of lines) {
-    byTarget.set(`${line.controller_id || "manual"}:${line.hardware_channel || line.cell_id}`, line);
-  }
-  return Array.from(byTarget.values());
+  return `${path}${params.toString() ? `?${params.toString()}` : ""}`;
 }
 
 function createAutomaticBackup(source) {
@@ -428,39 +115,6 @@ function backupAwareFlash(message, tone, backupResult) {
   };
 }
 
-function serveStatic(request, response, pathname) {
-  const filename =
-    pathname === "/styles.css"
-      ? "styles.css"
-      : pathname === "/theme.css"
-        ? "theme.css"
-      : pathname === "/app.js"
-        ? "app.js"
-        : null;
-  if (!filename) {
-    return false;
-  }
-
-  const filePath = join(publicDir, filename);
-  if (!existsSync(filePath)) {
-    return false;
-  }
-
-  const extension = extname(filePath);
-  const contentType =
-    extension === ".css"
-      ? "text/css; charset=utf-8"
-      : extension === ".js"
-        ? "application/javascript; charset=utf-8"
-        : "application/octet-stream";
-  response.writeHead(200, {
-    "Content-Type": contentType,
-    "Cache-Control": "no-store",
-  });
-  createReadStream(filePath).pipe(response);
-  return true;
-}
-
 export const requestHandler = async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   const {
@@ -473,53 +127,29 @@ export const requestHandler = async (request, response) => {
     hardwareService,
     locationService,
     pages,
-    systemService,
     taskService,
   } = getAppState();
   const user = getSessionUser(request, db);
   const flash = getFlash(url);
 
-  if (serveStatic(request, response, url.pathname)) {
+  if (serveStatic(response, publicDir, url.pathname)) {
     return;
   }
 
   try {
-    if (request.method === "GET" && url.pathname === "/fragments/home-products") {
-      if (!ensureAuth(response, user)) {
-        return;
-      }
-      const q = url.searchParams.get("q") || "";
-      const products = q ? listProducts(db, q).slice(0, 8) : [];
-      sendText(
-        response,
-        q
-          ? pages.renderHomeProductResults(products)
-          : `<p class="muted">Search here and jump straight into Pick or Put.</p>`,
-      );
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname === "/fragments/home-cells") {
-      if (!ensureAuth(response, user)) {
-        return;
-      }
-      const q = url.searchParams.get("q") || "";
-      const cells = q ? searchCells(db, q).slice(0, 8) : [];
-      sendText(
-        response,
-        q
-          ? pages.renderHomeCellResults(cells)
-          : `<p class="muted">Search a cell to see which products are stored there.</p>`,
-      );
-      return;
-    }
-
     if (request.method === "GET" && url.pathname === "/fragments/catalog-products") {
       if (!ensureAuth(response, user)) {
         return;
       }
       const q = url.searchParams.get("q") || "";
-      sendText(response, pages.renderCatalogProductResults(listProducts(db, q)));
+      sendText(
+        response,
+        pages.renderCatalogProductResults(
+          listProducts(db, q),
+          q ? "No products match that search." : "No products have been added yet.",
+          q,
+        ),
+      );
       return;
     }
 
@@ -531,8 +161,8 @@ export const requestHandler = async (request, response) => {
       sendText(
         response,
         q
-          ? pages.renderCellSearchResults(searchCells(db, q))
-          : `<p class="muted">Search a cell to see what products are inside it.</p>`,
+          ? pages.renderCellSearchResults(searchCells(db, q), q)
+          : `<p class="muted">Search a location to see what products are inside it.</p>`,
       );
       return;
     }
@@ -658,10 +288,14 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      catalogService.createProduct(form);
+      const product = catalogService.createProduct(form);
       const backupResult = createAutomaticBackup("product-create");
       const nextFlash = backupAwareFlash("Product saved.", "success", backupResult);
-      sendRedirect(response, appendFlash("/products", nextFlash.message, nextFlash.tone));
+      const nextPath =
+        form.next_action === "put"
+          ? `/put?product_id=${product.id}`
+          : `/products/${product.id}`;
+      sendRedirect(response, appendFlash(nextPath, nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -678,12 +312,22 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const { task, guidance } = taskService.createPickTask({
-        userId: user.id,
-        productId: form.product_id,
-        quantity: form.quantity,
-        preferredCellId: form.preferred_cell_id || null,
-      });
+      let task;
+      let guidance;
+      try {
+        ({ task, guidance } = taskService.createPickTask({
+          userId: user.id,
+          productId: form.product_id,
+          quantity: form.quantity,
+          preferredCellId: form.preferred_cell_id || null,
+        }));
+      } catch (error) {
+        sendRedirect(
+          response,
+          appendFlash(movementRetryPath("/pick", form), error.message, "error"),
+        );
+        return;
+      }
       const backupResult = createAutomaticBackup("task-pick-create");
       const nextFlash = backupAwareFlash(
         guidance.degraded
@@ -800,7 +444,11 @@ export const requestHandler = async (request, response) => {
           );
           return;
         }
-        throw error;
+        sendRedirect(
+          response,
+          appendFlash(movementRetryPath("/put", form), error.message, "error"),
+        );
+        return;
       }
       const backupResult = createAutomaticBackup("task-put-create");
       const nextFlash = backupAwareFlash(
@@ -956,8 +604,16 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const task = taskService.getTask(Number(buttonMatch[1]));
-      if (!task || task.status === "cancelled") {
+      if (!task || !pages.canEditTask(user, task)) {
+        sendRedirect(response, appendFlash(`/tasks/${buttonMatch[1]}`, "You can confirm only your own tasks unless you are an admin.", "error"));
+        return;
+      }
+      if (task.status === "cancelled") {
         sendRedirect(response, appendFlash(`/tasks/${buttonMatch[1]}`, "Cancelled tasks cannot be continued.", "error"));
+        return;
+      }
+      if (task.status === "completed") {
+        sendRedirect(response, appendFlash(`/tasks/${buttonMatch[1]}`, "Completed tasks can only be changed through correction mode.", "error"));
         return;
       }
       const form = await parseForm(request);
@@ -968,7 +624,7 @@ export const requestHandler = async (request, response) => {
       });
       const backupResult = createAutomaticBackup("task-physical-confirm");
       const nextFlash = backupAwareFlash(
-        `Simulated button press for ${line.logical_code}.`,
+        `Marked ${line.logical_code} as reached.`,
         "success",
         backupResult,
       );
@@ -1475,14 +1131,82 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      adminService.issueRegistrationKey({
+      const key = adminService.issueRegistrationKey({
         keyValue: form.key_value,
         role: form.role,
         userId: user.id,
       });
       const backupResult = createAutomaticBackup("registration-key-issue");
-      const nextFlash = backupAwareFlash("Registration key issued.", "success", backupResult);
+      const roleLabel = key.role === "admin" ? "Admin" : "Operator";
+      const nextFlash = backupAwareFlash(`${roleLabel} registration key issued.`, "success", backupResult);
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/registration-keys/revoke") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      adminService.revokeRegistrationKey({
+        keyId: form.key_id,
+      });
+      const backupResult = createAutomaticBackup("registration-key-revoke");
+      const nextFlash = backupAwareFlash("Registration key deleted.", "success", backupResult);
+      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/users/status") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const updatedUser = adminService.setUserStatus({
+        userId: form.user_id,
+        status: form.status,
+        actingUserId: user.id,
+      });
+      const backupResult = createAutomaticBackup("user-status-update");
+      const action = updatedUser.status === "active" ? "restored" : "suspended";
+      const nextFlash = backupAwareFlash(
+        `${updatedUser.username} access ${action}.`,
+        "success",
+        backupResult,
+      );
+      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/adjustments/light") {
+      if (!ensureApiAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const preview = adjustmentQuantityGuidance(locationService.listCells(), {
+        cellId: form.cell_id,
+        lines: parseAdjustmentLines(form),
+      });
+      const guidance = hardwareService.activateGuidance(
+        adjustmentPreviewTask({ userId: user.id }),
+        preview.lines,
+        {
+          source: "adjustment_quantity_preview",
+          displayQuantity: preview.displayQuantity,
+        },
+      );
+      sendJson(response, {
+        ok: guidance.ok,
+        degraded: guidance.degraded,
+        message:
+          guidance.message ||
+          `Showing ${preview.displayQuantity} on ${preview.cell.logical_code}.`,
+        cell: {
+          id: preview.cell.id,
+          logicalCode: preview.cell.logical_code,
+        },
+        displayQuantity: preview.displayQuantity,
+      });
       return;
     }
 
@@ -1491,33 +1215,20 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const lineIndexes = Array.from(
-        new Set(
-          Object.keys(form)
-            .map(
-              (key) =>
-                key.match(/^product_id_(.+)$/)?.[1] ||
-                key.match(/^absolute_quantity_(.+)$/)?.[1] ||
-                null,
-            )
-            .filter(Boolean),
-        ),
-      ).sort((left, right) => String(left).localeCompare(String(right), undefined, { numeric: true }));
-      const lines = lineIndexes
-        .map((index) => ({
-          productId: form[`product_id_${index}`],
-          absoluteQuantity: form[`absolute_quantity_${index}`],
-        }))
-        .filter(
-          (line) =>
-            String(line.productId || "").trim() || String(line.absoluteQuantity || "").trim(),
-        );
-      adminService.createAdjustment({
-        cellId: form.cell_id,
-        userId: user.id,
-        reason: form.reason,
-        lines,
-      });
+      try {
+        adminService.createAdjustment({
+          cellId: form.cell_id,
+          userId: user.id,
+          reason: form.reason,
+          lines: parseAdjustmentLines(form),
+        });
+      } catch (error) {
+        if (error.message.startsWith("No adjustment was needed")) {
+          sendRedirect(response, appendFlash("/admin", error.message, "info"));
+          return;
+        }
+        throw error;
+      }
       const backupResult = createAutomaticBackup("adjustment-create");
       const nextFlash = backupAwareFlash("Adjustment batch recorded.", "success", backupResult);
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
@@ -1544,6 +1255,12 @@ export const requestHandler = async (request, response) => {
         cancelMatch?.[1] ||
         buttonMatch?.[1];
       target = `/tasks/${taskId}`;
+    }
+    if (url.pathname === "/mapping" || url.pathname === "/mapping/bulk") {
+      target = "/devices#cell-mapping";
+    }
+    if (url.pathname === "/admin/adjustments") {
+      target = "/admin";
     }
     sendRedirect(response, appendFlash(target, error.message, "error"));
   }

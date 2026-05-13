@@ -67,5 +67,9 @@ All four should be treated as launch-priority reports.
 Current software behavior:
 - reports are generated on demand from transactions and tasks,
 - time filtering uses fully qualified timestamp columns to avoid ambiguous report queries,
+- the reports page starts with a summary console and report cards for stock snapshot, movement, team activity, issues, and adjustments,
+- report cards open focused popup previews instead of forcing the user to scroll through every table,
+- the PRINT action opens a report picker, then uses the browser-native print dialog for the selected report,
+- printed reports are formatted as A4 document pages with a clean title block, timeframe metadata, and Word-style bordered tables,
 - the reports page stays admin-friendly by using clear preset buttons plus a manual range override,
 - the selected datetime range is expected to update all range-sensitive report sections consistently, including team activity, recent activity, adjustments, and issue-focused task views.

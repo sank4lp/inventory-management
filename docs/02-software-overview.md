@@ -85,7 +85,7 @@ Even if phase 1 is delivered as one deployable application, its modules should b
 
 ### 9. Recommended actions and anomaly handling
 - Detect cells whose actual state does not match the ideal software rules
-- Surface recommended follow-up actions on the home screen
+- Surface recommended follow-up actions in the recommended actions screen
 - Allow a user to review and edit a suggested correction plan before applying it
 
 ## Recommended domain model
@@ -177,7 +177,7 @@ The following entities should exist in some form.
 - Registration
 
 ### Main app screens
-- Home dashboard
+- Overview dashboard
 - Recommended actions screen
 - Pick screen
 - Put screen
@@ -207,7 +207,8 @@ The following entities should exist in some form.
 - Buttons may provide physical confirmation, but the system should still show a final review screen before committing inventory changes.
 - For pick tasks, all allocated cells may be lit at once while the UI clearly shows the full planned allocation.
 - Reports should be printable directly from the system after the user selects a timeframe.
-- Operators should be able to search products and cells directly from the home screen.
+- The home screen should stay focused on primary workflow buttons and recent tasks.
+- Operators should search products and cells from the dedicated Products, Locations, Pick, and Put flows.
 - Completed tasks may enter a separate correction mode rather than being overwritten silently.
 
 ## Current implementation direction

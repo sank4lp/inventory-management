@@ -1,140 +1,58 @@
+import { randomBytes } from "node:crypto";
+
 import { withTransaction } from "../db.js";
+import { createInventoryBalanceRepository } from "../repositories/inventory-balance-repository.js";
+import { createProductRepository } from "../repositories/product-repository.js";
+import { createTaskRepository } from "../repositories/task-repository.js";
+import {
+  assertSufficientBalance,
+  normalizeItemsPerCell,
+  normalizeNonNegativeQuantity,
+  normalizePositiveQuantity,
+  quantitiesMatch,
+} from "../domain/inventory/quantities.js";
+import {
+  planPickLines,
+  planPutLines,
+  planRecommendedMoveDestinations,
+  PUT_CAPACITY_ERROR_MESSAGE as DOMAIN_PUT_CAPACITY_ERROR_MESSAGE,
+} from "../domain/inventory/stock-planning.js";
+import { nowIso } from "../shared/time.js";
 import { ESP32_FIRMWARE_PROTOCOL } from "./firmware-constants.js";
 
-function nowIso() {
-  return new Date().toISOString();
+export const PUT_CAPACITY_ERROR_MESSAGE = DOMAIN_PUT_CAPACITY_ERROR_MESSAGE;
+
+function generateRegistrationKeyValue(role = "operator") {
+  const prefix = role === "admin" ? "ADM" : "OP";
+  const stamp = Date.now().toString(36).toUpperCase();
+  const token = randomBytes(3).toString("hex").toUpperCase();
+  return `${prefix}-${stamp}-${token}`;
 }
 
-function normalizeQuantity(value) {
-  const quantity = Number(value);
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    throw new Error("Quantity must be a positive number.");
-  }
-  return quantity;
-}
-
-function normalizeNonNegativeQuantity(value, message = "Quantity values must be zero or greater.") {
-  const quantity = Number(value);
-  if (!Number.isFinite(quantity) || quantity < 0) {
-    throw new Error(message);
-  }
-  return quantity;
-}
-
-function quantitiesMatch(left, right) {
-  return Math.abs(Number(left) - Number(right)) < 0.000001;
-}
-
-function normalizeItemsPerCell(value) {
-  const capacity = Number(value);
-  if (!Number.isFinite(capacity) || capacity <= 0) {
-    throw new Error("Items per cell must be a positive number.");
-  }
-  return capacity;
-}
-
-function assertSufficientBalance(balance, quantity, message) {
-  if (Number(balance.available_quantity) < Number(quantity)) {
-    throw new Error(message);
-  }
-}
-
-function sumCellOccupancy(db, cellId) {
-  const row = db
-    .prepare(
-      `
-        SELECT COALESCE(SUM(available_quantity), 0) AS total_quantity
-        FROM inventory_balances
-        WHERE cell_id = ?
-      `,
-    )
-    .get(Number(cellId));
-  return Number(row?.total_quantity || 0);
+function displayQuantity(value) {
+  const number = Number(value || 0);
+  return Number.isInteger(number) ? String(number) : String(number).replace(/\.?0+$/, "");
 }
 
 function moveSuggestions(db, { productId, sourceCellId, quantity }) {
   const product = findProductOrThrow(db, Number(productId));
+  const balances = createInventoryBalanceRepository(db);
   const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
-  const requestedQuantity = normalizeQuantity(quantity);
-
-  const sameProductCells = db
-    .prepare(
-      `
-        SELECT
-          c.id AS cell_id,
-          c.logical_code,
-          COALESCE(b.available_quantity, 0) AS available_quantity
-        FROM cells c
-        JOIN inventory_balances b ON b.cell_id = c.id
-        WHERE b.product_id = ? AND c.active = 1 AND c.id != ?
-        ORDER BY COALESCE(b.available_quantity, 0) DESC,
-                 c.row_number,
-                 c.column_number
-      `,
-    )
-    .all(Number(productId), Number(sourceCellId));
-
-  const emptyCells = db
-    .prepare(
-      `
-        SELECT
-          c.id AS cell_id,
-          c.logical_code
-        FROM cells c
-        LEFT JOIN inventory_balances b
-          ON b.cell_id = c.id AND b.available_quantity > 0
-        WHERE c.active = 1
-          AND b.id IS NULL
-          AND c.id != ?
-        ORDER BY c.row_number, c.column_number
-      `,
-    )
-    .all(Number(sourceCellId));
-
-  let remaining = requestedQuantity;
-  const destinations = [];
-
-  for (const cell of sameProductCells) {
-    if (remaining <= 0) {
-      break;
-    }
-    const currentQuantity = Number(cell.available_quantity);
-    const room = itemsPerCell - currentQuantity;
-    if (room <= 0) {
-      continue;
-    }
-    const quantityToMove = Math.min(room, remaining);
-    destinations.push({
-      targetCellId: cell.cell_id,
-      targetLogicalCode: cell.logical_code,
-      quantity: quantityToMove,
-      currentQuantity,
-      idealCapacity: itemsPerCell,
-    });
-    remaining -= quantityToMove;
-  }
-
-  for (const cell of emptyCells) {
-    if (remaining <= 0) {
-      break;
-    }
-    const quantityToMove = Math.min(itemsPerCell, remaining);
-    destinations.push({
-      targetCellId: cell.cell_id,
-      targetLogicalCode: cell.logical_code,
-      quantity: quantityToMove,
-      currentQuantity: 0,
-      idealCapacity: itemsPerCell,
-    });
-    remaining -= quantityToMove;
-  }
+  const requestedQuantity = normalizePositiveQuantity(quantity);
+  const plan = planRecommendedMoveDestinations({
+    sourceCellId,
+    requestedQuantity,
+    itemsPerCell,
+    sameProductCells: balances.listSameProductMoveTargets(product.id, sourceCellId),
+    emptyCells: balances.listEmptyMoveTargets(sourceCellId),
+  });
 
   return {
     product,
-    sourceCellId: Number(sourceCellId),
+    sourceCellId: plan.sourceCellId,
     requestedQuantity,
-    destinations,
-    unresolvedQuantity: remaining,
+    destinations: plan.destinations,
+    unresolvedQuantity: plan.unresolvedQuantity,
   };
 }
 
@@ -237,62 +155,11 @@ function buildCellAnomalies(db) {
 }
 
 export function listProducts(db, search = "") {
-  const pattern = `%${search.trim()}%`;
-  return db
-    .prepare(
-      `
-        SELECT
-          p.*,
-          COALESCE(SUM(b.available_quantity), 0) AS total_available
-        FROM products p
-        LEFT JOIN inventory_balances b ON b.product_id = p.id
-        WHERE p.sku LIKE ? OR p.name LIKE ? OR p.brand LIKE ?
-        GROUP BY p.id
-        ORDER BY p.name
-      `,
-    )
-    .all(pattern, pattern, pattern);
+  return createProductRepository(db).list(search);
 }
 
 export function getProductDetail(db, productId) {
-  const product = db
-    .prepare(
-      `
-        SELECT
-          p.*,
-          COALESCE(SUM(b.available_quantity), 0) AS total_available
-        FROM products p
-        LEFT JOIN inventory_balances b ON b.product_id = p.id
-        WHERE p.id = ?
-        GROUP BY p.id
-      `,
-    )
-    .get(Number(productId));
-
-  if (!product) {
-    return null;
-  }
-
-  const locations = db
-    .prepare(
-      `
-        SELECT
-          c.id AS cell_id,
-          c.logical_code,
-          c.hardware_channel,
-          COALESCE(b.available_quantity, 0) AS available_quantity
-        FROM inventory_balances b
-        JOIN cells c ON c.id = b.cell_id
-        WHERE b.product_id = ? AND b.available_quantity > 0
-        ORDER BY c.row_number, c.column_number
-      `,
-    )
-    .all(Number(productId));
-
-  return {
-    ...product,
-    locations,
-  };
+  return createProductRepository(db).getDetail(productId);
 }
 
 export function createProduct(db, input) {
@@ -311,482 +178,99 @@ export function createProduct(db, input) {
 
   const itemsPerCell = normalizeItemsPerCell(input.items_per_cell || 12);
 
-  const existing = db
-    .prepare("SELECT id FROM products WHERE sku = ?")
-    .get(input.sku.trim());
+  const products = createProductRepository(db);
+  const existing = products.findBySku(input.sku);
   if (existing) {
     throw new Error("A product with that SKU already exists.");
   }
 
-  const result = db
-    .prepare(
-      `
-        INSERT INTO products (
-          sku, name, brand, category, variant, unit_of_measure, description,
-          preferred_storage_strategy, items_per_cell, active, created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-    )
-    .run(
-      input.sku.trim(),
-      input.name.trim(),
-      input.brand.trim(),
-      input.category?.trim() || null,
-      input.variant?.trim() || null,
-      input.unit_of_measure.trim(),
-      input.description?.trim() || null,
-      input.preferred_storage_strategy?.trim() || "closest-cell-first",
-      itemsPerCell,
-      input.active === "0" ? 0 : 1,
-      nowIso(),
-    );
-
-  return db.prepare("SELECT * FROM products WHERE id = ?").get(Number(result.lastInsertRowid));
+  return products.create({
+    sku: input.sku.trim(),
+    name: input.name.trim(),
+    brand: input.brand.trim(),
+    category: input.category?.trim() || null,
+    variant: input.variant?.trim() || null,
+    unit_of_measure: input.unit_of_measure.trim(),
+    description: input.description?.trim() || null,
+    preferred_storage_strategy: input.preferred_storage_strategy?.trim() || "closest-cell-first",
+    items_per_cell: itemsPerCell,
+    active: input.active === "0" ? 0 : 1,
+  });
 }
 
 function findProductOrThrow(db, productId) {
-  const product = db.prepare("SELECT * FROM products WHERE id = ?").get(productId);
+  const product = createProductRepository(db).findById(productId);
   if (!product) {
     throw new Error("Product not found.");
   }
   return product;
 }
 
-function getOrCreateBalance(db, productId, cellId) {
-  const existing = db
-    .prepare("SELECT * FROM inventory_balances WHERE product_id = ? AND cell_id = ?")
-    .get(productId, cellId);
-
-  if (existing) {
-    return existing;
-  }
-
-  const result = db
-    .prepare(
-      `
-        INSERT INTO inventory_balances (product_id, cell_id, available_quantity, reserved_quantity)
-        VALUES (?, ?, 0, 0)
-      `,
-    )
-    .run(productId, cellId);
-
-  return db
-    .prepare("SELECT * FROM inventory_balances WHERE id = ?")
-    .get(Number(result.lastInsertRowid));
-}
-
-function taskLinesWithCells(db, taskId) {
-  return db
-    .prepare(
-      `
-        SELECT
-          tl.*,
-          p.sku,
-          p.name AS product_name,
-          p.brand,
-          p.unit_of_measure,
-          c.logical_code,
-          c.hardware_channel,
-          c.controller_id,
-          ctrl.controller_code,
-          ctrl.address AS controller_address
-        FROM task_lines tl
-        JOIN products p ON p.id = tl.product_id
-        JOIN cells c ON c.id = tl.cell_id
-        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
-        WHERE tl.task_id = ?
-        ORDER BY p.name, c.row_number, c.column_number
-      `,
-    )
-    .all(taskId);
-}
-
 export function getTask(db, taskId) {
-  const task = db
-    .prepare(
-      `
-        SELECT
-          t.*,
-          u.name AS created_by_name,
-          u.username AS created_by_username
-        FROM tasks t
-        JOIN users u ON u.id = t.created_by
-        WHERE t.id = ?
-      `,
-    )
-    .get(taskId);
-
-  if (!task) {
-    return null;
-  }
-
-  return {
-    ...task,
-    lines: taskLinesWithCells(db, taskId),
-  };
+  return createTaskRepository(db).get(taskId);
 }
 
 export function listRecentTasks(db, limit = 10) {
-  return db
-    .prepare(
-      `
-        SELECT
-          t.id,
-          t.type,
-          t.status,
-          t.summary,
-          t.started_at,
-          t.completed_at,
-          t.created_by,
-          u.username AS created_by_username,
-          (
-            SELECT p.sku
-            FROM task_lines tl
-            JOIN products p ON p.id = tl.product_id
-            WHERE tl.task_id = t.id
-            ORDER BY tl.id
-            LIMIT 1
-          ) AS first_sku,
-          (
-            SELECT p.name
-            FROM task_lines tl
-            JOIN products p ON p.id = tl.product_id
-            WHERE tl.task_id = t.id
-            ORDER BY tl.id
-            LIMIT 1
-          ) AS first_product_name
-        FROM tasks t
-        JOIN users u ON u.id = t.created_by
-        ORDER BY t.id DESC
-        LIMIT ?
-      `,
-    )
-    .all(limit);
+  return createTaskRepository(db).listRecent(limit);
 }
 
 export function listRecentTasksForUser(db, user, limit = 10) {
-  if (user.role === "admin") {
-    return listRecentTasks(db, limit);
-  }
-
-  return db
-    .prepare(
-      `
-        SELECT
-          t.id,
-          t.type,
-          t.status,
-          t.summary,
-          t.started_at,
-          t.completed_at,
-          t.created_by,
-          u.username AS created_by_username,
-          (
-            SELECT p.sku
-            FROM task_lines tl
-            JOIN products p ON p.id = tl.product_id
-            WHERE tl.task_id = t.id
-            ORDER BY tl.id
-            LIMIT 1
-          ) AS first_sku,
-          (
-            SELECT p.name
-            FROM task_lines tl
-            JOIN products p ON p.id = tl.product_id
-            WHERE tl.task_id = t.id
-            ORDER BY tl.id
-            LIMIT 1
-          ) AS first_product_name
-        FROM tasks t
-        JOIN users u ON u.id = t.created_by
-        WHERE t.created_by = ?
-        ORDER BY t.id DESC
-        LIMIT ?
-      `,
-    )
-    .all(user.id, limit);
+  return createTaskRepository(db).listRecentForUser(user, limit);
 }
 
 export function allocatePick(db, { userId, productId, quantity, preferredCellId = null }) {
-  const requestedQuantity = normalizeQuantity(quantity);
+  const requestedQuantity = normalizePositiveQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
-  const preferredCell = preferredCellId
-    ? db.prepare("SELECT id, logical_code FROM cells WHERE id = ? AND active = 1").get(Number(preferredCellId))
-    : null;
-
-  const balances = db
-    .prepare(
-      `
-        SELECT
-          b.product_id,
-          b.cell_id,
-          b.available_quantity,
-          c.logical_code,
-          c.hardware_channel,
-          c.controller_id,
-          c.row_number,
-          c.column_number
-        FROM inventory_balances b
-        JOIN cells c ON c.id = b.cell_id
-        WHERE b.product_id = ? AND c.active = 1 AND b.available_quantity > 0
-        ORDER BY
-          CASE WHEN c.id = ? THEN 0 ELSE 1 END,
-          c.row_number,
-          c.column_number
-      `,
-    )
-    .all(product.id, preferredCell ? preferredCell.id : -1);
-
-  const totalAvailable = balances.reduce((sum, row) => sum + Number(row.available_quantity), 0);
-
-  if (totalAvailable < requestedQuantity) {
-    throw new Error(
-      `Insufficient stock. Requested ${requestedQuantity}, but only ${totalAvailable} is available.`,
-    );
-  }
-
-  let remaining = requestedQuantity;
-  const lines = [];
-  for (const row of balances) {
-    if (remaining <= 0) {
-      break;
-    }
-    const freeQuantity = Number(row.available_quantity);
-    const planned = Math.min(remaining, freeQuantity);
-    if (planned <= 0) {
-      continue;
-    }
-    lines.push({
-      product_id: product.id,
-      cell_id: row.cell_id,
-      planned_quantity: planned,
-      guidance_color: "green",
-    });
-    remaining -= planned;
-  }
+  const balances = createInventoryBalanceRepository(db);
+  const lines = planPickLines({
+    product,
+    requestedQuantity,
+    balances: balances.listPickCandidates(product.id, preferredCellId),
+  });
 
   return withTransaction(db, () => {
-    const taskResult = db
-      .prepare(
-        `
-          INSERT INTO tasks (type, status, summary, created_by, started_at)
-          VALUES ('pick', 'pending_review', ?, ?, ?)
-        `,
-      )
-      .run(
-        `${product.sku} pick (${requestedQuantity} ${product.unit_of_measure})`,
-        userId,
-        nowIso(),
-      );
-
-    const taskId = Number(taskResult.lastInsertRowid);
-    db.prepare("UPDATE tasks SET summary = ? WHERE id = ?").run(
-      `Pick Action Initiated - Task #${taskId}`,
-      taskId,
+    const tasks = createTaskRepository(db);
+    const task = tasks.createPendingReviewTask({
+      type: "pick",
+      summary: `${product.sku} pick (${requestedQuantity} ${product.unit_of_measure})`,
+      createdBy: userId,
+      lines,
+    });
+    tasks.updateSummary(
+      task.id,
+      `Pick ${displayQuantity(requestedQuantity)} ${product.unit_of_measure} of ${product.sku}`,
     );
-
-    for (const line of lines) {
-      db.prepare(
-        `
-          INSERT INTO task_lines (task_id, product_id, cell_id, planned_quantity, guidance_color)
-          VALUES (?, ?, ?, ?, ?)
-        `,
-      ).run(
-        taskId,
-        line.product_id,
-        line.cell_id,
-        line.planned_quantity,
-        line.guidance_color,
-      );
-    }
-
-    return getTask(db, taskId);
+    return tasks.get(task.id);
   });
 }
 
-export const PUT_CAPACITY_ERROR_MESSAGE = "Not enough free cells are available for this product capacity.";
-
 export function planPut(db, { userId, productId, quantity, preferredCellId = null }) {
-  const requestedQuantity = normalizeQuantity(quantity);
+  const requestedQuantity = normalizePositiveQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
+  const balances = createInventoryBalanceRepository(db);
   const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
-  const preferredCell = preferredCellId
-    ? db
-        .prepare(
-          `
-            SELECT
-              c.id AS cell_id,
-              c.logical_code,
-              c.hardware_channel,
-              c.controller_id,
-              c.row_number,
-              c.column_number,
-              COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity
-            FROM cells c
-            LEFT JOIN inventory_balances b ON b.cell_id = c.id
-            WHERE c.id = ? AND c.active = 1
-            GROUP BY c.id
-          `,
-        )
-        .get(Number(preferredCellId))
-    : null;
-
-  const sameProductCells = db
-    .prepare(
-      `
-        SELECT
-          c.id AS cell_id,
-          c.logical_code,
-          c.hardware_channel,
-          c.controller_id,
-          c.row_number,
-          c.column_number,
-          COALESCE(b.available_quantity, 0) AS available_quantity
-        FROM cells c
-        JOIN inventory_balances b ON b.cell_id = c.id
-        WHERE b.product_id = ? AND c.active = 1
-        ORDER BY COALESCE(b.available_quantity, 0) DESC,
-                 c.row_number,
-                 c.column_number
-      `,
-    )
-    .all(product.id)
-    .filter((cell) => cell.cell_id !== Number(preferredCellId || 0));
-
-  const emptyCells = db
-    .prepare(
-      `
-        SELECT
-          c.id AS cell_id,
-          c.logical_code,
-          c.hardware_channel,
-          c.controller_id,
-          c.row_number,
-          c.column_number
-        FROM cells c
-        LEFT JOIN inventory_balances b
-          ON b.cell_id = c.id AND b.available_quantity > 0
-        WHERE c.active = 1
-          AND b.id IS NULL
-          AND NOT EXISTS (
-            SELECT 1
-            FROM inventory_balances existing_product_balance
-            WHERE existing_product_balance.cell_id = c.id
-              AND existing_product_balance.product_id = ?
-          )
-        ORDER BY c.row_number, c.column_number
-      `,
-    )
-    .all(product.id)
-    .filter((cell) => cell.cell_id !== Number(preferredCellId || 0));
-
-  let remaining = requestedQuantity;
-  const lines = [];
-
-  if (preferredCell && remaining > 0) {
-    const preferredSameProduct = db
-      .prepare(
-        `
-          SELECT
-            COALESCE(available_quantity, 0) AS available_quantity
-          FROM inventory_balances
-          WHERE product_id = ? AND cell_id = ?
-        `,
-      )
-      .get(product.id, preferredCell.cell_id);
-    const currentQuantity = preferredSameProduct
-      ? Number(preferredSameProduct.available_quantity)
-      : Number(preferredCell.occupied_quantity || 0);
-    const room = Math.max(0, itemsPerCell - currentQuantity);
-
-    if (room > 0) {
-      const planned = Math.min(remaining, room);
-      lines.push({
-        product_id: product.id,
-        cell_id: preferredCell.cell_id,
-        planned_quantity: planned,
-        guidance_color: "red",
-      });
-      remaining -= planned;
-    }
-  }
-
-  for (const cell of sameProductCells) {
-    if (remaining <= 0) {
-      break;
-    }
-    const currentQuantity = Number(cell.available_quantity);
-    const room = itemsPerCell - currentQuantity;
-    if (room <= 0) {
-      continue;
-    }
-
-    const planned = Math.min(remaining, room);
-    lines.push({
-      product_id: product.id,
-      cell_id: cell.cell_id,
-      planned_quantity: planned,
-      guidance_color: "red",
-    });
-    remaining -= planned;
-  }
-
-  for (const cell of emptyCells) {
-    if (remaining <= 0) {
-      break;
-    }
-
-    const planned = Math.min(remaining, itemsPerCell);
-    lines.push({
-      product_id: product.id,
-      cell_id: cell.cell_id,
-      planned_quantity: planned,
-      guidance_color: "red",
-    });
-    remaining -= planned;
-  }
-
-  if (remaining > 0) {
-    throw new Error(PUT_CAPACITY_ERROR_MESSAGE);
-  }
+  const lines = planPutLines({
+    product,
+    requestedQuantity,
+    itemsPerCell,
+    preferredCell: balances.getPreferredPutCell(preferredCellId, product.id),
+    sameProductCells: balances.listSameProductPutCells(product.id, preferredCellId),
+    emptyCells: balances.listEmptyPutCells(product.id, preferredCellId),
+  });
 
   return withTransaction(db, () => {
-    const taskResult = db
-      .prepare(
-        `
-          INSERT INTO tasks (type, status, summary, created_by, started_at)
-          VALUES ('put', 'pending_review', ?, ?, ?)
-        `,
-      )
-      .run(
-        `${product.sku} put (${requestedQuantity} ${product.unit_of_measure})`,
-        userId,
-        nowIso(),
-      );
-
-    const taskId = Number(taskResult.lastInsertRowid);
-    db.prepare("UPDATE tasks SET summary = ? WHERE id = ?").run(
-      `Put Action Initiated - Task #${taskId}`,
-      taskId,
+    const tasks = createTaskRepository(db);
+    const task = tasks.createPendingReviewTask({
+      type: "put",
+      summary: `${product.sku} put (${requestedQuantity} ${product.unit_of_measure})`,
+      createdBy: userId,
+      lines,
+    });
+    tasks.updateSummary(
+      task.id,
+      `Put ${displayQuantity(requestedQuantity)} ${product.unit_of_measure} of ${product.sku}`,
     );
-
-    for (const line of lines) {
-      db.prepare(
-        `
-          INSERT INTO task_lines (task_id, product_id, cell_id, planned_quantity, guidance_color)
-          VALUES (?, ?, ?, ?, ?)
-        `,
-      ).run(
-        taskId,
-        line.product_id,
-        line.cell_id,
-        line.planned_quantity,
-        line.guidance_color,
-      );
-    }
-
-    return getTask(db, taskId);
+    return tasks.get(task.id);
   });
 }
 
@@ -805,15 +289,9 @@ export function cancelTask(db, { taskId }) {
   }
 
   return withTransaction(db, () => {
-    db.prepare(
-      `
-        UPDATE tasks
-        SET status = 'cancelled', completed_at = ?
-        WHERE id = ?
-      `,
-    ).run(nowIso(), task.id);
-
-    return getTask(db, task.id);
+    const tasks = createTaskRepository(db);
+    tasks.updateStatus(task.id, "cancelled");
+    return tasks.get(task.id);
   });
 }
 
@@ -832,6 +310,8 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
   }
 
   return withTransaction(db, () => {
+    const balances = createInventoryBalanceRepository(db);
+    const tasks = createTaskRepository(db);
     const touchedCellIds = new Set();
     const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
 
@@ -866,15 +346,15 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
         throw new Error("Selected cell not found.");
       }
 
-      db.prepare(
-        `
-          UPDATE task_lines
-          SET actual_quantity = ?, exception_quantity = ?, note = ?, cell_id = ?
-          WHERE id = ?
-        `,
-      ).run(actualQuantity, exceptionQuantity, note || null, targetCellId, line.id);
+      tasks.updateLineActual({
+        lineId: line.id,
+        actualQuantity,
+        exceptionQuantity,
+        note: note || null,
+        cellId: targetCellId,
+      });
 
-      const plannedBalance = getOrCreateBalance(db, line.product_id, line.cell_id);
+      const plannedBalance = balances.getOrCreate(line.product_id, line.cell_id);
 
       if (task.type === "pick") {
         if (actualQuantity > Number(plannedBalance.available_quantity)) {
@@ -883,13 +363,7 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
           );
         }
 
-        db.prepare(
-          `
-            UPDATE inventory_balances
-            SET available_quantity = available_quantity - ?
-            WHERE id = ?
-          `,
-        ).run(actualQuantity, plannedBalance.id);
+        balances.decrease(plannedBalance.id, actualQuantity);
         touchedCellIds.add(Number(line.cell_id));
 
         if (actualQuantity > 0) {
@@ -911,14 +385,8 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
           );
         }
       } else if (task.type === "put") {
-        const targetBalance = getOrCreateBalance(db, line.product_id, targetCellId);
-        db.prepare(
-          `
-            UPDATE inventory_balances
-            SET available_quantity = available_quantity + ?
-            WHERE id = ?
-          `,
-        ).run(actualQuantity, targetBalance.id);
+        const targetBalance = balances.getOrCreate(line.product_id, targetCellId);
+        balances.increase(targetBalance.id, actualQuantity);
         touchedCellIds.add(targetCellId);
 
         if (actualQuantity > 0) {
@@ -942,16 +410,10 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
       }
     }
 
-    db.prepare(
-      `
-        UPDATE tasks
-        SET status = 'completed', completed_at = ?
-        WHERE id = ?
-      `,
-    ).run(nowIso(), task.id);
+    tasks.updateStatus(task.id, "completed");
 
     return {
-      task: getTask(db, task.id),
+      task: tasks.get(task.id),
       anomalies: detectAnomalies(db).filter((anomaly) => touchedCellIds.has(anomaly.cellId)),
     };
   });
@@ -1019,18 +481,17 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
   }
 
   return withTransaction(db, () => {
-    db.prepare("DELETE FROM task_lines WHERE task_id = ?").run(task.id);
+    const tasks = createTaskRepository(db);
+    tasks.deleteLines(task.id);
     for (const allocation of nextAllocations) {
-      db.prepare(
-        `
-          INSERT INTO task_lines (
-            task_id, product_id, cell_id, planned_quantity, guidance_color, note
-          )
-          VALUES (?, ?, ?, ?, 'red', ?)
-        `,
-      ).run(task.id, productId, allocation.cellId, allocation.quantity, note || null);
+      tasks.addPutPlanLine(task.id, {
+        productId,
+        cellId: allocation.cellId,
+        quantity: allocation.quantity,
+        note: note || null,
+      });
     }
-    return getTask(db, task.id);
+    return tasks.get(task.id);
   });
 }
 
@@ -1048,6 +509,8 @@ export function correctCompletedTask(
   }
 
   return withTransaction(db, () => {
+    const balances = createInventoryBalanceRepository(db);
+    const tasks = createTaskRepository(db);
     const touchedCellIds = new Set();
 
     for (const line of task.lines) {
@@ -1071,8 +534,8 @@ export function correctCompletedTask(
         throw new Error("Selected correction cell not found.");
       }
 
-      const oldBalance = getOrCreateBalance(db, line.product_id, line.cell_id);
-      const newBalance = getOrCreateBalance(db, line.product_id, nextCellId);
+      const oldBalance = balances.getOrCreate(line.product_id, line.cell_id);
+      const newBalance = balances.getOrCreate(line.product_id, nextCellId);
 
       if (task.type === "pick") {
         const reversibleAvailable = Number(oldBalance.available_quantity) + previousQuantity;
@@ -1082,13 +545,7 @@ export function correctCompletedTask(
           );
         }
 
-        db.prepare(
-          `
-            UPDATE inventory_balances
-            SET available_quantity = available_quantity + ?
-            WHERE id = ?
-          `,
-        ).run(previousQuantity, oldBalance.id);
+        balances.increase(oldBalance.id, previousQuantity);
 
         db.prepare(
           `
@@ -1107,13 +564,7 @@ export function correctCompletedTask(
           nowIso(),
         );
 
-        db.prepare(
-          `
-            UPDATE inventory_balances
-            SET available_quantity = available_quantity - ?
-            WHERE id = ?
-          `,
-        ).run(nextQuantity, oldBalance.id);
+        balances.decrease(oldBalance.id, nextQuantity);
 
         db.prepare(
           `
@@ -1140,13 +591,7 @@ export function correctCompletedTask(
           `Cell ${line.logical_code} no longer contains the previously recorded quantity, so this correction cannot be applied safely.`,
         );
 
-        db.prepare(
-          `
-            UPDATE inventory_balances
-            SET available_quantity = available_quantity - ?
-            WHERE id = ?
-          `,
-        ).run(previousQuantity, oldBalance.id);
+        balances.decrease(oldBalance.id, previousQuantity);
 
         db.prepare(
           `
@@ -1165,13 +610,7 @@ export function correctCompletedTask(
           nowIso(),
         );
 
-        db.prepare(
-          `
-            UPDATE inventory_balances
-            SET available_quantity = available_quantity + ?
-            WHERE id = ?
-          `,
-        ).run(nextQuantity, newBalance.id);
+        balances.increase(newBalance.id, nextQuantity);
 
         db.prepare(
           `
@@ -1195,70 +634,32 @@ export function correctCompletedTask(
       }
 
       const nextExceptionQuantity = Math.max(0, Number(line.planned_quantity) - nextQuantity);
-      db.prepare(
-        `
-          UPDATE task_lines
-          SET actual_quantity = ?, exception_quantity = ?, note = ?, cell_id = ?
-          WHERE id = ?
-        `,
-      ).run(nextQuantity, nextExceptionQuantity, note || line.note, nextCellId, line.id);
+      tasks.updateLineActual({
+        lineId: line.id,
+        actualQuantity: nextQuantity,
+        exceptionQuantity: nextExceptionQuantity,
+        note: note || line.note,
+        cellId: nextCellId,
+      });
     }
 
     return {
-      task: getTask(db, task.id),
+      task: tasks.get(task.id),
       anomalies: detectAnomalies(db).filter((anomaly) => touchedCellIds.has(anomaly.cellId)),
     };
   });
 }
 
 export function markPhysicalConfirmation(db, lineId) {
-  const line = db
-    .prepare(
-      `
-        SELECT
-          tl.*,
-          c.logical_code,
-          c.hardware_channel,
-          c.controller_id,
-          ctrl.controller_code,
-          ctrl.address AS controller_address
-        FROM task_lines tl
-        JOIN cells c ON c.id = tl.cell_id
-        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
-        WHERE tl.id = ?
-      `,
-    )
-    .get(lineId);
+  const tasks = createTaskRepository(db);
+  const line = tasks.findLineWithCell(lineId);
 
   if (!line) {
     throw new Error("Task line not found.");
   }
 
-  db.prepare(
-    `
-      UPDATE task_lines
-      SET physical_confirmed_at = ?, actual_quantity = CASE WHEN actual_quantity = 0 THEN planned_quantity ELSE actual_quantity END
-      WHERE id = ?
-    `,
-  ).run(nowIso(), line.id);
-
-  return db
-    .prepare(
-      `
-        SELECT
-          tl.*,
-          c.logical_code,
-          c.hardware_channel,
-          c.controller_id,
-          ctrl.controller_code,
-          ctrl.address AS controller_address
-        FROM task_lines tl
-        JOIN cells c ON c.id = tl.cell_id
-        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
-        WHERE tl.id = ?
-      `,
-    )
-    .get(line.id);
+  tasks.markLinePhysicalConfirmed(line.id);
+  return tasks.findLineWithCell(line.id);
 }
 
 export function createAdjustment(db, { productId, cellId, quantityDelta, userId, reason, lines }) {
@@ -1318,10 +719,11 @@ export function createAdjustment(db, { productId, cellId, quantityDelta, userId,
   }
 
   return withTransaction(db, () => {
+    const balances = createInventoryBalanceRepository(db);
     let appliedCount = 0;
 
     for (const line of normalizedLines) {
-      const balance = getOrCreateBalance(db, line.product.id, cell.id);
+      const balance = balances.getOrCreate(line.product.id, cell.id);
       const delta =
         line.absoluteQuantity !== undefined
           ? Number(line.absoluteQuantity) - Number(balance.available_quantity)
@@ -1337,13 +739,7 @@ export function createAdjustment(db, { productId, cellId, quantityDelta, userId,
         );
       }
 
-      db.prepare(
-        `
-          UPDATE inventory_balances
-          SET available_quantity = available_quantity + ?
-          WHERE id = ?
-        `,
-      ).run(delta, balance.id);
+      balances.increase(balance.id, delta);
 
       db.prepare(
         `
@@ -1414,23 +810,45 @@ export function listRegistrationKeys(db) {
 }
 
 export function issueRegistrationKey(db, { keyValue, role, userId }) {
-  const normalized = String(keyValue || "").trim();
-  if (!normalized) {
-    throw new Error("Registration key value is required.");
-  }
+  const normalizedRole = role === "admin" ? "admin" : "operator";
+  const normalized = String(keyValue || "").trim() || generateRegistrationKeyValue(normalizedRole);
 
-  db.prepare(
+  const result = db.prepare(
     `
       INSERT INTO registration_keys (key_value, role, status, expires_at, created_by, created_at)
       VALUES (?, ?, 'active', ?, ?, ?)
     `,
   ).run(
     normalized,
-    role === "admin" ? "admin" : "operator",
+    normalizedRole,
     new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
     userId,
     nowIso(),
   );
+
+  return db
+    .prepare("SELECT * FROM registration_keys WHERE id = ?")
+    .get(result.lastInsertRowid);
+}
+
+export function revokeRegistrationKey(db, { keyId }) {
+  const key = db
+    .prepare("SELECT * FROM registration_keys WHERE id = ?")
+    .get(Number(keyId));
+
+  if (!key) {
+    throw new Error("Registration key not found.");
+  }
+
+  if (key.status !== "active") {
+    throw new Error("Only active registration keys can be revoked.");
+  }
+
+  db.prepare("UPDATE registration_keys SET status = 'revoked' WHERE id = ?").run(key.id);
+
+  return db
+    .prepare("SELECT * FROM registration_keys WHERE id = ?")
+    .get(key.id);
 }
 
 export function registerUser(db, { registrationKey, name, username, password, hashPassword }) {
@@ -1515,6 +933,48 @@ export function authenticateUser(db, { username, password, verifyPassword }) {
     role: user.role,
     status: user.status,
   };
+}
+
+export function setUserStatus(db, { userId, status, actingUserId }) {
+  const nextStatus = String(status || "").trim().toLowerCase();
+  if (!["active", "inactive"].includes(nextStatus)) {
+    throw new Error("User status must be active or inactive.");
+  }
+
+  const targetUser = db
+    .prepare("SELECT id, name, username, role, status FROM users WHERE id = ?")
+    .get(Number(userId));
+  if (!targetUser) {
+    throw new Error("User not found.");
+  }
+
+  if (nextStatus === "inactive") {
+    if (Number(targetUser.id) === Number(actingUserId)) {
+      throw new Error("You cannot suspend your own account.");
+    }
+
+    if (targetUser.role === "admin") {
+      const remainingActiveAdmins = db
+        .prepare(
+          `
+            SELECT COUNT(*) AS count
+            FROM users
+            WHERE role = 'admin' AND status = 'active' AND id != ?
+          `,
+        )
+        .get(targetUser.id).count;
+
+      if (Number(remainingActiveAdmins) < 1) {
+        throw new Error("At least one active admin account is required.");
+      }
+    }
+  }
+
+  db.prepare("UPDATE users SET status = ? WHERE id = ?").run(nextStatus, targetUser.id);
+
+  return db
+    .prepare("SELECT id, name, username, role, status FROM users WHERE id = ?")
+    .get(targetUser.id);
 }
 
 export function listCells(db) {
@@ -2284,15 +1744,7 @@ export function configureControllerModules(
 
 export function updateProductItemsPerCell(db, { productId, itemsPerCell }) {
   const capacity = normalizeItemsPerCell(itemsPerCell);
-  const result = db
-    .prepare(
-      `
-        UPDATE products
-        SET items_per_cell = ?
-        WHERE id = ?
-      `,
-    )
-    .run(capacity, Number(productId));
+  const result = createProductRepository(db).updateItemsPerCell(productId, capacity);
 
   if (result.changes === 0) {
     throw new Error("Product not found.");
@@ -2323,19 +1775,14 @@ export function applyRecommendedAction(
   }
 
   const totalQuantity = normalizedMoves.reduce((sum, move) => sum + move.quantity, 0);
-  const sourceBalance = getOrCreateBalance(db, product.id, sourceCell.id);
+  const balances = createInventoryBalanceRepository(db);
+  const sourceBalance = balances.getOrCreate(product.id, sourceCell.id);
   if (Number(sourceBalance.available_quantity) < totalQuantity) {
     throw new Error("Source cell does not have enough quantity for this adjustment.");
   }
 
   return withTransaction(db, () => {
-    db.prepare(
-      `
-        UPDATE inventory_balances
-        SET available_quantity = available_quantity - ?
-        WHERE id = ?
-      `,
-    ).run(totalQuantity, sourceBalance.id);
+    balances.decrease(sourceBalance.id, totalQuantity);
 
     db.prepare(
       `
@@ -2359,14 +1806,8 @@ export function applyRecommendedAction(
         throw new Error("Target cell not found.");
       }
 
-      const targetBalance = getOrCreateBalance(db, product.id, targetCell.id);
-      db.prepare(
-        `
-          UPDATE inventory_balances
-          SET available_quantity = available_quantity + ?
-          WHERE id = ?
-        `,
-      ).run(move.quantity, targetBalance.id);
+      const targetBalance = balances.getOrCreate(product.id, targetCell.id);
+      balances.increase(targetBalance.id, move.quantity);
 
       db.prepare(
         `

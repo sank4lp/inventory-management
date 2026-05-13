@@ -8,12 +8,12 @@ function nowIso() {
 
 function adapterFactory(config, logger) {
   if (config.hardwareAdapter === "degraded") {
-    return createDegradedAdapter({ logger });
+    return createDegradedAdapter({ config, logger });
   }
   if (config.hardwareAdapter === "rs485") {
     return createRs485Adapter({ config, logger });
   }
-  return createSimulatorAdapter({ logger });
+  return createSimulatorAdapter({ config, logger });
 }
 
 function normalizeResult(result = {}) {
