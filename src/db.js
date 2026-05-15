@@ -657,6 +657,7 @@ function initializeSchema(db) {
       summary TEXT NOT NULL,
       created_by INTEGER NOT NULL REFERENCES users(id),
       started_at TEXT NOT NULL,
+      last_touched_at TEXT NOT NULL,
       completed_at TEXT
     );
 
@@ -734,6 +735,14 @@ function initializeSchema(db) {
   ensureColumn(db, "controllers", "module_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "controllers", "configured_at", "TEXT");
   ensureColumn(db, "controllers", "configured_by", "INTEGER REFERENCES users(id)");
+  ensureColumn(db, "tasks", "last_touched_at", "TEXT");
+  db.prepare(
+    `
+      UPDATE tasks
+      SET last_touched_at = COALESCE(last_touched_at, completed_at, started_at)
+      WHERE last_touched_at IS NULL
+    `,
+  ).run();
   db.prepare(
     `
       INSERT INTO app_metadata (key, value, updated_at)

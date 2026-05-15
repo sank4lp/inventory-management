@@ -21,6 +21,26 @@ export const logger = createLogger({
 });
 
 let appState = null;
+let stalePendingTaskTimer = null;
+
+function stopStalePendingTaskMaintenance() {
+  if (stalePendingTaskTimer) {
+    clearInterval(stalePendingTaskTimer);
+    stalePendingTaskTimer = null;
+  }
+}
+
+function startStalePendingTaskMaintenance(systemService) {
+  if (process.env.NO_SERVER_LISTEN === "1") {
+    return;
+  }
+
+  stopStalePendingTaskMaintenance();
+  stalePendingTaskTimer = setInterval(() => {
+    systemService.cancelStalePendingReviewTasks();
+  }, 30 * 1000);
+  stalePendingTaskTimer.unref?.();
+}
 
 function buildAppState() {
   const db = createDatabase({
@@ -45,8 +65,10 @@ function buildAppState() {
     hardwareService,
     getTask,
   });
+  systemService.cancelStalePendingReviewTasks();
   const startup = systemService.runStartupChecks();
   startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
+  startStalePendingTaskMaintenance(systemService);
   const backupService = createBackupService({
     getDb: () => appState?.db || db,
     reloadAppState,
@@ -84,6 +106,7 @@ function buildAppState() {
 }
 
 export function reloadAppState({ closeCurrentDb = true } = {}) {
+  stopStalePendingTaskMaintenance();
   if (closeCurrentDb && appState?.db) {
     appState.db.close();
   }

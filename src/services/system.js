@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 
 import { updateControllerHealth } from "./inventory.js";
 
+const PENDING_REVIEW_TIMEOUT_MS = 5 * 60 * 1000;
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -211,6 +213,67 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     return recoveredTaskIds;
   }
 
+  function cancelStalePendingReviewTasks({
+    now = new Date(),
+    timeoutMs = PENDING_REVIEW_TIMEOUT_MS,
+  } = {}) {
+    const currentTime = now instanceof Date ? now : new Date(now);
+    const cutoff = new Date(currentTime.getTime() - timeoutMs).toISOString();
+    const cancelledTaskIds = [];
+    const rows = db
+      .prepare(
+        `
+          SELECT id
+          FROM tasks
+          WHERE status = 'pending_review'
+            AND COALESCE(last_touched_at, started_at) <= ?
+          ORDER BY id
+        `,
+      )
+      .all(cutoff);
+
+    for (const row of rows) {
+      const task = getTask(db, row.id);
+      if (!task || task.status !== "pending_review") {
+        continue;
+      }
+
+      const cancelledAt = currentTime.toISOString();
+      const clearResult = hardwareService.clearGuidance(task, task.lines, {
+        source: "pending_review_timeout",
+      });
+      db.prepare(
+        `
+          UPDATE tasks
+          SET status = 'cancelled', completed_at = ?, last_touched_at = ?
+          WHERE id = ? AND status = 'pending_review'
+        `,
+      ).run(cancelledAt, cancelledAt, task.id);
+      cancelledTaskIds.push(task.id);
+      recordSystemEvent({
+        eventType: "pending_review_timeout",
+        status: clearResult.degraded ? "warning" : "info",
+        message: `Cancelled stale pending review task #${task.id}.`,
+        payload: {
+          taskId: task.id,
+          timeoutMs,
+          lastTouchedAt: task.last_touched_at || task.started_at,
+          degraded: clearResult.degraded,
+          adapter: hardwareService.adapterName,
+        },
+      });
+    }
+
+    if (cancelledTaskIds.length) {
+      logger.info("task.pending_review.timeout_cancelled", {
+        cancelledTaskIds,
+        timeoutMs,
+      });
+    }
+
+    return cancelledTaskIds;
+  }
+
   function issueSubmissionToken({ scope, taskId = null, userId = null }) {
     const token = randomBytes(18).toString("base64url");
     db.prepare(
@@ -297,6 +360,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     refreshControllerHealths,
     runStartupChecks,
     recoverPendingGuidance,
+    cancelStalePendingReviewTasks,
     issueSubmissionToken,
     consumeSubmissionToken,
     healthSummary,
