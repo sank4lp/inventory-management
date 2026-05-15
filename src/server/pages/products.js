@@ -1,4 +1,10 @@
-import { getCellDetail, listCells, listProducts } from "../../services/inventory.js";
+import {
+  getCellDetail,
+  getProductDetail,
+  getRecommendedActions,
+  listCells,
+  listProducts,
+} from "../../services/inventory.js";
 import {
   card,
   cellPickerField,
@@ -10,6 +16,8 @@ import {
   statsGrid,
   table,
 } from "./shared.js";
+
+const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
 
 export function createProductPages({ db }) {
   function uniquePositiveQuantities(values) {
@@ -27,25 +35,44 @@ export function createProductPages({ db }) {
       });
   }
 
-  function renderQuantityShortcuts(values) {
-    const quantities = uniquePositiveQuantities(values);
+  function renderQuantityShortcuts({ shortcuts, tone = "" }) {
+    const quantities = uniquePositiveQuantities(
+      shortcuts.map((shortcut) => shortcut?.value),
+    ).map((value) => {
+      const shortcut = shortcuts.find(
+        (item) => formatQuantity(item?.value) === formatQuantity(value),
+      );
+      return {
+        value,
+        label: shortcut?.label || formatQuantity(value),
+      };
+    });
     if (!quantities.length) {
       return "";
     }
 
     return `
-      <div class="quantity-shortcuts" aria-label="Quick quantities">
-        <span>Quick quantity</span>
+      <fieldset class="quantity-shortcuts ${tone ? `quantity-shortcuts-${escapeHtml(tone)}` : ""}" aria-label="Quick quantity picker">
+        <legend class="quantity-shortcuts-label">Quick quantity picker</legend>
+        <div class="quantity-shortcut-buttons">
         ${quantities
           .map(
-            (value) => `
-              <button type="button" class="ghost-button quantity-chip" data-fill-quantity="${escapeHtml(value)}">
-                ${escapeHtml(formatQuantity(value))}
+            ({ value, label }) => `
+              <button
+                type="button"
+                class="ghost-button quantity-chip"
+                data-fill-quantity="${escapeHtml(value)}"
+                aria-label="${escapeHtml(`${label}: set quantity to ${formatQuantity(value)}`)}"
+                aria-pressed="false"
+              >
+                <span class="quantity-chip-label">${escapeHtml(label)}</span>
+                <span class="quantity-chip-value">${escapeHtml(formatQuantity(value))}</span>
               </button>
             `,
           )
           .join("")}
-      </div>
+        </div>
+      </fieldset>
     `;
   }
 
@@ -72,6 +99,102 @@ export function createProductPages({ db }) {
         ]),
         emptyMessage,
       )}
+    `;
+  }
+
+  function orderProductsByRecentTaskSelection(products) {
+    if (!products.length) {
+      return products;
+    }
+
+    const recentRows = db
+      .prepare(
+        `
+          SELECT
+            tl.product_id,
+            MAX(t.id) AS recent_task_id
+          FROM task_lines tl
+          JOIN tasks t ON t.id = tl.task_id
+          WHERE t.type IN ('pick', 'put')
+          GROUP BY tl.product_id
+          ORDER BY recent_task_id DESC
+        `,
+      )
+      .all();
+    if (!recentRows.length) {
+      return products;
+    }
+
+    const recentRankByProduct = new Map(
+      recentRows.map((row, index) => [Number(row.product_id), index]),
+    );
+    const originalRankByProduct = new Map(
+      products.map((product, index) => [Number(product.id), index]),
+    );
+
+    return [...products].sort((left, right) => {
+      const leftRecentRank = recentRankByProduct.get(Number(left.id));
+      const rightRecentRank = recentRankByProduct.get(Number(right.id));
+      const leftHasRecentRank = leftRecentRank !== undefined;
+      const rightHasRecentRank = rightRecentRank !== undefined;
+
+      if (leftHasRecentRank && rightHasRecentRank) {
+        return leftRecentRank - rightRecentRank;
+      }
+      if (leftHasRecentRank) {
+        return -1;
+      }
+      if (rightHasRecentRank) {
+        return 1;
+      }
+      return originalRankByProduct.get(Number(left.id)) - originalRankByProduct.get(Number(right.id));
+    });
+  }
+
+  function capacityRecommendationDismissPath(url) {
+    const nextUrl = new URL(url?.toString() || "http://localhost/");
+    nextUrl.searchParams.delete(CAPACITY_RECOMMENDATION_KEY_PARAM);
+    nextUrl.searchParams.delete("flash");
+    nextUrl.searchParams.delete("tone");
+    return `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+  }
+
+  function renderCapacityRecommendationPrompt(url) {
+    const recommendationKey = String(
+      url?.searchParams?.get(CAPACITY_RECOMMENDATION_KEY_PARAM) || "",
+    ).trim();
+    if (!recommendationKey) {
+      return "";
+    }
+
+    const action = getRecommendedActions(db).find(
+      (entry) => entry.key === recommendationKey,
+    );
+    if (!action) {
+      return "";
+    }
+
+    const skipPath = capacityRecommendationDismissPath(url);
+    const reviewPath = `/recommended-actions?key=${encodeURIComponent(action.key)}&source=capacity&return_to=${encodeURIComponent(skipPath)}`;
+
+    return `
+      <section class="modal-backdrop app-alert-modal" role="dialog" aria-modal="true" aria-labelledby="capacity-recommendation-title">
+        <div class="modal-panel">
+          <div class="modal-header">
+            <div>
+              <h2 id="capacity-recommendation-title">Recommended action created</h2>
+              <p class="muted">The capacity update created an inventory action you can review now or leave for later.</p>
+            </div>
+            <a class="mini-link" href="${escapeHtml(skipPath)}">Close</a>
+          </div>
+          <p><strong>${escapeHtml(action.title)}</strong></p>
+          <p class="muted">${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
+          <div class="modal-actions">
+            <a class="action-cta-button" href="${escapeHtml(reviewPath)}">Review recommendation</a>
+            <a class="action-cta-button secondary-cta" href="${escapeHtml(skipPath)}">Skip for now</a>
+          </div>
+        </div>
+      </section>
     `;
   }
 
@@ -178,7 +301,7 @@ export function createProductPages({ db }) {
     });
   }
 
-  function renderProductDetail(user, flash, product) {
+  function renderProductDetail(user, flash, product, url = new URL("http://localhost/")) {
     if (!product) {
       return page({
         title: "Product not found",
@@ -238,12 +361,13 @@ export function createProductPages({ db }) {
           "",
           `data-row-collapser data-row-limit="4" data-row-label="cells"`,
         )}
+        ${renderCapacityRecommendationPrompt(url)}
       `,
     });
   }
 
   function renderPick(user, flash, url) {
-    const allProducts = listProducts(db);
+    const allProducts = orderProductsByRecentTaskSelection(listProducts(db));
     const requestedProductId = Number(url.searchParams.get("product_id") || 0);
     const selectedCellId = Number(url.searchParams.get("cell_id") || 0);
     const requestedQuantity = url.searchParams.get("quantity") || "";
@@ -298,6 +422,7 @@ export function createProductPages({ db }) {
                   "product_id",
                   "",
                   hasPickableProducts,
+                  { recencyKey: "movement-product" },
                 )}
                 ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
                 <label>Requested quantity
@@ -311,7 +436,16 @@ export function createProductPages({ db }) {
                     ${hasPickableProducts ? "required" : "disabled"}
                   />
                 </label>
-                ${renderQuantityShortcuts([1, availableToPick])}
+                ${renderQuantityShortcuts({
+                  tone: "pick",
+                  shortcuts: [
+                    { value: 1, label: "Pick one" },
+                    {
+                      value: availableToPick,
+                      label: selectedCell ? "Pick all in this location" : "Pick all available",
+                    },
+                  ],
+                })}
                 <button
                   class="green-button"
                   type="submit"
@@ -408,12 +542,46 @@ export function createProductPages({ db }) {
     `;
   }
 
+  function renderPutProductStockSummary(product) {
+    if (!product) {
+      return "";
+    }
+
+    const totalAvailable = Number(product.total_available || 0);
+    return `
+      <section class="put-stock-summary" aria-label="Selected product stock summary">
+        <div class="put-stock-summary-header">
+          <div>
+            <strong>Current stock</strong>
+            <span>${escapeHtml(product.sku)} · ${escapeHtml(product.name)}</span>
+          </div>
+          <div class="put-stock-total">
+            ${escapeHtml(formatQuantity(totalAvailable))}
+            <span>${escapeHtml(product.unit_of_measure)}</span>
+          </div>
+        </div>
+        ${
+          product.locations.length
+            ? table(
+                ["Cell", "Quantity"],
+                product.locations.map((location) => [
+                  escapeHtml(location.logical_code),
+                  `${escapeHtml(formatQuantity(location.available_quantity))} ${escapeHtml(product.unit_of_measure)}`,
+                ]),
+              )
+            : `<p class="muted">This product is not currently stored in any cell.</p>`
+        }
+      </section>
+    `;
+  }
+
   function renderPut(user, flash, url) {
-    const products = listProducts(db);
+    const products = orderProductsByRecentTaskSelection(listProducts(db));
     const selectedProductId = Number(url.searchParams.get("product_id") || 0);
     const selectedProduct = selectedProductId
       ? products.find((product) => product.id === selectedProductId)
       : null;
+    const selectedProductDetail = selectedProductId ? getProductDetail(db, selectedProductId) : null;
     const selectedCellId = Number(url.searchParams.get("cell_id") || 0);
     const selectedCell = selectedCellId
       ? listCells(db).find((cell) => cell.id === selectedCellId)
@@ -436,14 +604,20 @@ export function createProductPages({ db }) {
           ${card(
             "Put items away",
             `
-              <form method="post" action="/put" class="stack-form" data-led-command-form data-led-loading-label="Creating">
-                ${productPickerField(products, selectedProductId, "put-product")}
+              <form method="post" action="/put" class="stack-form" data-led-command-form data-led-loading-label="Creating" data-put-product-summary-form>
+                ${productPickerField(products, selectedProductId, "put-product", "product_id", "", true, {
+                  recencyKey: "movement-product",
+                })}
+                ${renderPutProductStockSummary(selectedProductDetail)}
                 ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
                 <label>Quantity to place<input type="number" min="1" step="1" inputmode="numeric" name="quantity" value="${escapeHtml(requestedQuantity)}" required /></label>
-                ${renderQuantityShortcuts([
-                  1,
-                  selectedProduct?.items_per_cell,
-                ])}
+                ${renderQuantityShortcuts({
+                  tone: "put",
+                  shortcuts: [
+                    { value: 1, label: "Put one" },
+                    { value: selectedProduct?.items_per_cell, label: "Full location capacity" },
+                  ],
+                })}
                 <button class="blue-button" type="submit" data-led-command-submit data-led-loading-label="Creating">Create put task</button>
               </form>
               <p class="muted">Can't find the item? <a href="/products?show_add=1">Add it to Products first</a>, then return to Put.</p>
@@ -457,6 +631,7 @@ export function createProductPages({ db }) {
           )}
         </section>
         ${showCapacityRecovery ? renderPutCapacityRecovery(user, selectedProduct, returnTo, flash) : ""}
+        ${renderCapacityRecommendationPrompt(url)}
       `,
     });
   }

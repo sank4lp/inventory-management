@@ -56,6 +56,7 @@ import {
 
 const PORT = Number(process.env.PORT || 3000);
 const publicDir = join(process.cwd(), "public");
+const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
 
 getAppState();
 
@@ -76,6 +77,12 @@ function movementRetryPath(path, form) {
     params.set("cell_id", form.preferred_cell_id);
   }
   return `${path}${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+function capacityRecommendationPromptPath(returnTo, recommendationKey) {
+  const url = new URL(returnTo, "http://localhost");
+  url.searchParams.set(CAPACITY_RECOMMENDATION_KEY_PARAM, recommendationKey);
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function createAutomaticBackup(source) {
@@ -259,7 +266,7 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const product = getProductDetail(db, Number(productMatch[1]));
-      sendHtml(response, pages.renderProductDetail(user, flash, product));
+      sendHtml(response, pages.renderProductDetail(user, flash, product, url));
       return;
     }
 
@@ -269,13 +276,43 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
+      const productId = Number(productCapacityMatch[1]);
+      const previousRecommendationKeys = new Set(
+        anomalyService
+          .getRecommendedActions()
+          .filter((action) => Number(action.productId) === productId)
+          .map((action) => action.key),
+      );
       catalogService.updateProductItemsPerCell({
-        productId: Number(productCapacityMatch[1]),
+        productId,
         itemsPerCell: form.items_per_cell,
       });
       const backupResult = createAutomaticBackup("product-capacity-update");
+      const returnTo = safeLocalPath(form.return_to, `/products/${productId}`);
+      const newRecommendation = anomalyService
+        .getRecommendedActions()
+        .find(
+          (action) =>
+            Number(action.productId) === productId &&
+            !previousRecommendationKeys.has(action.key),
+        );
+      if (newRecommendation) {
+        const nextFlash = backupAwareFlash(
+          "Capacity updated. A recommended inventory action was created; review it now or skip for later.",
+          "warning",
+          backupResult,
+        );
+        sendRedirect(
+          response,
+          appendFlash(
+            capacityRecommendationPromptPath(returnTo, newRecommendation.key),
+            nextFlash.message,
+            nextFlash.tone,
+          ),
+        );
+        return;
+      }
       const nextFlash = backupAwareFlash("Items per cell updated.", "success", backupResult);
-      const returnTo = safeLocalPath(form.return_to, `/products/${productCapacityMatch[1]}`);
       sendRedirect(
         response,
         appendFlash(returnTo, nextFlash.message, nextFlash.tone),
@@ -495,6 +532,8 @@ export const requestHandler = async (request, response) => {
             task && task.status === "completed"
               ? taskService.issueActionToken("task-correct", task.id, user.id)
               : null,
+        }, {
+          showCompletionDialog: url.searchParams.get("completed") === "1",
         }),
       );
       return;
@@ -558,7 +597,7 @@ export const requestHandler = async (request, response) => {
       );
       sendRedirect(
         response,
-        appendFlash(`/tasks/${completion.task.id}`, nextFlash.message, nextFlash.tone),
+        appendFlash(`/tasks/${completion.task.id}?completed=1`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -722,7 +761,10 @@ export const requestHandler = async (request, response) => {
       }
       sendHtml(
         response,
-        pages.renderRecommendedActions(user, flash, url.searchParams.get("key") || ""),
+        pages.renderRecommendedActions(user, flash, url.searchParams.get("key") || "", {
+          returnTo: url.searchParams.get("return_to") || "",
+          source: url.searchParams.get("source") || "",
+        }),
       );
       return;
     }
@@ -755,9 +797,10 @@ export const requestHandler = async (request, response) => {
       });
       const backupResult = createAutomaticBackup("recommended-action-apply");
       const nextFlash = backupAwareFlash("Recommended action applied.", "success", backupResult);
+      const returnTo = safeLocalPath(form.return_to, "/recommended-actions");
       sendRedirect(
         response,
-        appendFlash("/recommended-actions", nextFlash.message, nextFlash.tone),
+        appendFlash(returnTo, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -771,6 +814,9 @@ export const requestHandler = async (request, response) => {
       const moveQuantity = Number(form[`move_qty_${moveIndex}`]);
       const targetCellId = Number(form[`move_cell_${moveIndex}`]);
       const cells = listCells(db);
+      const returnTo = safeLocalPath(form.return_to, "");
+      const sourceParam = form.recommendation_source === "capacity" ? "&source=capacity" : "";
+      const recommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
       let guidanceLines;
       try {
         guidanceLines = recommendationGuidanceLines(cells, {
@@ -782,7 +828,7 @@ export const requestHandler = async (request, response) => {
         sendRedirect(
           response,
           appendFlash(
-            `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}`,
+            recommendationPath,
             error.message,
             "error",
           ),
@@ -801,7 +847,7 @@ export const requestHandler = async (request, response) => {
       sendRedirect(
         response,
         appendFlash(
-          `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}`,
+          recommendationPath,
           guidanceMessage,
           guidance.degraded ? "warning" : "success",
         ),

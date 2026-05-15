@@ -1,4 +1,5 @@
 import {
+  getRecommendedActions,
   listRecentTasksForUser,
 } from "../../services/inventory.js";
 import {
@@ -48,8 +49,13 @@ function overviewActionIcon(type) {
 }
 
 export function createHomePages({ db }) {
+  function recommendedActionLink(action) {
+    return `/recommended-actions?key=${encodeURIComponent(action.key)}`;
+  }
+
   function renderHome(user, flash, url) {
     const tasks = listRecentTasksForUser(db, user);
+    const recommendedActions = getRecommendedActions(db);
 
     return page({
       title: "Overview",
@@ -97,6 +103,28 @@ export function createHomePages({ db }) {
                 : `<p class="muted">No recent tasks yet.</p>`
             }
           </section>
+          ${
+            recommendedActions.length
+              ? `
+                <section class="secondary-panel overview-recommendations-panel">
+                  <div class="secondary-panel-header">
+                    <h2>Recommended Actions</h2>
+                    <a class="mini-link" href="/recommended-actions">View all</a>
+                  </div>
+                  ${table(
+                    ["Issue", "Location", "Product", "Next step", "Action"],
+                    recommendedActions.map((action) => [
+                      `<strong>${escapeHtml(action.title)}</strong>`,
+                      escapeHtml(action.logicalCode),
+                      `${escapeHtml(action.productName || "—")}<br /><small>${escapeHtml(action.productSku || "—")}</small>`,
+                      escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`),
+                      `<a class="mini-link" href="${recommendedActionLink(action)}">Review</a>`,
+                    ]),
+                  )}
+                </section>
+              `
+              : ""
+          }
         </section>
       `,
     });

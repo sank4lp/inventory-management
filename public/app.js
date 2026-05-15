@@ -6,6 +6,7 @@ import {
 } from "./client/dom.js";
 
 const ACTION_SCROLL_KEY = "inventory-management:action-scroll";
+const COMBO_RECENCY_KEY_PREFIX = "inventory-management:combo-recency:";
 
 function saveActionScrollPosition() {
   try {
@@ -281,6 +282,39 @@ function wireLiveSearch() {
 }
 
 function wireQuantityShortcuts() {
+  const syncQuantityShortcutState = (form) => {
+    const quantityInput = form?.querySelector('input[name="quantity"]');
+    if (!quantityInput) {
+      return;
+    }
+
+    const currentValue = Number(quantityInput.value);
+    form.querySelectorAll("[data-fill-quantity]").forEach((shortcutButton) => {
+      const shortcutValue = Number(shortcutButton.dataset.fillQuantity);
+      const isActive =
+        quantityInput.value !== "" &&
+        Number.isFinite(currentValue) &&
+        Number.isFinite(shortcutValue) &&
+        currentValue === shortcutValue;
+      shortcutButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  };
+
+  document.querySelectorAll("form").forEach((form) => {
+    if (form.dataset.quantityShortcutSyncBound === "true") {
+      return;
+    }
+
+    const quantityInput = form.querySelector('input[name="quantity"]');
+    if (!quantityInput || !form.querySelector("[data-fill-quantity]")) {
+      return;
+    }
+
+    form.dataset.quantityShortcutSyncBound = "true";
+    quantityInput.addEventListener("input", () => syncQuantityShortcutState(form));
+    syncQuantityShortcutState(form);
+  });
+
   document.querySelectorAll("[data-fill-quantity]").forEach((button) => {
     if (button.dataset.quantityShortcutBound === "true") {
       return;
@@ -296,6 +330,149 @@ function wireQuantityShortcuts() {
       quantityInput.value = button.dataset.fillQuantity || "";
       quantityInput.dispatchEvent(new Event("input", { bubbles: true }));
       quantityInput.focus();
+      syncQuantityShortcutState(form);
+    });
+  });
+}
+
+function wireCompletionRedirects() {
+  document.querySelectorAll("[data-completion-redirect]").forEach((panel) => {
+    if (panel.dataset.completionRedirectBound === "true") {
+      return;
+    }
+    panel.dataset.completionRedirectBound = "true";
+
+    const target = panel.dataset.redirectTarget || "/";
+    const seconds = Math.max(1, Number(panel.dataset.redirectSeconds || 10));
+    const countdown = panel.querySelector("[data-completion-countdown]");
+    const progress = panel.querySelector("[data-completion-progress]");
+    const overviewLink = panel.querySelector("[data-completion-overview]");
+    const startedAt = window.performance.now();
+    let redirected = false;
+
+    document.body.classList.add("modal-open");
+
+    const redirect = () => {
+      if (redirected) {
+        return;
+      }
+      redirected = true;
+      window.location.replace(target);
+    };
+
+    overviewLink?.addEventListener("click", (event) => {
+      event.preventDefault();
+      redirect();
+    });
+
+    window.setTimeout(redirect, seconds * 1000);
+
+    const render = (now) => {
+      if (redirected) {
+        return;
+      }
+
+      const elapsedSeconds = Math.max(0, (now - startedAt) / 1000);
+      const remainingSeconds = Math.max(0, seconds - elapsedSeconds);
+      const roundedSeconds = Math.ceil(remainingSeconds);
+      const progressScale = seconds > 0 ? remainingSeconds / seconds : 0;
+
+      if (countdown) {
+        countdown.textContent = `Redirecting to Overview in ${roundedSeconds} ${
+          roundedSeconds === 1 ? "second" : "seconds"
+        }`;
+      }
+      if (progress) {
+        progress.style.transform = `scaleX(${progressScale})`;
+      }
+
+      if (remainingSeconds <= 0) {
+        redirect();
+        return;
+      }
+
+      window.requestAnimationFrame(render);
+    };
+
+    window.requestAnimationFrame(render);
+  });
+}
+
+function wireQuantityChangeConfirmations() {
+  document.querySelectorAll("[data-quantity-change-form]").forEach((form) => {
+    if (form.dataset.quantityChangeBound === "true") {
+      return;
+    }
+    form.dataset.quantityChangeBound = "true";
+
+    const formatQuantity = (value) =>
+      Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+    const formInputs = () =>
+      Array.from(document.querySelectorAll("[data-quantity-change-input]")).filter(
+        (input) => input.form === form || form.contains(input),
+      );
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const originalTotal = Number(form.dataset.originalTotal || 0);
+      if (!Number.isFinite(originalTotal)) {
+        return;
+      }
+
+      const nextTotal = formInputs().reduce((sum, input) => {
+        const value = Number(input.value || 0);
+        return Number.isFinite(value) ? sum + value : sum;
+      }, 0);
+
+      if (Math.abs(nextTotal - originalTotal) < 0.000001) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `This changes the task quantity from ${formatQuantity(originalTotal)} to ${formatQuantity(nextTotal)}. Continue?`,
+      );
+      if (!confirmed) {
+        event.preventDefault();
+      }
+    });
+  });
+}
+
+function wirePutProductSummaryForms() {
+  document.querySelectorAll("[data-put-product-summary-form]").forEach((form) => {
+    if (form.dataset.putProductSummaryBound === "true") {
+      return;
+    }
+    form.dataset.putProductSummaryBound = "true";
+
+    const productInput = form.querySelector('input[name="product_id"]');
+    if (!productInput) {
+      return;
+    }
+
+    productInput.addEventListener("change", () => {
+      const productId = String(productInput.value || "").trim();
+      if (!productId) {
+        return;
+      }
+
+      const url = new URL("/put", window.location.origin);
+      url.searchParams.set("product_id", productId);
+
+      const quantity = form.querySelector('input[name="quantity"]')?.value?.trim();
+      if (quantity) {
+        url.searchParams.set("quantity", quantity);
+      }
+
+      const preferredCellId = form.querySelector('input[name="preferred_cell_id"]')?.value?.trim();
+      if (preferredCellId) {
+        url.searchParams.set("cell_id", preferredCellId);
+      }
+
+      window.location.assign(`${url.pathname}${url.search}`);
     });
   });
 }
@@ -551,13 +728,80 @@ function wireComboBoxes(root = document) {
     const toggle = combo.querySelector("[data-combo-toggle]");
     const empty = combo.querySelector("[data-combo-empty]");
     const options = Array.from(combo.querySelectorAll("[data-combo-option]"));
+    const originalOptionOrder = new Map(options.map((option, index) => [option, index]));
     const requiredMessage = combo.dataset.requiredMessage || "Choose an option from the list.";
+    const recencyStorageKey = combo.dataset.comboRecencyKey
+      ? `${COMBO_RECENCY_KEY_PREFIX}${combo.dataset.comboRecencyKey}`
+      : "";
 
     if (!input || !hidden || !panel || !toggle) {
       continue;
     }
 
     let activeIndex = -1;
+
+    const readRecentComboValues = () => {
+      if (!recencyStorageKey) {
+        return [];
+      }
+
+      try {
+        const values = JSON.parse(window.localStorage.getItem(recencyStorageKey) || "[]");
+        return Array.isArray(values)
+          ? values.map((value) => String(value || "").trim()).filter(Boolean)
+          : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const rememberRecentComboValue = (value) => {
+      const normalized = String(value || "").trim();
+      if (!recencyStorageKey || !normalized) {
+        return;
+      }
+
+      try {
+        const nextValues = [
+          normalized,
+          ...readRecentComboValues().filter((recentValue) => recentValue !== normalized),
+        ].slice(0, 12);
+        window.localStorage.setItem(recencyStorageKey, JSON.stringify(nextValues));
+      } catch {
+        // Local storage can be unavailable in strict browser modes.
+      }
+    };
+
+    const applyComboRecencyOrder = () => {
+      const recentRank = new Map(
+        readRecentComboValues().map((value, index) => [value, index]),
+      );
+      if (!recentRank.size) {
+        return;
+      }
+
+      options.sort((left, right) => {
+        const leftRecentRank = recentRank.get(left.dataset.value || "");
+        const rightRecentRank = recentRank.get(right.dataset.value || "");
+        const leftHasRecentRank = leftRecentRank !== undefined;
+        const rightHasRecentRank = rightRecentRank !== undefined;
+
+        if (leftHasRecentRank && rightHasRecentRank) {
+          return leftRecentRank - rightRecentRank;
+        }
+        if (leftHasRecentRank) {
+          return -1;
+        }
+        if (rightHasRecentRank) {
+          return 1;
+        }
+        return originalOptionOrder.get(left) - originalOptionOrder.get(right);
+      });
+
+      for (const option of options) {
+        panel.insertBefore(option, empty || null);
+      }
+    };
 
     const visibleOptions = () => options.filter((option) => !option.hidden);
 
@@ -610,6 +854,8 @@ function wireComboBoxes(root = document) {
       hidden.value = exactMatch.dataset.value || "";
       input.value = exactMatch.dataset.label || "";
       input.setCustomValidity("");
+      rememberRecentComboValue(hidden.value);
+      applyComboRecencyOrder();
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
       return true;
     };
@@ -636,6 +882,8 @@ function wireComboBoxes(root = document) {
       input.value = option.dataset.label || "";
       hidden.value = option.dataset.value || "";
       input.setCustomValidity("");
+      rememberRecentComboValue(hidden.value);
+      applyComboRecencyOrder();
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
       closePanel();
       window.requestAnimationFrame(() => {
@@ -729,6 +977,8 @@ function wireComboBoxes(root = document) {
         }
       }, 120);
     });
+
+    applyComboRecencyOrder();
   }
 
   if (document.body.dataset.comboDocumentBound !== "true") {
@@ -964,11 +1214,11 @@ function wirePutPlanForms() {
       }, 0);
       const matches = Math.abs(currentTotal - expectedTotal) < 0.000001;
       if (totalLabel) {
-        totalLabel.textContent = `Adjusted total: ${formatQuantity(currentTotal)} / ${formatQuantity(expectedTotal)}`;
-        totalLabel.classList.toggle("flash-error", !matches);
+        totalLabel.textContent = `Adjusted total: ${formatQuantity(currentTotal)} · Original: ${formatQuantity(expectedTotal)}`;
+        totalLabel.classList.toggle("flash-warning", !matches);
       }
       if (submitButton) {
-        submitButton.disabled = !matches;
+        submitButton.disabled = false;
       }
     };
 
@@ -2475,6 +2725,9 @@ document.addEventListener("DOMContentLoaded", () => {
   wireNavState();
   wireLiveSearch();
   wireQuantityShortcuts();
+  wireCompletionRedirects();
+  wireQuantityChangeConfirmations();
+  wirePutProductSummaryForms();
   wireReportsWorkspace();
   wireComboBoxes();
   wireAdjustmentForms();

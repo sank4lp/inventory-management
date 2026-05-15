@@ -9,7 +9,6 @@ import {
   normalizeItemsPerCell,
   normalizeNonNegativeQuantity,
   normalizePositiveQuantity,
-  quantitiesMatch,
 } from "../domain/inventory/quantities.js";
 import {
   planPickLines,
@@ -54,6 +53,64 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
     destinations: plan.destinations,
     unresolvedQuantity: plan.unresolvedQuantity,
   };
+}
+
+function getActiveCell(db, cellId, message = "Selected cell is not active.") {
+  const cell = db
+    .prepare("SELECT * FROM cells WHERE id = ? AND active = 1")
+    .get(Number(cellId));
+  if (!cell) {
+    throw new Error(message);
+  }
+  return cell;
+}
+
+function assertPutCellEligible(db, { productId, cellId }) {
+  const cell = getActiveCell(db, cellId, "Selected put cell is not active.");
+  const otherProduct = db
+    .prepare(
+      `
+        SELECT p.sku
+        FROM inventory_balances b
+        JOIN products p ON p.id = b.product_id
+        WHERE b.cell_id = ?
+          AND b.product_id != ?
+          AND b.available_quantity > 0
+        LIMIT 1
+      `,
+    )
+    .get(Number(cellId), Number(productId));
+
+  if (otherProduct) {
+    throw new Error(
+      `Cell ${cell.logical_code} already contains ${otherProduct.sku}. Choose an empty cell or a cell with the same product.`,
+    );
+  }
+
+  return cell;
+}
+
+function getPickCellAvailability(db, { productId, cellId }) {
+  const cell = db
+    .prepare(
+      `
+        SELECT
+          c.*,
+          b.id AS balance_id,
+          COALESCE(b.available_quantity, 0) AS available_quantity
+        FROM cells c
+        LEFT JOIN inventory_balances b
+          ON b.cell_id = c.id AND b.product_id = ?
+        WHERE c.id = ? AND c.active = 1
+      `,
+    )
+    .get(Number(productId), Number(cellId));
+
+  if (!cell) {
+    throw new Error("Selected pick cell is not active.");
+  }
+
+  return cell;
 }
 
 function buildCellAnomalies(db) {
@@ -313,58 +370,37 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
     const balances = createInventoryBalanceRepository(db);
     const tasks = createTaskRepository(db);
     const touchedCellIds = new Set();
-    const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
-
-    if (task.type === "put") {
-      const actualTotal = task.lines.reduce((sum, line) => {
-        const actualValue = actualQuantities[line.id] ?? line.planned_quantity;
-        return sum + normalizeNonNegativeQuantity(actualValue, "Put quantities must be zero or greater.");
-      }, 0);
-      if (!quantitiesMatch(actualTotal, plannedTotal)) {
-        throw new Error(
-          `Put quantities must total ${plannedTotal}. Current total is ${actualTotal}. Adjust the cells or cancel the task.`,
-        );
-      }
-    }
 
     for (const line of task.lines) {
       const actualValue = actualQuantities[line.id] ?? line.planned_quantity;
       const actualQuantity = normalizeNonNegativeQuantity(actualValue, "Actual quantity values must be zero or greater.");
-
-      if (task.type === "pick" && actualQuantity > Number(line.planned_quantity)) {
-        throw new Error("Actual quantities cannot exceed planned quantities in this MVP.");
-      }
-
       const exceptionQuantity = Math.max(0, Number(line.planned_quantity) - actualQuantity);
-      const targetCellId =
-        task.type === "put"
-          ? Number(actualCellIds?.[line.id] || line.cell_id)
-          : Number(line.cell_id);
-
-      const targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(targetCellId);
-      if (!targetCell) {
-        throw new Error("Selected cell not found.");
-      }
-
-      tasks.updateLineActual({
-        lineId: line.id,
-        actualQuantity,
-        exceptionQuantity,
-        note: note || null,
-        cellId: targetCellId,
-      });
-
-      const plannedBalance = balances.getOrCreate(line.product_id, line.cell_id);
+      const targetCellId = Number(actualCellIds?.[line.id] || line.cell_id);
 
       if (task.type === "pick") {
-        if (actualQuantity > Number(plannedBalance.available_quantity)) {
+        const pickCell = getPickCellAvailability(db, {
+          productId: line.product_id,
+          cellId: targetCellId,
+        });
+
+        if (actualQuantity > Number(pickCell.available_quantity)) {
           throw new Error(
-            `Cell ${line.logical_code} only has ${Number(plannedBalance.available_quantity)} item(s) left for ${line.sku}. Start a new pick task with the current stock.`,
+            `Cell ${pickCell.logical_code} only has ${Number(pickCell.available_quantity)} item(s) left for ${line.sku}. Choose another eligible cell or reduce the quantity.`,
           );
         }
 
-        balances.decrease(plannedBalance.id, actualQuantity);
-        touchedCellIds.add(Number(line.cell_id));
+        tasks.updateLineActual({
+          lineId: line.id,
+          actualQuantity,
+          exceptionQuantity,
+          note: note || null,
+          cellId: targetCellId,
+        });
+
+        if (actualQuantity > 0) {
+          balances.decrease(pickCell.balance_id, actualQuantity);
+        }
+        touchedCellIds.add(targetCellId);
 
         if (actualQuantity > 0) {
           db.prepare(
@@ -376,7 +412,7 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
             `,
           ).run(
             line.product_id,
-            line.cell_id,
+            targetCellId,
             -actualQuantity,
             userId,
             task.id,
@@ -385,6 +421,19 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
           );
         }
       } else if (task.type === "put") {
+        assertPutCellEligible(db, {
+          productId: line.product_id,
+          cellId: targetCellId,
+        });
+
+        tasks.updateLineActual({
+          lineId: line.id,
+          actualQuantity,
+          exceptionQuantity,
+          note: note || null,
+          cellId: targetCellId,
+        });
+
         const targetBalance = balances.getOrCreate(line.product_id, targetCellId);
         balances.increase(targetBalance.id, actualQuantity);
         touchedCellIds.add(targetCellId);
@@ -442,7 +491,6 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
     throw new Error("Task has no product lines to adjust.");
   }
 
-  const expectedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
   const nextAllocations = [];
   const seenCells = new Set();
 
@@ -461,23 +509,13 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
     if (seenCells.has(cellId)) {
       throw new Error("Each adjusted put cell can appear only once.");
     }
-    const cell = db.prepare("SELECT id FROM cells WHERE id = ? AND active = 1").get(cellId);
-    if (!cell) {
-      throw new Error("Selected put cell is not active.");
-    }
+    assertPutCellEligible(db, { productId, cellId });
     seenCells.add(cellId);
     nextAllocations.push({ cellId, quantity });
   }
 
   if (!nextAllocations.length) {
     throw new Error("Add at least one cell with a quantity greater than zero.");
-  }
-
-  const nextTotal = nextAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0);
-  if (!quantitiesMatch(nextTotal, expectedTotal)) {
-    throw new Error(
-      `Adjusted put quantities must total ${expectedTotal}. Current total is ${nextTotal}.`,
-    );
   }
 
   return withTransaction(db, () => {
@@ -516,32 +554,26 @@ export function correctCompletedTask(
     for (const line of task.lines) {
       const previousQuantity = Number(line.actual_quantity);
       const nextQuantity = Number(actualQuantities[line.id] ?? previousQuantity);
-      const nextCellId =
-        task.type === "put"
-          ? Number(actualCellIds?.[line.id] || line.cell_id)
-          : Number(line.cell_id);
+      const nextCellId = Number(actualCellIds?.[line.id] || line.cell_id);
 
       if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
         throw new Error("Corrected quantities must be zero or greater.");
       }
 
-      if (task.type === "pick" && nextQuantity > Number(line.planned_quantity)) {
-        throw new Error("Corrected pick quantity cannot exceed planned quantity.");
-      }
-
-      const nextCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(nextCellId);
-      if (!nextCell) {
-        throw new Error("Selected correction cell not found.");
-      }
-
       const oldBalance = balances.getOrCreate(line.product_id, line.cell_id);
-      const newBalance = balances.getOrCreate(line.product_id, nextCellId);
 
       if (task.type === "pick") {
-        const reversibleAvailable = Number(oldBalance.available_quantity) + previousQuantity;
-        if (reversibleAvailable < nextQuantity) {
+        const nextPickCell = getPickCellAvailability(db, {
+          productId: line.product_id,
+          cellId: nextCellId,
+        });
+        const nextAvailable =
+          Number(nextPickCell.available_quantity) +
+          (Number(nextCellId) === Number(line.cell_id) ? previousQuantity : 0);
+
+        if (nextAvailable < nextQuantity) {
           throw new Error(
-            `Cell ${line.logical_code} no longer has enough stock to apply this correction safely.`,
+            `Cell ${nextPickCell.logical_code} no longer has enough stock to apply this correction safely.`,
           );
         }
 
@@ -564,7 +596,8 @@ export function correctCompletedTask(
           nowIso(),
         );
 
-        balances.decrease(oldBalance.id, nextQuantity);
+        const nextBalance = balances.getOrCreate(line.product_id, nextCellId);
+        balances.decrease(nextBalance.id, nextQuantity);
 
         db.prepare(
           `
@@ -575,7 +608,7 @@ export function correctCompletedTask(
           `,
         ).run(
           line.product_id,
-          line.cell_id,
+          nextCellId,
           -nextQuantity,
           userId,
           task.id,
@@ -584,7 +617,13 @@ export function correctCompletedTask(
         );
 
         touchedCellIds.add(Number(line.cell_id));
+        touchedCellIds.add(nextCellId);
       } else if (task.type === "put") {
+        assertPutCellEligible(db, {
+          productId: line.product_id,
+          cellId: nextCellId,
+        });
+
         assertSufficientBalance(
           oldBalance,
           previousQuantity,
@@ -610,6 +649,7 @@ export function correctCompletedTask(
           nowIso(),
         );
 
+        const newBalance = balances.getOrCreate(line.product_id, nextCellId);
         balances.increase(newBalance.id, nextQuantity);
 
         db.prepare(

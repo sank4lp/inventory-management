@@ -78,6 +78,7 @@ function comboBoxField({
   compact = false,
   inputRequired = true,
   hiddenRequired = true,
+  recencyKey = "",
 }) {
   const comboClassName = compact ? "combo-box combo-box-compact" : "combo-box";
 
@@ -86,6 +87,7 @@ function comboBoxField({
       class="${comboClassName}"
       data-combo-box
       data-required-message="${escapeHtml(requiredMessage)}"
+      ${recencyKey ? `data-combo-recency-key="${escapeHtml(recencyKey)}"` : ""}
     >
       <input
         class="combo-input"
@@ -124,7 +126,9 @@ export function productPickerField(
   hiddenName = "product_id",
   formId = "",
   required = true,
+  options = {},
 ) {
+  const { recencyKey = "" } = options;
   const selectedProduct = products.find((product) => product.id === selectedProductId) || null;
   const selectedLabel = selectedProduct
     ? `${selectedProduct.sku} · ${selectedProduct.name}`
@@ -159,6 +163,7 @@ export function productPickerField(
         formId,
         inputRequired: required,
         hiddenRequired: required,
+        recencyKey,
       })}
     </label>
   `;

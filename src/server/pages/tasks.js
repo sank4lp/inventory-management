@@ -16,6 +16,23 @@ import {
 } from "./shared.js";
 
 export function createTaskPages({ db }) {
+  function safeRecommendedReturnPath(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+
+    try {
+      const url = new URL(text, "http://localhost");
+      if (url.origin !== "http://localhost") {
+        return "";
+      }
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return "";
+    }
+  }
+
   function ledColorLabel(color) {
     return String(color || "").trim().toUpperCase() || "LED";
   }
@@ -33,6 +50,76 @@ export function createTaskPages({ db }) {
     const totalQuantity = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity || 0), 0);
     const action = task.type === "put" ? "Put" : "Pick";
     return `${action} ${formatQuantity(totalQuantity)} ${firstLine.unit_of_measure} of ${firstLine.sku}`;
+  }
+
+  function completedLineQuantity(line) {
+    return Number(line.actual_quantity ?? line.planned_quantity);
+  }
+
+  function renderCompletionDialog(task) {
+    if (!["pick", "put"].includes(task.type) || task.status !== "completed") {
+      return "";
+    }
+
+    const firstLine = task.lines[0];
+    const totalQuantity = task.lines.reduce((sum, line) => sum + completedLineQuantity(line), 0);
+    const movementLabel = task.type === "put" ? "Put" : "Pick";
+    const completedAction = task.type === "put" ? "Placed" : "Picked";
+    const cellAction = task.type === "put" ? "Placed in" : "Picked from";
+    const completedSummary = firstLine
+      ? `${completedAction} ${formatQuantity(totalQuantity)} ${firstLine.unit_of_measure} of ${firstLine.sku}`
+      : task.summary;
+
+    return `
+      <section
+        class="modal-backdrop app-alert-modal completion-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="completion-title"
+        data-completion-redirect
+        data-redirect-target="/"
+        data-redirect-seconds="10"
+      >
+        <div class="modal-panel completion-panel">
+          <header class="completion-header">
+            <div>
+              <span class="completion-kicker">${escapeHtml(movementLabel)} Task #${escapeHtml(task.id)}</span>
+              <h2 id="completion-title">Complete</h2>
+            </div>
+            ${statusBadge(task.status)}
+          </header>
+          <div class="completion-redirect-status" aria-live="polite">
+            <p data-completion-countdown>Redirecting to Overview in 10 seconds</p>
+            <div class="completion-progress" aria-hidden="true">
+              <span data-completion-progress></span>
+            </div>
+          </div>
+          <section class="completion-summary" aria-label="Task Summary">
+            <h3>Task Summary</h3>
+            <div class="meta-grid compact-meta-grid">
+              <div><strong>Task</strong><br />${escapeHtml(movementLabel)} #${escapeHtml(task.id)}</div>
+              <div><strong>Product</strong><br />${escapeHtml(firstLine?.sku || "Item")}</div>
+              <div><strong>Quantity</strong><br />${escapeHtml(formatQuantity(totalQuantity))} ${escapeHtml(firstLine?.unit_of_measure || "item(s)")}</div>
+              <div><strong>Completed</strong><br />${escapeHtml(formatDate(task.completed_at))}</div>
+            </div>
+            <p><strong>${escapeHtml(completedSummary)}</strong></p>
+            <ul class="completion-line-list">
+              ${task.lines
+                .map(
+                  (line) => `
+                    <li>
+                      <span>${escapeHtml(cellAction)} ${escapeHtml(line.logical_code)}</span>
+                      <strong>${escapeHtml(formatQuantity(completedLineQuantity(line)))} ${escapeHtml(line.unit_of_measure)}</strong>
+                    </li>
+                  `,
+                )
+                .join("")}
+            </ul>
+          </section>
+          <a class="action-cta-button completion-overview-button" href="/" data-completion-overview>Go to Overview</a>
+        </div>
+      </section>
+    `;
   }
 
   function renderLedInstruction({
@@ -113,6 +200,7 @@ export function createTaskPages({ db }) {
             name="plan_qty_${key}"
             value="${escapeHtml(quantity)}"
             data-put-plan-qty
+            data-quantity-change-input
           />
         </label>
         ${
@@ -126,7 +214,7 @@ export function createTaskPages({ db }) {
     return card(
       "Change put locations",
       `
-        <p class="muted">Change the split before placing items. The task will update the RED LED instructions after the total matches the original quantity.</p>
+            <p class="muted">Change the cells or quantities before placing items. If the total changes, confirm the new task quantity before updating the LED plan.</p>
         <div
           data-put-plan-form
           data-expected-total="${escapeHtml(total)}"
@@ -148,10 +236,19 @@ export function createTaskPages({ db }) {
           <div class="mini-actions">
             <button type="button" class="ghost-button" data-put-plan-add>Add another cell</button>
           </div>
-          <form id="put-plan-form" method="post" action="/tasks/${task.id}/put-plan" class="stack-form" data-led-command-form data-led-loading-label="Updating">
+          <form
+            id="put-plan-form"
+            method="post"
+            action="/tasks/${task.id}/put-plan"
+            class="stack-form"
+            data-led-command-form
+            data-led-loading-label="Updating"
+            data-quantity-change-form
+            data-original-total="${escapeHtml(total)}"
+          >
             ${hiddenSubmissionToken(actionToken)}
             <label>Reason for change<textarea name="note" rows="2" placeholder="Optional note"></textarea></label>
-            <p class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(total))} / ${escapeHtml(formatQuantity(total))}</p>
+            <p class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(total))} · Original: ${escapeHtml(formatQuantity(total))}</p>
             <button type="submit" class="blue-button" data-put-plan-submit data-led-command-submit data-led-loading-label="Updating">Update LED plan</button>
           </form>
         </div>
@@ -159,7 +256,7 @@ export function createTaskPages({ db }) {
     );
   }
 
-  function renderTask(user, flash, task, mode = "view", actionTokens = {}) {
+  function renderTask(user, flash, task, mode = "view", actionTokens = {}, options = {}) {
     if (!task) {
       return page({
         title: "Task not found",
@@ -172,11 +269,12 @@ export function createTaskPages({ db }) {
     const guidanceSummary =
       "Use the row below as the work instruction. Check the cell, LED color, and quantity before completing the task.";
     const firstLine = task.lines[0];
-    const cells = task.type === "put" ? listCells(db) : [];
+    const cells = ["pick", "put"].includes(task.type) ? listCells(db) : [];
     const editMode = mode === "edit";
     const taskIsActive = task.status !== "completed" && task.status !== "cancelled";
     const editable = editMode && canEditTask(user, task) && task.status === "completed";
     const canRecordPhysicalConfirmation = taskIsActive && canEditTask(user, task);
+    const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
     const taskLabel = task.type === "pick" ? "Pick Task" : "Put Task";
     const movementLabel = task.type === "pick" ? "pick" : "put";
     const actionLabel = task.type === "pick" ? "Complete pick" : "Complete put";
@@ -193,9 +291,16 @@ export function createTaskPages({ db }) {
       : [
           "Instruction",
           ...(canRecordPhysicalConfirmation ? ["Physical"] : []),
+          ...(editable || taskIsActive ? ["Final cell"] : []),
           "Planned",
           "Actual",
         ];
+    const showCompletionDialog = Boolean(
+      options.showCompletionDialog &&
+        mode !== "edit" &&
+        task.status === "completed" &&
+        ["pick", "put"].includes(task.type),
+    );
 
     return page({
       title: taskTitle,
@@ -256,8 +361,10 @@ export function createTaskPages({ db }) {
           editMode ? "Save corrected result" : actionLabel,
           `
             ${
-              task.type === "put"
-                ? `<p class="muted">You may change cell or quantity. If the final placement overfills a cell or mixes products, the Recommended Actions page will flag it for cleanup.</p>`
+              taskIsActive && ["pick", "put"].includes(task.type)
+                ? `<p class="muted">You may change the final cell or quantity before completing this task. If the total quantity changes, the app will ask you to confirm before saving.</p>`
+                : task.type === "put"
+                ? `<p class="muted">You may change cell or quantity. If the final placement overfills a cell, the Recommended Actions page will flag it for cleanup.</p>`
                 : ""
             }
             ${
@@ -283,17 +390,26 @@ export function createTaskPages({ db }) {
                       ...(canRecordPhysicalConfirmation
                         ? [renderPhysicalConfirmationControl(task, line)]
                         : []),
+                      ...(editable || taskIsActive
+                        ? [cellPickerField(cells, line.cell_id, `line-${line.id}`, `actual_cell_${line.id}`, "confirm-form")]
+                        : []),
                     ]),
                 `${escapeHtml(formatQuantity(line.planned_quantity))} ${escapeHtml(line.unit_of_measure)}`,
                 editable || taskIsActive
-                  ? `<input form="confirm-form" class="compact-input" type="number" step="0.01" min="0" ${task.type === "pick" ? `max="${escapeHtml(line.planned_quantity)}"` : ""} name="actual_${line.id}" value="${escapeHtml(line.actual_quantity || line.planned_quantity)}" />`
+                  ? `<input form="confirm-form" class="compact-input" type="number" step="0.01" min="0" name="actual_${line.id}" value="${escapeHtml(line.actual_quantity || line.planned_quantity)}" data-quantity-change-input />`
                   : escapeHtml(formatQuantity(line.actual_quantity || line.planned_quantity)),
               ]),
             )}
             ${
               editable || taskIsActive
                 ? `
-                    <form id="confirm-form" method="post" action="/tasks/${task.id}/${editSubmitPath}" class="stack-form"${editMode ? "" : ` data-led-command-form data-led-loading-label="Finishing"`}>
+                    <form
+                      id="confirm-form"
+                      method="post"
+                      action="/tasks/${task.id}/${editSubmitPath}"
+                      class="stack-form"${editMode ? "" : ` data-led-command-form data-led-loading-label="Finishing"`}
+                      ${taskIsActive ? `data-quantity-change-form data-original-total="${escapeHtml(plannedTotal)}"` : ""}
+                    >
                       ${hiddenSubmissionToken(editMode ? actionTokens.correct : actionTokens.confirm)}
                       <label>Note<textarea name="note" rows="3" placeholder="Optional note"></textarea></label>
                       <button type="submit"${editMode ? "" : ` data-led-command-submit data-led-loading-label="Finishing"`}>${editMode ? "Save correction" : actionLabel}</button>
@@ -307,12 +423,21 @@ export function createTaskPages({ db }) {
             }
           `,
         )}
+        ${showCompletionDialog ? renderCompletionDialog(task) : ""}
       `,
     });
   }
 
-  function renderRecommendedActions(user, flash, selectedKey = "") {
+  function renderRecommendedActions(user, flash, selectedKey = "", options = {}) {
     const allActions = getRecommendedActions(db);
+    const returnTo = safeRecommendedReturnPath(options.returnTo);
+    const openedFromCapacityUpdate = options.source === "capacity" && Boolean(selectedKey);
+    const returnToInput = returnTo
+      ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />`
+      : "";
+    const recommendationSourceInput = openedFromCapacityUpdate
+      ? `<input type="hidden" name="recommendation_source" value="capacity" />`
+      : "";
     if (!selectedKey) {
       return page({
         title: "Recommended Actions",
@@ -360,8 +485,14 @@ export function createTaskPages({ db }) {
             ? `
               <section class="page-actions page-actions-left">
                 <a class="action-cta-button secondary-cta" href="/recommended-actions">All Recommendations</a>
+                ${returnTo ? `<a class="action-cta-button secondary-cta" href="${escapeHtml(returnTo)}">Skip for now</a>` : ""}
               </section>
             `
+            : ""
+        }
+        ${
+          openedFromCapacityUpdate
+            ? `<p class="flash flash-warning">The capacity update created this recommended action. Apply it now to update inventory, or skip it for later.</p>`
             : ""
         }
         ${actions.length
@@ -382,6 +513,8 @@ export function createTaskPages({ db }) {
                       <input type="hidden" name="product_id" value="${action.productId}" />
                       <input type="hidden" name="reason" value="${escapeHtml(action.title)}" />
                       <input type="hidden" name="recommendation_key" value="${escapeHtml(action.key)}" />
+                      ${returnToInput}
+                      ${recommendationSourceInput}
                       ${action.recommendedMoves
                         .map((move, index) => {
                           const sourceMapped = cellHasMappedLed(action.cellId);

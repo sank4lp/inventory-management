@@ -250,22 +250,6 @@ test("core inventory flows work against a fresh seeded database", async () => {
   assert.match(reportHtml, /data-report-print-option="stock-snapshot"/);
   assert.match(reportHtml, /data-report-template="movement"/);
 
-  const mixedCell = inventory.searchCells(db, "Z1-R1-C04")[0];
-
-  const mixedPutTask = inventory.planPut(db, {
-    userId: 1,
-    productId: shoe.id,
-    quantity: 1,
-  });
-  const mixedPutCompletion = inventory.completeTask(db, {
-    taskId: mixedPutTask.id,
-    actualQuantities: { [mixedPutTask.lines[0].id]: 1 },
-    actualCellIds: { [mixedPutTask.lines[0].id]: mixedCell.id },
-    userId: 1,
-    note: "Intentional mixed cell",
-  });
-  assert.ok(mixedPutCompletion.anomalies.length > 0);
-
   const actions = inventory.getRecommendedActions(db);
   assert.ok(actions.length > 0);
 });
@@ -342,6 +326,145 @@ test("put capacity error page offers an inline items-per-cell update", async () 
   assert.match(html, /name="items_per_cell"/);
   assert.match(html, /name="quantity" value="99"/);
   assert.match(html, /name="return_to" value="\/put\?product_id=\d+&amp;quantity=99"/);
+});
+
+test("capacity updates show newly-created recommended actions in a same-page prompt", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-capacity-recommendation-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const auth = await freshImport("../src/services/auth.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+  const response = new MockResponse();
+  const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
+  const body = new URLSearchParams({
+    items_per_cell: "2",
+    return_to: "/products/1",
+  }).toString();
+
+  await requestHandler(
+    formRequest({
+      url: "/products/1/items-per-cell",
+      body,
+      cookie,
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 302);
+  assert.match(response.headers.Location, /^\/products\/1\?/);
+  const redirectUrl = new URL(response.headers.Location, "http://localhost");
+  assert.match(redirectUrl.searchParams.get("capacity_recommendation_key"), /^overflow-\d+-1$/);
+  assert.equal(
+    redirectUrl.searchParams.get("flash"),
+    "Capacity updated. A recommended inventory action was created; review it now or skip for later.",
+  );
+  assert.equal(redirectUrl.searchParams.get("tone"), "warning");
+
+  const detailResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      method: "GET",
+      url: response.headers.Location,
+      body: "",
+      cookie,
+    }),
+    detailResponse,
+  );
+
+  assert.equal(detailResponse.statusCode, 200);
+  assert.match(detailResponse.body, /Recommended action created/);
+  assert.match(detailResponse.body, /Review recommendation/);
+  assert.match(detailResponse.body, /Skip for now/);
+  assert.match(detailResponse.body, /href="\/recommended-actions\?key=overflow-\d+-1&amp;source=capacity&amp;return_to=%2Fproducts%2F1"/);
+  assert.match(detailResponse.body, /href="\/products\/1">Skip for now/);
+});
+
+test("active pick and put tasks allow changed quantities on eligible cells", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-flexible-task-confirm-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  const shirt = inventory.listProducts(db).find((product) => product.sku === "SKU-TEE-002");
+  assert.ok(shoe);
+  assert.ok(shirt);
+
+  const shoeCell = inventory.searchCells(db, "Z1-R1-C01")[0];
+  const alternateShoeCell = inventory.searchCells(db, "Z1-R1-C02")[0];
+  const shirtCell = inventory.searchCells(db, "Z1-R1-C04")[0];
+  const emptyCell = inventory.listCells(db).find((cell) => Number(cell.occupied_quantity || 0) === 0);
+  assert.ok(shoeCell);
+  assert.ok(alternateShoeCell);
+  assert.ok(shirtCell);
+  assert.ok(emptyCell);
+
+  const pickTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+    preferredCellId: shoeCell.id,
+  });
+  const completedPick = inventory.completeTask(db, {
+    taskId: pickTask.id,
+    actualQuantities: { [pickTask.lines[0].id]: 2 },
+    actualCellIds: { [pickTask.lines[0].id]: alternateShoeCell.id },
+    userId: 1,
+    note: "Pick from alternate eligible cell",
+  });
+  assert.equal(Number(completedPick.task.lines[0].actual_quantity), 2);
+  assert.equal(Number(completedPick.task.lines[0].cell_id), Number(alternateShoeCell.id));
+
+  const invalidPutTask = inventory.planPut(db, {
+    userId: 1,
+    productId: shirt.id,
+    quantity: 1,
+  });
+  assert.throws(
+    () =>
+      inventory.completeTask(db, {
+        taskId: invalidPutTask.id,
+        actualQuantities: { [invalidPutTask.lines[0].id]: 2 },
+        actualCellIds: { [invalidPutTask.lines[0].id]: shoeCell.id },
+        userId: 1,
+        note: "Try invalid mixed put",
+      }),
+    /already contains SKU-SHOE-001/,
+  );
+
+  const putTask = inventory.planPut(db, {
+    userId: 1,
+    productId: shirt.id,
+    quantity: 1,
+  });
+  const completedPut = inventory.completeTask(db, {
+    taskId: putTask.id,
+    actualQuantities: { [putTask.lines[0].id]: 4 },
+    actualCellIds: { [putTask.lines[0].id]: emptyCell.id },
+    userId: 1,
+    note: "Put into alternate eligible empty cell",
+  });
+  assert.equal(Number(completedPut.task.lines[0].actual_quantity), 4);
+  assert.equal(Number(completedPut.task.lines[0].cell_id), Number(emptyCell.id));
+
+  const adjustablePut = inventory.planPut(db, {
+    userId: 1,
+    productId: shirt.id,
+    quantity: 1,
+  });
+  const adjustedPut = inventory.updatePendingPutPlan(db, {
+    taskId: adjustablePut.id,
+    allocations: [{ cellId: emptyCell.id, quantity: 5 }],
+    note: "Change quantity before LEDs",
+  });
+  assert.equal(
+    adjustedPut.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0),
+    5,
+  );
 });
 
 test("locations expose direct pick and put actions", async () => {
@@ -443,8 +566,21 @@ test("operator movement screens keep context and use plain task actions", async 
     new URL(`http://localhost/pick?product_id=${shoe.id}&cell_id=${preferredCellId}&quantity=2`),
   );
   assert.match(pickHtml, /name="quantity"[\s\S]*value="2"/);
-  assert.match(pickHtml, /Quick quantity/);
+  assert.match(pickHtml, /Quick quantity picker/);
+  assert.match(pickHtml, /Pick all in this location/);
   assert.match(pickHtml, /Available to pick/);
+
+  const putHtml = productPages.renderPut(
+    user,
+    null,
+    new URL(`http://localhost/put?product_id=${shoe.id}&quantity=2`),
+  );
+  assert.match(putHtml, /Quick quantity picker/);
+  assert.match(putHtml, /Full location capacity/);
+  assert.match(putHtml, /Current stock/);
+  assert.match(putHtml, new RegExp(`${productDetail.sku}[\\s\\S]*${productDetail.name}`));
+  assert.match(putHtml, new RegExp(`${productDetail.locations[0].logical_code}[\\s\\S]*${productDetail.locations[0].available_quantity}`));
+  assert.match(putHtml, /data-put-product-summary-form/);
 
   const task = inventory.allocatePick(db, {
     userId: user.id,
@@ -464,6 +600,69 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(taskHtml, /Cancel task/);
   assert.match(taskHtml, /Cancel this task\?/);
   assert.doesNotMatch(taskHtml, /Simulate button|Finish task|Cancel Task|Pick Action Initiated/);
+
+  const completed = inventory.completeTask(db, {
+    taskId: task.id,
+    actualQuantities: Object.fromEntries(
+      task.lines.map((line) => [line.id, line.planned_quantity]),
+    ),
+    userId: user.id,
+    note: "Completed in UX test",
+  });
+  const completionHtml = taskPages.renderTask(user, null, completed.task, "view", {}, {
+    showCompletionDialog: true,
+  });
+  assert.match(completionHtml, /id="completion-title">Complete/);
+  assert.match(completionHtml, /Task Summary/);
+  assert.match(completionHtml, /Redirecting to Overview in 10 seconds/);
+  assert.match(completionHtml, /data-completion-redirect/);
+  assert.match(completionHtml, /Go to Overview/);
+});
+
+test("pick and put product pickers prioritize recently selected movement products", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recent-product-picker-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createProductPages } = await freshImport("../src/server/pages/products.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  const shirt = inventory.listProducts(db).find((product) => product.sku === "SKU-TEE-002");
+  assert.ok(shoe);
+  assert.ok(shirt);
+
+  const productPages = createProductPages({ db });
+  const productOptionIndex = (html, product) => {
+    const index = html.indexOf(`data-value="${product.id}"`);
+    assert.notEqual(index, -1, `${product.sku} should be present in the product picker`);
+    return index;
+  };
+
+  const defaultPutHtml = productPages.renderPut(user, null, new URL("http://localhost/put"));
+  assert.ok(productOptionIndex(defaultPutHtml, shoe) < productOptionIndex(defaultPutHtml, shirt));
+
+  inventory.allocatePick(db, {
+    userId: user.id,
+    productId: shoe.id,
+    quantity: 1,
+  });
+  inventory.planPut(db, {
+    userId: user.id,
+    productId: shirt.id,
+    quantity: 1,
+  });
+
+  const putHtml = productPages.renderPut(user, null, new URL("http://localhost/put"));
+  const pickHtml = productPages.renderPick(user, null, new URL("http://localhost/pick"));
+
+  assert.ok(productOptionIndex(putHtml, shirt) < productOptionIndex(putHtml, shoe));
+  assert.ok(productOptionIndex(pickHtml, shirt) < productOptionIndex(pickHtml, shoe));
+  assert.match(putHtml, /data-combo-recency-key="movement-product"/);
+  assert.match(pickHtml, /data-combo-recency-key="movement-product"/);
 });
 
 test("recommended actions open as a scan-friendly list before detailed cleanup", async () => {
@@ -473,24 +672,26 @@ test("recommended actions open as a scan-friendly list before detailed cleanup",
   const { createDatabase } = await freshImport("../src/db.js");
   const auth = await freshImport("../src/services/auth.js");
   const inventory = await freshImport("../src/services/inventory.js");
+  const { createHomePages } = await freshImport("../src/server/pages/home.js");
   const { createTaskPages } = await freshImport("../src/server/pages/tasks.js");
 
   const db = createDatabase({ hashPassword: auth.hashPassword });
   const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
   const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
   assert.ok(shoe);
-  const mixedCell = inventory.searchCells(db, "Z1-R1-C04")[0];
-  assert.ok(mixedCell);
+  const overCapacityCell = inventory.searchCells(db, "Z1-R1-C01")[0];
+  assert.ok(overCapacityCell);
 
   const putTask = inventory.planPut(db, {
     userId: user.id,
     productId: shoe.id,
     quantity: 1,
+    preferredCellId: overCapacityCell.id,
   });
   inventory.completeTask(db, {
     taskId: putTask.id,
-    actualQuantities: { [putTask.lines[0].id]: 1 },
-    actualCellIds: { [putTask.lines[0].id]: mixedCell.id },
+    actualQuantities: { [putTask.lines[0].id]: 2 },
+    actualCellIds: { [putTask.lines[0].id]: overCapacityCell.id },
     userId: user.id,
     note: "Create recommended action for UX test",
   });
@@ -504,9 +705,20 @@ test("recommended actions open as a scan-friendly list before detailed cleanup",
   assert.match(listHtml, /Review/);
   assert.doesNotMatch(listHtml, /Apply recommendation/);
 
-  const detailHtml = taskPages.renderRecommendedActions(user, null, actions[0].key);
+  const detailHtml = taskPages.renderRecommendedActions(user, null, actions[0].key, {
+    source: "capacity",
+    returnTo: "/products/1",
+  });
   assert.match(detailHtml, /Apply recommendation/);
   assert.match(detailHtml, /Show PICK\/PUT LEDs/);
+  assert.match(detailHtml, /Skip for now/);
+  assert.match(detailHtml, /The capacity update created this recommended action/);
+  assert.match(detailHtml, /name="return_to" value="\/products\/1"/);
+
+  const homePages = createHomePages({ db });
+  const overviewHtml = homePages.renderHome(user, null, new URL("http://localhost/"));
+  assert.match(overviewHtml, /Recommended Actions/);
+  assert.match(overviewHtml, new RegExp(`/recommended-actions\\?key=${actions[0].key}`));
 });
 
 test("admins can revoke registration keys and suspend user access", async () => {
