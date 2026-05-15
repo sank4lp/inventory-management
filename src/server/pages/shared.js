@@ -1,6 +1,7 @@
 import {
   card,
   escapeHtml,
+  formatBytes,
   formatDate,
   formatQuantity,
   page,
@@ -12,6 +13,7 @@ import {
 export {
   card,
   escapeHtml,
+  formatBytes,
   formatDate,
   formatQuantity,
   page,

@@ -723,11 +723,26 @@ function initializeSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_inventory_balances_product ON inventory_balances(product_id);
+    CREATE INDEX IF NOT EXISTS idx_inventory_balances_cell ON inventory_balances(cell_id);
     CREATE INDEX IF NOT EXISTS idx_task_lines_task ON task_lines(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_lines_product ON task_lines(product_id);
+    CREATE INDEX IF NOT EXISTS idx_task_lines_cell ON task_lines(cell_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status_touched ON tasks(status, last_touched_at);
+    CREATE INDEX IF NOT EXISTS idx_tasks_created_by_id ON tasks(created_by, id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_completed_started ON tasks(completed_at, started_at);
     CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_product_created ON transactions(product_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_user_created ON transactions(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_task ON transactions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_type_created ON transactions(type, created_at);
     CREATE INDEX IF NOT EXISTS idx_device_events_created_at ON device_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_device_events_task ON device_events(task_id);
+    CREATE INDEX IF NOT EXISTS idx_device_events_cell ON device_events(cell_id);
+    CREATE INDEX IF NOT EXISTS idx_device_events_type_created ON device_events(event_type, created_at);
     CREATE INDEX IF NOT EXISTS idx_system_events_created_at ON system_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_system_events_type_created ON system_events(event_type, created_at);
     CREATE INDEX IF NOT EXISTS idx_submission_tokens_scope_task ON submission_tokens(scope, task_id, used_at);
+    CREATE INDEX IF NOT EXISTS idx_products_active_name ON products(active, name);
   `);
 
   ensureColumn(db, "products", "items_per_cell", "REAL NOT NULL DEFAULT 12");

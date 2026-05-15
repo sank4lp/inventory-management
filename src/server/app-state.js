@@ -8,6 +8,7 @@ import { createAdminService } from "../services/admin.js";
 import { createAnomalyService } from "../services/anomalies.js";
 import { createBackupService } from "../services/backups.js";
 import { createCatalogService } from "../services/catalog.js";
+import { createDatabaseMaintenanceService } from "../services/database-maintenance.js";
 import { createFirmwareService } from "../services/firmware.js";
 import { createHardwareService } from "../services/hardware.js";
 import { createLocationService } from "../services/locations.js";
@@ -22,11 +23,19 @@ export const logger = createLogger({
 
 let appState = null;
 let stalePendingTaskTimer = null;
+let databaseMaintenanceTimer = null;
 
 function stopStalePendingTaskMaintenance() {
   if (stalePendingTaskTimer) {
     clearInterval(stalePendingTaskTimer);
     stalePendingTaskTimer = null;
+  }
+}
+
+function stopDatabaseMaintenance() {
+  if (databaseMaintenanceTimer) {
+    clearInterval(databaseMaintenanceTimer);
+    databaseMaintenanceTimer = null;
   }
 }
 
@@ -40,6 +49,18 @@ function startStalePendingTaskMaintenance(systemService) {
     systemService.cancelStalePendingReviewTasks();
   }, 30 * 1000);
   stalePendingTaskTimer.unref?.();
+}
+
+function startDatabaseMaintenance(databaseMaintenanceService) {
+  if (process.env.NO_SERVER_LISTEN === "1") {
+    return;
+  }
+
+  stopDatabaseMaintenance();
+  databaseMaintenanceTimer = setInterval(() => {
+    databaseMaintenanceService.runStartupMaintenance();
+  }, 24 * 60 * 60 * 1000);
+  databaseMaintenanceTimer.unref?.();
 }
 
 function buildAppState() {
@@ -70,14 +91,24 @@ function buildAppState() {
   startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
   startStalePendingTaskMaintenance(systemService);
   const backupService = createBackupService({
-    getDb: () => appState?.db || db,
+    getDb: () => db,
     reloadAppState,
     logger,
+    automaticBackupIntervalHours: appConfig.automaticBackupIntervalHours,
   });
+  const databaseMaintenanceService = createDatabaseMaintenanceService({
+    db,
+    backupService,
+    config: appConfig,
+    logger,
+  });
+  databaseMaintenanceService.runStartupMaintenance();
+  startDatabaseMaintenance(databaseMaintenanceService);
   const pages = createPageRenderer({ db, backupService });
 
   setRuntimeContext({
     config: appConfig,
+    databaseMaintenanceService,
     firmwareService,
     logger,
     systemService,
@@ -90,6 +121,7 @@ function buildAppState() {
     backupService,
     catalogService: createCatalogService({ db }),
     db,
+    databaseMaintenanceService,
     firmwareService,
     hardwareService,
     locationService: createLocationService({ db }),
@@ -107,6 +139,7 @@ function buildAppState() {
 
 export function reloadAppState({ closeCurrentDb = true } = {}) {
   stopStalePendingTaskMaintenance();
+  stopDatabaseMaintenance();
   if (closeCurrentDb && appState?.db) {
     appState.db.close();
   }

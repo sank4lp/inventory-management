@@ -15,6 +15,8 @@ const DATA_DIR = join(process.cwd(), "data");
 const DB_PATH = join(DATA_DIR, "inventory.db");
 const BACKUP_DIR = join(DATA_DIR, "backups");
 const DEFAULT_AUTO_BACKUP_LIMIT = 48;
+const DEFAULT_AUTO_BACKUP_INTERVAL_HOURS = 24;
+const LAST_AUTO_BACKUP_KEY = "backup_last_auto_at";
 
 function ensureDirectory(path) {
   mkdirSync(path, { recursive: true });
@@ -42,6 +44,20 @@ function slugify(value) {
 function firstColumnValue(row) {
   const values = Object.values(row || {});
   return values[0];
+}
+
+function readMetadata(db, key) {
+  return db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(key)?.value || null;
+}
+
+function writeMetadata(db, key, value, updatedAt = new Date()) {
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(key, value, updatedAt.toISOString());
 }
 
 function parseBackupFilename(filename) {
@@ -101,6 +117,7 @@ export function createBackupService({
   reloadAppState,
   logger,
   autoBackupLimit = DEFAULT_AUTO_BACKUP_LIMIT,
+  automaticBackupIntervalHours = DEFAULT_AUTO_BACKUP_INTERVAL_HOURS,
 }) {
   function ensureBackupDirectory() {
     ensureDirectory(BACKUP_DIR);
@@ -166,6 +183,54 @@ export function createBackupService({
       sizeBytes: backup.sizeBytes,
     });
     return backup;
+  }
+
+  function latestAutomaticBackup() {
+    return listBackups().find((backup) => backup.kind === "auto") || null;
+  }
+
+  function createAutomaticBackupIfDue({
+    source = "scheduled",
+    now = new Date(),
+    intervalHours = automaticBackupIntervalHours,
+    force = false,
+  } = {}) {
+    const db = getDb();
+    if (!db) {
+      throw new Error("Database is not available for backup.");
+    }
+
+    const currentTime = now instanceof Date ? now : new Date(now);
+    const metadataAt = readMetadata(db, LAST_AUTO_BACKUP_KEY);
+    const latestBackup = latestAutomaticBackup();
+    const lastBackupAt = metadataAt || latestBackup?.createdAt || null;
+    const intervalMs = Number(intervalHours || DEFAULT_AUTO_BACKUP_INTERVAL_HOURS) * 60 * 60 * 1000;
+    const lastBackupTime = lastBackupAt ? new Date(lastBackupAt).getTime() : 0;
+    const backupDue =
+      force ||
+      !lastBackupAt ||
+      Number.isNaN(lastBackupTime) ||
+      currentTime.getTime() - lastBackupTime >= intervalMs;
+
+    if (!backupDue) {
+      return {
+        created: false,
+        reason: "not_due",
+        lastBackupAt,
+        nextBackupAt: new Date(lastBackupTime + intervalMs).toISOString(),
+        latestBackup,
+      };
+    }
+
+    const backup = createBackup({ kind: "auto", source });
+    writeMetadata(db, LAST_AUTO_BACKUP_KEY, currentTime.toISOString(), currentTime);
+    return {
+      created: true,
+      reason: "due",
+      backup,
+      lastBackupAt: currentTime.toISOString(),
+      nextBackupAt: new Date(currentTime.getTime() + intervalMs).toISOString(),
+    };
   }
 
   function getBackupByFilename(filename) {
@@ -240,6 +305,7 @@ export function createBackupService({
 
   function getSummary() {
     const backups = listBackups();
+    const latestAuto = backups.find((backup) => backup.kind === "auto") || null;
     return {
       databasePath: DB_PATH,
       backupDirectory: BACKUP_DIR,
@@ -247,11 +313,14 @@ export function createBackupService({
       automaticBackups: backups.filter((backup) => backup.kind === "auto").length,
       manualBackups: backups.filter((backup) => backup.kind === "manual").length,
       latestBackup: backups[0] || null,
+      latestAutomaticBackup: latestAuto,
       autoBackupLimit,
+      automaticBackupIntervalHours,
     };
   }
 
   return {
+    createAutomaticBackupIfDue,
     createBackup,
     getBackupByFilename,
     getSummary,

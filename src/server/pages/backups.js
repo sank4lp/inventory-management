@@ -1,18 +1,4 @@
-import { card, escapeHtml, formatDate, page, statsGrid, table } from "./shared.js";
-
-function formatBytes(bytes) {
-  const value = Number(bytes || 0);
-
-  if (value < 1024) {
-    return `${value} B`;
-  }
-
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
+import { card, escapeHtml, formatBytes, formatDate, page, statsGrid, table } from "./shared.js";
 
 export function createBackupPages({ backupService }) {
   function renderBackups(user, flash) {
@@ -33,13 +19,14 @@ export function createBackupPages({ backupService }) {
           ${card(
             "Protection",
             `
-              <p>The system keeps SQLite in crash-safe WAL mode and also creates an automatic backup after every important data-changing action.</p>
+              <p>The system keeps SQLite in crash-safe WAL mode and checks once per backup window whether a new automatic snapshot is due.</p>
               <p class="muted">Automatic backups are rotated locally. The latest ${escapeHtml(
                 String(summary.autoBackupLimit),
-              )} automatic snapshots are kept, while manual backups stay until you delete them from the Raspberry Pi storage.</p>
+              )} automatic snapshots are kept, while manual safety backups stay until you delete them from the Raspberry Pi storage.</p>
               <div class="meta-grid compact-meta-grid">
                 <div><strong>Database file</strong><br /><code class="path-code">${escapeHtml(summary.databasePath)}</code></div>
                 <div><strong>Backup folder</strong><br /><code class="path-code">${escapeHtml(summary.backupDirectory)}</code></div>
+                <div><strong>Automatic cadence</strong><br />Every ${escapeHtml(String(summary.automaticBackupIntervalHours))} hour(s)</div>
                 <div><strong>Latest snapshot</strong><br />${summary.latestBackup ? escapeHtml(formatDate(summary.latestBackup.createdAt)) : "No backups yet"}</div>
               </div>
             `,

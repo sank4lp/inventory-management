@@ -9,6 +9,9 @@ import {
   cellPickerField,
   copyIcon,
   escapeHtml,
+  formatBytes,
+  formatDate,
+  formatQuantity,
   page,
   renderAdjustmentLine,
   rolePickerField,
@@ -19,6 +22,70 @@ import {
 import { getRuntimeContext } from "../runtime-context.js";
 
 export function createAdminPages({ db }) {
+  function renderDatabaseHealth(health) {
+    const lastMaintenance = health.lastMaintenance;
+    const archive = health.archiveSummary;
+    const backupSummary = health.backupSummary;
+
+    return card(
+      "Database health",
+      `
+        <div class="meta-grid compact-meta-grid">
+          <div><strong>Database</strong><br />${escapeHtml(formatBytes(health.databaseBytes))}</div>
+          <div><strong>WAL file</strong><br />${escapeHtml(formatBytes(health.walBytes))}</div>
+          <div><strong>Backups</strong><br />${escapeHtml(formatBytes(health.backupBytes))}</div>
+          <div><strong>Archives</strong><br />${escapeHtml(formatBytes(archive.totalBytes))}</div>
+          <div><strong>Free pages</strong><br />${escapeHtml(formatBytes(health.freeBytes))}</div>
+          <div><strong>Auto backup</strong><br />Every ${escapeHtml(
+            String(health.settings.automaticBackupIntervalHours),
+          )} hour(s)</div>
+        </div>
+        <h3>Maintenance policy</h3>
+        <div class="meta-grid compact-meta-grid">
+          <div><strong>Reports default</strong><br />Last ${escapeHtml(
+            String(health.settings.reportDefaultDays),
+          )} day(s)</div>
+          <div><strong>Device logs</strong><br />${escapeHtml(
+            String(health.settings.deviceEventRetentionDays),
+          )} day(s)</div>
+          <div><strong>System logs</strong><br />${escapeHtml(
+            String(health.settings.systemEventRetentionDays),
+          )} day(s)</div>
+          <div><strong>Business archive</strong><br />After ${escapeHtml(
+            String(health.settings.businessArchiveAfterDays),
+          )} day(s)</div>
+        </div>
+        <h3>Storage paths</h3>
+        <div class="meta-grid compact-meta-grid">
+          <div><strong>Database file</strong><br /><code class="path-code">${escapeHtml(health.databasePath)}</code></div>
+          <div><strong>Archive folder</strong><br /><code class="path-code">${escapeHtml(health.archiveDirectory)}</code></div>
+          <div><strong>Latest auto backup</strong><br />${
+            backupSummary?.latestAutomaticBackup
+              ? escapeHtml(formatDate(backupSummary.latestAutomaticBackup.createdAt))
+              : "No automatic backup yet"
+          }</div>
+          <div><strong>Latest archive</strong><br />${
+            archive.latestFile ? escapeHtml(formatDate(archive.latestFile.createdAt)) : "No archive files yet"
+          }</div>
+          <div><strong>Last maintenance</strong><br />${
+            lastMaintenance?.completedAt ? escapeHtml(formatDate(lastMaintenance.completedAt)) : "Not recorded yet"
+          }</div>
+          <div><strong>Maintenance errors</strong><br />${escapeHtml(
+            formatQuantity(lastMaintenance?.errors?.length || 0),
+          )}</div>
+        </div>
+        <h3>Rows by table</h3>
+        ${table(
+          ["Table", "Rows"],
+          health.rowCounts.map((row) => [
+            escapeHtml(row.tableName),
+            escapeHtml(formatQuantity(row.count)),
+          ]),
+        )}
+      `,
+    );
+  }
+
   function renderRegistrationKeyActions(key) {
     if (key.status !== "active") {
       return `<span class="muted">No action</span>`;
@@ -83,6 +150,7 @@ export function createAdminPages({ db }) {
     const cells = listCells(db);
     const runtime = getRuntimeContext();
     const dashboard = runtime.systemService?.getDashboardData(runtime.startup);
+    const databaseHealth = runtime.databaseMaintenanceService?.getDatabaseHealth();
 
     return page({
       title: "Admin",
@@ -146,6 +214,7 @@ export function createAdminPages({ db }) {
               )
             : ""
         }
+        ${databaseHealth ? renderDatabaseHealth(databaseHealth) : ""}
         <section class="two-column">
           ${card(
             "Registration keys",

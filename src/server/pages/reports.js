@@ -8,6 +8,7 @@ import {
   statusBadge,
   table,
 } from "./shared.js";
+import { getRuntimeContext } from "../runtime-context.js";
 
 function formatDateTimeInput(date) {
   const year = date.getFullYear();
@@ -34,6 +35,10 @@ function hoursAgo(hours, now) {
   return new Date(now.getTime() - hours * 60 * 60 * 1000);
 }
 
+function daysAgo(days, now) {
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+}
+
 function toIsoOrNull(value) {
   if (!value) {
     return null;
@@ -47,8 +52,10 @@ function toIsoOrNull(value) {
   return parsed.toISOString();
 }
 
-function resolveReportRange(url) {
-  const preset = url.searchParams.get("preset") || "";
+function resolveReportRange(url, defaultDays = 30) {
+  const hasExplicitRange =
+    url.searchParams.has("preset") || url.searchParams.has("from") || url.searchParams.has("to");
+  const preset = url.searchParams.get("preset") || (hasExplicitRange ? "" : `last-${defaultDays}d`);
   const now = new Date();
   let fromAt = null;
   let toAt = null;
@@ -86,6 +93,31 @@ function resolveReportRange(url) {
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
     label = "Last 24 hours";
+  } else if (preset === "last-7d") {
+    fromAt = daysAgo(7, now).toISOString();
+    toAt = now.toISOString();
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
+    label = "Last 7 days";
+  } else if (preset === "last-30d") {
+    fromAt = daysAgo(30, now).toISOString();
+    toAt = now.toISOString();
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
+    label = "Last 30 days";
+  } else if (preset === "last-90d") {
+    fromAt = daysAgo(90, now).toISOString();
+    toAt = now.toISOString();
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
+    label = "Last 90 days";
+  } else if (/^last-\d+d$/.test(preset)) {
+    const days = Number(preset.match(/^last-(\d+)d$/)?.[1] || defaultDays);
+    fromAt = daysAgo(days, now).toISOString();
+    toAt = now.toISOString();
+    from = formatDateTimeInput(new Date(fromAt));
+    to = formatDateTimeInput(now);
+    label = `Last ${days} days`;
   } else if (preset === "previous-day") {
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
@@ -116,6 +148,8 @@ function resolveReportRange(url) {
     from = formatDateTimeInput(previousMonthStart);
     to = formatDateTimeInput(endOfDay(previousMonthEnd));
     label = "Previous month";
+  } else if (preset === "all-time") {
+    label = "All time";
   } else {
     fromAt = toIsoOrNull(from);
     toAt = toIsoOrNull(to);
@@ -201,7 +235,8 @@ function reportTemplate(report, range, generatedAt) {
 
 export function createReportsPages({ db }) {
   function renderReports(user, flash, url) {
-    const range = resolveReportRange(url);
+    const runtime = getRuntimeContext();
+    const range = resolveReportRange(url, runtime.config?.reportDefaultDays || 30);
     const generatedAt = new Date().toISOString();
     const reports = buildReports(db, { fromAt: range.fromAt, toAt: range.toAt });
     const totalStock = sumRows(reports.stockSnapshot, "available");
@@ -349,10 +384,13 @@ export function createReportsPages({ db }) {
               <a class="preset-chip ${range.preset === "last-6h" ? "preset-chip-active" : ""}" href="${presetHref("last-6h")}">Last 6 hours</a>
               <a class="preset-chip ${range.preset === "last-12h" ? "preset-chip-active" : ""}" href="${presetHref("last-12h")}">Last 12 hours</a>
               <a class="preset-chip ${range.preset === "last-24h" ? "preset-chip-active" : ""}" href="${presetHref("last-24h")}">Last 24 hours</a>
+              <a class="preset-chip ${range.preset === "last-7d" ? "preset-chip-active" : ""}" href="${presetHref("last-7d")}">Last 7 days</a>
+              <a class="preset-chip ${range.preset === "last-30d" ? "preset-chip-active" : ""}" href="${presetHref("last-30d")}">Last 30 days</a>
+              <a class="preset-chip ${range.preset === "last-90d" ? "preset-chip-active" : ""}" href="${presetHref("last-90d")}">Last 90 days</a>
               <a class="preset-chip ${range.preset === "previous-day" ? "preset-chip-active" : ""}" href="${presetHref("previous-day")}">Previous day</a>
               <a class="preset-chip ${range.preset === "previous-week" ? "preset-chip-active" : ""}" href="${presetHref("previous-week")}">Previous week</a>
               <a class="preset-chip ${range.preset === "previous-month" ? "preset-chip-active" : ""}" href="${presetHref("previous-month")}">Previous month</a>
-              <a class="preset-chip ${!range.preset && !range.from && !range.to ? "preset-chip-active" : ""}" href="/reports">All time</a>
+              <a class="preset-chip ${range.preset === "all-time" ? "preset-chip-active" : ""}" href="${presetHref("all-time")}">All time</a>
             </div>
             <form method="get" action="/reports" class="inline-form">
               <label>From <input type="datetime-local" name="from" value="${escapeHtml(range.from)}" /></label>

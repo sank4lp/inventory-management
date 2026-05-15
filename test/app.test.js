@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -249,6 +249,7 @@ test("core inventory flows work against a fresh seeded database", async () => {
   assert.match(reportHtml, /data-report-print-open/);
   assert.match(reportHtml, /data-report-print-option="stock-snapshot"/);
   assert.match(reportHtml, /data-report-template="movement"/);
+  assert.match(reportHtml, /Last 30 days/);
 
   const actions = inventory.getRecommendedActions(db);
   assert.ok(actions.length > 0);
@@ -983,6 +984,23 @@ test("backups can restore previous data and prune old automatic snapshots", asyn
       .products.find((product) => product.product_id === shoe.id)?.available_quantity || 0;
   assert.equal(Number(restoredQuantity), Number(originalQuantity));
 
+  const firstAuto = backupService.createAutomaticBackupIfDue({
+    source: "daily-auto",
+    now: new Date("2026-05-15T00:00:00.000Z"),
+  });
+  assert.equal(firstAuto.created, true);
+  const skippedAuto = backupService.createAutomaticBackupIfDue({
+    source: "same-day-auto",
+    now: new Date("2026-05-15T12:00:00.000Z"),
+  });
+  assert.equal(skippedAuto.created, false);
+  assert.equal(skippedAuto.reason, "not_due");
+  const nextDayAuto = backupService.createAutomaticBackupIfDue({
+    source: "next-day-auto",
+    now: new Date("2026-05-16T00:01:00.000Z"),
+  });
+  assert.equal(nextDayAuto.created, true);
+
   backupService.createBackup({ kind: "auto", source: "first-auto" });
   backupService.createBackup({ kind: "auto", source: "second-auto" });
   backupService.createBackup({ kind: "auto", source: "third-auto" });
@@ -991,6 +1009,138 @@ test("backups can restore previous data and prune old automatic snapshots", asyn
     .listBackups()
     .filter((backup) => backup.kind === "auto");
   assert.equal(automaticBackups.length, 2);
+});
+
+test("database maintenance prunes operational logs and archives old business history", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-db-maintenance-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createDatabaseMaintenanceService } = await freshImport(
+    "../src/services/database-maintenance.js",
+  );
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+
+  const oldTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+  });
+  inventory.cancelTask(db, { taskId: oldTask.id });
+  const recentTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+  });
+
+  const oldTimestamp = "2023-01-15T10:00:00.000Z";
+  db.prepare(
+    `
+      UPDATE tasks
+      SET started_at = ?, completed_at = ?, last_touched_at = ?
+      WHERE id = ?
+    `,
+  ).run(oldTimestamp, oldTimestamp, oldTimestamp, oldTask.id);
+  db.prepare(
+    `
+      INSERT INTO transactions (
+        type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+      )
+      VALUES ('pick', ?, ?, -1, 1, ?, 'Old pick archive test', ?)
+    `,
+  ).run(shoe.id, oldTask.lines[0].cell_id, oldTask.id, oldTimestamp);
+  db.prepare(
+    `
+      INSERT INTO device_events (controller_id, cell_id, task_id, event_type, payload, created_at)
+      VALUES (NULL, ?, ?, 'guidance_activated', '{}', ?)
+    `,
+  ).run(oldTask.lines[0].cell_id, oldTask.id, oldTimestamp);
+  db.prepare(
+    `
+      INSERT INTO system_events (event_type, status, message, payload, created_at)
+      VALUES ('old-health-check', 'info', 'Old system event', NULL, ?)
+    `,
+  ).run(oldTimestamp);
+
+  const safetyBackups = [];
+  const maintenance = createDatabaseMaintenanceService({
+    db,
+    backupService: {
+      createBackup(options) {
+        safetyBackups.push(options);
+        return { filename: "pre-maintenance-archive.sqlite" };
+      },
+      getSummary() {
+        return {
+          latestAutomaticBackup: null,
+        };
+      },
+      listBackups() {
+        return [];
+      },
+    },
+    config: {
+      automaticBackupIntervalHours: 24,
+      businessArchiveAfterDays: 730,
+      deviceEventRetentionDays: 90,
+      reportDefaultDays: 30,
+      systemEventRetentionDays: 90,
+    },
+    logger: {
+      info() {},
+      warn() {},
+    },
+  });
+
+  const summary = maintenance.runStartupMaintenance({
+    now: new Date("2026-05-15T00:00:00.000Z"),
+  });
+
+  assert.equal(summary.errors.length, 0);
+  assert.equal(summary.businessArchive.archived, true);
+  assert.deepEqual(safetyBackups, [{ kind: "manual", source: "pre-maintenance-archive" }]);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM tasks WHERE id = ?").get(oldTask.id).count, 0);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM task_lines WHERE task_id = ?").get(oldTask.id).count,
+    0,
+  );
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE task_id = ?").get(oldTask.id).count,
+    0,
+  );
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM device_events WHERE task_id = ?").get(oldTask.id).count,
+    0,
+  );
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM system_events WHERE event_type = 'old-health-check'").get()
+      .count,
+    0,
+  );
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM tasks WHERE id = ?").get(recentTask.id).count,
+    1,
+  );
+
+  const archiveDir = join(sandbox, "data", "archives");
+  assert.equal(existsSync(archiveDir), true);
+  const archiveFiles = readdirSync(archiveDir).filter((entry) => entry.endsWith(".json"));
+  assert.equal(archiveFiles.length, 1);
+  const archive = JSON.parse(readFileSync(join(archiveDir, archiveFiles[0]), "utf8"));
+  assert.equal(archive.month, "2023-01");
+  assert.equal(archive.tasks.length, 1);
+  assert.equal(archive.taskLines.length, oldTask.lines.length);
+  assert.equal(archive.transactions.length, 1);
+
+  const health = maintenance.getDatabaseHealth();
+  assert.ok(health.rowCounts.some((row) => row.tableName === "transactions"));
+  assert.equal(health.archiveSummary.fileCount, 1);
+  assert.equal(health.settings.businessArchiveAfterDays, 730);
 });
 
 test("recommended move guidance displays quantity on source and target with pick and put colors", async () => {

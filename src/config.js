@@ -35,6 +35,26 @@ export function resolveConfig(env = process.env) {
     min: 0,
     max: 23,
   });
+  const automaticBackupIntervalHours = numberSetting(env.AUTO_BACKUP_INTERVAL_HOURS, 24, {
+    min: 1,
+    max: 24 * 30,
+  });
+  const reportDefaultDays = numberSetting(env.REPORT_DEFAULT_DAYS, 30, {
+    min: 1,
+    max: 365,
+  });
+  const deviceEventRetentionDays = numberSetting(env.DEVICE_EVENT_RETENTION_DAYS, 90, {
+    min: 1,
+    max: 3650,
+  });
+  const systemEventRetentionDays = numberSetting(env.SYSTEM_EVENT_RETENTION_DAYS, 90, {
+    min: 1,
+    max: 3650,
+  });
+  const businessArchiveAfterDays = numberSetting(env.BUSINESS_ARCHIVE_AFTER_DAYS, 730, {
+    min: 30,
+    max: 3650,
+  });
   const bootstrapAdmin =
     env.BOOTSTRAP_ADMIN_USERNAME && env.BOOTSTRAP_ADMIN_PASSWORD
       ? {
@@ -79,6 +99,11 @@ export function resolveConfig(env = process.env) {
     ledNightBrightnessPercent,
     ledDayStartHour,
     ledNightStartHour,
+    automaticBackupIntervalHours,
+    reportDefaultDays,
+    deviceEventRetentionDays,
+    systemEventRetentionDays,
+    businessArchiveAfterDays,
     bootstrapAdmin,
     allowDevAuthSeeds: nodeEnv !== "production",
   };

@@ -89,12 +89,12 @@ function createAutomaticBackup(source) {
   const { backupService } = getAppState();
 
   try {
+    const result = backupService.createAutomaticBackupIfDue({
+      source,
+    });
     return {
       ok: true,
-      backup: backupService.createBackup({
-        kind: "auto",
-        source,
-      }),
+      ...result,
     };
   } catch (error) {
     logger.error("backup.auto.failed", {
@@ -106,6 +106,14 @@ function createAutomaticBackup(source) {
       error: error.message,
     };
   }
+}
+
+function createRequiredSafetyBackup(source) {
+  const { backupService } = getAppState();
+  return backupService.createBackup({
+    kind: "manual",
+    source,
+  });
 }
 
 function backupAwareFlash(message, tone, backupResult) {
@@ -1033,6 +1041,7 @@ export const requestHandler = async (request, response) => {
       if (controllerCells.length) {
         hardwareService.clearAllCellLocates(controllerCells);
       }
+      createRequiredSafetyBackup("pre-controller-delete");
       const deleted = locationService.deleteController({ controllerId: controller.id });
       sendRedirect(
         response,
@@ -1148,7 +1157,7 @@ export const requestHandler = async (request, response) => {
       if (impact.cell.controller_id && impact.cell.hardware_channel) {
         hardwareService.setCellLocate(impact.cell, false);
       }
-      const backupResult = createAutomaticBackup(
+      const safetyBackup = createRequiredSafetyBackup(
         impact.hasData ? "cell-delete-with-data-before" : "cell-delete-before",
       );
       const deleted = locationService.deleteCell({
@@ -1159,9 +1168,9 @@ export const requestHandler = async (request, response) => {
         ? ` Deleted ${deleted.balanceRows} balance row(s), ${deleted.taskLines} task line(s), ${deleted.transactions} transaction(s), and ${deleted.deviceEvents} hardware event(s).`
         : "";
       const nextFlash = backupAwareFlash(
-        `Cell ${deleted.cell.logical_code} deleted.${dataSummary}`,
+        `Cell ${deleted.cell.logical_code} deleted.${dataSummary} Safety backup: ${safetyBackup.filename}.`,
         "success",
-        backupResult,
+        { ok: true },
       );
       sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
       return;

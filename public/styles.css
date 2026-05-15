@@ -1955,9 +1955,10 @@ button.report-overview-card {
 
 .overview-action-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 154px), 1fr));
-  gap: 24px;
-  margin-bottom: 30px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 28px;
+  width: min(100%, 860px);
+  margin: 0 auto 30px;
 }
 
 .overview-action-tile {
@@ -1965,9 +1966,9 @@ button.report-overview-card {
   display: inline-grid;
   justify-items: center;
   align-content: center;
-  gap: 14px;
-  min-height: 190px;
-  padding: 12px 8px;
+  gap: 16px;
+  min-height: 222px;
+  padding: 16px 10px;
   color: var(--text);
   border-radius: var(--radius);
   text-align: center;
@@ -1994,8 +1995,8 @@ button.report-overview-card {
 .overview-action-icon {
   display: inline-grid;
   place-items: center;
-  width: 136px;
-  height: 136px;
+  width: 168px;
+  height: 168px;
   color: var(--action-color);
   border: 2px solid var(--action-border);
   border-radius: var(--radius);
@@ -2013,8 +2014,8 @@ button.report-overview-card {
 }
 
 .overview-action-icon svg {
-  width: 68px;
-  height: 68px;
+  width: 82px;
+  height: 82px;
   stroke: currentColor;
   stroke-width: 2.15;
   stroke-linecap: round;
