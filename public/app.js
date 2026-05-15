@@ -700,6 +700,62 @@ function wireReportsWorkspace() {
   }
 }
 
+function wireReportFormatEditors() {
+  document.querySelectorAll("[data-report-format-editor]").forEach((editor) => {
+    if (editor.dataset.reportFormatBound === "true") {
+      return;
+    }
+    editor.dataset.reportFormatBound = "true";
+
+    const form = editor.querySelector("[data-report-format-form]");
+    const preview = editor.querySelector("[data-report-format-preview]");
+    if (!form || !preview) {
+      return;
+    }
+
+    const field = (name) => form.querySelector(`[data-report-format-field="${name}"]`);
+    const companyPreview = preview.querySelector("[data-report-format-preview-company]");
+    const labelPreview = preview.querySelector("[data-report-format-preview-label]");
+    const numberValue = (name, fallback, min, max) => {
+      const value = Number(field(name)?.value || fallback);
+      if (!Number.isInteger(value)) {
+        return fallback;
+      }
+      return Math.min(max, Math.max(min, value));
+    };
+
+    const applyPreview = () => {
+      const companyName = String(field("companyName")?.value || "Inventory Management").trim();
+      const headerLabel = String(field("headerLabel")?.value || "Inventory report").trim();
+      const fontSelect = field("fontFamily");
+      const fontCss = fontSelect?.selectedOptions?.[0]?.dataset.fontCss || "";
+      const bodySize = numberValue("bodyFontSize", 13, 10, 18);
+      const headingSize = numberValue("headingFontSize", 24, 18, 34);
+      const subheadingSize = numberValue("subheadingFontSize", 13, 10, 18);
+      const accentColor = String(field("accentColor")?.value || "#3158e8");
+
+      if (fontCss) {
+        preview.style.setProperty("--report-font-family", fontCss);
+      }
+      preview.style.setProperty("--report-body-size", `${bodySize}px`);
+      preview.style.setProperty("--report-heading-size", `${headingSize}px`);
+      preview.style.setProperty("--report-subheading-size", `${subheadingSize}px`);
+      preview.style.setProperty("--report-accent-color", accentColor);
+
+      if (companyPreview) {
+        companyPreview.textContent = companyName || "Inventory Management";
+      }
+      if (labelPreview) {
+        labelPreview.textContent = headerLabel || "Inventory report";
+      }
+    };
+
+    form.addEventListener("input", applyPreview);
+    form.addEventListener("change", applyPreview);
+    applyPreview();
+  });
+}
+
 function closeAllCombos(except = null) {
   document.querySelectorAll("[data-combo-box]").forEach((combo) => {
     if (combo === except) {
@@ -1013,11 +1069,20 @@ function wireAdjustmentForms() {
     }
 
     let nextIndex = lines.querySelectorAll("[data-adjustment-line]").length;
+    let cellLoadSequence = 0;
     const selectedCellId = () => form.querySelector('input[name="cell_id"]')?.value || "";
     const enteredQuantities = () =>
       Array.from(form.querySelectorAll('input[name^="absolute_quantity_"]'))
         .map((input) => input.value.trim())
         .filter(Boolean);
+    const normalizeQuantityValue = (value) => {
+      const text = String(value || "").trim();
+      if (!text) {
+        return "";
+      }
+      const number = Number(text);
+      return Number.isFinite(number) ? String(number) : text;
+    };
 
     const setAdjustmentStatus = (message, tone = "info") => {
       if (!status) {
@@ -1029,8 +1094,47 @@ function wireAdjustmentForms() {
         : "adjustment-guidance-status";
     };
 
+    const setLinesMessage = (message, tone = "info") => {
+      lines.innerHTML = "";
+      const empty = document.createElement("div");
+      empty.className = `adjustment-empty-state adjustment-empty-state-${tone}`;
+      empty.dataset.adjustmentEmpty = "true";
+      empty.textContent = message;
+      lines.appendChild(empty);
+    };
+
+    const refreshLineState = (line) => {
+      const originalProductId = String(line.dataset.originalProductId || "").trim();
+      const originalQuantity = normalizeQuantityValue(line.dataset.originalQuantity || "");
+      const productId = String(line.querySelector('input[name^="product_id_"]')?.value || "").trim();
+      const quantity = normalizeQuantityValue(
+        line.querySelector('input[name^="absolute_quantity_"]')?.value || "",
+      );
+      const hasLineValue = Boolean(productId || quantity);
+      const matchesSaved =
+        Boolean(originalProductId) &&
+        productId === originalProductId &&
+        quantity === originalQuantity;
+      const isDirty =
+        !matchesSaved && Boolean(originalProductId || originalQuantity || hasLineValue);
+      const state = line.querySelector("[data-adjustment-line-state]");
+
+      line.classList.toggle("adjustment-line-saved", matchesSaved);
+      line.classList.toggle("adjustment-line-dirty", isDirty);
+      line.classList.toggle("adjustment-line-new", !matchesSaved && !isDirty);
+
+      if (state) {
+        state.textContent = matchesSaved ? "Saved" : isDirty ? "Changed" : "New";
+      }
+    };
+
+    const refreshLineStates = () => {
+      lines.querySelectorAll("[data-adjustment-line]").forEach(refreshLineState);
+    };
+
     const refreshActionControls = () => {
       const cellId = selectedCellId();
+      addButton.disabled = !cellId;
       if (locateButton) {
         locateButton.disabled = !cellId;
         setLocateButtonState(locateButton, Boolean(cellId && activeLocates.has(String(cellId))));
@@ -1042,24 +1146,34 @@ function wireAdjustmentForms() {
 
     const refreshLineControls = () => {
       const currentLines = Array.from(lines.querySelectorAll("[data-adjustment-line]"));
+      if (currentLines.length) {
+        lines.querySelector("[data-adjustment-empty]")?.remove();
+      }
       currentLines.forEach((line) => {
         const removeButton = line.querySelector("[data-adjustment-remove]");
         if (removeButton) {
-          removeButton.disabled = currentLines.length <= 1;
+          removeButton.disabled = false;
         }
       });
     };
 
     addButton.addEventListener("click", () => {
+      if (!selectedCellId()) {
+        setLinesMessage("Select a cell before adding product counts.", "warning");
+        refreshActionControls();
+        return;
+      }
       const wrapper = document.createElement("div");
       wrapper.innerHTML = template.innerHTML.replaceAll("__INDEX__", String(nextIndex)).trim();
       const line = wrapper.firstElementChild;
       if (!line) {
         return;
       }
+      lines.querySelector("[data-adjustment-empty]")?.remove();
       lines.appendChild(line);
       wireComboBoxes(line);
       nextIndex += 1;
+      refreshLineState(line);
       refreshLineControls();
       refreshActionControls();
       line.querySelector("[data-combo-input]")?.focus();
@@ -1070,21 +1184,92 @@ function wireAdjustmentForms() {
       if (!removeButton) {
         return;
       }
-      if (lines.querySelectorAll("[data-adjustment-line]").length <= 1) {
-        return;
-      }
       removeButton.closest("[data-adjustment-line]")?.remove();
+      if (!lines.querySelector("[data-adjustment-line]")) {
+        setLinesMessage(
+          selectedCellId()
+            ? "No product lines selected for this cell."
+            : "Select a cell to load saved product counts.",
+          "info",
+        );
+      }
       refreshLineControls();
       refreshActionControls();
     });
 
-    form.addEventListener("input", refreshActionControls);
-    form.addEventListener("change", refreshActionControls);
+    form.addEventListener("input", () => {
+      refreshLineStates();
+      refreshActionControls();
+    });
+    form.addEventListener("change", () => {
+      refreshLineStates();
+      refreshActionControls();
+    });
     form.addEventListener("click", (event) => {
       if (event.target.closest("[data-adjustment-locate-cell], [data-adjustment-light-quantity]")) {
         return;
       }
       window.requestAnimationFrame(refreshActionControls);
+    });
+
+    form.querySelector('input[name="cell_id"]')?.addEventListener("change", async () => {
+      const cellId = selectedCellId();
+      const requestId = (cellLoadSequence += 1);
+
+      setAdjustmentStatus("");
+      if (!cellId) {
+        nextIndex = 0;
+        setLinesMessage("Select a cell to load saved product counts.", "info");
+        refreshActionControls();
+        return;
+      }
+
+      setLinesMessage("Loading saved product counts...", "info");
+      refreshActionControls();
+
+      try {
+        const response = await fetch(
+          `/api/admin/adjustments/cell-products?cell_id=${encodeURIComponent(cellId)}`,
+          {
+            headers: {
+              "X-Requested-With": "fetch",
+            },
+          },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Saved products could not be loaded.");
+        }
+        if (requestId !== cellLoadSequence) {
+          return;
+        }
+
+        if (payload.linesHtml && payload.linesHtml.trim()) {
+          lines.innerHTML = payload.linesHtml;
+          wireComboBoxes(lines);
+          nextIndex =
+            Number(payload.nextIndex) || lines.querySelectorAll("[data-adjustment-line]").length;
+          refreshLineStates();
+        } else {
+          nextIndex = 0;
+          setLinesMessage(
+            `No saved products in ${payload.cell?.logicalCode || "this cell"}. Add a product line to count into this cell.`,
+            "info",
+          );
+        }
+      } catch (error) {
+        if (requestId !== cellLoadSequence) {
+          return;
+        }
+        nextIndex = 0;
+        setLinesMessage(error.message || "Saved products could not be loaded.", "warning");
+        setAdjustmentStatus(error.message || "Saved products could not be loaded.", "error");
+      } finally {
+        if (requestId === cellLoadSequence) {
+          refreshLineControls();
+          refreshActionControls();
+        }
+      }
     });
 
     locateButton?.addEventListener("click", async () => {
@@ -2778,6 +2963,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireQuantityChangeConfirmations();
   wirePutProductSummaryForms();
   wireReportsWorkspace();
+  wireReportFormatEditors();
   wireComboBoxes();
   wireAdjustmentForms();
   wirePutPlanForms();

@@ -1,4 +1,13 @@
-import { card, escapeHtml, formatBytes, formatDate, page, statsGrid, table } from "./shared.js";
+import {
+  backupScheduleForm,
+  card,
+  escapeHtml,
+  formatBytes,
+  formatDate,
+  page,
+  statsGrid,
+  table,
+} from "./shared.js";
 
 export function createBackupPages({ backupService }) {
   function renderBackups(user, flash) {
@@ -13,20 +22,23 @@ export function createBackupPages({ backupService }) {
         ${statsGrid([
           { label: "All backups", value: summary.totalBackups },
           { label: "Automatic", value: summary.automaticBackups },
+          { label: "Critical", value: summary.criticalBackups },
           { label: "Manual", value: summary.manualBackups },
         ])}
         <section class="two-column">
           ${card(
             "Protection",
             `
-              <p>The system keeps SQLite in crash-safe WAL mode and checks once per backup window whether a new automatic snapshot is due.</p>
-              <p class="muted">Automatic backups are rotated locally. The latest ${escapeHtml(
-                String(summary.autoBackupLimit),
-              )} automatic snapshots are kept, while manual safety backups stay until you delete them from the Raspberry Pi storage.</p>
+              <div class="backup-protection-copy">
+                <p>The system keeps SQLite in crash-safe WAL mode and checks whether a new automatic snapshot is due.</p>
+                <p class="muted">The latest ${escapeHtml(
+                  String(summary.autoBackupLimit),
+                )} automatic snapshots are kept. Critical interim backups are removed after the next automatic snapshot. Manual safety backups stay until you delete them from the Raspberry Pi storage.</p>
+              </div>
               <div class="meta-grid compact-meta-grid">
                 <div><strong>Database file</strong><br /><code class="path-code">${escapeHtml(summary.databasePath)}</code></div>
                 <div><strong>Backup folder</strong><br /><code class="path-code">${escapeHtml(summary.backupDirectory)}</code></div>
-                <div><strong>Automatic cadence</strong><br />Every ${escapeHtml(String(summary.automaticBackupIntervalHours))} hour(s)</div>
+                <div><strong>Automatic cadence</strong><br />${escapeHtml(summary.automaticBackupSchedule.label)}</div>
                 <div><strong>Latest snapshot</strong><br />${summary.latestBackup ? escapeHtml(formatDate(summary.latestBackup.createdAt)) : "No backups yet"}</div>
               </div>
             `,
@@ -34,6 +46,14 @@ export function createBackupPages({ backupService }) {
               <form method="post" action="/backups/create">
                 <button type="submit">Create backup now</button>
               </form>
+            `,
+          )}
+          ${card(
+            "Automatic schedule",
+            `
+              <div class="backup-schedule-panel">
+                ${backupScheduleForm(summary, { returnTo: "/backups" })}
+              </div>
             `,
           )}
           ${card(

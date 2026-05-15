@@ -5,6 +5,7 @@ import {
   listUsers,
 } from "../../services/inventory.js";
 import {
+  backupScheduleForm,
   card,
   cellPickerField,
   copyIcon,
@@ -36,9 +37,10 @@ export function createAdminPages({ db }) {
           <div><strong>Backups</strong><br />${escapeHtml(formatBytes(health.backupBytes))}</div>
           <div><strong>Archives</strong><br />${escapeHtml(formatBytes(archive.totalBytes))}</div>
           <div><strong>Free pages</strong><br />${escapeHtml(formatBytes(health.freeBytes))}</div>
-          <div><strong>Auto backup</strong><br />Every ${escapeHtml(
-            String(health.settings.automaticBackupIntervalHours),
-          )} hour(s)</div>
+          <div><strong>Auto backup</strong><br />${escapeHtml(
+            health.settings.automaticBackupSchedule?.label ||
+              `Every ${String(health.settings.automaticBackupIntervalHours)} hour(s)`,
+          )}</div>
         </div>
         <h3>Maintenance policy</h3>
         <div class="meta-grid compact-meta-grid">
@@ -151,6 +153,54 @@ export function createAdminPages({ db }) {
     const runtime = getRuntimeContext();
     const dashboard = runtime.systemService?.getDashboardData(runtime.startup);
     const databaseHealth = runtime.databaseMaintenanceService?.getDatabaseHealth();
+    const backupSummary = databaseHealth?.backupSummary || null;
+    const countAdjustmentCard = card(
+      "Count adjustment",
+      `
+        <form method="post" action="/admin/adjustments" class="stack-form" data-adjustment-form>
+          <div class="adjustment-cell-selector">
+            <label>Cell
+              ${cellPickerField(cells, null, "adjustment-cell")}
+            </label>
+            <button type="button" class="ghost-button" data-adjustment-locate-cell disabled>Locate cell</button>
+          </div>
+          <div class="adjustment-lines-shell">
+            <div class="adjustment-lines-header">
+              <strong>Products counted in this cell</strong>
+              <button type="button" class="ghost-button" data-adjustment-add disabled>Add product line</button>
+            </div>
+            <div class="stack-form adjustment-lines" data-adjustment-lines>
+              <div class="adjustment-empty-state" data-adjustment-empty>
+                Select a cell to load saved product counts.
+              </div>
+            </div>
+          </div>
+          <template data-adjustment-template>
+            ${renderAdjustmentLine(products, "__INDEX__")}
+          </template>
+          <label>Reason<textarea name="reason" rows="3" required placeholder="Cycle count, damaged stock, or correction note"></textarea></label>
+          <div class="adjustment-guidance-actions">
+            <button type="button" class="ghost-button" data-adjustment-light-quantity disabled>Preview quantity LED</button>
+            <button type="submit">Save count</button>
+          </div>
+          <div class="adjustment-guidance-status" data-adjustment-led-status role="status" aria-live="polite"></div>
+        </form>
+      `,
+    );
+    const backupScheduleCard = backupSummary
+      ? card(
+          "Backup schedule",
+          `
+            <div class="backup-schedule-panel">
+              <div>
+                <p>Choose when automatic snapshots should run.</p>
+                <p class="muted">The app checks this schedule whenever it performs a data-changing operation.</p>
+              </div>
+              ${backupScheduleForm(backupSummary, { returnTo: "/admin" })}
+            </div>
+          `,
+        )
+      : "";
 
     return page({
       title: "Admin",
@@ -186,6 +236,7 @@ export function createAdminPages({ db }) {
                       : `<p class="muted">No recent recovery actions recorded.</p>`
                   }
                   <h3>Recent hardware warnings</h3>
+                  <p class="muted">Historical warning log from hardware commands; current controller health is shown in Overall/Recovery and Devices.</p>
                   ${
                     dashboard.recentHardwareFailures.length
                       ? table(
@@ -214,7 +265,8 @@ export function createAdminPages({ db }) {
               )
             : ""
         }
-        ${databaseHealth ? renderDatabaseHealth(databaseHealth) : ""}
+        ${countAdjustmentCard}
+        ${backupScheduleCard}
         <section class="two-column">
           ${card(
             "Registration keys",
@@ -269,41 +321,7 @@ export function createAdminPages({ db }) {
             `data-row-collapser data-row-limit="4" data-row-label="users"`,
           )}
         </section>
-        ${card(
-          "Count adjustment",
-          `
-            <form method="post" action="/admin/adjustments" class="stack-form" data-adjustment-form>
-              <section class="guide-strip">
-                <span class="guide-pill active-guide">1. Choose location</span>
-                <span class="guide-pill">2. Enter counted quantity</span>
-                <span class="guide-pill">3. Preview LED, then save</span>
-              </section>
-              <label>Cell
-                ${cellPickerField(cells, null, "adjustment-cell")}
-              </label>
-              <div class="mini-actions">
-                <button type="button" class="ghost-button" data-adjustment-locate-cell disabled>Locate cell</button>
-              </div>
-              <div class="adjustment-lines-header">
-                <strong>Products counted in this cell</strong>
-                <button type="button" class="ghost-button" data-adjustment-add>Add product line</button>
-              </div>
-              <div class="stack-form" data-adjustment-lines>
-                ${renderAdjustmentLine(products, 0)}
-              </div>
-              <template data-adjustment-template>
-                ${renderAdjustmentLine(products, "__INDEX__")}
-              </template>
-              <label>Reason<textarea name="reason" rows="3" required placeholder="Cycle count, damaged stock, or correction note"></textarea></label>
-              <div class="adjustment-guidance-actions">
-                <button type="button" class="ghost-button" data-adjustment-light-quantity disabled>Preview quantity LED</button>
-                <button type="submit">Save count</button>
-              </div>
-              <div class="adjustment-guidance-status" data-adjustment-led-status role="status" aria-live="polite"></div>
-              <p class="muted">Use this after a physical count. Enter the final quantity now in the location; the software records only the difference from the current balance.</p>
-            </form>
-          `,
-        )}
+        ${databaseHealth ? renderDatabaseHealth(databaseHealth) : ""}
       `,
     });
   }

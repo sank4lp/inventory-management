@@ -83,6 +83,7 @@ function comboBoxField({
   recencyKey = "",
 }) {
   const comboClassName = compact ? "combo-box combo-box-compact" : "combo-box";
+  const safeToggleLabel = escapeHtml(toggleLabel);
 
   return `
     <div
@@ -110,8 +111,10 @@ function comboBoxField({
         ${formId ? `form="${formId}"` : ""}
         ${hiddenRequired ? "required" : ""}
       />
-      <button class="combo-toggle" type="button" data-combo-toggle aria-label="${escapeHtml(toggleLabel)}">
-        ${escapeHtml(toggleLabel)}
+      <button class="combo-toggle" type="button" data-combo-toggle aria-label="${safeToggleLabel}" title="${safeToggleLabel}">
+        <svg class="combo-toggle-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
       </button>
       <div class="combo-panel" data-combo-panel hidden>
         ${options.join("")}
@@ -258,23 +261,102 @@ export function rolePickerField(selectedRole = "operator", fieldPrefix = "regist
   });
 }
 
-export function renderAdjustmentLine(products, index) {
+export function backupScheduleForm(summary = {}, { returnTo = "/backups" } = {}) {
+  const schedule = summary.automaticBackupSchedule || {
+    cadence: "daily",
+    startTime: "00:00",
+    label: "Daily",
+  };
+  const options = summary.automaticBackupScheduleOptions || [
+    { cadence: "every_8_hours", label: "Every 8 hours" },
+    { cadence: "every_12_hours", label: "Every 12 hours" },
+    { cadence: "daily", label: "Daily" },
+    { cadence: "weekly", label: "Weekly" },
+    { cadence: "biweekly", label: "Bi Weekly" },
+    { cadence: "monthly", label: "Monthly" },
+  ];
+  const nextBackupAt = summary.automaticBackupState?.nextBackupAt || null;
+
   return `
-    <div class="adjustment-line" data-adjustment-line>
+    <form method="post" action="/backups/schedule" class="backup-schedule-form">
+      <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
+      <label>Automatic backup
+        <select name="cadence" required>
+          ${options
+            .map(
+              (option) => `
+                <option value="${escapeHtml(option.cadence)}"${
+                  option.cadence === schedule.cadence ? " selected" : ""
+                }>${escapeHtml(option.label)}</option>
+              `,
+            )
+            .join("")}
+        </select>
+      </label>
+      <label>Start time
+        <input type="time" name="start_time" value="${escapeHtml(schedule.startTime || "00:00")}" required />
+      </label>
+      <button type="submit">Save schedule</button>
+      <div class="backup-schedule-summary">
+        <strong>${escapeHtml(schedule.label || "Daily")}</strong>
+        <span>Starts at ${escapeHtml(schedule.startTime || "00:00")}</span>
+        <span>${nextBackupAt ? `Next check ${escapeHtml(formatDate(nextBackupAt))}` : "Next check pending"}</span>
+      </div>
+    </form>
+  `;
+}
+
+export function renderAdjustmentLine(products, index, options = {}) {
+  const selectedProductId =
+    options.productId === undefined || options.productId === null
+      ? null
+      : Number(options.productId);
+  const quantityValue =
+    options.absoluteQuantity === undefined || options.absoluteQuantity === null
+      ? ""
+      : formatQuantity(options.absoluteQuantity);
+  const savedProductId =
+    options.savedProductId === undefined || options.savedProductId === null
+      ? ""
+      : String(options.savedProductId);
+  const savedQuantity =
+    options.savedQuantity === undefined || options.savedQuantity === null
+      ? ""
+      : formatQuantity(options.savedQuantity);
+  const hasSavedState = Boolean(savedProductId || savedQuantity);
+  const stateClass = hasSavedState ? "adjustment-line-saved" : "adjustment-line-new";
+  const stateLabel = hasSavedState ? "Saved" : "New";
+
+  return `
+    <div
+      class="adjustment-line ${stateClass}"
+      data-adjustment-line
+      data-original-product-id="${escapeHtml(savedProductId)}"
+      data-original-quantity="${escapeHtml(savedQuantity)}"
+    >
       <div class="adjustment-line-grid">
         ${productPickerField(
           products,
-          null,
+          selectedProductId,
           `adjustment-product-${index}`,
           `product_id_${index}`,
           "",
           false,
         )}
-        <label>Final counted quantity
-          <input type="number" min="0" step="0.01" inputmode="decimal" name="absolute_quantity_${index}" placeholder="0, 3, 12" />
+        <label>Counted quantity
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            inputmode="decimal"
+            name="absolute_quantity_${index}"
+            value="${escapeHtml(quantityValue)}"
+            placeholder="0, 3, 12"
+          />
         </label>
       </div>
-      <div class="mini-actions">
+      <div class="adjustment-line-footer">
+        <span class="adjustment-line-state" data-adjustment-line-state>${stateLabel}</span>
         <button type="button" class="ghost-button" data-adjustment-remove>Remove line</button>
       </div>
     </div>

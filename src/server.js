@@ -53,6 +53,12 @@ import {
   registerUser,
   searchCells,
 } from "./services/inventory.js";
+import {
+  reportFormatFromForm,
+  resetReportFormatSettings,
+  updateReportFormatSettings,
+} from "./services/report-format.js";
+import { renderAdjustmentLine } from "./server/pages/shared.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const publicDir = join(process.cwd(), "public");
@@ -116,6 +122,35 @@ function createRequiredSafetyBackup(source) {
   });
 }
 
+function createRequiredCriticalBackup(source) {
+  const { backupService } = getAppState();
+  return backupService.createCriticalBackup({
+    source,
+  }).backup;
+}
+
+function createCriticalBackup(source) {
+  const { backupService } = getAppState();
+
+  try {
+    return {
+      ok: true,
+      ...backupService.createCriticalBackup({
+        source,
+      }),
+    };
+  } catch (error) {
+    logger.error("backup.critical.failed", {
+      source,
+      error: error.message,
+    });
+    return {
+      ok: false,
+      error: error.message,
+    };
+  }
+}
+
 function backupAwareFlash(message, tone, backupResult) {
   if (backupResult?.ok) {
     return {
@@ -125,7 +160,7 @@ function backupAwareFlash(message, tone, backupResult) {
   }
 
   return {
-    message: `${message} Automatic backup failed: ${backupResult?.error || "Unknown error"}`,
+    message: `${message} Backup failed: ${backupResult?.error || "Unknown error"}`,
     tone: tone === "error" ? "error" : "warning",
   };
 }
@@ -715,6 +750,32 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/reports/format") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      updateReportFormatSettings(db, reportFormatFromForm(form));
+      const backupResult = createAutomaticBackup("report-format-update");
+      const nextFlash = backupAwareFlash("Report format saved.", "success", backupResult);
+      const returnTo = safeLocalPath(form.return_to, "/reports?format=1");
+      sendRedirect(response, appendFlash(returnTo, nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/reports/format/reset") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      resetReportFormatSettings(db);
+      const backupResult = createAutomaticBackup("report-format-reset");
+      const nextFlash = backupAwareFlash("Report format reset.", "success", backupResult);
+      const returnTo = safeLocalPath(form.return_to, "/reports?format=1");
+      sendRedirect(response, appendFlash(returnTo, nextFlash.message, nextFlash.tone));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/backups") {
       if (!ensureAdmin(response, user)) {
         return;
@@ -736,6 +797,27 @@ export const requestHandler = async (request, response) => {
         appendFlash(
           "/backups",
           `Manual backup created: ${backup.filename}.`,
+          "success",
+        ),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/backups/schedule") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const schedule = backupService.updateAutomaticBackupSchedule({
+        cadence: form.cadence,
+        startTime: form.start_time,
+      });
+      const returnTo = safeLocalPath(form.return_to, "/backups");
+      sendRedirect(
+        response,
+        appendFlash(
+          returnTo,
+          `Automatic backup schedule saved: ${schedule.label} at ${schedule.startTime}.`,
           "success",
         ),
       );
@@ -1041,14 +1123,20 @@ export const requestHandler = async (request, response) => {
       if (controllerCells.length) {
         hardwareService.clearAllCellLocates(controllerCells);
       }
-      createRequiredSafetyBackup("pre-controller-delete");
+      createRequiredCriticalBackup("pre-controller-delete");
       const deleted = locationService.deleteController({ controllerId: controller.id });
+      const backupResult = createCriticalBackup("controller-deleted");
+      const nextFlash = backupAwareFlash(
+        `${controller.controller_code} was deleted. ${deleted.detachedCellCount} cell(s) remain active for manual pick/put until remapped.`,
+        "success",
+        backupResult,
+      );
       sendRedirect(
         response,
         appendFlash(
           "/devices",
-          `${controller.controller_code} was deleted. ${deleted.detachedCellCount} cell(s) remain active for manual pick/put until remapped.`,
-          "success",
+          nextFlash.message,
+          nextFlash.tone,
         ),
       );
       return;
@@ -1089,7 +1177,7 @@ export const requestHandler = async (request, response) => {
         targetCellId: form.target_cell_id,
         mappedBy: user.id,
       });
-      const backupResult = createAutomaticBackup("cell-mapping-update");
+      const backupResult = createCriticalBackup("cell-mapping-update");
       const nextFlash = backupAwareFlash("Cell mapping updated.", "success", backupResult);
       sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
       return;
@@ -1116,7 +1204,7 @@ export const requestHandler = async (request, response) => {
           mappedBy: user.id,
         });
       }
-      const backupResult = createAutomaticBackup("cell-mapping-bulk-update");
+      const backupResult = createCriticalBackup("cell-mapping-bulk-update");
       const nextFlash = backupAwareFlash(
         `${mappings.length} cell mapping${mappings.length === 1 ? "" : "s"} updated.`,
         "success",
@@ -1136,7 +1224,7 @@ export const requestHandler = async (request, response) => {
         capacity: form.capacity || 12,
         createdBy: user.id,
       });
-      const backupResult = createAutomaticBackup("cell-created");
+      const backupResult = createCriticalBackup("cell-created");
       const nextFlash = backupAwareFlash(`Cell ${cell.logical_code} added.`, "success", backupResult);
       sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
       return;
@@ -1157,7 +1245,7 @@ export const requestHandler = async (request, response) => {
       if (impact.cell.controller_id && impact.cell.hardware_channel) {
         hardwareService.setCellLocate(impact.cell, false);
       }
-      const safetyBackup = createRequiredSafetyBackup(
+      const safetyBackup = createRequiredCriticalBackup(
         impact.hasData ? "cell-delete-with-data-before" : "cell-delete-before",
       );
       const deleted = locationService.deleteCell({
@@ -1170,7 +1258,7 @@ export const requestHandler = async (request, response) => {
       const nextFlash = backupAwareFlash(
         `Cell ${deleted.cell.logical_code} deleted.${dataSummary} Safety backup: ${safetyBackup.filename}.`,
         "success",
-        { ok: true },
+        createCriticalBackup(deleted.hasData ? "cell-delete-with-data" : "cell-delete"),
       );
       sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
       return;
@@ -1233,6 +1321,49 @@ export const requestHandler = async (request, response) => {
         backupResult,
       );
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/adjustments/cell-products") {
+      if (!ensureApiAdmin(response, user)) {
+        return;
+      }
+
+      const cellId = Number(url.searchParams.get("cell_id"));
+      const cell = getCellDetail(db, cellId);
+      if (!cell) {
+        sendJson(response, { error: "Cell not found." }, 404);
+        return;
+      }
+
+      const products = listProducts(db);
+      const linesHtml = cell.products
+        .map((product, index) =>
+          renderAdjustmentLine(products, index, {
+            productId: product.product_id,
+            absoluteQuantity: product.available_quantity,
+            savedProductId: product.product_id,
+            savedQuantity: product.available_quantity,
+          }),
+        )
+        .join("");
+
+      sendJson(response, {
+        cell: {
+          id: cell.id,
+          logicalCode: cell.logical_code,
+        },
+        products: cell.products.map((product) => ({
+          productId: product.product_id,
+          sku: product.sku,
+          name: product.name,
+          brand: product.brand,
+          unitOfMeasure: product.unit_of_measure,
+          availableQuantity: product.available_quantity,
+        })),
+        linesHtml,
+        nextIndex: cell.products.length,
+      });
       return;
     }
 

@@ -74,11 +74,6 @@ function buildAppState() {
     config: appConfig,
     logger,
   });
-  const firmwareService = createFirmwareService({
-    db,
-    config: appConfig,
-    logger,
-  });
   const systemService = createSystemService({
     db,
     config: appConfig,
@@ -95,6 +90,12 @@ function buildAppState() {
     reloadAppState,
     logger,
     automaticBackupIntervalHours: appConfig.automaticBackupIntervalHours,
+  });
+  const firmwareService = createFirmwareService({
+    db,
+    config: appConfig,
+    logger,
+    backupService,
   });
   const databaseMaintenanceService = createDatabaseMaintenanceService({
     db,

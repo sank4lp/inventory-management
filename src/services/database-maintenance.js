@@ -412,7 +412,10 @@ export function createDatabaseMaintenanceService({
         deviceEventRetentionDays,
         systemEventRetentionDays,
         businessArchiveAfterDays,
-        automaticBackupIntervalHours: Number(config.automaticBackupIntervalHours || 24),
+        automaticBackupIntervalHours: Number(
+          backupSummary?.automaticBackupIntervalHours || config.automaticBackupIntervalHours || 24,
+        ),
+        automaticBackupSchedule: backupSummary?.automaticBackupSchedule || null,
         reportDefaultDays: Number(config.reportDefaultDays || 30),
       },
     };

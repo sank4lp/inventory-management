@@ -306,6 +306,9 @@ export function planPut(db, { userId, productId, quantity, preferredCellId = nul
   const product = findProductOrThrow(db, Number(productId));
   const balances = createInventoryBalanceRepository(db);
   const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
+  if (preferredCellId) {
+    assertPutCellEligible(db, { productId: product.id, cellId: preferredCellId });
+  }
   const lines = planPutLines({
     product,
     requestedQuantity,
@@ -1846,6 +1849,10 @@ export function applyRecommendedAction(
       if (!targetCell) {
         throw new Error("Target cell not found.");
       }
+      assertPutCellEligible(db, {
+        productId: product.id,
+        cellId: targetCell.id,
+      });
 
       const targetBalance = balances.getOrCreate(product.id, targetCell.id);
       balances.increase(targetBalance.id, move.quantity);

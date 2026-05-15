@@ -170,8 +170,9 @@ export function createTaskPages({ db }) {
             form="put-plan-form"
             class="compact-input"
             type="number"
-            step="0.01"
+            step="1"
             min="0"
+            inputmode="numeric"
             name="plan_qty_${key}"
             value="${escapeHtml(quantity)}"
             data-put-plan-qty
@@ -239,14 +240,14 @@ export function createTaskPages({ db }) {
       ? [
           "Instruction",
           "Final cell",
-          "Planned",
+          "Suggested",
           "Actual",
           ...(canAdjustPutPlan ? ["Update"] : []),
         ]
       : [
           "Instruction",
           ...(editable || taskIsActive ? ["Final cell"] : []),
-          "Planned",
+          "Suggested",
           "Actual",
         ];
     const reviewRows = task.lines.map((line) => [
@@ -284,8 +285,9 @@ export function createTaskPages({ db }) {
             form="confirm-form"
             class="compact-input"
             type="number"
-            step="0.01"
+            step="1"
             min="0"
+            inputmode="numeric"
             name="actual_${line.id}"
             value="${escapeHtml(line.actual_quantity || line.planned_quantity)}"
             data-quantity-change-input

@@ -1,5 +1,10 @@
 import { buildReports } from "../../services/reports.js";
 import {
+  getReportFormatSettings,
+  reportFormatStyle,
+  REPORT_FONT_OPTIONS,
+} from "../../services/report-format.js";
+import {
   escapeHtml,
   formatDate,
   formatQuantity,
@@ -172,6 +177,14 @@ function presetHref(preset) {
   return `/reports?preset=${preset}`;
 }
 
+function formatEditorReturnTo(url) {
+  const next = new URL(url.pathname + url.search, "http://localhost");
+  next.searchParams.set("format", "1");
+  next.searchParams.delete("flash");
+  next.searchParams.delete("tone");
+  return `${next.pathname}${next.search}`;
+}
+
 function sumRows(rows, field) {
   return rows.reduce((sum, row) => sum + Number(row[field] || 0), 0);
 }
@@ -202,19 +215,20 @@ function reportPrintOption(report) {
   `;
 }
 
-function reportTemplate(report, range, generatedAt) {
+function reportTemplate(report, range, generatedAt, reportFormat) {
   return `
     <template
       data-report-template="${escapeHtml(report.key)}"
       data-report-title="${escapeHtml(report.title)}"
       data-report-description="${escapeHtml(report.description)}"
     >
-      <article class="report-document" data-report-document="${escapeHtml(report.key)}">
+      <article class="report-document" data-report-document="${escapeHtml(report.key)}" style="${escapeHtml(reportFormatStyle(reportFormat))}">
         <header class="report-document-header">
-          <div>
-            <p class="report-document-kicker">Inventory report</p>
+          <div class="report-document-title-block">
+            <p class="report-document-company">${escapeHtml(reportFormat.companyName)}</p>
+            <p class="report-document-kicker">${escapeHtml(reportFormat.headerLabel)}</p>
             <h3>${escapeHtml(report.title)}</h3>
-            <p>${escapeHtml(report.description)}</p>
+            <p class="report-document-subheading">${escapeHtml(report.description)}</p>
           </div>
           <dl class="report-document-meta">
             <div>
@@ -233,11 +247,139 @@ function reportTemplate(report, range, generatedAt) {
   `;
 }
 
+function reportFormatOption(option, currentValue) {
+  return `
+    <option
+      value="${escapeHtml(option.value)}"
+      data-font-css="${escapeHtml(option.css)}"
+      ${option.value === currentValue ? "selected" : ""}
+    >${escapeHtml(option.label)}</option>
+  `;
+}
+
+function reportFormatEditor(reportFormat, url, user) {
+  if (user?.role !== "admin") {
+    return "";
+  }
+
+  const returnTo = formatEditorReturnTo(url);
+
+  return `
+    <details class="report-format-panel app-panel" data-report-format-editor ${url.searchParams.get("format") === "1" ? "open" : ""}>
+      <summary class="report-format-summary">
+        <span>
+          <span class="report-eyebrow">Report format</span>
+          <strong>Edit report format</strong>
+        </span>
+      </summary>
+      <div class="report-format-editor-grid">
+        <form method="post" action="/reports/format" class="report-format-form" data-report-format-form>
+          <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
+          <div class="report-format-form-grid">
+            <label>Company name
+              <input
+                name="company_name"
+                value="${escapeHtml(reportFormat.companyName)}"
+                maxlength="80"
+                data-report-format-field="companyName"
+              />
+            </label>
+            <label>Header label
+              <input
+                name="header_label"
+                value="${escapeHtml(reportFormat.headerLabel)}"
+                maxlength="48"
+                data-report-format-field="headerLabel"
+              />
+            </label>
+            <label>Font
+              <select name="font_family" data-report-format-field="fontFamily">
+                ${REPORT_FONT_OPTIONS.map((option) => reportFormatOption(option, reportFormat.fontFamily)).join("")}
+              </select>
+            </label>
+            <label>Body size
+              <input
+                type="number"
+                name="body_font_size"
+                value="${escapeHtml(reportFormat.bodyFontSize)}"
+                min="10"
+                max="18"
+                step="1"
+                data-report-format-field="bodyFontSize"
+              />
+            </label>
+            <label>Heading size
+              <input
+                type="number"
+                name="heading_font_size"
+                value="${escapeHtml(reportFormat.headingFontSize)}"
+                min="18"
+                max="34"
+                step="1"
+                data-report-format-field="headingFontSize"
+              />
+            </label>
+            <label>Sub heading size
+              <input
+                type="number"
+                name="subheading_font_size"
+                value="${escapeHtml(reportFormat.subheadingFontSize)}"
+                min="10"
+                max="18"
+                step="1"
+                data-report-format-field="subheadingFontSize"
+              />
+            </label>
+            <label>Accent
+              <input
+                type="color"
+                name="accent_color"
+                value="${escapeHtml(reportFormat.accentColor)}"
+                data-report-format-field="accentColor"
+              />
+            </label>
+          </div>
+          <div class="report-format-actions">
+            <button type="submit" class="blue-button">Save format</button>
+            <button type="submit" formaction="/reports/format/reset" class="ghost-button">Reset default</button>
+          </div>
+        </form>
+        <div class="report-format-preview-shell" aria-label="Report format preview">
+          <article class="report-document report-format-preview" data-report-format-preview style="${escapeHtml(reportFormatStyle(reportFormat))}">
+            <header class="report-document-header">
+              <div class="report-document-title-block">
+                <p class="report-document-company" data-report-format-preview-company>${escapeHtml(reportFormat.companyName)}</p>
+                <p class="report-document-kicker" data-report-format-preview-label>${escapeHtml(reportFormat.headerLabel)}</p>
+                <h3>Stock snapshot</h3>
+                <p class="report-document-subheading">Printable stock list with the selected format.</p>
+              </div>
+              <dl class="report-document-meta">
+                <div>
+                  <dt>Timeframe</dt>
+                  <dd>Last 30 days</dd>
+                </div>
+              </dl>
+            </header>
+            ${table(
+              ["Item", "Available"],
+              [
+                ["Sample SKU<br /><small>Preview product</small>", "12"],
+                ["Second SKU<br /><small>Preview product</small>", "4"],
+              ],
+            )}
+          </article>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
 export function createReportsPages({ db }) {
   function renderReports(user, flash, url) {
     const runtime = getRuntimeContext();
     const range = resolveReportRange(url, runtime.config?.reportDefaultDays || 30);
     const generatedAt = new Date().toISOString();
+    const reportFormat = getReportFormatSettings(db);
     const reports = buildReports(db, { fromAt: range.fromAt, toAt: range.toAt });
     const totalStock = sumRows(reports.stockSnapshot, "available");
     const netMovement = sumRows(reports.movementSummary, "net_change");
@@ -361,22 +503,14 @@ export function createReportsPages({ db }) {
             { label: "Recent tasks", value: formatQuantity(tasksInView) },
             { label: "Issues + adjustments", value: formatQuantity(issueCount) },
           ])}
-          <section class="report-command-panel app-panel">
-            <div>
-              <p class="report-eyebrow">Report center</p>
-              <h2>Open one report at a time</h2>
-              <p class="muted">Each card opens a focused report popup for ${escapeHtml(
-                range.label.toLowerCase(),
-              )} where the report uses time filtering. Use PRINT to choose a report and open the browser print menu.</p>
-            </div>
-            <button type="button" class="blue-button report-print-button" data-report-print-open>PRINT</button>
-          </section>
+          ${reportFormatEditor(reportFormat, url, user)}
           <section class="report-filter-panel app-panel" aria-label="Report timeframe">
             <div class="report-filter-header">
               <div>
                 <p class="report-eyebrow">Selected time</p>
                 <h2>${escapeHtml(range.label)}</h2>
               </div>
+              <button type="button" class="blue-button report-print-button" data-report-print-open>PRINT</button>
             </div>
             <div class="preset-row">
               <a class="preset-chip ${range.preset === "last-1h" ? "preset-chip-active" : ""}" href="${presetHref("last-1h")}">Last 1 hour</a>
@@ -402,7 +536,7 @@ export function createReportsPages({ db }) {
             ${reportSections.map(reportCard).join("")}
           </section>
           <section class="report-template-library" hidden>
-            ${reportSections.map((report) => reportTemplate(report, range, generatedAt)).join("")}
+            ${reportSections.map((report) => reportTemplate(report, range, generatedAt, reportFormat)).join("")}
           </section>
           <section
             id="report-modal"

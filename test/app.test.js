@@ -46,6 +46,7 @@ test("core inventory flows work against a fresh seeded database", async () => {
   const auth = await freshImport("../src/services/auth.js");
   const inventory = await freshImport("../src/services/inventory.js");
   const reports = await freshImport("../src/services/reports.js");
+  const reportFormat = await freshImport("../src/services/report-format.js");
   const { createReportsPages } = await freshImport("../src/server/pages/reports.js");
 
   const db = createDatabase({ hashPassword: auth.hashPassword });
@@ -246,10 +247,33 @@ test("core inventory flows work against a fresh seeded database", async () => {
   assert.match(reportHtml, /data-report-open="team-activity"/);
   assert.match(reportHtml, /data-report-open="issues"/);
   assert.match(reportHtml, /data-report-open="adjustments"/);
+  assert.doesNotMatch(reportHtml, /Open one report at a time/);
   assert.match(reportHtml, /data-report-print-open/);
   assert.match(reportHtml, /data-report-print-option="stock-snapshot"/);
   assert.match(reportHtml, /data-report-template="movement"/);
+  assert.match(reportHtml, /data-report-format-editor/);
+  assert.match(reportHtml, /Edit report format/);
   assert.match(reportHtml, /Last 30 days/);
+
+  reportFormat.updateReportFormatSettings(db, {
+    companyName: "Rajpoot Warehouse",
+    headerLabel: "Stock control report",
+    fontFamily: "georgia",
+    bodyFontSize: 14,
+    headingFontSize: 28,
+    subheadingFontSize: 12,
+    accentColor: "#0f8f7a",
+  });
+  const formattedReportHtml = createReportsPages({ db }).renderReports(
+    { id: 1, name: "Admin", username: "admin", role: "admin" },
+    null,
+    new URL("http://localhost/reports?format=1"),
+  );
+  assert.match(formattedReportHtml, /Rajpoot Warehouse/);
+  assert.match(formattedReportHtml, /Stock control report/);
+  assert.match(formattedReportHtml, /--report-heading-size: 28px/);
+  assert.match(formattedReportHtml, /--report-body-size: 14px/);
+  assert.match(formattedReportHtml, /--report-accent-color: #0f8f7a/);
 
   const actions = inventory.getRecommendedActions(db);
   assert.ok(actions.length > 0);
@@ -403,6 +427,43 @@ test("active pick and put tasks allow changed quantities on eligible cells", asy
   assert.ok(alternateShoeCell);
   assert.ok(shirtCell);
   assert.ok(emptyCell);
+
+  assert.throws(
+    () =>
+      inventory.planPut(db, {
+        userId: 1,
+        productId: shoe.id,
+        quantity: 1,
+        preferredCellId: shirtCell.id,
+      }),
+    /already contains SKU-TEE-002/,
+  );
+
+  db.prepare(
+    `
+      INSERT OR IGNORE INTO inventory_balances (
+        product_id, cell_id, available_quantity, reserved_quantity
+      )
+      VALUES (?, ?, 0, 0)
+    `,
+  ).run(shoe.id, shirtCell.id);
+  db.prepare(
+    `
+      UPDATE inventory_balances
+      SET available_quantity = 0
+      WHERE product_id = ? AND cell_id = ?
+    `,
+  ).run(shoe.id, shirtCell.id);
+  inventory.updateProductItemsPerCell(db, {
+    productId: shoe.id,
+    itemsPerCell: 1,
+  });
+  const staleBalancePut = inventory.planPut(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+  });
+  assert.ok(!staleBalancePut.lines.some((line) => Number(line.cell_id) === Number(shirtCell.id)));
 
   const pickTask = inventory.allocatePick(db, {
     userId: 1,
@@ -603,6 +664,10 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(taskHtml, new RegExp(`Pick Task #${task.id}`));
   assert.doesNotMatch(taskHtml, /Mark reached|Physical/);
   assert.match(taskHtml, /Complete pick/);
+  assert.match(
+    taskHtml,
+    new RegExp(`step="1"[\\s\\S]*name="actual_${task.lines[0].id}"`),
+  );
   assert.match(taskHtml, /Cancel task/);
   assert.match(taskHtml, /Cancel this task\?/);
   assert.doesNotMatch(taskHtml, /Simulate button|Finish task|Cancel Task|Pick Action Initiated|Use the row below/);
@@ -618,6 +683,12 @@ test("operator movement screens keep context and use plain task actions", async 
     putPlan: "put-plan-token",
   });
   assert.match(putTaskHtml, /Complete put/);
+  assert.match(
+    putTaskHtml,
+    new RegExp(`step="1"[\\s\\S]*name="actual_${putTask.lines[0].id}"`),
+  );
+  assert.match(putTaskHtml, /name="plan_qty_new___INDEX__"/);
+  assert.match(putTaskHtml, /step="1"[\s\S]*name="plan_qty_new___INDEX__"/);
   assert.match(putTaskHtml, /Update Cell/);
   assert.match(putTaskHtml, /data-put-task-cell-control/);
   assert.match(putTaskHtml, /data-put-confirm-cell-for=/);
@@ -898,7 +969,9 @@ test("admins can revoke registration keys and suspend user access", async () => 
   assert.match(adminHtml, /one-time key per person/);
   assert.match(adminHtml, /data-copy-value=/);
   assert.match(adminHtml, /Preview quantity LED/);
-  assert.match(adminHtml, /1\. Choose location/);
+  assert.match(adminHtml, /Products counted in this cell/);
+  assert.match(adminHtml, /Select a cell to load saved product counts\./);
+  assert.match(adminHtml, /data-adjustment-empty/);
 });
 
 test("adjustment preview guidance targets selected cell with entered quantity total", async () => {
@@ -932,6 +1005,59 @@ test("adjustment preview guidance targets selected cell with entered quantity to
       }),
     /Enter at least one adjustment quantity/,
   );
+});
+
+test("admin adjustment product rows load from the selected cell", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-adjustment-cell-products-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const auth = await freshImport("../src/services/auth.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+  const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
+  const adjustmentResponse = new MockResponse();
+
+  await requestHandler(
+    formRequest({
+      url: "/admin/adjustments",
+      body: new URLSearchParams({
+        cell_id: "1",
+        product_id_0: "2",
+        absolute_quantity_0: "2",
+        reason: "Add second counted item",
+      }).toString(),
+      cookie,
+    }),
+    adjustmentResponse,
+  );
+
+  assert.equal(adjustmentResponse.statusCode, 302);
+
+  const response = new MockResponse();
+  await requestHandler(
+    formRequest({
+      method: "GET",
+      url: "/api/admin/adjustments/cell-products?cell_id=1",
+      body: "",
+      cookie,
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.cell.id, 1);
+  assert.ok(payload.products.some((product) => product.productId === 1));
+  assert.ok(
+    payload.products.some(
+      (product) => product.productId === 2 && Number(product.availableQuantity) === 2,
+    ),
+  );
+  assert.equal(payload.nextIndex, payload.products.length);
+  assert.match(payload.linesHtml, /adjustment-line-saved/);
+  assert.match(payload.linesHtml, /data-original-product-id="1"/);
+  assert.match(payload.linesHtml, /data-original-product-id="2"/);
+  assert.match(payload.linesHtml, /name="absolute_quantity_0"/);
 });
 
 test("backups can restore previous data and prune old automatic snapshots", async () => {
@@ -1026,6 +1152,135 @@ test("backups can restore previous data and prune old automatic snapshots", asyn
     .listBackups()
     .filter((backup) => backup.kind === "auto");
   assert.equal(automaticBackups.length, 2);
+
+  backupService.createCriticalBackup({ source: "controller-added" });
+  backupService.createCriticalBackup({ source: "cell-mapping-updated" });
+  assert.equal(
+    backupService.listBackups().filter((backup) => backup.kind === "critical").length,
+    2,
+  );
+  backupService.createBackup({ kind: "auto", source: "scheduled-rollup" });
+  assert.equal(
+    backupService.listBackups().filter((backup) => backup.kind === "critical").length,
+    0,
+  );
+
+  const schedule = backupService.updateAutomaticBackupSchedule({
+    cadence: "weekly",
+    startTime: "03:15",
+    now: new Date("2026-05-17T00:00:00.000Z"),
+  });
+  assert.equal(schedule.label, "Weekly");
+  assert.equal(schedule.startTime, "03:15");
+  assert.equal(backupService.getSummary().automaticBackupSchedule.cadence, "weekly");
+});
+
+test("admins can update automatic backup schedule from the backup panel", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-backup-schedule-http-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const auth = await freshImport("../src/services/auth.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+  const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
+  const response = new MockResponse();
+
+  await requestHandler(
+    formRequest({
+      url: "/backups/schedule",
+      body: new URLSearchParams({
+        cadence: "biweekly",
+        start_time: "04:45",
+        return_to: "/admin",
+      }).toString(),
+      cookie,
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 302);
+  assert.match(response.headers.Location, /^\/admin\?/);
+  assert.match(response.headers.Location, /tone=success/);
+
+  const pageResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      method: "GET",
+      url: "/backups",
+      body: "",
+      cookie,
+    }),
+    pageResponse,
+  );
+
+  assert.equal(pageResponse.statusCode, 200);
+  assert.match(pageResponse.body, /Bi Weekly/);
+  assert.match(pageResponse.body, /04:45/);
+  assert.match(pageResponse.body, /Save schedule/);
+});
+
+test("critical device changes create interim critical backups", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-critical-backup-http-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const auth = await freshImport("../src/services/auth.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+  const { getAppState } = await import("../src/server/app-state.js");
+  const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
+  const response = new MockResponse();
+
+  await requestHandler(
+    formRequest({
+      url: "/devices/cells",
+      body: new URLSearchParams({
+        logical_code: "Z1-R9-C99",
+        capacity: "12",
+      }).toString(),
+      cookie,
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 302);
+  assert.match(response.headers.Location, /Cell\+Z1-R9-C99\+added/);
+
+  const createdCell = getAppState()
+    .locationService.listCells()
+    .find((cell) => cell.logical_code === "Z1-R9-C99");
+  assert.ok(createdCell);
+
+  const deleteResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/devices/cells/delete",
+      body: new URLSearchParams({
+        cell_id: String(createdCell.id),
+      }).toString(),
+      cookie,
+    }),
+    deleteResponse,
+  );
+
+  assert.equal(deleteResponse.statusCode, 302);
+  assert.match(deleteResponse.headers.Location, /Cell\+Z1-R9-C99\+deleted/);
+
+  const backupNames = readdirSync(join(sandbox, "data", "backups"));
+  assert.ok(
+    backupNames.some(
+      (name) => name.startsWith("critical-") && name.includes("cell-created"),
+    ),
+  );
+  assert.ok(
+    backupNames.some(
+      (name) => name.startsWith("critical-") && name.includes("cell-delete-before"),
+    ),
+  );
+  assert.ok(
+    backupNames.some(
+      (name) => name.startsWith("critical-") && /-cell-delete\.sqlite$/.test(name),
+    ),
+  );
 });
 
 test("database maintenance prunes operational logs and archives old business history", async () => {

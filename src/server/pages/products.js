@@ -6,6 +6,10 @@ import {
   listProducts,
 } from "../../services/inventory.js";
 import {
+  getReportFormatSettings,
+  reportFormatStyle,
+} from "../../services/report-format.js";
+import {
   card,
   cellPickerField,
   escapeHtml,
@@ -208,19 +212,20 @@ export function createProductPages({ db }) {
     ]);
   }
 
-  function productReportTemplate(report, generatedAt) {
+  function productReportTemplate(report, generatedAt, reportFormat) {
     return `
       <template
         data-report-template="${escapeHtml(report.key)}"
         data-report-title="${escapeHtml(report.title)}"
         data-report-description="${escapeHtml(report.description)}"
       >
-        <article class="report-document" data-report-document="${escapeHtml(report.key)}">
+        <article class="report-document" data-report-document="${escapeHtml(report.key)}" style="${escapeHtml(reportFormatStyle(reportFormat))}">
           <header class="report-document-header">
-            <div>
-              <p class="report-document-kicker">Product list</p>
+            <div class="report-document-title-block">
+              <p class="report-document-company">${escapeHtml(reportFormat.companyName)}</p>
+              <p class="report-document-kicker">${escapeHtml(reportFormat.headerLabel)}</p>
               <h3>${escapeHtml(report.title)}</h3>
-              <p>${escapeHtml(report.description)}</p>
+              <p class="report-document-subheading">${escapeHtml(report.description)}</p>
             </div>
             <dl class="report-document-meta">
               <div>
@@ -259,13 +264,13 @@ export function createProductPages({ db }) {
     `;
   }
 
-  function renderProductStatusReports(reports, generatedAt) {
+  function renderProductStatusReports(reports, generatedAt, reportFormat) {
     return `
       <section class="stats-grid product-status-grid" aria-label="Product status lists">
         ${reports.map(productStatButton).join("")}
       </section>
       <section class="report-template-library" hidden>
-        ${reports.map((report) => productReportTemplate(report, generatedAt)).join("")}
+        ${reports.map((report) => productReportTemplate(report, generatedAt, reportFormat)).join("")}
       </section>
       <section
         id="product-status-report-modal"
@@ -308,6 +313,7 @@ export function createProductPages({ db }) {
         Number(product.total_available || 0) > 0 &&
         Number(product.total_available || 0) <= Number(product.items_per_cell || 0),
     );
+    const reportFormat = getReportFormatSettings(db);
     const generatedAt = new Date().toISOString();
     const productStatusReports = [
       {
@@ -350,7 +356,7 @@ export function createProductPages({ db }) {
       flash,
       content: `
         <section class="reports-workspace" data-reports-workspace>
-          ${renderProductStatusReports(productStatusReports, generatedAt)}
+          ${renderProductStatusReports(productStatusReports, generatedAt, reportFormat)}
           <section class="page-actions">
             ${
               showAddProduct

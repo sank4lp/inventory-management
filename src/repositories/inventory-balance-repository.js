@@ -119,13 +119,22 @@ export function createInventoryBalanceRepository(db) {
               COALESCE(b.available_quantity, 0) AS available_quantity
             FROM cells c
             JOIN inventory_balances b ON b.cell_id = c.id
-            WHERE b.product_id = ? AND c.active = 1
+            WHERE b.product_id = ?
+              AND b.available_quantity > 0
+              AND c.active = 1
+              AND NOT EXISTS (
+                SELECT 1
+                FROM inventory_balances other_balance
+                WHERE other_balance.cell_id = c.id
+                  AND other_balance.product_id != ?
+                  AND other_balance.available_quantity > 0
+              )
             ORDER BY COALESCE(b.available_quantity, 0) DESC,
                      c.row_number,
                      c.column_number
           `,
         )
-        .all(Number(productId))
+        .all(Number(productId), Number(productId))
         .filter((cell) => cell.cell_id !== Number(excludedCellId || 0));
     },
 
@@ -145,16 +154,10 @@ export function createInventoryBalanceRepository(db) {
               ON b.cell_id = c.id AND b.available_quantity > 0
             WHERE c.active = 1
               AND b.id IS NULL
-              AND NOT EXISTS (
-                SELECT 1
-                FROM inventory_balances existing_product_balance
-                WHERE existing_product_balance.cell_id = c.id
-                  AND existing_product_balance.product_id = ?
-              )
             ORDER BY c.row_number, c.column_number
           `,
         )
-        .all(Number(productId))
+        .all()
         .filter((cell) => cell.cell_id !== Number(excludedCellId || 0));
     },
 
@@ -168,13 +171,23 @@ export function createInventoryBalanceRepository(db) {
               COALESCE(b.available_quantity, 0) AS available_quantity
             FROM cells c
             JOIN inventory_balances b ON b.cell_id = c.id
-            WHERE b.product_id = ? AND c.active = 1 AND c.id != ?
+            WHERE b.product_id = ?
+              AND b.available_quantity > 0
+              AND c.active = 1
+              AND c.id != ?
+              AND NOT EXISTS (
+                SELECT 1
+                FROM inventory_balances other_balance
+                WHERE other_balance.cell_id = c.id
+                  AND other_balance.product_id != ?
+                  AND other_balance.available_quantity > 0
+              )
             ORDER BY COALESCE(b.available_quantity, 0) DESC,
                      c.row_number,
                      c.column_number
           `,
         )
-        .all(Number(productId), Number(sourceCellId));
+        .all(Number(productId), Number(sourceCellId), Number(productId));
     },
 
     listEmptyMoveTargets(sourceCellId) {
