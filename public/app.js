@@ -1601,9 +1601,11 @@ function syncFirmwareSubmitState(panel) {
   const input = panel.querySelector("[data-firmware-port-input]");
   const identity = panel.querySelector("[data-firmware-device-identity]");
   const controller = panel.querySelector('input[name="controller_name"]');
+  const modules = panel.querySelector('input[name="module_count"]');
   const submitButton = panel.querySelector("[data-firmware-flash-form] button[type='submit']");
-  if (submitButton && input && identity && controller) {
-    submitButton.disabled = !input.value.trim() || !identity.value.trim() || !controller.value.trim();
+  if (submitButton && input && identity && controller && modules) {
+    submitButton.disabled =
+      !input.value.trim() || !identity.value.trim() || !controller.value.trim() || !modules.value.trim();
   }
 }
 
@@ -1842,17 +1844,6 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
   if (identityInput) {
     identityInput.value = selectedCandidate ? firmwarePortIdentity(selectedCandidate) : "";
   }
-  const controllerInput = panel.querySelector('input[name="controller_name"]');
-  const selectedControllerName = firmwareControllerName(selectedCandidate);
-  const selectedAmbiguous = selectedCandidate?.flashRecordAmbiguous || (selectedCandidate?.flashRecords || []).length > 1;
-  if (controllerInput) {
-    if (selectedAmbiguous) {
-      controllerInput.value = "";
-    } else if (selectedControllerName) {
-      controllerInput.value = selectedControllerName;
-    }
-  }
-
   if (status) {
     const newCount = primaryPorts.filter((port) => port.newlyConnected).length;
     const flashedCount = primaryPorts.filter((port) => port.flashStatus === "configured").length;
@@ -2084,14 +2075,6 @@ function wireFirmwareFlash() {
         if (identityInput) {
           identityInput.value = portChoice.dataset.deviceIdentity || "";
         }
-        const controllerInput = panel.querySelector('input[name="controller_name"]');
-        if (controllerInput) {
-          if (portChoice.dataset.controllerAmbiguous === "true") {
-            controllerInput.value = "";
-          } else if (portChoice.dataset.controllerName) {
-            controllerInput.value = portChoice.dataset.controllerName;
-          }
-        }
         panel.querySelectorAll("[data-firmware-port-choice]").forEach((choice) => {
           choice.classList.toggle("firmware-port-choice-active", choice === portChoice);
         });
@@ -2108,6 +2091,10 @@ function wireFirmwareFlash() {
       });
       const controllerInput = panel.querySelector('input[name="controller_name"]');
       controllerInput?.addEventListener("input", () => {
+        syncFirmwareSubmitState(panel);
+      });
+      const moduleInput = panel.querySelector('input[name="module_count"]');
+      moduleInput?.addEventListener("input", () => {
         syncFirmwareSubmitState(panel);
       });
       syncFirmwareSubmitState(panel);

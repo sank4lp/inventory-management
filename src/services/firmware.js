@@ -767,10 +767,11 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       if (detectedPort.deviceIdentity !== deviceIdentity) {
         throw new Error("Selected ESP32 changed after detection. Refresh ports and select it again.");
       }
-      const controllerName = normalizeControllerName(
-        input.controller_name || input.controllerName,
-        `ESP32-${String(Date.now()).slice(-6)}`,
-      );
+      const requestedControllerName = String(input.controller_name || input.controllerName || "").trim();
+      if (!requestedControllerName) {
+        throw new Error("Controller name is required.");
+      }
+      const controllerName = normalizeControllerName(requestedControllerName);
       const existingByName = db
         .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
         .get(controllerName);

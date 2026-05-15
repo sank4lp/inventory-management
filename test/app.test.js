@@ -538,6 +538,7 @@ test("locations expose direct pick and put actions", async () => {
   const inventory = await freshImport("../src/services/inventory.js");
   const { createLocationPages } = await freshImport("../src/server/pages/locations.js");
   const { createProductPages } = await freshImport("../src/server/pages/products.js");
+  const { setRuntimeContext } = await import("../src/server/runtime-context.js");
 
   const db = createDatabase({ hashPassword: auth.hashPassword });
   const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
@@ -560,6 +561,34 @@ test("locations expose direct pick and put actions", async () => {
   assert.match(searchHtml, /location\(s\) match/);
   assert.match(searchHtml, new RegExp(`href="/pick\\?cell_id=${stockedCell.id}"`));
   assert.match(searchHtml, new RegExp(`href="/put\\?cell_id=${stockedCell.id}"`));
+
+  setRuntimeContext({
+    firmwareService: {
+      getFlashOptions() {
+        return {
+          arduinoCli: { available: true },
+          defaultFqbn: "esp32:esp32:esp32",
+          moduleCount: { min: 1, max: 16 },
+          portStatus: "Ready",
+          lastConfiguration: null,
+        };
+      },
+    },
+  });
+  try {
+    const controllerSetupHtml = locationPages.renderDeviceConfigSection("controller-setup");
+    assert.match(controllerSetupHtml, /data-firmware-wizard/);
+    assert.match(controllerSetupHtml, />Disconnect</);
+    assert.match(controllerSetupHtml, />Attach</);
+    assert.match(controllerSetupHtml, />Configure</);
+    assert.match(controllerSetupHtml, />Flash</);
+    assert.doesNotMatch(controllerSetupHtml, /<h2>Add Controller<\/h2>/);
+    assert.doesNotMatch(controllerSetupHtml, /Sketch/);
+    assert.doesNotMatch(controllerSetupHtml, /name="controller_name"[\s\S]{0,220}value=/);
+    assert.doesNotMatch(controllerSetupHtml, /name="module_count"[\s\S]{0,220}value=/);
+  } finally {
+    setRuntimeContext({ firmwareService: null });
+  }
 
   const productPages = createProductPages({ db });
   const pickHtml = productPages.renderPick(

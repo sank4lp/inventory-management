@@ -66,15 +66,6 @@ function renderPortOptions(ports = []) {
     .join("");
 }
 
-function nextControllerName(controllers = []) {
-  const used = new Set(controllers.map((controller) => String(controller.controller_code || "").toUpperCase()));
-  let index = controllers.length + 1;
-  while (used.has(`ESP32-${String(index).padStart(2, "0")}`)) {
-    index += 1;
-  }
-  return `ESP32-${String(index).padStart(2, "0")}`;
-}
-
 function flashRecordSummary(port) {
   if (port.flashRecordAmbiguous || port.flashRecords?.length > 1) {
     const names = (port.flashRecords || [])
@@ -326,41 +317,26 @@ export function createLocationPages({ db }) {
     const runtime = getRuntimeContext();
     const firmwareOptions = runtime.firmwareService?.getFlashOptions();
     const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
-    const moduleCount = lastFirmwareConfig?.moduleCount || firmwareOptions?.moduleCount?.value || 4;
     const port = "";
-    const controllerName = nextControllerName(controllers);
     const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
     const hasPorts = false;
 
     if (!firmwareOptions) {
       return `
         <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
-          <div class="panel-heading">
-            <div>
-              <h2>Add Controller</h2>
-              <p class="muted">Firmware flashing is not available in this runtime.</p>
-            </div>
-          </div>
+          <p class="muted">Firmware flashing is not available in this runtime.</p>
         </section>
       `;
     }
 
     return `
       <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
-        <div class="panel-heading">
-          <div>
-            <h2>Add Controller</h2>
-            <p class="muted">Follow the same connection order every time so the app can identify the newly attached ESP32.</p>
-          </div>
-          ${statusBadge(firmwareOptions.arduinoCli.available ? "available" : "missing")}
-        </div>
         <div class="firmware-panel" data-firmware-panel>
-          <div class="meta-grid compact-meta-grid">
-            <div><strong>Arduino CLI</strong><br />${statusBadge(
-              firmwareOptions.arduinoCli.available ? "available" : "missing",
-            )}</div>
-            <div><strong>Sketch</strong><br /><code>${escapeHtml(firmwareOptions.sketchPath)}</code></div>
-          </div>
+          ${
+            firmwareOptions.arduinoCli.available
+              ? ""
+              : `<div class="firmware-port-status firmware-port-status-missing">Arduino CLI is missing.</div>`
+          }
           <form class="stack-form firmware-wizard" data-firmware-flash-form data-firmware-wizard data-current-step="0">
             <ol class="wizard-steps" aria-label="Controller setup progress">
               <li class="wizard-step-indicator wizard-step-indicator-active" data-firmware-step-indicator="0" aria-current="step">
@@ -406,16 +382,12 @@ export function createLocationPages({ db }) {
             </ol>
 
             <section class="firmware-step" data-firmware-step="0">
-              <h3>Disconnect ESP32 controllers</h3>
-              <p class="muted">Keep RS485, keyboard, and mouse connected. Unplug only the ESP32 controller that you want to add or replace.</p>
               <div class="mini-actions">
                 <button type="button" class="blue-button" data-firmware-scan-baseline data-firmware-next-on-success>Next</button>
               </div>
             </section>
 
             <section class="firmware-step" data-firmware-step="1" hidden>
-              <h3>Attach one ESP32 controller</h3>
-              <p class="muted">Connect the ESP32 over USB. If the app does not find a newly added serial device, go back and repeat the disconnect step.</p>
               <div class="mini-actions">
                 <button type="button" class="ghost-button" data-firmware-prev>Back</button>
                 <button type="button" class="blue-button" data-firmware-refresh-ports data-firmware-next-on-success>Next</button>
@@ -424,13 +396,11 @@ export function createLocationPages({ db }) {
             </section>
 
             <section class="firmware-step" data-firmware-step="2" hidden>
-              <h3>Select and configure the controller</h3>
               <div class="firmware-grid">
                 <label>Controller name
                   <input
                     name="controller_name"
                     list="firmware-controller-names"
-                    value="${escapeHtml(controllerName)}"
                     placeholder="ESP32-Z1-A"
                     required
                   />
@@ -442,7 +412,7 @@ export function createLocationPages({ db }) {
                     min="${firmwareOptions.moduleCount.min}"
                     max="${firmwareOptions.moduleCount.max}"
                     step="1"
-                    value="${escapeHtml(moduleCount)}"
+                    placeholder="4"
                     required
                   />
                 </label>
@@ -494,8 +464,6 @@ export function createLocationPages({ db }) {
             </section>
 
             <section class="firmware-step" data-firmware-step="3" hidden>
-              <h3>Flash firmware</h3>
-              <p class="muted">If upload cannot connect, hold BOOT, start flashing, tap EN/RESET once while Connecting is shown, then release BOOT after upload starts.</p>
               <div class="mini-actions">
                 <button type="button" class="ghost-button" data-firmware-prev>Back</button>
                 <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Flash controller</button>
