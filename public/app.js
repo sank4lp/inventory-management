@@ -1207,7 +1207,43 @@ function wirePutPlanForms() {
       Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
     const quantityInputs = () => Array.from(section.querySelectorAll("[data-put-plan-qty]"));
 
+    const syncCombinedPutRows = () => {
+      section.querySelectorAll("[data-put-task-cell-control]").forEach((control) => {
+        const hidden = control.querySelector("[data-combo-hidden]");
+        const input = control.querySelector("[data-combo-input]");
+        const confirmHidden = control.querySelector("[data-put-confirm-cell-for]");
+        const label = control.querySelector("[data-put-task-cell-name]");
+        const originalCellId = String(control.dataset.originalCellId || "");
+        const selectedCellId = String(hidden?.value || "");
+        const changed = selectedCellId !== originalCellId;
+        const selectedLabel =
+          (input?.value || "").split("·")[0].trim() ||
+          control.dataset.originalLabel ||
+          "";
+
+        if (confirmHidden && hidden) {
+          confirmHidden.value = hidden.value;
+        }
+        if (label) {
+          label.textContent = selectedLabel || label.dataset.originalLabel || "";
+          label.classList.toggle("mapping-cell-name-dirty", changed);
+          label.classList.toggle("mapping-cell-name-saved", !changed);
+        }
+        input?.classList.toggle("cell-mapping-select-dirty", changed);
+        control.classList.toggle("put-task-cell-control-dirty", changed);
+      });
+
+      section.querySelectorAll("[data-put-actual-qty-for]").forEach((input) => {
+        const lineId = input.dataset.putActualQtyFor;
+        const planQty = lineId ? section.querySelector(`[data-put-plan-qty-for="${lineId}"]`) : null;
+        if (planQty) {
+          planQty.value = input.value;
+        }
+      });
+    };
+
     const refreshTotal = () => {
+      syncCombinedPutRows();
       const currentTotal = quantityInputs().reduce((sum, input) => {
         const value = Number(input.value || 0);
         return Number.isFinite(value) ? sum + value : sum;
@@ -1223,7 +1259,20 @@ function wirePutPlanForms() {
     };
 
     section.addEventListener("input", (event) => {
-      if (event.target.closest("[data-put-plan-qty]")) {
+      if (
+        event.target.closest("[data-put-plan-qty]") ||
+        event.target.closest("[data-put-actual-qty-for]")
+      ) {
+        refreshTotal();
+      }
+    });
+
+    section.addEventListener("change", (event) => {
+      if (
+        event.target.closest("[data-put-task-cell-control]") ||
+        event.target.closest("[data-put-actual-qty-for]") ||
+        event.target.closest("[data-put-plan-qty]")
+      ) {
         refreshTotal();
       }
     });

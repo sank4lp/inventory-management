@@ -601,11 +601,28 @@ test("operator movement screens keep context and use plain task actions", async 
   });
 
   assert.match(taskHtml, new RegExp(`Pick Task #${task.id}`));
-  assert.match(taskHtml, /Mark reached/);
+  assert.doesNotMatch(taskHtml, /Mark reached|Physical/);
   assert.match(taskHtml, /Complete pick/);
   assert.match(taskHtml, /Cancel task/);
   assert.match(taskHtml, /Cancel this task\?/);
-  assert.doesNotMatch(taskHtml, /Simulate button|Finish task|Cancel Task|Pick Action Initiated/);
+  assert.doesNotMatch(taskHtml, /Simulate button|Finish task|Cancel Task|Pick Action Initiated|Use the row below/);
+
+  const putTask = inventory.planPut(db, {
+    userId: user.id,
+    productId: shoe.id,
+    quantity: 1,
+  });
+  const putTaskHtml = taskPages.renderTask(user, null, putTask, "view", {
+    cancel: "cancel-token",
+    confirm: "confirm-token",
+    putPlan: "put-plan-token",
+  });
+  assert.match(putTaskHtml, /Complete put/);
+  assert.match(putTaskHtml, /Update Cell/);
+  assert.match(putTaskHtml, /data-put-task-cell-control/);
+  assert.match(putTaskHtml, /data-put-confirm-cell-for=/);
+  assert.match(putTaskHtml, /form="put-plan-form"/);
+  assert.doesNotMatch(putTaskHtml, /Change put locations|Update LED plan|Physical|Mark reached|Use the row below/);
 
   const completed = inventory.completeTask(db, {
     taskId: task.id,

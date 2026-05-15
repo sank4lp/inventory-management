@@ -2963,6 +2963,27 @@ tbody tr:last-child td {
   align-items: end;
 }
 
+.put-task-cell-control {
+  display: grid;
+  gap: 8px;
+  min-width: 240px;
+}
+
+.put-task-cell-control-dirty {
+  padding: 8px;
+  border: 1px solid #fbbf24;
+  border-radius: var(--radius);
+  background: #fffbeb;
+}
+
+.put-plan-actions {
+  margin-top: 10px;
+}
+
+.hidden-form-shell {
+  margin: 0;
+}
+
 .mapping-toolbar {
   justify-content: flex-end;
 }

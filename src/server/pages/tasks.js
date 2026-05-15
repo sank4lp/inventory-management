@@ -135,18 +135,14 @@ export function createTaskPages({ db }) {
     const visualTone = mapped ? safeColor : "manual";
     const colorLabel = mapped ? `${ledColorLabel(safeColor)} LED` : "Manual";
     const quantityText = quantity ? `Quantity: ${formatQuantity(quantity)}${unit ? ` ${unit}` : ""}` : "";
-    const detailText =
-      detail ||
-      (mapped
-        ? `Follow the ${safeColor} light for this instruction.`
-        : "No LED is mapped for this cell; follow the on-screen instruction.");
+    const detailText = detail || (mapped ? "" : "No LED is mapped for this cell.");
 
     return `
       <div class="led-instruction led-instruction-${escapeHtml(visualTone)}">
         <span class="led-chip led-chip-${escapeHtml(visualTone)}">${escapeHtml(colorLabel)}</span>
         <strong>${escapeHtml(action)} cell ${escapeHtml(cellCode)}</strong>
         ${quantityText ? `<span>${escapeHtml(quantityText)}</span>` : ""}
-        <small>${escapeHtml(detailText)}</small>
+        ${detailText ? `<small>${escapeHtml(detailText)}</small>` : ""}
       </div>
     `;
   }
@@ -163,29 +159,8 @@ export function createTaskPages({ db }) {
     });
   }
 
-  function renderPhysicalConfirmationControl(task, line) {
-    const confirmationStatus = line.physical_confirmed_at
-      ? `<span class="badge badge-confirmed">confirmed</span>`
-      : `<span class="badge badge-pending">pending</span>`;
-
+  function renderPutPlanRow(cells, { key, cellId = null, quantity = "", removable = false }) {
     return `
-      <form method="post" action="/tasks/${task.id}/simulate-button" class="inline-form" data-led-command-form data-led-loading-label="Recording">
-        <input type="hidden" name="line_id" value="${line.id}" />
-        <button
-          type="submit"
-          class="ghost-button"
-          data-led-command-submit
-          data-led-loading-label="Recording"
-          title="Mark that you reached ${escapeHtml(line.logical_code)}"
-        >Mark reached</button>
-        ${confirmationStatus}
-      </form>
-    `;
-  }
-
-  function renderPutPlanAdjuster(task, cells, actionToken) {
-    const total = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
-    const row = ({ key, cellId = null, quantity = "", removable = false }) => `
       <div class="put-plan-row" data-put-plan-row>
         <label>Cell
           ${cellPickerField(cells, cellId, `put-plan-${key}`, `plan_cell_${key}`, "put-plan-form")}
@@ -206,54 +181,36 @@ export function createTaskPages({ db }) {
         ${
           removable
             ? `<button type="button" class="ghost-button" data-put-plan-remove>Remove</button>`
-            : `<span class="muted">Suggested</span>`
+            : `<button type="submit" form="put-plan-form" class="ghost-button" data-led-command-submit data-led-loading-label="Updating">Update Cell</button>`
         }
       </div>
     `;
+  }
 
-    return card(
-      "Change put locations",
-      `
-            <p class="muted">Change the cells or quantities before placing items. If the total changes, confirm the new task quantity before updating the LED plan.</p>
-        <div
-          data-put-plan-form
-          data-expected-total="${escapeHtml(total)}"
-        >
-          <div class="put-plan-lines" data-put-plan-lines>
-            ${task.lines
-              .map((line) =>
-                row({
-                  key: line.id,
-                  cellId: line.cell_id,
-                  quantity: line.planned_quantity,
-                }),
-              )
-              .join("")}
-          </div>
-          <template data-put-plan-template>
-            ${row({ key: "new___INDEX__", quantity: 0, removable: true })}
-          </template>
-          <div class="mini-actions">
-            <button type="button" class="ghost-button" data-put-plan-add>Add another cell</button>
-          </div>
-          <form
-            id="put-plan-form"
-            method="post"
-            action="/tasks/${task.id}/put-plan"
-            class="stack-form"
-            data-led-command-form
-            data-led-loading-label="Updating"
-            data-quantity-change-form
-            data-original-total="${escapeHtml(total)}"
-          >
-            ${hiddenSubmissionToken(actionToken)}
-            <label>Reason for change<textarea name="note" rows="2" placeholder="Optional note"></textarea></label>
-            <p class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(total))} · Original: ${escapeHtml(formatQuantity(total))}</p>
-            <button type="submit" class="blue-button" data-put-plan-submit data-led-command-submit data-led-loading-label="Updating">Update LED plan</button>
-          </form>
-        </div>
-      `,
-    );
+  function renderPutCellControl(line, cells) {
+    return `
+      <div
+        class="put-task-cell-control"
+        data-put-task-cell-control
+        data-line-id="${escapeHtml(line.id)}"
+        data-original-cell-id="${escapeHtml(line.cell_id)}"
+        data-original-label="${escapeHtml(line.logical_code)}"
+      >
+        <span
+          class="mapping-cell-name mapping-cell-name-saved"
+          data-put-task-cell-name
+          data-original-label="${escapeHtml(line.logical_code)}"
+        >${escapeHtml(line.logical_code)}</span>
+        ${cellPickerField(cells, line.cell_id, `put-line-${line.id}`, `plan_cell_${line.id}`, "put-plan-form")}
+        <input
+          type="hidden"
+          form="confirm-form"
+          name="actual_cell_${line.id}"
+          value="${escapeHtml(line.cell_id)}"
+          data-put-confirm-cell-for="${escapeHtml(line.id)}"
+        />
+      </div>
+    `;
   }
 
   function renderTask(user, flash, task, mode = "view", actionTokens = {}, options = {}) {
@@ -266,35 +223,88 @@ export function createTaskPages({ db }) {
       });
     }
 
-    const guidanceSummary =
-      "Use the row below as the work instruction. Check the cell, LED color, and quantity before completing the task.";
     const firstLine = task.lines[0];
     const cells = ["pick", "put"].includes(task.type) ? listCells(db) : [];
     const editMode = mode === "edit";
     const taskIsActive = task.status !== "completed" && task.status !== "cancelled";
     const editable = editMode && canEditTask(user, task) && task.status === "completed";
-    const canRecordPhysicalConfirmation = taskIsActive && canEditTask(user, task);
     const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
     const taskLabel = task.type === "pick" ? "Pick Task" : "Put Task";
     const movementLabel = task.type === "pick" ? "pick" : "put";
     const actionLabel = task.type === "pick" ? "Complete pick" : "Complete put";
     const taskTitle = `${editMode ? "Correct" : task.type === "pick" ? "Pick" : "Put"} Task #${task.id}`;
     const editSubmitPath = editMode && task.status === "completed" ? "correct" : "confirm";
+    const canAdjustPutPlan = task.type === "put" && taskIsActive && canEditTask(user, task);
     const reviewHeaders = task.type === "put"
       ? [
           "Instruction",
-          ...(canRecordPhysicalConfirmation ? ["Physical"] : []),
           "Final cell",
           "Planned",
           "Actual",
+          ...(canAdjustPutPlan ? ["Update"] : []),
         ]
       : [
           "Instruction",
-          ...(canRecordPhysicalConfirmation ? ["Physical"] : []),
           ...(editable || taskIsActive ? ["Final cell"] : []),
           "Planned",
           "Actual",
         ];
+    const reviewRows = task.lines.map((line) => [
+      ...(task.type === "put"
+        ? [
+            renderTaskLineInstruction(task, line),
+            editable
+              ? cellPickerField(cells, line.cell_id, `line-${line.id}`, `actual_cell_${line.id}`, "confirm-form")
+              : taskIsActive
+              ? renderPutCellControl(line, cells)
+              : escapeHtml(line.logical_code),
+          ]
+        : [
+            renderTaskLineInstruction(task, line),
+            ...(editable || taskIsActive
+              ? [cellPickerField(cells, line.cell_id, `line-${line.id}`, `actual_cell_${line.id}`, "confirm-form")]
+              : []),
+          ]),
+      `${escapeHtml(formatQuantity(line.planned_quantity))} ${escapeHtml(line.unit_of_measure)}
+        ${
+          canAdjustPutPlan
+            ? `<input
+                type="hidden"
+                form="put-plan-form"
+                name="plan_qty_${line.id}"
+                value="${escapeHtml(line.planned_quantity)}"
+                data-put-plan-qty
+                data-put-plan-qty-for="${escapeHtml(line.id)}"
+                data-quantity-change-input
+              />`
+            : ""
+        }`,
+      editable || taskIsActive
+        ? `<input
+            form="confirm-form"
+            class="compact-input"
+            type="number"
+            step="0.01"
+            min="0"
+            name="actual_${line.id}"
+            value="${escapeHtml(line.actual_quantity || line.planned_quantity)}"
+            data-quantity-change-input
+            ${canAdjustPutPlan ? `data-put-actual-qty-for="${escapeHtml(line.id)}"` : ""}
+          />`
+        : escapeHtml(formatQuantity(line.actual_quantity || line.planned_quantity)),
+      ...(canAdjustPutPlan
+        ? [
+            `<button
+              type="submit"
+              form="put-plan-form"
+              class="ghost-button"
+              data-led-command-submit
+              data-led-loading-label="Updating"
+            >Update Cell</button>`,
+          ]
+        : []),
+    ]);
+    const reviewTable = table(reviewHeaders, reviewRows);
     const showCompletionDialog = Boolean(
       options.showCompletionDialog &&
         mode !== "edit" &&
@@ -349,57 +359,45 @@ export function createTaskPages({ db }) {
                 : ""
             }
             <p><strong>${escapeHtml(operatorTaskSummary(task))}</strong></p>
-            <p class="muted">${escapeHtml(guidanceSummary)}</p>
             `,
         )}
-        ${
-          task.type === "put" && taskIsActive && canEditTask(user, task)
-            ? renderPutPlanAdjuster(task, cells, actionTokens.putPlan)
-            : ""
-        }
         ${card(
           editMode ? "Save corrected result" : actionLabel,
           `
-            ${
-              taskIsActive && ["pick", "put"].includes(task.type)
-                ? `<p class="muted">You may change the final cell or quantity before completing this task. If the total quantity changes, the app will ask you to confirm before saving.</p>`
-                : task.type === "put"
-                ? `<p class="muted">You may change cell or quantity. If the final placement overfills a cell, the Recommended Actions page will flag it for cleanup.</p>`
-                : ""
-            }
             ${
               task.status === "cancelled"
                 ? `<p class="flash flash-info">This task has been cancelled. Start a new ${escapeHtml(task.type)} task if you still need to move these items.</p>`
                 : ""
             }
-            ${table(
-              reviewHeaders,
-              task.lines.map((line) => [
-                ...(task.type === "put"
-                  ? [
-                      renderTaskLineInstruction(task, line),
-                      ...(canRecordPhysicalConfirmation
-                        ? [renderPhysicalConfirmationControl(task, line)]
-                        : []),
-                      editable || taskIsActive
-                        ? cellPickerField(cells, line.cell_id, `line-${line.id}`, `actual_cell_${line.id}`, "confirm-form")
-                        : escapeHtml(line.logical_code),
-                    ]
-                  : [
-                      renderTaskLineInstruction(task, line),
-                      ...(canRecordPhysicalConfirmation
-                        ? [renderPhysicalConfirmationControl(task, line)]
-                        : []),
-                      ...(editable || taskIsActive
-                        ? [cellPickerField(cells, line.cell_id, `line-${line.id}`, `actual_cell_${line.id}`, "confirm-form")]
-                        : []),
-                    ]),
-                `${escapeHtml(formatQuantity(line.planned_quantity))} ${escapeHtml(line.unit_of_measure)}`,
-                editable || taskIsActive
-                  ? `<input form="confirm-form" class="compact-input" type="number" step="0.01" min="0" name="actual_${line.id}" value="${escapeHtml(line.actual_quantity || line.planned_quantity)}" data-quantity-change-input />`
-                  : escapeHtml(formatQuantity(line.actual_quantity || line.planned_quantity)),
-              ]),
-            )}
+            ${
+              canAdjustPutPlan
+                ? `
+                  <div data-put-plan-form data-expected-total="${escapeHtml(plannedTotal)}">
+                    ${reviewTable}
+                    <div class="put-plan-lines" data-put-plan-lines></div>
+                    <template data-put-plan-template>
+                      ${renderPutPlanRow(cells, { key: "new___INDEX__", quantity: 0, removable: true })}
+                    </template>
+                    <div class="mini-actions put-plan-actions">
+                      <button type="button" class="ghost-button" data-put-plan-add>Add another cell</button>
+                      <span class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(plannedTotal))}</span>
+                    </div>
+                    <form
+                      id="put-plan-form"
+                      method="post"
+                      action="/tasks/${task.id}/put-plan"
+                      class="stack-form hidden-form-shell"
+                      data-led-command-form
+                      data-led-loading-label="Updating"
+                      data-quantity-change-form
+                      data-original-total="${escapeHtml(plannedTotal)}"
+                    >
+                      ${hiddenSubmissionToken(actionTokens.putPlan)}
+                    </form>
+                  </div>
+                `
+                : reviewTable
+            }
             ${
               editable || taskIsActive
                 ? `
