@@ -9,11 +9,11 @@ import {
   card,
   cellPickerField,
   escapeHtml,
+  formatDate,
   formatQuantity,
   page,
   productPickerField,
   quickActionLinks,
-  statsGrid,
   table,
 } from "./shared.js";
 
@@ -198,65 +198,197 @@ export function createProductPages({ db }) {
     `;
   }
 
+  function productStatusRows(products) {
+    return products.map((product) => [
+      `<a href="/products/${product.id}">${escapeHtml(product.sku)}</a>`,
+      `${escapeHtml(product.name)}<br /><small>${escapeHtml(product.brand)}</small>`,
+      escapeHtml(formatQuantity(product.total_available)),
+      escapeHtml(product.unit_of_measure),
+      escapeHtml(formatQuantity(product.items_per_cell)),
+    ]);
+  }
+
+  function productReportTemplate(report, generatedAt) {
+    return `
+      <template
+        data-report-template="${escapeHtml(report.key)}"
+        data-report-title="${escapeHtml(report.title)}"
+        data-report-description="${escapeHtml(report.description)}"
+      >
+        <article class="report-document" data-report-document="${escapeHtml(report.key)}">
+          <header class="report-document-header">
+            <div>
+              <p class="report-document-kicker">Product list</p>
+              <h3>${escapeHtml(report.title)}</h3>
+              <p>${escapeHtml(report.description)}</p>
+            </div>
+            <dl class="report-document-meta">
+              <div>
+                <dt>Products</dt>
+                <dd>${escapeHtml(formatQuantity(report.products.length))}</dd>
+              </div>
+              <div>
+                <dt>Generated</dt>
+                <dd>${escapeHtml(formatDate(generatedAt))}</dd>
+              </div>
+            </dl>
+          </header>
+          ${table(
+            ["SKU", "Name", "Available", "Unit", "Items/cell"],
+            productStatusRows(report.products),
+            report.emptyMessage,
+          )}
+        </article>
+      </template>
+    `;
+  }
+
+  function productStatButton(report) {
+    return `
+      <button
+        type="button"
+        class="stat-card stat-card-action"
+        data-report-open="${escapeHtml(report.key)}"
+        aria-haspopup="dialog"
+        aria-controls="product-status-report-modal"
+      >
+        <span class="stat-label">${escapeHtml(report.label)}</span>
+        <span class="stat-value">${escapeHtml(formatQuantity(report.products.length))}</span>
+        <span class="stat-action-hint">Open printable list</span>
+      </button>
+    `;
+  }
+
+  function renderProductStatusReports(reports, generatedAt) {
+    return `
+      <section class="stats-grid product-status-grid" aria-label="Product status lists">
+        ${reports.map(productStatButton).join("")}
+      </section>
+      <section class="report-template-library" hidden>
+        ${reports.map((report) => productReportTemplate(report, generatedAt)).join("")}
+      </section>
+      <section
+        id="product-status-report-modal"
+        class="modal-backdrop app-alert-modal report-modal"
+        data-report-modal
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="product-status-report-title"
+        hidden
+      >
+        <div class="modal-panel report-modal-panel">
+          <div class="modal-header">
+            <div>
+              <p class="report-eyebrow">Product list</p>
+              <h2 id="product-status-report-title" data-report-modal-title>Products</h2>
+              <p class="muted" data-report-modal-description></p>
+            </div>
+            <button type="button" class="icon-button ghost-button" data-report-close aria-label="Close product list" title="Close">x</button>
+          </div>
+          <div class="report-modal-meta">
+            <span>Generated: ${escapeHtml(formatDate(generatedAt))}</span>
+          </div>
+          <div class="report-modal-content" data-report-modal-content></div>
+          <div class="modal-actions report-modal-actions">
+            <button type="button" class="blue-button" data-report-print-current>PRINT</button>
+            <button type="button" class="ghost-button" data-report-close>Close</button>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   function renderProducts(user, flash, search, showAddProduct) {
     const allProducts = listProducts(db);
     const products = listProducts(db, search);
-    const stockedCount = allProducts.filter((product) => Number(product.total_available || 0) > 0).length;
-    const outOfStockCount = allProducts.filter((product) => Number(product.total_available || 0) <= 0).length;
-    const lowStockCount = allProducts.filter(
+    const stockedProducts = allProducts.filter((product) => Number(product.total_available || 0) > 0);
+    const outOfStockProducts = allProducts.filter((product) => Number(product.total_available || 0) <= 0);
+    const lowStockProducts = allProducts.filter(
       (product) =>
         Number(product.total_available || 0) > 0 &&
         Number(product.total_available || 0) <= Number(product.items_per_cell || 0),
-    ).length;
+    );
+    const generatedAt = new Date().toISOString();
+    const productStatusReports = [
+      {
+        key: "catalog-items",
+        label: "Catalog items",
+        title: "Catalog Items",
+        description: "All products currently registered in the catalog.",
+        products: allProducts,
+        emptyMessage: "No products have been added yet.",
+      },
+      {
+        key: "in-stock",
+        label: "In stock",
+        title: "Products In Stock",
+        description: "Products with available quantity greater than zero.",
+        products: stockedProducts,
+        emptyMessage: "No products currently have stock.",
+      },
+      {
+        key: "low-stock",
+        label: "Low stock",
+        title: "Low Stock Products",
+        description: "Products with stock at or below their ideal items-per-cell quantity.",
+        products: lowStockProducts,
+        emptyMessage: "No products are currently low on stock.",
+      },
+      {
+        key: "out-of-stock",
+        label: "Out of stock",
+        title: "Out Of Stock Products",
+        description: "Products with no available quantity in inventory.",
+        products: outOfStockProducts,
+        emptyMessage: "No products are currently out of stock.",
+      },
+    ];
 
     return page({
       title: "Products",
       user,
       flash,
       content: `
-        ${statsGrid([
-          { label: "Catalog items", value: formatQuantity(allProducts.length) },
-          { label: "In stock", value: formatQuantity(stockedCount) },
-          { label: "Low stock", value: formatQuantity(lowStockCount) },
-          { label: "Out of stock", value: formatQuantity(outOfStockCount) },
-        ])}
-        <section class="page-actions">
-          ${
-            showAddProduct
-              ? `<a class="action-cta-button secondary-cta" href="/products">Close</a>`
-              : `<a class="action-cta-button" href="/products?show_add=1">Add Product</a>`
-          }
-        </section>
-        <section class="single-column-wide ${showAddProduct ? "catalog-underlay" : ""}">
-          ${card(
-            "Catalog",
-            `
-              <form
-                method="get"
-                action="/products"
-                class="inline-form"
-                data-live-search-form
-                data-endpoint="/fragments/catalog-products"
-                data-target="#catalog-product-results"
-                data-show-results-when-empty="true"
-              >
-                <label class="inline-form-wrap">Search products
-                  <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by SKU, name, or brand" />
-                </label>
-                ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
-                <button type="submit">Search</button>
-              </form>
-              <div id="catalog-product-results">
-                ${renderCatalogProductResults(
-                  products,
-                  search ? "No products match that search." : "No products have been added yet.",
-                  search,
-                )}
-              </div>
-            `,
-            "",
-            `data-row-collapser data-row-limit="8" data-row-label="products"`,
-          )}
+        <section class="reports-workspace" data-reports-workspace>
+          ${renderProductStatusReports(productStatusReports, generatedAt)}
+          <section class="page-actions">
+            ${
+              showAddProduct
+                ? `<a class="action-cta-button secondary-cta" href="/products">Close</a>`
+                : `<a class="action-cta-button" href="/products?show_add=1">Add Product</a>`
+            }
+          </section>
+          <section class="single-column-wide ${showAddProduct ? "catalog-underlay" : ""}">
+            ${card(
+              "Catalog",
+              `
+                <form
+                  method="get"
+                  action="/products"
+                  class="inline-form"
+                  data-live-search-form
+                  data-endpoint="/fragments/catalog-products"
+                  data-target="#catalog-product-results"
+                  data-show-results-when-empty="true"
+                >
+                  <label class="inline-form-wrap">Search products
+                    <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by SKU, name, or brand" />
+                  </label>
+                  ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
+                  <button type="submit">Search</button>
+                </form>
+                <div id="catalog-product-results">
+                  ${renderCatalogProductResults(
+                    products,
+                    search ? "No products match that search." : "No products have been added yet.",
+                    search,
+                  )}
+                </div>
+              `,
+              "",
+              `data-row-collapser data-row-limit="8" data-row-label="products"`,
+            )}
+          </section>
         </section>
         ${
           showAddProduct

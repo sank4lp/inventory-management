@@ -550,6 +550,11 @@ test("operator movement screens keep context and use plain task actions", async 
   const addProductHtml = productPages.renderProducts(user, null, "", true);
   assert.match(addProductHtml, /Save and put stock/);
   assert.match(addProductHtml, /Optional catalog details/);
+  assert.match(addProductHtml, /data-report-open="out-of-stock"/);
+  assert.match(addProductHtml, /data-report-template="out-of-stock"/);
+  assert.match(addProductHtml, /Open printable list/);
+  assert.match(addProductHtml, /Out Of Stock Products/);
+  assert.match(addProductHtml, /data-report-print-current/);
   const productSearchHtml = productPages.renderCatalogProductResults(
     inventory.listProducts(db, "shoe"),
     "No products match that search.",
@@ -663,6 +668,68 @@ test("pick and put product pickers prioritize recently selected movement product
   assert.ok(productOptionIndex(pickHtml, shirt) < productOptionIndex(pickHtml, shoe));
   assert.match(putHtml, /data-combo-recency-key="movement-product"/);
   assert.match(pickHtml, /data-combo-recency-key="movement-product"/);
+});
+
+test("pending review tasks auto-cancel five minutes after last touch", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-stale-pending-review-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createSystemService } = await freshImport("../src/services/system.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+
+  const staleTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+  });
+  const recentlyTouchedTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: 1,
+  });
+
+  const now = new Date("2026-05-15T10:00:00.000Z");
+  const staleTouch = new Date(now.getTime() - 6 * 60 * 1000).toISOString();
+  const recentTouch = new Date(now.getTime() - 4 * 60 * 1000).toISOString();
+  db.prepare("UPDATE tasks SET started_at = ?, last_touched_at = ? WHERE id = ?").run(
+    staleTouch,
+    staleTouch,
+    staleTask.id,
+  );
+  db.prepare("UPDATE tasks SET started_at = ?, last_touched_at = ? WHERE id = ?").run(
+    staleTouch,
+    recentTouch,
+    recentlyTouchedTask.id,
+  );
+
+  const clearedTaskIds = [];
+  const systemService = createSystemService({
+    db,
+    config: {},
+    logger: { info() {}, warn() {}, error() {} },
+    hardwareService: {
+      adapterName: "test",
+      clearGuidance(task) {
+        clearedTaskIds.push(task.id);
+        return { ok: true, degraded: false, message: "cleared" };
+      },
+    },
+    getTask: inventory.getTask,
+  });
+
+  const cancelledTaskIds = systemService.cancelStalePendingReviewTasks({ now });
+
+  assert.deepEqual(cancelledTaskIds, [staleTask.id]);
+  assert.deepEqual(clearedTaskIds, [staleTask.id]);
+  assert.equal(inventory.getTask(db, staleTask.id).status, "cancelled");
+  assert.equal(inventory.getTask(db, staleTask.id).completed_at, now.toISOString());
+  assert.equal(inventory.getTask(db, recentlyTouchedTask.id).status, "pending_review");
 });
 
 test("recommended actions open as a scan-friendly list before detailed cleanup", async () => {

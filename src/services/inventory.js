@@ -529,6 +529,7 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
         note: note || null,
       });
     }
+    tasks.touchTask(task.id);
     return tasks.get(task.id);
   });
 }

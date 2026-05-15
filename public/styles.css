@@ -25,9 +25,9 @@
   --error: #dc2626;
   --error-soft: #fee2e2;
   --dark: #111827;
-  --shadow: 0 24px 64px rgba(15, 23, 42, 0.14);
-  --shadow-tight: 0 14px 34px rgba(15, 23, 42, 0.09);
-  --shadow-lift: 0 22px 46px rgba(15, 23, 42, 0.16);
+  --shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+  --shadow-tight: 0 4px 12px rgba(15, 23, 42, 0.07);
+  --shadow-lift: 0 8px 20px rgba(15, 23, 42, 0.11);
   --shadow-hairline: 0 1px 0 rgba(17, 24, 39, 0.04);
   --radius-sm: 4px;
   --radius: 8px;
@@ -55,26 +55,12 @@ body {
   font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: var(--font-size-md);
   color: var(--text);
-  background:
-    linear-gradient(180deg, rgba(49, 88, 232, 0.12), rgba(49, 88, 232, 0) 300px),
-    linear-gradient(115deg, rgba(15, 143, 122, 0.1), rgba(245, 158, 11, 0.06) 46%, rgba(124, 58, 237, 0.08)),
-    var(--bg);
+  background: var(--bg);
   line-height: 1.45;
 }
 
 body::before {
-  content: "";
-  position: fixed;
-  inset: var(--top-nav-height) 0 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.42;
-  background-image:
-    linear-gradient(rgba(49, 88, 232, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 143, 122, 0.06) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8), transparent 72%);
-  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8), transparent 72%);
+  display: none;
 }
 
 a {
@@ -187,7 +173,7 @@ small {
     linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(22, 31, 56, 0.98) 54%, rgba(8, 58, 54, 0.98)),
     rgba(15, 23, 42, 0.96);
   border-bottom: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
 }
 
 .top-nav::after {
@@ -231,7 +217,7 @@ small {
   font-size: var(--font-size-xs);
   font-weight: 800;
   letter-spacing: 0;
-  box-shadow: 0 12px 28px rgba(56, 189, 248, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  box-shadow: 0 2px 6px rgba(56, 189, 248, 0.18);
 }
 
 .brand-mark::after {
@@ -244,8 +230,7 @@ small {
   border: 2px solid rgba(15, 23, 42, 0.98);
   border-radius: 999px;
   background: #22c55e;
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
-  animation: live-pulse 2.8s ease-in-out infinite;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
 }
 
 .brand-copy {
@@ -286,21 +271,20 @@ small {
   font-size: var(--font-size-sm);
   font-weight: 650;
   white-space: nowrap;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .nav-links a:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.09);
   text-decoration: none;
-  transform: translateY(-1px);
 }
 
 .nav-links .nav-link-active {
   color: #ffffff;
   background: linear-gradient(180deg, rgba(49, 88, 232, 0.5), rgba(49, 88, 232, 0.28));
   border-color: rgba(147, 197, 253, 0.52);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 22px rgba(37, 99, 235, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .nav-links .nav-link-active::after {
@@ -593,13 +577,29 @@ small {
   display: grid;
   align-content: space-between;
   gap: 12px;
-  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  transition: box-shadow 140ms ease, border-color 140ms ease;
 }
 
 .stat-card:hover {
   border-color: rgba(49, 88, 232, 0.28);
   box-shadow: var(--shadow-lift);
-  transform: translateY(-2px);
+}
+
+.stat-card-action {
+  width: 100%;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.stat-card-action.report-overview-card-active {
+  border-color: var(--primary);
+}
+
+.stat-action-hint {
+  color: var(--primary-hover);
+  font-size: var(--font-size-xs);
+  font-weight: 780;
 }
 
 .stat-label {
@@ -693,13 +693,11 @@ small {
   min-height: 96px;
   padding: 16px;
   color: var(--text);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98)),
-    var(--panel);
+  background: #ffffff;
   border: 1px solid rgba(202, 213, 226, 0.92);
   border-radius: var(--radius);
   box-shadow: var(--shadow-tight), var(--shadow-hairline);
-  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 
 .operation-tile::before {
@@ -716,7 +714,6 @@ small {
   border-color: rgba(49, 88, 232, 0.36);
   background: #f8fbff;
   box-shadow: var(--shadow-lift);
-  transform: translateY(-2px);
   text-decoration: none;
 }
 
@@ -813,7 +810,7 @@ small {
 }
 
 .catalog-underlay {
-  filter: saturate(0.92);
+  opacity: 0.96;
 }
 
 .action-cta-button {
@@ -827,14 +824,13 @@ small {
   color: #ffffff;
   border: 1px solid var(--primary);
   font-weight: 750;
-  box-shadow: 0 12px 26px rgba(49, 88, 232, 0.2);
+  box-shadow: var(--shadow-tight);
 }
 
 .action-cta-button:hover {
   background: linear-gradient(135deg, var(--primary), var(--primary-hover));
   color: #ffffff;
   text-decoration: none;
-  transform: translateY(-1px);
 }
 
 .secondary-cta {
@@ -1001,7 +997,7 @@ body.modal-open .page-shell {
   margin: 0 20px 20px;
   background: linear-gradient(180deg, #22c55e, var(--green));
   border-color: var(--green);
-  box-shadow: 0 14px 28px rgba(5, 150, 105, 0.22);
+  box-shadow: var(--shadow-tight);
   font-size: var(--font-size-lg);
 }
 
@@ -1171,27 +1167,25 @@ button {
   color: #ffffff;
   font-size: var(--font-size-sm);
   font-weight: 780;
-  box-shadow: 0 12px 24px rgba(49, 88, 232, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  box-shadow: var(--shadow-tight);
   transition:
     background 120ms ease,
     border-color 120ms ease,
     color 120ms ease,
     opacity 120ms ease,
-    transform 120ms ease,
     box-shadow 120ms ease;
 }
 
 button:hover {
   background: linear-gradient(135deg, #3158e8, var(--primary-hover));
   border-color: var(--primary-hover);
-  box-shadow: 0 16px 30px rgba(49, 88, 232, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  transform: translateY(-1px);
+  box-shadow: var(--shadow-lift);
 }
 
 button:active,
 .action-cta-button:active,
 .mini-link:active {
-  transform: translateY(0);
+  opacity: 0.92;
 }
 
 button:disabled,
@@ -1282,19 +1276,6 @@ button[disabled] {
 @keyframes button-spinner-rotate {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes live-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
-    transform: scale(1);
-  }
-
-  50% {
-    box-shadow: 0 0 0 7px rgba(34, 197, 94, 0.04);
-    transform: scale(1.08);
   }
 }
 
@@ -1522,14 +1503,13 @@ button[disabled] {
   font-weight: 700;
   white-space: nowrap;
   box-shadow: 0 1px 2px rgba(17, 24, 39, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.78);
-  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 
 .mini-link:hover {
   background: #f8fafc;
   border-color: rgba(49, 88, 232, 0.42);
   box-shadow: 0 8px 16px rgba(17, 24, 39, 0.08);
-  transform: translateY(-1px);
   text-decoration: none;
 }
 
@@ -1654,9 +1634,7 @@ button[disabled] {
   color: var(--text);
   border: 1px solid rgba(202, 213, 226, 0.92);
   border-radius: var(--radius);
-  background:
-    linear-gradient(135deg, rgba(49, 88, 232, 0.08), transparent 52%),
-    linear-gradient(180deg, #ffffff, #f8fafc);
+  background: #ffffff;
   box-shadow: var(--shadow-tight), var(--shadow-hairline);
   cursor: pointer;
 }
@@ -1671,7 +1649,6 @@ button.report-overview-card {
   border-color: rgba(49, 88, 232, 0.38);
   box-shadow: var(--shadow-lift);
   text-decoration: none;
-  transform: translateY(-1px);
 }
 
 .report-overview-card:focus-visible,
@@ -1772,7 +1749,7 @@ button.report-overview-card {
   color: #111827;
   background: #ffffff;
   border: 1px solid #d1d5db;
-  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.18);
+  box-shadow: var(--shadow-tight);
 }
 
 .report-document-header {
@@ -1942,14 +1919,13 @@ button.report-overview-card {
   border: 1px solid rgba(202, 213, 226, 0.9);
   font-weight: 750;
   box-shadow: var(--shadow-hairline);
-  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .action-tile:hover {
   border-color: rgba(49, 88, 232, 0.32);
   background: #f8fbff;
   box-shadow: var(--shadow-tight);
-  transform: translateY(-1px);
   text-decoration: none;
 }
 
@@ -1996,7 +1972,7 @@ button.report-overview-card {
   border-radius: var(--radius);
   text-align: center;
   text-decoration: none;
-  transition: transform 140ms ease, color 140ms ease;
+  transition: color 140ms ease;
 }
 
 .overview-action-tile::before,
@@ -2007,7 +1983,6 @@ button.report-overview-card {
 
 .overview-action-tile:hover {
   color: var(--action-color);
-  transform: translateY(-2px);
   text-decoration: none;
 }
 
@@ -2027,15 +2002,14 @@ button.report-overview-card {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.44)),
     var(--action-soft);
-  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.84);
-  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  box-shadow: var(--shadow-tight);
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .overview-action-tile:hover .overview-action-icon {
   background: #ffffff;
   border-color: var(--action-color);
-  box-shadow: 0 24px 44px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transform: translateY(-4px) scale(1.02);
+  box-shadow: var(--shadow-lift);
 }
 
 .overview-action-icon svg {
@@ -2201,20 +2175,6 @@ tbody tr:last-child td {
     rgba(255, 255, 255, 0.52) 56%,
     rgba(255, 255, 255, 1) 100%
   );
-  mask-image: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0.16) 26%,
-    rgba(0, 0, 0, 0.72) 68%,
-    rgba(0, 0, 0, 1) 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0.16) 26%,
-    rgba(0, 0, 0, 0.72) 68%,
-    rgba(0, 0, 0, 1) 100%
-  );
 }
 
 .row-collapse-footer-glow.row-collapse-footer-expanded {
@@ -2251,7 +2211,7 @@ tbody tr:last-child td {
   background: linear-gradient(135deg, rgba(147, 51, 234, 0.96), rgba(168, 85, 247, 0.78));
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 999px;
-  box-shadow: 0 12px 28px rgba(147, 51, 234, 0.22);
+  box-shadow: var(--shadow-tight);
   cursor: pointer;
   pointer-events: auto;
 }
@@ -2823,7 +2783,7 @@ tbody tr:last-child td {
   border: 1px solid rgba(147, 197, 253, 0.88);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 20px 48px rgba(17, 24, 39, 0.18);
+  box-shadow: var(--shadow-tight);
 }
 
 .combo-panel[hidden] {
