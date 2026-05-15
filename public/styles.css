@@ -1984,19 +1984,19 @@ button.report-overview-card {
 
 .overview-action-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 116px), 1fr));
-  gap: 18px;
-  margin-bottom: 22px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 154px), 1fr));
+  gap: 24px;
+  margin-bottom: 30px;
 }
 
 .overview-action-tile {
   position: relative;
   display: inline-grid;
   justify-items: center;
-  align-content: start;
-  gap: 10px;
-  min-height: 128px;
-  padding: 6px;
+  align-content: center;
+  gap: 14px;
+  min-height: 190px;
+  padding: 12px 8px;
   color: var(--text);
   border-radius: var(--radius);
   text-align: center;
@@ -2024,36 +2024,38 @@ button.report-overview-card {
 .overview-action-icon {
   display: inline-grid;
   place-items: center;
-  width: 92px;
-  height: 92px;
+  width: 136px;
+  height: 136px;
   color: var(--action-color);
-  border: 1px solid var(--action-border);
+  border: 2px solid var(--action-border);
   border-radius: var(--radius);
-  background: var(--action-soft);
-  box-shadow: var(--shadow-tight), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.44)),
+    var(--action-soft);
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.84);
   transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 .overview-action-tile:hover .overview-action-icon {
   background: #ffffff;
   border-color: var(--action-color);
-  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  transform: translateY(-2px);
+  box-shadow: 0 24px 44px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transform: translateY(-4px) scale(1.02);
 }
 
 .overview-action-icon svg {
-  width: 42px;
-  height: 42px;
+  width: 68px;
+  height: 68px;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 2.15;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .overview-action-label {
   color: var(--text);
-  font-size: var(--font-size-sm);
-  font-weight: 860;
+  font-size: var(--font-size-md);
+  font-weight: 900;
   line-height: 1.15;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -3163,22 +3165,29 @@ tbody tr:last-child td {
     min-height: 84px;
   }
 
+  .overview-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
   .overview-action-tile {
-    min-height: 104px;
+    min-height: 138px;
+    gap: 10px;
+    padding: 8px 4px;
   }
 
   .overview-action-icon {
-    width: 72px;
-    height: 72px;
+    width: 96px;
+    height: 96px;
   }
 
   .overview-action-icon svg {
-    width: 34px;
-    height: 34px;
+    width: 48px;
+    height: 48px;
   }
 
   .overview-action-label {
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-sm);
   }
 
   .operation-kbd {
