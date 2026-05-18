@@ -211,6 +211,228 @@ function buildCellAnomalies(db) {
   return anomalies;
 }
 
+function buildWarehouseOptimizationRecommendations(db) {
+  const rows = db
+    .prepare(
+      `
+        SELECT
+          p.id AS product_id,
+          p.sku,
+          p.name,
+          p.items_per_cell,
+          c.id AS cell_id,
+          c.logical_code,
+          c.row_number,
+          c.column_number,
+          c.controller_id,
+          c.hardware_channel,
+          COALESCE(b.available_quantity, 0) AS available_quantity,
+          COALESCE(b.reserved_quantity, 0) AS reserved_quantity,
+          COALESCE((
+            SELECT SUM(other_balance.available_quantity)
+            FROM inventory_balances other_balance
+            WHERE other_balance.cell_id = c.id
+              AND other_balance.product_id != p.id
+          ), 0) AS other_quantity
+        FROM products p
+        JOIN inventory_balances b ON b.product_id = p.id
+        JOIN cells c ON c.id = b.cell_id
+        WHERE p.active = 1
+          AND c.active = 1
+          AND b.available_quantity > 0
+        ORDER BY p.id, c.row_number, c.column_number, c.logical_code
+      `,
+    )
+    .all();
+
+  const byProduct = new Map();
+  for (const row of rows) {
+    const entry = byProduct.get(Number(row.product_id)) || {
+      productId: Number(row.product_id),
+      productSku: row.sku,
+      productName: row.name,
+      itemsPerCell: Number(row.items_per_cell),
+      cells: [],
+    };
+    entry.cells.push({
+      cellId: Number(row.cell_id),
+      logicalCode: row.logical_code,
+      rowNumber: Number(row.row_number || 0),
+      columnNumber: Number(row.column_number || 0),
+      controllerId: row.controller_id,
+      hardwareChannel: row.hardware_channel,
+      currentQuantity: Number(row.available_quantity || 0),
+      reservedQuantity: Number(row.reserved_quantity || 0),
+      otherQuantity: Number(row.other_quantity || 0),
+    });
+    byProduct.set(entry.productId, entry);
+  }
+
+  const recommendations = [];
+  for (const product of byProduct.values()) {
+    const itemsPerCell = Number(product.itemsPerCell || 0);
+    if (!Number.isFinite(itemsPerCell) || itemsPerCell <= 0) {
+      continue;
+    }
+    if (product.cells.length <= 1) {
+      continue;
+    }
+    if (product.cells.some((cell) => cell.reservedQuantity > 0)) {
+      continue;
+    }
+
+    const totalQuantity = product.cells.reduce(
+      (sum, cell) => sum + cell.currentQuantity,
+      0,
+    );
+    const idealCellCount = Math.ceil(totalQuantity / itemsPerCell);
+    if (idealCellCount <= 0 || idealCellCount >= product.cells.length) {
+      continue;
+    }
+
+    const sortedCells = [...product.cells].sort((left, right) => {
+      if (left.rowNumber !== right.rowNumber) {
+        return left.rowNumber - right.rowNumber;
+      }
+      if (left.columnNumber !== right.columnNumber) {
+        return left.columnNumber - right.columnNumber;
+      }
+      return left.logicalCode.localeCompare(right.logicalCode, undefined, { numeric: true });
+    });
+    const targetCells = sortedCells
+      .filter((cell) => cell.otherQuantity <= 0)
+      .slice(0, idealCellCount);
+    if (targetCells.length < idealCellCount) {
+      continue;
+    }
+
+    const targetIds = new Set(targetCells.map((cell) => cell.cellId));
+    let remainingDesiredQuantity = totalQuantity;
+    const deficits = [];
+    const sources = [];
+    const targetSummaries = [];
+
+    for (const target of targetCells) {
+      const finalQuantity = Math.min(itemsPerCell, remainingDesiredQuantity);
+      remainingDesiredQuantity -= finalQuantity;
+      const delta = finalQuantity - target.currentQuantity;
+      targetSummaries.push({
+        cellId: target.cellId,
+        logicalCode: target.logicalCode,
+        currentQuantity: target.currentQuantity,
+        finalQuantity,
+        putQuantity: Math.max(0, delta),
+      });
+      if (delta > 0) {
+        deficits.push({
+          cellId: target.cellId,
+          logicalCode: target.logicalCode,
+          quantityNeeded: delta,
+        });
+      } else if (delta < 0) {
+        sources.push({
+          cellId: target.cellId,
+          logicalCode: target.logicalCode,
+          pickQuantity: Math.abs(delta),
+        });
+      }
+    }
+
+    for (const source of sortedCells) {
+      if (!targetIds.has(source.cellId)) {
+        sources.push({
+          cellId: source.cellId,
+          logicalCode: source.logicalCode,
+          pickQuantity: source.currentQuantity,
+        });
+      }
+    }
+
+    const moves = [];
+    const sourceQueue = sources
+      .filter((source) => source.pickQuantity > 0)
+      .map((source) => ({ ...source }));
+    for (const target of deficits) {
+      let remainingTargetNeed = target.quantityNeeded;
+      while (remainingTargetNeed > 0 && sourceQueue.length > 0) {
+        const source = sourceQueue[0];
+        const moveQuantity = Math.min(source.pickQuantity, remainingTargetNeed);
+        if (moveQuantity > 0 && source.cellId !== target.cellId) {
+          moves.push({
+            sourceCellId: source.cellId,
+            sourceLogicalCode: source.logicalCode,
+            targetCellId: target.cellId,
+            targetLogicalCode: target.logicalCode,
+            quantity: moveQuantity,
+          });
+        }
+        source.pickQuantity -= moveQuantity;
+        remainingTargetNeed -= moveQuantity;
+        if (source.pickQuantity <= 0) {
+          sourceQueue.shift();
+        }
+      }
+    }
+
+    if (!moves.length) {
+      continue;
+    }
+
+    const sourceTotals = new Map();
+    const targetTotals = new Map();
+    for (const move of moves) {
+      const source = sourceTotals.get(move.sourceCellId) || {
+        cellId: move.sourceCellId,
+        logicalCode: move.sourceLogicalCode,
+        pickQuantity: 0,
+      };
+      source.pickQuantity += move.quantity;
+      sourceTotals.set(move.sourceCellId, source);
+
+      const target = targetTotals.get(move.targetCellId) || {
+        cellId: move.targetCellId,
+        logicalCode: move.targetLogicalCode,
+        putQuantity: 0,
+      };
+      target.putQuantity += move.quantity;
+      targetTotals.set(move.targetCellId, target);
+    }
+
+    recommendations.push({
+      key: `optimize-${product.productId}`,
+      type: "warehouse_optimization",
+      severity: "info",
+      cellId: moves[0].sourceCellId,
+      logicalCode: `${product.cells.length} cells`,
+      title: `Optimize ${product.productSku} storage`,
+      description: `Stored ${displayQuantity(totalQuantity)} across ${product.cells.length} cells; ideal ${displayQuantity(itemsPerCell)} per cell.`,
+      actionSummary: `Move ${displayQuantity(
+        moves.reduce((sum, move) => sum + Number(move.quantity || 0), 0),
+      )} ${product.productSku} item(s) into ${targetCells.map((cell) => cell.logicalCode).join(", ")}.`,
+      productId: product.productId,
+      productSku: product.productSku,
+      productName: product.productName,
+      quantityToMove: moves.reduce((sum, move) => sum + Number(move.quantity || 0), 0),
+      recommendedMoves: moves,
+      unresolvedQuantity: 0,
+      optimizationPlan: {
+        totalQuantity,
+        itemsPerCell,
+        currentCellCount: product.cells.length,
+        idealCellCount,
+        targets: targetSummaries.map((target) => ({
+          ...target,
+          putQuantity: targetTotals.get(target.cellId)?.putQuantity || 0,
+        })),
+        sources: Array.from(sourceTotals.values()),
+        moves,
+      },
+    });
+  }
+
+  return recommendations;
+}
+
 export function listProducts(db, search = "") {
   return createProductRepository(db).list(search);
 }
@@ -888,13 +1110,17 @@ export function detectAnomalies(db) {
 }
 
 export function getRecommendedActions(db) {
-  return detectAnomalies(db).map((anomaly) => {
+  const anomalyActions = detectAnomalies(db).map((anomaly) => {
     const cell = db.prepare("SELECT id, logical_code FROM cells WHERE id = ?").get(anomaly.cellId);
     return {
       ...anomaly,
       sourceCell: cell,
     };
   });
+  return [
+    ...anomalyActions,
+    ...buildWarehouseOptimizationRecommendations(db),
+  ];
 }
 
 export function listUsers(db) {
@@ -2114,13 +2340,9 @@ export function applyRecommendedAction(
   { sourceCellId, productId, moves, userId, reason },
 ) {
   const product = findProductOrThrow(db, Number(productId));
-  const sourceCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(sourceCellId));
-  if (!sourceCell) {
-    throw new Error("Source cell not found.");
-  }
-
   const normalizedMoves = moves
     .map((move) => ({
+      sourceCellId: Number(move.sourceCellId || sourceCellId),
       targetCellId: Number(move.targetCellId),
       quantity: Number(move.quantity),
     }))
@@ -2130,31 +2352,63 @@ export function applyRecommendedAction(
     throw new Error("At least one move is required.");
   }
 
-  const totalQuantity = normalizedMoves.reduce((sum, move) => sum + move.quantity, 0);
   const balances = createInventoryBalanceRepository(db);
-  const sourceBalance = balances.getOrCreate(product.id, sourceCell.id);
-  if (Number(sourceBalance.available_quantity) < totalQuantity) {
-    throw new Error("Source cell does not have enough quantity for this adjustment.");
+  const sourceQuantities = new Map();
+  for (const move of normalizedMoves) {
+    if (!move.sourceCellId) {
+      throw new Error("Source cell not found.");
+    }
+    if (!move.targetCellId) {
+      throw new Error("Target cell not found.");
+    }
+    if (move.sourceCellId === move.targetCellId) {
+      throw new Error("Source and target cells must be different.");
+    }
+    sourceQuantities.set(
+      move.sourceCellId,
+      (sourceQuantities.get(move.sourceCellId) || 0) + move.quantity,
+    );
+  }
+
+  const sourceCells = new Map();
+  for (const [moveSourceCellId, totalQuantity] of sourceQuantities) {
+    const sourceCell = db
+      .prepare("SELECT * FROM cells WHERE id = ?")
+      .get(Number(moveSourceCellId));
+    if (!sourceCell) {
+      throw new Error("Source cell not found.");
+    }
+    const sourceBalance = balances.getOrCreate(product.id, sourceCell.id);
+    if (Number(sourceBalance.available_quantity) < totalQuantity) {
+      throw new Error(`Source cell ${sourceCell.logical_code} does not have enough quantity for this adjustment.`);
+    }
+    sourceCells.set(moveSourceCellId, {
+      cell: sourceCell,
+      balance: sourceBalance,
+      totalQuantity,
+    });
   }
 
   return withTransaction(db, () => {
-    balances.decrease(sourceBalance.id, totalQuantity);
+    for (const source of sourceCells.values()) {
+      balances.decrease(source.balance.id, source.totalQuantity);
 
-    db.prepare(
-      `
-        INSERT INTO transactions (
-          type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-        )
-        VALUES ('adjustment', ?, ?, ?, ?, NULL, ?, ?)
-      `,
-    ).run(
-      product.id,
-      sourceCell.id,
-      -totalQuantity,
-      userId,
-      reason || "Recommended action adjustment",
-      nowIso(),
-    );
+      db.prepare(
+        `
+          INSERT INTO transactions (
+            type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+          )
+          VALUES ('adjustment', ?, ?, ?, ?, NULL, ?, ?)
+        `,
+      ).run(
+        product.id,
+        source.cell.id,
+        -source.totalQuantity,
+        userId,
+        reason || "Recommended action adjustment",
+        nowIso(),
+      );
+    }
 
     for (const move of normalizedMoves) {
       const targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(move.targetCellId);
@@ -2181,7 +2435,7 @@ export function applyRecommendedAction(
         targetCell.id,
         move.quantity,
         userId,
-        reason || `Recommended action move from ${sourceCell.logical_code}`,
+        reason || `Recommended action move into ${targetCell.logical_code}`,
         nowIso(),
       );
     }

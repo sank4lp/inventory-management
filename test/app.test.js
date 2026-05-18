@@ -1525,6 +1525,116 @@ test("recommended actions open as a scan-friendly list before detailed cleanup",
   assert.match(overviewHtml, new RegExp(`/recommended-actions\\?key=${actions[0].key}`));
 });
 
+test("warehouse optimization recommendations consolidate product into closer cells", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-warehouse-optimize-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const recommendationGuidance = await freshImport("../src/server/guidance/recommended-actions.js");
+  const { createHomePages } = await freshImport("../src/server/pages/home.js");
+  const { createTaskPages } = await freshImport("../src/server/pages/tasks.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const product = inventory.createProduct(db, {
+    sku: "OPT-A",
+    name: "Optimization Product A",
+    brand: "Warehouse",
+    unit_of_measure: "items",
+    items_per_cell: 5,
+  });
+  const cells = [1, 2, 3, 4, 5].map((index) =>
+    inventory.createCell(db, {
+      logicalCode: `OPT-R1-C0${index}`,
+      createdBy: user.id,
+    }),
+  );
+  [2, 3, 1, 2, 1].forEach((quantity, index) => {
+    inventory.createAdjustment(db, {
+      cellId: cells[index].id,
+      userId: user.id,
+      reason: "Seed optimization layout",
+      lines: [{ productId: product.id, absoluteQuantity: quantity }],
+    });
+  });
+
+  const action = inventory
+    .getRecommendedActions(db)
+    .find((entry) => entry.type === "warehouse_optimization" && entry.productId === product.id);
+  assert.ok(action);
+  assert.equal(action.optimizationPlan.currentCellCount, 5);
+  assert.equal(action.optimizationPlan.idealCellCount, 2);
+  assert.deepEqual(
+    action.optimizationPlan.targets.map((target) => [
+      target.logicalCode,
+      target.finalQuantity,
+      target.putQuantity,
+    ]),
+    [
+      ["OPT-R1-C01", 5, 3],
+      ["OPT-R1-C02", 4, 1],
+    ],
+  );
+  assert.deepEqual(
+    action.optimizationPlan.sources.map((source) => [
+      source.logicalCode,
+      source.pickQuantity,
+    ]),
+    [
+      ["OPT-R1-C03", 1],
+      ["OPT-R1-C04", 2],
+      ["OPT-R1-C05", 1],
+    ],
+  );
+
+  const overviewHtml = createHomePages({ db }).renderHome(user, null, new URL("http://localhost/"));
+  assert.match(overviewHtml, /Optimize Warehouse/);
+  assert.match(overviewHtml, /href="\/recommended-actions"/);
+
+  const detailHtml = createTaskPages({ db }).renderRecommendedActions(user, null, action.key);
+  assert.match(detailHtml, /Show Full Optimization LEDs/);
+  assert.match(detailHtml, /Put Into cell OPT-R1-C01[\s\S]*Quantity: 3/);
+  assert.match(detailHtml, /Pick From cell OPT-R1-C04[\s\S]*Quantity: 2/);
+  assert.match(detailHtml, /name="move_source_0"/);
+  const guidanceLines = recommendationGuidance.uniqueGuidanceLines(
+    action.recommendedMoves.flatMap((move) =>
+      recommendationGuidance.recommendationGuidanceLines(inventory.listCells(db), {
+        sourceCellId: move.sourceCellId,
+        targetCellId: move.targetCellId,
+        quantity: move.quantity,
+      }),
+    ),
+  );
+  const guidanceByCell = new Map(
+    guidanceLines.map((line) => [
+      `${line.logical_code}:${line.guidance_color}`,
+      Number(line.planned_quantity),
+    ]),
+  );
+  assert.equal(guidanceByCell.get("OPT-R1-C01:red"), 3);
+  assert.equal(guidanceByCell.get("OPT-R1-C02:red"), 1);
+  assert.equal(guidanceByCell.get("OPT-R1-C04:green"), 2);
+
+  inventory.applyRecommendedAction(db, {
+    sourceCellId: action.cellId,
+    productId: product.id,
+    moves: action.recommendedMoves,
+    userId: user.id,
+    reason: "Apply optimization",
+  });
+
+  const finalQuantities = cells.map((cell) => {
+    const detail = inventory.getCellDetail(db, cell.id);
+    return Number(
+      detail.products.find((entry) => Number(entry.product_id) === Number(product.id))
+        ?.available_quantity || 0,
+    );
+  });
+  assert.deepEqual(finalQuantities, [5, 4, 0, 0, 0]);
+});
+
 test("admins can revoke registration keys and suspend user access", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-admin-access-"));
   process.chdir(sandbox);

@@ -37,6 +37,17 @@ function overviewActionIcon(type) {
       <path d="M12 15V8" />
       <path d="M16 15v-6" />
     `,
+    optimize: `
+      <path d="M4 7h6" />
+      <path d="M14 7h6" />
+      <path d="M4 12h10" />
+      <path d="M18 12h2" />
+      <path d="M4 17h3" />
+      <path d="M11 17h9" />
+      <circle cx="12" cy="7" r="2" />
+      <circle cx="16" cy="12" r="2" />
+      <circle cx="9" cy="17" r="2" />
+    `,
   };
 
   return `
@@ -84,6 +95,10 @@ export function createHomePages({ db }) {
           <a class="overview-action-tile overview-action-reports" href="/reports" aria-label="Reports">
             ${overviewActionIcon("reports")}
             <span class="overview-action-label">Reports</span>
+          </a>
+          <a class="overview-action-tile overview-action-optimize" href="/recommended-actions" aria-label="Optimize Warehouse">
+            ${overviewActionIcon("optimize")}
+            <span class="overview-action-label">Optimize Warehouse</span>
           </a>
         </section>
         <section class="overview-secondary-grid overview-recent-grid">

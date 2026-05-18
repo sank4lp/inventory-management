@@ -42,7 +42,15 @@ export function recommendationGuidanceLines(cells, { sourceCellId, targetCellId,
 export function uniqueGuidanceLines(lines) {
   const byTarget = new Map();
   for (const line of lines) {
-    byTarget.set(`${line.controller_id || "manual"}:${line.hardware_channel || line.cell_id}`, line);
+    const color = line.guidance_color || "manual";
+    const key = `${line.controller_id || "manual"}:${line.hardware_channel || line.cell_id}:${color}`;
+    const existing = byTarget.get(key);
+    if (!existing) {
+      byTarget.set(key, { ...line });
+      continue;
+    }
+    existing.planned_quantity =
+      Number(existing.planned_quantity || 0) + Number(line.planned_quantity || 0);
   }
   return Array.from(byTarget.values());
 }

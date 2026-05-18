@@ -159,6 +159,83 @@ export function createTaskPages({ db }) {
     });
   }
 
+  function groupRecommendedMoves(moves, { idField, codeField }) {
+    const grouped = new Map();
+    for (const move of moves) {
+      const cellId = Number(move[idField]);
+      const entry = grouped.get(cellId) || {
+        cellId,
+        logicalCode: move[codeField],
+        quantity: 0,
+      };
+      entry.quantity += Number(move.quantity || 0);
+      grouped.set(cellId, entry);
+    }
+
+    return Array.from(grouped.values()).filter((entry) => entry.quantity > 0);
+  }
+
+  function renderRecommendedActionIntro(action, cellHasMappedLed) {
+    if (!action.optimizationPlan) {
+      return `
+        <p><strong>Products currently in ${escapeHtml(action.logicalCode)}:</strong> ${escapeHtml(action.description)}</p>
+        <p><strong>Recommended Action:</strong> ${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
+      `;
+    }
+
+    const pickCells = groupRecommendedMoves(action.recommendedMoves, {
+      idField: "sourceCellId",
+      codeField: "sourceLogicalCode",
+    });
+    const putCells = groupRecommendedMoves(action.recommendedMoves, {
+      idField: "targetCellId",
+      codeField: "targetLogicalCode",
+    });
+
+    return `
+      <p><strong>Current Layout:</strong> ${escapeHtml(action.description)}</p>
+      <p><strong>Recommended Action:</strong> ${escapeHtml(action.actionSummary)}</p>
+      <p class="muted">Target layout: ${escapeHtml(
+        action.optimizationPlan.targets
+          .map(
+            (target) =>
+              `${target.logicalCode}: ${formatQuantity(target.finalQuantity)} item(s)`,
+          )
+          .join(", "),
+      )}</p>
+      <div class="recommended-led-plan">
+        ${putCells
+          .map((cell) =>
+            renderLedInstruction({
+              action: "Put Into",
+              cellCode: cell.logicalCode,
+              color: "red",
+              quantity: cell.quantity,
+              mapped: cellHasMappedLed(cell.cellId),
+              detail: cellHasMappedLed(cell.cellId)
+                ? "This target cell will show the total RED put instruction."
+                : "",
+            }),
+          )
+          .join("")}
+        ${pickCells
+          .map((cell) =>
+            renderLedInstruction({
+              action: "Pick From",
+              cellCode: cell.logicalCode,
+              color: "green",
+              quantity: cell.quantity,
+              mapped: cellHasMappedLed(cell.cellId),
+              detail: cellHasMappedLed(cell.cellId)
+                ? "This source cell will show the total GREEN pick instruction."
+                : "",
+            }),
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
   function renderPutPlanRow(cells, { key, cellId = null, quantity = "", removable = false }) {
     return `
       <div class="put-plan-row" data-put-plan-row>
@@ -501,8 +578,7 @@ export function createTaskPages({ db }) {
                 card(
                   action.title,
                   `
-                    <p><strong>Products currently in ${escapeHtml(action.logicalCode)}:</strong> ${escapeHtml(action.description)}</p>
-                    <p><strong>Recommended Action:</strong> ${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
+                    ${renderRecommendedActionIntro(action, cellHasMappedLed)}
                     ${
                       action.unresolvedQuantity > 0
                         ? `<p class="flash flash-error">The system could not find room for ${escapeHtml(formatQuantity(action.unresolvedQuantity))} item(s). Please review manually.</p>`
@@ -517,17 +593,19 @@ export function createTaskPages({ db }) {
                       ${recommendationSourceInput}
                       ${action.recommendedMoves
                         .map((move, index) => {
-                          const sourceMapped = cellHasMappedLed(action.cellId);
+                          const sourceCellId = Number(move.sourceCellId || action.cellId);
+                          const sourceLogicalCode = move.sourceLogicalCode || action.logicalCode;
+                          const sourceMapped = cellHasMappedLed(sourceCellId);
                           const targetMapped = cellHasMappedLed(move.targetCellId);
                           return `
                             <div class="recommendation-row">
                               <div class="recommendation-summary">
                                 <strong>${escapeHtml(action.productSku)}</strong>
-                                <p class="muted">Move ${escapeHtml(formatQuantity(move.quantity))} item(s) from ${escapeHtml(action.logicalCode)} to the target cell below.</p>
+                                <p class="muted">Move ${escapeHtml(formatQuantity(move.quantity))} item(s) from ${escapeHtml(sourceLogicalCode)} to the target cell below.</p>
                                 <div class="recommended-led-plan">
                                   ${renderLedInstruction({
                                     action: "Pick From",
-                                    cellCode: action.logicalCode,
+                                    cellCode: sourceLogicalCode,
                                     color: "green",
                                     quantity: move.quantity,
                                     mapped: sourceMapped,
@@ -544,6 +622,7 @@ export function createTaskPages({ db }) {
                                 </div>
                               </div>
                               <div class="recommendation-fields">
+                                <input type="hidden" name="move_source_${index}" value="${escapeHtml(sourceCellId)}" />
                                 <label>Move Quantity
                                   <input type="number" min="0" step="0.01" name="move_qty_${index}" value="${escapeHtml(move.quantity)}" />
                                 </label>
@@ -571,6 +650,21 @@ export function createTaskPages({ db }) {
                           `;
                         })
                         .join("")}
+                      ${
+                        action.optimizationPlan
+                          ? `
+                            <button
+                              type="submit"
+                              class="ghost-button led-action-button"
+                              formaction="/recommended-actions/light-cell"
+                              name="light_move_index"
+                              value="all"
+                              data-led-command-submit
+                              data-led-loading-label="Sending LEDs"
+                            >Show Full Optimization LEDs</button>
+                          `
+                          : ""
+                      }
                       <button type="submit" data-led-command-submit data-led-loading-label="Applying">Apply Recommendation</button>
                     </form>
                   `,

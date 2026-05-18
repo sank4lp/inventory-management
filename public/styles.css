@@ -2349,6 +2349,13 @@ button.report-overview-card {
   --action-soft: #f5f3ff;
 }
 
+.overview-action-optimize {
+  --action-color: var(--secondary);
+  --action-border: #99f6e4;
+  --action-soft: #ecfdf5;
+  grid-column: 1 / -1;
+}
+
 .overview-secondary-grid {
   display: grid;
   grid-template-columns: 1fr;

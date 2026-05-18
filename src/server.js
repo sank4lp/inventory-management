@@ -970,7 +970,7 @@ export const requestHandler = async (request, response) => {
       const guidanceLines = uniqueGuidanceLines(
         moves.flatMap((move) =>
           recommendationGuidanceLines(guidanceCells, {
-            sourceCellId: form.source_cell_id,
+            sourceCellId: move.sourceCellId || form.source_cell_id,
             targetCellId: move.targetCellId,
             quantity: move.quantity,
           }),
@@ -1002,19 +1002,28 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const moveIndex = String(form.light_move_index || "").trim();
-      const moveQuantity = Number(form[`move_qty_${moveIndex}`]);
-      const targetCellId = Number(form[`move_cell_${moveIndex}`]);
       const cells = listCells(db);
       const returnTo = safeLocalPath(form.return_to, "");
       const sourceParam = form.recommendation_source === "capacity" ? "&source=capacity" : "";
       const recommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
       let guidanceLines;
       try {
-        guidanceLines = recommendationGuidanceLines(cells, {
-          sourceCellId: form.source_cell_id,
-          targetCellId,
-          quantity: moveQuantity,
-        });
+        guidanceLines =
+          moveIndex === "all"
+            ? uniqueGuidanceLines(
+                parseRecommendedActionMoves(form).flatMap((move) =>
+                  recommendationGuidanceLines(cells, {
+                    sourceCellId: move.sourceCellId || form.source_cell_id,
+                    targetCellId: move.targetCellId,
+                    quantity: move.quantity,
+                  }),
+                ),
+              )
+            : recommendationGuidanceLines(cells, {
+                sourceCellId: form[`move_source_${moveIndex}`] || form.source_cell_id,
+                targetCellId: Number(form[`move_cell_${moveIndex}`]),
+                quantity: Number(form[`move_qty_${moveIndex}`]),
+              });
       } catch (error) {
         sendRedirect(
           response,
@@ -1026,15 +1035,31 @@ export const requestHandler = async (request, response) => {
         );
         return;
       }
+      if (!guidanceLines.length) {
+        sendRedirect(
+          response,
+          appendFlash(
+            recommendationPath,
+            "At least one move is required before sending LEDs.",
+            "error",
+          ),
+        );
+        return;
+      }
       const guidance = hardwareService.activateGuidance(recommendationGuidanceTask(form), guidanceLines, {
         source: "recommended_action_light",
         recommendationKey: form.recommendation_key || "",
       });
-      const sourceCell = guidanceLines[0];
-      const targetCell = guidanceLines[1];
+      const pickLines = guidanceLines.filter((line) => line.guidance_color === "green");
+      const putLines = guidanceLines.filter((line) => line.guidance_color === "red");
+      const ledSummary = `GREEN LED pick cells: ${pickLines
+        .map((line) => `${line.logical_code} (${line.planned_quantity})`)
+        .join(", ")}. RED LED put cells: ${putLines
+        .map((line) => `${line.logical_code} (${line.planned_quantity})`)
+        .join(", ")}.`;
       const guidanceMessage = guidance.degraded
-        ? `GREEN LED: pick ${moveQuantity} from cell ${sourceCell.logical_code}. RED LED: put ${moveQuantity} into cell ${targetCell.logical_code}. ${guidance.message || "Some cells need manual guidance."}`
-        : `GREEN LED: pick ${moveQuantity} from cell ${sourceCell.logical_code}. RED LED: put ${moveQuantity} into cell ${targetCell.logical_code}.`;
+        ? `${ledSummary} ${guidance.message || "Some cells need manual guidance."}`
+        : ledSummary;
       sendRedirect(
         response,
         appendFlash(
