@@ -1521,10 +1521,26 @@ test("recommended move guidance displays quantity on source and target with pick
     moduleCount: 2,
     configuredBy: 1,
   });
-  const [sourceCell, targetCell] = inventory
-    .listCells(db)
+  const [sourceModule, targetModule] = inventory
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === controller.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  const sourceLocation = inventory.searchCells(db, "Z1-R1-C01")[0];
+  const targetLocation = inventory.searchCells(db, "Z1-R1-C02")[0];
+  inventory.updateCellMapping(db, {
+    cellId: sourceModule.id,
+    hardwareChannel: 1,
+    targetCellId: sourceLocation.id,
+    mappedBy: 1,
+  });
+  inventory.updateCellMapping(db, {
+    cellId: targetModule.id,
+    hardwareChannel: 2,
+    targetCellId: targetLocation.id,
+    mappedBy: 1,
+  });
+  const sourceCell = inventory.listCells(db).find((cell) => cell.id === sourceLocation.id);
+  const targetCell = inventory.listCells(db).find((cell) => cell.id === targetLocation.id);
   const hardwareService = createHardwareService({
     db,
     config: {
@@ -1859,19 +1875,21 @@ test("reflashing an existing controller migrates mappings to the new RS485 id", 
     moduleCount: 28,
     configuredBy: 1,
   });
-  const initialCells = inventory
-    .listCells(db)
+  const initialModules = inventory
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === initial.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
 
-  assert.equal(initialCells.length, 28);
+  assert.equal(initialModules.length, 28);
+  assert.ok(initialModules.every((cell) => Number(cell.active) === 0));
+  assert.equal(inventory.listCells(db).filter((cell) => cell.controller_id === initial.id).length, 0);
   const customCell = inventory.createCell(db, {
     logicalCode: "Z9-R9-C99",
     capacity: 12,
     createdBy: 1,
   });
   inventory.updateCellMapping(db, {
-    cellId: initialCells[27].id,
+    cellId: initialModules[27].id,
     hardwareChannel: 28,
     targetCellId: customCell.id,
     mappedBy: 1,
@@ -1883,19 +1901,22 @@ test("reflashing an existing controller migrates mappings to the new RS485 id", 
     moduleCount: 28,
     configuredBy: 1,
   });
-  const migratedCells = inventory
-    .listCells(db)
+  const migratedModules = inventory
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === replacement.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  const migratedCell = inventory.listCells(db).find((cell) => cell.id === customCell.id);
 
   assert.equal(replacement.id, initial.id);
   assert.equal(replacement.address, "CTRL-NEW-000001");
-  assert.deepEqual(
-    migratedCells.map((cell) => cell.id),
-    [...initialCells.slice(0, 27).map((cell) => cell.id), customCell.id],
+  assert.equal(migratedModules.length, 28);
+  assert.equal(migratedCell.logical_code, "Z9-R9-C99");
+  assert.equal(migratedCell.hardware_channel, 28);
+  assert.equal(migratedCell.controller_address, "CTRL-NEW-000001");
+  assert.equal(
+    migratedModules.filter((cell) => Number(cell.active) === 0).length,
+    27,
   );
-  assert.equal(migratedCells[27].logical_code, "Z9-R9-C99");
-  assert.equal(migratedCells[27].controller_address, "CTRL-NEW-000001");
 });
 
 test("reflashing the same physical controller preserves what it can when module count changes", async () => {
@@ -1914,11 +1935,18 @@ test("reflashing the same physical controller preserves what it can when module 
     moduleCount: 3,
     configuredBy: 1,
   });
-  const initialCells = inventory
-    .listCells(db)
+  const initialModules = inventory
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === initial.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
-  assert.equal(initialCells.length, 3);
+  assert.equal(initialModules.length, 3);
+  const mappedLocation = inventory.searchCells(db, "Z1-R1-C01")[0];
+  inventory.updateCellMapping(db, {
+    cellId: initialModules[0].id,
+    hardwareChannel: 1,
+    targetCellId: mappedLocation.id,
+    mappedBy: 1,
+  });
 
   const shrunk = inventory.configureControllerModules(db, {
     controllerCode: "ESP32-01",
@@ -1927,23 +1955,23 @@ test("reflashing the same physical controller preserves what it can when module 
     moduleCount: 2,
     configuredBy: 1,
   });
-  const shrunkCells = inventory
-    .listCells(db)
+  const shrunkModules = inventory
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === initial.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
-  const manualCell = inventory.listCells(db).find((cell) => cell.id === initialCells[2].id);
+  const preservedLocation = inventory.listCells(db).find((cell) => cell.id === mappedLocation.id);
 
   assert.equal(shrunk.id, initial.id);
   assert.equal(shrunk.address, "CTRL-SAME-SHRINK");
-  assert.equal(shrunk.mappingSummary.detached, 1);
+  assert.equal(shrunk.mappingSummary.detached, 0);
+  assert.equal(shrunk.mappingSummary.removed, 1);
   assert.deepEqual(
-    shrunkCells.map((cell) => cell.id),
-    initialCells.slice(0, 2).map((cell) => cell.id),
+    shrunkModules.map((cell) => Number(cell.hardware_channel)),
+    [1, 2],
   );
-  assert.equal(manualCell.controller_id, null);
-  assert.equal(manualCell.hardware_channel, null);
-  assert.equal(manualCell.mapping_status, "unmapped");
-  assert.equal(Number(manualCell.active), 1);
+  assert.equal(preservedLocation.controller_id, initial.id);
+  assert.equal(preservedLocation.hardware_channel, 1);
+  assert.equal(preservedLocation.mapping_status, "mapped");
 
   const expanded = inventory.configureControllerModules(db, {
     controllerCode: "ESP32-01",
@@ -1952,18 +1980,19 @@ test("reflashing the same physical controller preserves what it can when module 
     moduleCount: 4,
     configuredBy: 1,
   });
-  const expandedCells = inventory
-    .listCells(db)
+  const expandedModules = inventory
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === initial.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
 
   assert.equal(expanded.id, initial.id);
   assert.equal(expanded.address, "CTRL-SAME-EXPAND");
-  assert.equal(expandedCells.length, 4);
+  assert.equal(expandedModules.length, 4);
   assert.deepEqual(
-    expandedCells.slice(0, 3).map((cell) => cell.id),
-    initialCells.map((cell) => cell.id),
+    expandedModules.map((cell) => Number(cell.hardware_channel)),
+    [1, 2, 3, 4],
   );
+  assert.equal(expandedModules.filter((cell) => Number(cell.active) === 1).length, 1);
 });
 
 test("controllers with the same USB adapter identity stay separate unless the same controller name is selected", async () => {
@@ -1994,11 +2023,11 @@ test("controllers with the same USB adapter identity stay separate unless the sa
   assert.notEqual(controllerA.id, controllerB.id);
 
   const aBefore = inventory
-    .listCells(db)
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === controllerA.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
   const bBefore = inventory
-    .listCells(db)
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === controllerB.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
   assert.equal(aBefore.length, 2);
@@ -2014,17 +2043,18 @@ test("controllers with the same USB adapter identity stay separate unless the sa
   const controllers = inventory.listControllers(db);
   const bAfter = controllers.find((controller) => controller.id === controllerB.id);
   const aAfterCells = inventory
-    .listCells(db)
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === controllerA.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
   const bAfterCells = inventory
-    .listCells(db)
+    .listCellCatalog(db)
     .filter((cell) => cell.controller_id === controllerB.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
 
   assert.equal(reflashedA.id, controllerA.id);
   assert.equal(reflashedA.address, "CTRL-A-NEW");
-  assert.equal(reflashedA.mappingSummary.detached, 1);
+  assert.equal(reflashedA.mappingSummary.detached, 0);
+  assert.equal(reflashedA.mappingSummary.removed, 1);
   assert.equal(bAfter.address, "CTRL-B-KEEP");
   assert.equal(Number(bAfter.module_count), 2);
   assert.deepEqual(
@@ -2062,36 +2092,42 @@ test("controllers can be health-checked and deleted by an admin", async () => {
     "offline",
   );
 
-  const controllerCells = inventory.listCells(db).filter((cell) => cell.controller_id === controller.id);
-  const stockedCell = controllerCells.find((cell) => Number(cell.occupied_quantity) > 0);
+  const controllerModules = inventory
+    .listCellCatalog(db)
+    .filter((cell) => cell.controller_id === controller.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+  const stockedLocation = inventory.searchCells(db, "Z1-R1-C01")[0];
+  inventory.updateCellMapping(db, {
+    cellId: controllerModules[0].id,
+    hardwareChannel: 1,
+    targetCellId: stockedLocation.id,
+    mappedBy: 1,
+  });
+  const stockedCell = inventory.listCells(db).find((cell) => cell.id === stockedLocation.id);
   assert.ok(stockedCell);
-  const controllerCellIds = controllerCells.map((cell) => cell.id);
+  const placeholderModuleId = controllerModules[1].id;
 
   const deleted = inventory.deleteController(db, {
     controllerId: controller.id,
   });
   assert.equal(deleted.deleted, true);
-  assert.equal(deleted.detachedCellCount, 2);
+  assert.equal(deleted.detachedCellCount, 1);
+  assert.equal(deleted.removedModuleCount, 1);
   assert.ok(!inventory.listControllers(db).some((entry) => entry.id === controller.id));
   assert.ok(!inventory.listCells(db).some((cell) => cell.controller_id === controller.id));
+  assert.ok(!inventory.listCellCatalog(db).some((cell) => cell.controller_id === controller.id));
 
-  const manualCells = inventory.listCells(db).filter((cell) => controllerCellIds.includes(cell.id));
-  assert.equal(manualCells.length, 2);
-  assert.ok(manualCells.every((cell) => cell.controller_id == null));
-  assert.ok(manualCells.every((cell) => cell.hardware_channel == null));
-  assert.ok(manualCells.every((cell) => cell.mapping_status === "unmapped"));
-  assert.ok(manualCells.every((cell) => Number(cell.active) === 1));
-  assert.equal(
-    Number(manualCells.find((cell) => cell.id === stockedCell.id).occupied_quantity),
-    Number(stockedCell.occupied_quantity),
-  );
+  const manualCell = inventory.listCells(db).find((cell) => cell.id === stockedCell.id);
+  assert.equal(manualCell.controller_id, null);
+  assert.equal(manualCell.hardware_channel, null);
+  assert.equal(manualCell.mapping_status, "unmapped");
+  assert.equal(Number(manualCell.active), 1);
+  assert.equal(Number(manualCell.occupied_quantity), Number(stockedCell.occupied_quantity));
 
   const storedController = db.prepare("SELECT * FROM controllers WHERE id = ?").get(controller.id);
-  const storedCells = db
-    .prepare(`SELECT * FROM cells WHERE id IN (${controllerCellIds.map(() => "?").join(", ")})`)
-    .all(...controllerCellIds);
+  const storedPlaceholder = db.prepare("SELECT * FROM cells WHERE id = ?").get(placeholderModuleId);
   assert.equal(storedController, undefined);
-  assert.equal(storedCells.length, 2);
+  assert.equal(storedPlaceholder, undefined);
 
   const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
   const manualPickTask = inventory.allocatePick(db, {
@@ -2119,9 +2155,17 @@ test("mapping a new module to an existing cell preserves inventory and unassigns
     moduleCount: 1,
     configuredBy: 1,
   });
-  const existingCell = inventory
-    .listCells(db)
-    .find((cell) => cell.controller_id === existingController.id && cell.logical_code === "Z1-R1-C01");
+  const existingModule = inventory
+    .listCellCatalog(db)
+    .find((cell) => cell.controller_id === existingController.id && Number(cell.hardware_channel) === 1);
+  const existingLocation = inventory.searchCells(db, "Z1-R1-C01")[0];
+  inventory.updateCellMapping(db, {
+    cellId: existingModule.id,
+    targetCellId: existingLocation.id,
+    hardwareChannel: 1,
+    mappedBy: 1,
+  });
+  const existingCell = inventory.listCells(db).find((cell) => cell.id === existingLocation.id);
   assert.ok(existingCell);
   assert.ok(Number(existingCell.occupied_quantity) > 0);
 
@@ -2132,8 +2176,8 @@ test("mapping a new module to an existing cell preserves inventory and unassigns
     configuredBy: 1,
   });
   const placeholderCell = inventory
-    .listCells(db)
-    .find((cell) => cell.controller_id === replacementController.id && cell.logical_code !== "Z1-R1-C01");
+    .listCellCatalog(db)
+    .find((cell) => cell.controller_id === replacementController.id && Number(cell.active) === 0);
   assert.ok(placeholderCell);
 
   const remapped = inventory.updateCellMapping(db, {
@@ -2185,7 +2229,7 @@ test("mapping form errors return to the mapping workflow", async () => {
     return_to: "/devices#cell-mapping",
     hardware_channel_1: "1",
     original_target_cell_id_1: "1",
-    target_cell_id_1: "2",
+    target_cell_id_1: "999999",
   }).toString();
 
   await requestHandler(
@@ -2204,7 +2248,7 @@ test("mapping form errors return to the mapping workflow", async () => {
   const redirectUrl = new URL(response.headers.Location, "http://localhost");
   assert.equal(
     redirectUrl.searchParams.get("flash"),
-    "Move stock out of the current mapped cell before replacing it.",
+    "Selected cell was not found.",
   );
 });
 
@@ -2267,17 +2311,24 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
   const controller = inventory.configureControllerModules(db, {
     controllerCode: "ESP32-DELETE",
     controllerAddress: "CTRL-DELETE-0001",
-    moduleCount: 28,
+    moduleCount: 1,
     configuredBy: 1,
   });
-  const mappedEmptyCell = inventory
-    .listCells(db)
-    .filter((cell) => cell.controller_id === controller.id)
-    .find(
-      (cell) =>
-        Number(cell.occupied_quantity || 0) === 0 &&
-        Number(cell.reserved_quantity || 0) === 0,
-    );
+  const moduleToMap = inventory
+    .listCellCatalog(db)
+    .find((cell) => cell.controller_id === controller.id && Number(cell.hardware_channel) === 1);
+  const mappedEmptyLocation = inventory.createCell(db, {
+    logicalCode: "Z9-R9-MAPPED",
+    capacity: 5,
+    createdBy: 1,
+  });
+  inventory.updateCellMapping(db, {
+    cellId: moduleToMap.id,
+    hardwareChannel: 1,
+    targetCellId: mappedEmptyLocation.id,
+    mappedBy: 1,
+  });
+  const mappedEmptyCell = inventory.listCells(db).find((cell) => cell.id === mappedEmptyLocation.id);
   assert.ok(mappedEmptyCell);
 
   const deletedMapped = inventory.deleteCell(db, {
@@ -2334,11 +2385,11 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
   );
   assert.match(
     statusHtml,
-    /<span class="muted">Mapped cells<\/span>\s*<strong>27<\/strong>/,
+    /<span class="muted">Mapped cells<\/span>\s*<strong>0<\/strong>/,
   );
   assert.match(
     statusHtml,
-    /<span class="muted">Manual cells<\/span>\s*<strong>1<\/strong>/,
+    /<span class="muted">Manual cells<\/span>\s*<strong>82<\/strong>/,
   );
   const remapped = inventory.updateCellMapping(db, {
     cellId: deletedMapped.modulePlaceholder.id,

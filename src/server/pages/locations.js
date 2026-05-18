@@ -529,7 +529,7 @@ export function createLocationPages({ db }) {
         ${
           cells.length
             ? table(
-                ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
+                ["Location", "Mapped controller", "Mapped LED module", "Stock", "Products", "Actions"],
                 cells.map((cell) => {
                   const hasStock = cellHasStock(cell);
                   const deleteTitle = hasStock
@@ -537,8 +537,8 @@ export function createLocationPages({ db }) {
                     : `Delete ${cell.logical_code}`;
                   return [
                     escapeHtml(cell.logical_code),
-                    cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
-                    cell.hardware_channel ? escapeHtml(cell.hardware_channel) : `<span class="muted">Manual</span>`,
+                    cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
+                    cellIsMapped(cell) ? escapeHtml(cell.hardware_channel) : `<span class="muted">Manual</span>`,
                     escapeHtml(formatQuantity(cell.occupied_quantity)),
                     cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
                     `
@@ -572,7 +572,12 @@ export function createLocationPages({ db }) {
   function renderCellMappingSection(cells) {
     const cellCatalog = listCellCatalog(db).filter((cell) => Number(cell.active) === 1);
     const mappedCells = cells
-      .filter((cell) => cell.controller_id && cell.hardware_channel)
+      .filter(
+        (cell) =>
+          cell.controller_id &&
+          cell.hardware_channel &&
+          Number(cell.controller_active) === 1,
+      )
       .sort((left, right) => {
         const controllerCompare = String(left.controller_code || "").localeCompare(
           String(right.controller_code || ""),
@@ -614,7 +619,7 @@ export function createLocationPages({ db }) {
               .join("")}
           </datalist>
           ${table(
-            ["Controller", "LED module", "Assigned location", "Stock", "Locate"],
+            ["Controller", "LED module", "Assigned location", "Stock", "Actions"],
             mappedCells.map((cell) => {
               const assigned = Number(cell.active) === 1;
               const displayName = cellMappingDisplayName(cell);
@@ -661,19 +666,49 @@ export function createLocationPages({ db }) {
               `,
                 stockLabel,
                 `
-                <button
-                  type="button"
-                  class="green-button ping-button locate-button"
-                  data-locate-cell
-                  data-cell-id="${cell.id}"
-                  aria-pressed="false"
-                  title="Locate ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
-                >Locate</button>
+                <div class="mini-actions">
+                  <button
+                    type="button"
+                    class="green-button ping-button locate-button"
+                    data-locate-cell
+                    data-cell-id="${cell.id}"
+                    aria-pressed="false"
+                    title="Locate ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
+                  >Locate</button>
+                  <button
+                    type="submit"
+                    form="cell-ping-${cell.id}"
+                    class="ghost-button ping-button"
+                    data-led-command-submit
+                    data-led-loading-label="Pinging"
+                    data-led-loading-title="Pinging ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
+                    title="Ping ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
+                  >Ping</button>
+                </div>
               `,
               ];
             }),
           )}
         </form>
+        ${mappedCells
+          .map(
+            (cell) => `
+              <form
+                id="cell-ping-${cell.id}"
+                method="post"
+                action="/devices/cell-test"
+                data-led-command-form
+                data-led-loading-label="Pinging"
+                data-led-return-hash="#cell-mapping"
+                hidden
+              >
+                <input type="hidden" name="cell_id" value="${cell.id}" />
+                <input type="hidden" name="color" value="green" />
+                <input type="hidden" name="return_to" value="/devices#cell-mapping" data-led-command-return-to />
+              </form>
+            `,
+          )
+          .join("")}
         <div class="modal-backdrop app-alert-modal" data-mapping-unsaved-modal role="dialog" aria-modal="true" aria-labelledby="mapping-unsaved-title" hidden>
           <div class="modal-panel mapping-unsaved-panel">
             <div class="modal-header">

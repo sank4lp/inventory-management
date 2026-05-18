@@ -49,9 +49,17 @@ test("hardware guidance records the resolved LED brightness", async () => {
     moduleCount: 1,
     configuredBy: 1,
   });
-  const cell = inventory
-    .listCells(db)
+  const module = inventory
+    .listCellCatalog(db)
     .find((entry) => entry.controller_id === controller.id && entry.hardware_channel);
+  const location = inventory.searchCells(db, "Z1-R1-C01")[0];
+  inventory.updateCellMapping(db, {
+    cellId: module.id,
+    hardwareChannel: 1,
+    targetCellId: location.id,
+    mappedBy: 1,
+  });
+  const cell = inventory.listCells(db).find((entry) => entry.id === location.id);
 
   const hardwareService = createHardwareService({
     db,

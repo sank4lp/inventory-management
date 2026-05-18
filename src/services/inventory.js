@@ -1030,6 +1030,7 @@ export function listCells(db) {
           z.code AS zone_code,
           ctrl.controller_code,
           ctrl.address AS controller_address,
+          ctrl.active AS controller_active,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
           COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
           (
@@ -1073,6 +1074,7 @@ export function listCellCatalog(db) {
           z.code AS zone_code,
           ctrl.controller_code,
           ctrl.address AS controller_address,
+          ctrl.active AS controller_active,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
           COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
           (
@@ -1239,20 +1241,10 @@ export function deleteController(db, { controllerId }) {
     const cells = db.prepare("SELECT * FROM cells WHERE controller_id = ?").all(controller.id);
     db.prepare("UPDATE device_events SET controller_id = NULL WHERE controller_id = ?").run(controller.id);
 
-    if (cells.length > 0) {
-      const placeholders = cells.map(() => "?").join(", ");
-      db.prepare(
-        `
-          UPDATE cells
-          SET
-            controller_id = NULL,
-            hardware_channel = NULL,
-            mapping_status = 'unmapped',
-            active = 1
-          WHERE id IN (${placeholders})
-        `,
-      ).run(...cells.map((cell) => Number(cell.id)));
-    }
+    const detachedModules = detachCellsForManualOperation(
+      db,
+      cells.map((cell) => Number(cell.id)),
+    );
 
     db.prepare(
       `
@@ -1264,7 +1256,8 @@ export function deleteController(db, { controllerId }) {
     return {
       ...controller,
       deleted: true,
-      detachedCellCount: cells.length,
+      detachedCellCount: detachedModules.detached,
+      removedModuleCount: detachedModules.removed,
     };
   });
 }
@@ -1464,11 +1457,11 @@ export function deleteCell(db, { cellId, deletedBy = null } = {}) {
 
 function retireEmptyMappingCell(db, cellId) {
   const cell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
-  if (cellHasStock(db, cellId)) {
-    throw new Error("Move stock out of the current mapped cell before replacing it.");
+  if (!cell) {
+    return "missing";
   }
 
-  if (cellHasHistory(db, cellId)) {
+  if (Number(cell.active) === 1 || cellHasHistory(db, cellId)) {
     db.prepare(
       `
         UPDATE cells
@@ -1479,7 +1472,7 @@ function retireEmptyMappingCell(db, cellId) {
             active = ?
           WHERE id = ?
         `,
-    ).run(cell && Number(cell.active) === 0 ? 0 : 1, Number(cellId));
+    ).run(Number(cell.active) === 0 ? 0 : 1, Number(cellId));
     return "detached";
   }
 
@@ -1492,22 +1485,38 @@ function retireEmptyMappingCell(db, cellId) {
 function detachCellsForManualOperation(db, cellIds) {
   const ids = cellIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0);
   if (!ids.length) {
-    return 0;
+    return { detached: 0, removed: 0 };
   }
 
   const placeholders = ids.map(() => "?").join(", ");
-  db.prepare(
-    `
-      UPDATE cells
-      SET
-        controller_id = NULL,
-        hardware_channel = NULL,
-        mapping_status = 'unmapped',
-        active = 1
-      WHERE id IN (${placeholders})
-    `,
-  ).run(...ids);
-  return ids.length;
+  const cells = db.prepare(`SELECT * FROM cells WHERE id IN (${placeholders})`).all(...ids);
+  let detached = 0;
+  let removed = 0;
+
+  for (const cell of cells) {
+    if (Number(cell.active) === 1) {
+      db.prepare(
+        `
+          UPDATE cells
+          SET
+            controller_id = NULL,
+            hardware_channel = NULL,
+            mapping_status = 'unmapped',
+            active = 1
+          WHERE id = ?
+        `,
+      ).run(Number(cell.id));
+      detached += 1;
+      continue;
+    }
+
+    db.prepare("UPDATE device_events SET cell_id = NULL WHERE cell_id = ?").run(Number(cell.id));
+    db.prepare("DELETE FROM inventory_balances WHERE cell_id = ?").run(Number(cell.id));
+    db.prepare("DELETE FROM cells WHERE id = ?").run(Number(cell.id));
+    removed += 1;
+  }
+
+  return { detached, removed };
 }
 
 export function createCell(db, { logicalCode, capacity = 12, createdBy = null } = {}) {
@@ -1776,54 +1785,47 @@ export function configureControllerModules(
       controllerId = Number(result.lastInsertRowid);
     }
 
-    db.prepare("UPDATE controllers SET active = 0 WHERE firmware_version = ? AND id != ?").run(
-      "sim-0.1",
-      controllerId,
-    );
-    db.prepare(
-      `
-        UPDATE cells
-        SET active = 0
-        WHERE controller_id IN (SELECT id FROM controllers WHERE active = 0)
-      `,
-    ).run();
-
     const mappingSummary = {
       preserved: 0,
       created: 0,
       detached: 0,
+      removed: 0,
       moduleCount: count,
       needsVerification: true,
     };
 
+    db.prepare("UPDATE controllers SET active = 0 WHERE firmware_version = ? AND id != ?").run(
+      "sim-0.1",
+      controllerId,
+    );
+    const inactiveControllerCells = db
+      .prepare("SELECT id FROM cells WHERE controller_id IN (SELECT id FROM controllers WHERE active = 0)")
+      .all();
+    const inactiveDetached = detachCellsForManualOperation(
+      db,
+      inactiveControllerCells.map((cell) => cell.id),
+    );
+    mappingSummary.detached += inactiveDetached.detached;
+    mappingSummary.removed += inactiveDetached.removed;
+
     const overflowCells = db
       .prepare("SELECT id FROM cells WHERE controller_id = ? AND hardware_channel > ?")
       .all(controllerId, count);
-    mappingSummary.detached += detachCellsForManualOperation(
+    const overflowDetached = detachCellsForManualOperation(
       db,
       overflowCells.map((cell) => cell.id),
     );
+    mappingSummary.detached += overflowDetached.detached;
+    mappingSummary.removed += overflowDetached.removed;
 
-    const activeCellIds = [];
+    const moduleCellIds = [];
     for (let channel = 1; channel <= count; channel += 1) {
-      const defaultLogicalCode = `Z1-R1-C${String(channel).padStart(2, "0")}`;
       const existingControllerCell = db
         .prepare("SELECT * FROM cells WHERE controller_id = ? AND hardware_channel = ?")
         .get(controllerId, channel);
-      const reusableDefaultCell = db
-        .prepare(
-        `
-          SELECT c.*
-          FROM cells c
-          LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
-          WHERE c.logical_code = ?
-            AND (c.controller_id = ? OR ctrl.active = 0 OR c.controller_id IS NULL)
-        `,
-        )
-        .get(defaultLogicalCode, controllerId);
-      const existingCell = existingControllerCell || reusableDefaultCell;
 
-      if (existingCell) {
+      if (existingControllerCell) {
+        const isAssignedLocation = Number(existingControllerCell.active) === 1;
         db.prepare(
           `
             UPDATE cells
@@ -1833,34 +1835,48 @@ export function configureControllerModules(
               column_number = ?,
               controller_id = ?,
               hardware_channel = ?,
-              mapping_status = 'mapped',
-              active = 1,
-              last_mapped_at = COALESCE(last_mapped_at, ?),
+              mapping_status = ?,
+              last_mapped_at = CASE WHEN ? = 1 THEN COALESCE(last_mapped_at, ?) ELSE last_mapped_at END,
               mapped_by = COALESCE(mapped_by, ?)
             WHERE id = ?
           `,
-        ).run(zoneId, channel, controllerId, channel, now, configuredBy, existingCell.id);
-        activeCellIds.push(Number(existingCell.id));
-        mappingSummary.preserved += 1;
+        ).run(
+          zoneId,
+          channel,
+          controllerId,
+          channel,
+          isAssignedLocation ? "mapped" : "unmapped",
+          isAssignedLocation ? 1 : 0,
+          now,
+          configuredBy,
+          existingControllerCell.id,
+        );
+        moduleCellIds.push(Number(existingControllerCell.id));
+        if (isAssignedLocation) {
+          mappingSummary.preserved += 1;
+        }
         continue;
       }
 
-      const logicalCode = availableLogicalCode(db, defaultLogicalCode, code, channel);
-      const inserted = db.prepare(
-        `
-          INSERT INTO cells (
-            logical_code, zone_id, row_number, column_number, controller_id,
-            hardware_channel, mapping_status, active, capacity, last_mapped_at, mapped_by
-          )
-          VALUES (?, ?, 1, ?, ?, ?, 'mapped', 1, 12, ?, ?)
-        `,
-      ).run(logicalCode, zoneId, channel, controllerId, channel, now, configuredBy);
-      activeCellIds.push(Number(inserted.lastInsertRowid));
+      const placeholder = createModulePlaceholder(
+        db,
+        {
+          controller_id: controllerId,
+          controller_code: code,
+          hardware_channel: channel,
+          zone_id: zoneId,
+          row_number: 1,
+          column_number: channel,
+          capacity: 12,
+        },
+        configuredBy,
+      );
+      moduleCellIds.push(Number(placeholder.id));
       mappingSummary.created += 1;
     }
 
-    if (activeCellIds.length > 0) {
-      const placeholders = activeCellIds.map(() => "?").join(", ");
+    if (moduleCellIds.length > 0) {
+      const placeholders = moduleCellIds.map(() => "?").join(", ");
       const staleCells = db
         .prepare(
         `
@@ -1870,11 +1886,13 @@ export function configureControllerModules(
             AND id NOT IN (${placeholders})
         `,
         )
-        .all(controllerId, ...activeCellIds);
-      mappingSummary.detached += detachCellsForManualOperation(
+        .all(controllerId, ...moduleCellIds);
+      const staleDetached = detachCellsForManualOperation(
         db,
         staleCells.map((cell) => cell.id),
       );
+      mappingSummary.detached += staleDetached.detached;
+      mappingSummary.removed += staleDetached.removed;
     }
 
     const controller = db.prepare("SELECT * FROM controllers WHERE id = ?").get(controllerId);
