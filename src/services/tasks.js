@@ -5,6 +5,7 @@ import {
   correctCompletedTask,
   getTask,
   listRecentTasks,
+  listRecentTasksForProfileUser,
   listRecentTasksForUser,
   markPhysicalConfirmation,
   planPut,
@@ -21,6 +22,9 @@ export function createTaskService({ db, hardwareService, logger, systemService }
     },
     listRecentTasksForUser(user, limit = 10) {
       return listRecentTasksForUser(db, user, limit);
+    },
+    listRecentTasksForProfileUser(userId, limit = 10) {
+      return listRecentTasksForProfileUser(db, userId, limit);
     },
     issueActionToken(scope, taskId, userId) {
       return systemService.issueSubmissionToken({ scope, taskId, userId });

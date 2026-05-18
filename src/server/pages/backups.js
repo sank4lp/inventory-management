@@ -40,47 +40,49 @@ export function createBackupPages({ backupService }) {
     return card(
       "Retention And Compaction",
       `
-        <div class="backup-protection-copy">
-          <p>When a new day starts, previous-day backups are compacted to the latest backup from that day. The compacted file is renamed so it is clear that extra same-day backups were removed.</p>
-          <p class="muted">The system also compacts whenever it finds multiple backups for older dates, and removes backups older than the retention window. It will not reduce retention days automatically.</p>
-        </div>
-        ${storageWarning}
-        <form method="post" action="/backups/retention" class="backup-schedule-form">
-          <input type="hidden" name="return_to" value="/backups" />
-          <label>Retention Days
-            <input
-              type="number"
-              name="retention_days"
-              min="${escapeHtml(String(summary.minBackupRetentionDays))}"
-              max="${escapeHtml(String(summary.maxBackupRetentionDays))}"
-              step="1"
-              value="${escapeHtml(String(summary.retentionDays))}"
-              required
-            />
-          </label>
-          <button type="submit">Save Retention</button>
-          <div class="backup-schedule-summary">
-            <strong>${escapeHtml(String(summary.retentionDays))} Day(s)</strong>
-            <span>Current backups use ${escapeHtml(formatBytes(summary.totalBackupBytes))}</span>
-            <span>Daily estimate ${escapeHtml(formatBytes(summary.estimatedRetentionBytes))}</span>
-            <span>Active day limit ${escapeHtml(String(summary.activeDayBackupLimit))}</span>
+        <div class="content-stack">
+          <div class="backup-protection-copy">
+            <p>When a new day starts, previous-day backups are compacted to the latest backup from that day. The compacted file is renamed so it is clear that extra same-day backups were removed.</p>
+            <p class="muted">The system also compacts whenever it finds multiple backups for older dates, and removes backups older than the retention window. It will not reduce retention days automatically.</p>
           </div>
-        </form>
-        <div class="meta-grid compact-meta-grid">
-          <div><strong>Last Compaction</strong><br />${
-            lastCompaction?.completedAt ? escapeHtml(formatDate(lastCompaction.completedAt)) : "Not recorded yet"
-          }</div>
-          <div><strong>Compacted Days</strong><br />${
-            compactedDays.length
-              ? escapeHtml(compactedDays.map((day) => day.date).join(", "))
-              : "No previous days compacted yet"
-          }</div>
-          <div><strong>Removed Backups</strong><br />${escapeHtml(
-            String(lastCompaction?.removedCount || 0),
-          )}</div>
-          <div><strong>Retention Deletes</strong><br />${escapeHtml(
-            String(retentionDeleted.length),
-          )}</div>
+          ${storageWarning}
+          <form method="post" action="/backups/retention" class="backup-schedule-form">
+            <input type="hidden" name="return_to" value="/backups" />
+            <label>Retention Days
+              <input
+                type="number"
+                name="retention_days"
+                min="${escapeHtml(String(summary.minBackupRetentionDays))}"
+                max="${escapeHtml(String(summary.maxBackupRetentionDays))}"
+                step="1"
+                value="${escapeHtml(String(summary.retentionDays))}"
+                required
+              />
+            </label>
+            <button type="submit">Save Retention</button>
+            <div class="backup-schedule-summary">
+              <strong>${escapeHtml(String(summary.retentionDays))} Day(s)</strong>
+              <span>Current backups use ${escapeHtml(formatBytes(summary.totalBackupBytes))}</span>
+              <span>Daily estimate ${escapeHtml(formatBytes(summary.estimatedRetentionBytes))}</span>
+              <span>Active day limit ${escapeHtml(String(summary.activeDayBackupLimit))}</span>
+            </div>
+          </form>
+          <div class="meta-grid compact-meta-grid">
+            <div><strong>Last Compaction</strong><br />${
+              lastCompaction?.completedAt ? escapeHtml(formatDate(lastCompaction.completedAt)) : "Not recorded yet"
+            }</div>
+            <div><strong>Compacted Days</strong><br />${
+              compactedDays.length
+                ? escapeHtml(compactedDays.map((day) => day.date).join(", "))
+                : "No previous days compacted yet"
+            }</div>
+            <div><strong>Removed Backups</strong><br />${escapeHtml(
+              String(lastCompaction?.removedCount || 0),
+            )}</div>
+            <div><strong>Retention Deletes</strong><br />${escapeHtml(
+              String(retentionDeleted.length),
+            )}</div>
+          </div>
         </div>
       `,
     );

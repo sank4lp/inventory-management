@@ -161,6 +161,20 @@ function renderLocationWorkflowActions(cell) {
   `;
 }
 
+function renderLocationLocateButton(cell) {
+  const mapped = cellIsMapped(cell);
+  return `
+    <button
+      type="button"
+      class="ghost-button locate-button"
+      data-cell-id="${cell.id}"
+      data-cell-name="${escapeHtml(cell.logical_code)}"
+      aria-pressed="false"
+      ${mapped ? "data-locate-cell" : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
+    >Locate</button>
+  `;
+}
+
 export function createLocationPages({ db }) {
   function renderCellSearchResults(cells, search = "") {
     const searchLabel = String(search || "").trim();
@@ -200,14 +214,7 @@ export function createLocationPages({ db }) {
         `
           <div class="mini-actions">
             ${renderLocationWorkflowActions(cell)}
-            <button
-              type="button"
-              class="ghost-button locate-button"
-              data-locate-cell
-              data-cell-id="${cell.id}"
-              data-cell-name="${escapeHtml(cell.logical_code)}"
-              aria-pressed="false"
-            >Locate</button>
+            ${renderLocationLocateButton(cell)}
           </div>
         `,
       ]),
@@ -718,6 +725,7 @@ export function createLocationPages({ db }) {
                 method="post"
                 action="/devices/cell-test"
                 data-led-command-form
+                data-led-command-async
                 data-led-loading-label="Pinging"
                 data-led-return-hash="#cell-mapping"
                 hidden

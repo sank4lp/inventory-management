@@ -173,6 +173,7 @@ function wireLedCommandForms() {
         return;
       }
 
+      const asyncCommand = form.hasAttribute("data-led-command-async");
       const returnTo = form.querySelector("[data-led-command-return-to]");
       if (returnTo) {
         returnTo.value = currentReturnPath(form.dataset.ledReturnHash || "");
@@ -180,6 +181,15 @@ function wireLedCommandForms() {
 
       const button = findFormSubmitButton(form, event, "[data-led-command-submit]");
       if (!button) {
+        if (asyncCommand) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (asyncCommand) {
+        event.preventDefault();
+        submitLedCommandFormAsync(form, button);
         return;
       }
 
@@ -191,6 +201,53 @@ function wireLedCommandForms() {
       }, 0);
     });
   });
+}
+
+async function submitLedCommandFormAsync(form, button) {
+  const originalHtml = button.innerHTML;
+  const originalTitle = button.getAttribute("title");
+  const restoreButton = () => {
+    if (button.dataset.loadingActive === "true") {
+      return;
+    }
+    button.innerHTML = originalHtml;
+    if (originalTitle === null) {
+      button.removeAttribute("title");
+    } else {
+      button.setAttribute("title", originalTitle);
+    }
+  };
+
+  setButtonLoading(button, true, {
+    label: button.dataset.ledLoadingLabel || form.dataset.ledLoadingLabel || "Sending",
+    title: button.dataset.ledLoadingTitle || form.dataset.ledLoadingTitle || "Sending command",
+  });
+
+  try {
+    const response = await fetch(form.action, {
+      method: (form.getAttribute("method") || "post").toUpperCase(),
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Requested-With": "fetch",
+      },
+      body: new URLSearchParams(new FormData(form)),
+      credentials: "same-origin",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false || payload.degraded) {
+      throw new Error(payload.error || payload.message || "Command failed.");
+    }
+
+    setButtonLoading(button, false);
+    button.textContent = "Sent";
+    window.setTimeout(restoreButton, 1000);
+  } catch (error) {
+    setButtonLoading(button, false);
+    button.textContent = "Failed";
+    button.setAttribute("title", error.message || "Command failed.");
+    window.setTimeout(restoreButton, 1400);
+  }
 }
 
 function wireToasts() {
@@ -2888,6 +2945,9 @@ function wireCellMappingForm() {
         return;
       }
       if (event.target.matches?.("[data-led-command-form]")) {
+        if (event.target.hasAttribute("data-led-command-async")) {
+          return;
+        }
         state.allowNavigation = true;
         return;
       }

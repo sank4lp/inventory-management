@@ -234,15 +234,8 @@ export function createProduct(db, input) {
   }
 
   const itemsPerCell = normalizeItemsPerCell(input.items_per_cell || 12);
-
-  const products = createProductRepository(db);
-  const existing = products.findBySku(input.sku);
-  if (existing) {
-    throw new Error("A product with that SKU already exists.");
-  }
-
-  return products.create({
-    sku: input.sku.trim(),
+  const normalizedProduct = {
+    sku: input.sku.trim().toUpperCase(),
     name: input.name.trim(),
     brand: input.brand.trim(),
     category: input.category?.trim() || null,
@@ -252,6 +245,78 @@ export function createProduct(db, input) {
     preferred_storage_strategy: input.preferred_storage_strategy?.trim() || "closest-cell-first",
     items_per_cell: itemsPerCell,
     active: input.active === "0" ? 0 : 1,
+  };
+
+  const products = createProductRepository(db);
+  const existing = products.findAnyBySku(normalizedProduct.sku);
+  if (existing && Number(existing.active) === 1) {
+    throw new Error("A product with that SKU already exists.");
+  }
+
+  if (existing) {
+    return products.restore(existing.id, normalizedProduct);
+  }
+
+  return products.create(normalizedProduct);
+}
+
+export function removeProduct(db, productId) {
+  return withTransaction(db, () => {
+    const products = createProductRepository(db);
+    const product = products.findById(productId);
+    if (!product) {
+      throw new Error("Product not found.");
+    }
+
+    const totals = products.stockTotals(product.id);
+    const remainingStock =
+      Number(totals?.total_available || 0) + Number(totals?.total_reserved || 0);
+    if (remainingStock > 0) {
+      throw new Error(
+        "Product stock must be 0 before it can be removed. Create a Pick task to remove stock first.",
+      );
+    }
+
+    const result = products.deactivate(product.id);
+    if (result.changes === 0) {
+      throw new Error("Product not found.");
+    }
+
+    return {
+      ...product,
+      active: 0,
+    };
+  });
+}
+
+export function updateProductDetails(db, input) {
+  const productId = Number(input.productId);
+  const required = [
+    ["name", "Product name is required."],
+    ["brand", "Brand is required."],
+    ["unit_of_measure", "Unit of measure is required."],
+  ];
+
+  for (const [field, message] of required) {
+    if (!String(input[field] || "").trim()) {
+      throw new Error(message);
+    }
+  }
+
+  const products = createProductRepository(db);
+  const product = products.findById(productId);
+  if (!product) {
+    throw new Error("Product not found.");
+  }
+
+  return products.updateDetails(product.id, {
+    name: input.name.trim(),
+    brand: input.brand.trim(),
+    category: input.category?.trim() || null,
+    variant: input.variant?.trim() || null,
+    unit_of_measure: input.unit_of_measure.trim(),
+    description: input.description?.trim() || null,
+    preferred_storage_strategy: input.preferred_storage_strategy?.trim() || product.preferred_storage_strategy || "closest-cell-first",
   });
 }
 
@@ -273,6 +338,10 @@ export function listRecentTasks(db, limit = 10) {
 
 export function listRecentTasksForUser(db, user, limit = 10) {
   return createTaskRepository(db).listRecentForUser(user, limit);
+}
+
+export function listRecentTasksForProfileUser(db, userId, limit = 10) {
+  return createTaskRepository(db).listRecentForProfileUser(userId, limit);
 }
 
 export function allocatePick(db, { userId, productId, quantity, preferredCellId = null }) {

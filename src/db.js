@@ -502,7 +502,7 @@ function seedProducts(db) {
   }
 }
 
-const LEGACY_DEMO_INVENTORY_CLEANUP_KEY = "legacy_demo_inventory_cleanup_at";
+const LEGACY_DEMO_INVENTORY_CLEANUP_KEY = "legacy_demo_inventory_cleanup_v2_at";
 const DEMO_INVENTORY_SEEDS = [
   { sku: "SKU-SHOE-001", cell: "Z1-R1-C01", qty: 3 },
   { sku: "SKU-SHOE-001", cell: "Z1-R1-C02", qty: 3 },
@@ -585,7 +585,6 @@ function cleanupLegacyDemoInventory(db) {
         DELETE FROM inventory_balances
         WHERE product_id = ?
           AND cell_id = ?
-          AND available_quantity = ?
           AND reserved_quantity = 0
           AND NOT EXISTS (
             SELECT 1 FROM transactions WHERE product_id = ? AND cell_id = ?
@@ -597,7 +596,6 @@ function cleanupLegacyDemoInventory(db) {
     ).run(
       seed.product.id,
       seed.cell.id,
-      seed.qty,
       seed.product.id,
       seed.cell.id,
       seed.product.id,

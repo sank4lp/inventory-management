@@ -205,6 +205,69 @@ export function createProductPages({ db }) {
     `;
   }
 
+  function renderAdminProductRemoval(product) {
+    const remainingStock =
+      Number(product.total_available || 0) + Number(product.total_reserved || 0);
+    const disabled = remainingStock > 0;
+    const disabledTitle =
+      "Create a Pick task to reduce this product's stock to 0 before removing it.";
+    const enabledTitle =
+      "Remove this product from the active catalog. Existing task history stays intact.";
+    const title = disabled ? disabledTitle : enabledTitle;
+
+    return `
+      <form
+        method="post"
+        action="/products/${product.id}/delete"
+        class="inline-form top-gap"
+        onsubmit="return confirm('Remove this product from the active catalog? Existing task history will stay intact.');"
+      >
+        <span title="${escapeHtml(title)}">
+          <button
+            type="submit"
+            class="ghost-button danger-button"
+            title="${escapeHtml(title)}"
+            ${disabled ? "disabled" : ""}
+          >Remove Product</button>
+        </span>
+      </form>
+    `;
+  }
+
+  function renderAdminProductDetailsForm(product) {
+    return `
+      <details class="form-disclosure top-gap">
+        <summary>Edit Product Details</summary>
+        <form method="post" action="/products/${product.id}/details" class="stack-form">
+          <div class="form-grid">
+            <label>SKU
+              <input value="${escapeHtml(product.sku)}" disabled title="SKU is the product identity and cannot be changed." />
+            </label>
+            <label>Name
+              <input name="name" value="${escapeHtml(product.name)}" required />
+            </label>
+            <label>Brand
+              <input name="brand" value="${escapeHtml(product.brand)}" required />
+            </label>
+            <label>Unit Of Measure
+              <input name="unit_of_measure" value="${escapeHtml(product.unit_of_measure)}" required />
+            </label>
+            <label>Category
+              <input name="category" value="${escapeHtml(product.category || "")}" />
+            </label>
+            <label>Variant / Size
+              <input name="variant" value="${escapeHtml(product.variant || "")}" />
+            </label>
+          </div>
+          <label>Description
+            <textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea>
+          </label>
+          <button type="submit" class="blue-button">Save Details</button>
+        </form>
+      </details>
+    `;
+  }
+
   function productStatusRows(products) {
     return products.map((product) => [
       `<a href="/products/${product.id}">${escapeHtml(product.sku)}</a>`,
@@ -570,6 +633,8 @@ export function createProductPages({ db }) {
                     <button type="submit">Update Capacity</button>
                   </form>
                   <p class="muted">The next put task will use this value to fill existing cells first and minimize new cells.</p>
+                  ${renderAdminProductDetailsForm(product)}
+                  ${renderAdminProductRemoval(product)}
                 `
                 : ""
             }

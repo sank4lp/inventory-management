@@ -64,7 +64,9 @@ export function createTaskRepository(db) {
               t.summary,
               t.started_at,
               t.completed_at,
+              t.last_touched_at,
               t.created_by,
+              u.name AS created_by_name,
               u.username AS created_by_username,
               (
                 SELECT p.sku
@@ -106,7 +108,9 @@ export function createTaskRepository(db) {
               t.summary,
               t.started_at,
               t.completed_at,
+              t.last_touched_at,
               t.created_by,
+              u.name AS created_by_name,
               u.username AS created_by_username,
               (
                 SELECT p.sku
@@ -126,12 +130,91 @@ export function createTaskRepository(db) {
               ) AS first_product_name
             FROM tasks t
             JOIN users u ON u.id = t.created_by
-            WHERE t.created_by = ?
+            WHERE t.id IN (
+              SELECT created_task.id
+              FROM tasks created_task
+              WHERE created_task.created_by = ?
+              UNION
+              SELECT interacted_task.task_id
+              FROM transactions interacted_task
+              WHERE interacted_task.user_id = ?
+                AND interacted_task.task_id IS NOT NULL
+            )
             ORDER BY t.id DESC
             LIMIT ?
           `,
         )
-        .all(Number(user.id), Number(limit));
+        .all(Number(user.id), Number(user.id), Number(limit));
+    },
+
+    listRecentForProfileUser(userId, limit = 10) {
+      return db
+        .prepare(
+          `
+            SELECT
+              t.id,
+              t.type,
+              t.status,
+              t.summary,
+              t.started_at,
+              t.completed_at,
+              t.last_touched_at,
+              t.created_by,
+              u.name AS created_by_name,
+              u.username AS created_by_username,
+              CASE WHEN t.created_by = ? THEN 1 ELSE 0 END AS created_by_profile_user,
+              (
+                SELECT MAX(tr.created_at)
+                FROM transactions tr
+                WHERE tr.task_id = t.id
+                  AND tr.user_id = ?
+              ) AS last_interaction_at,
+              (
+                SELECT COUNT(*)
+                FROM transactions tr
+                WHERE tr.task_id = t.id
+                  AND tr.user_id = ?
+              ) AS interaction_count,
+              (
+                SELECT p.sku
+                FROM task_lines tl
+                JOIN products p ON p.id = tl.product_id
+                WHERE tl.task_id = t.id
+                ORDER BY tl.id
+                LIMIT 1
+              ) AS first_sku,
+              (
+                SELECT p.name
+                FROM task_lines tl
+                JOIN products p ON p.id = tl.product_id
+                WHERE tl.task_id = t.id
+                ORDER BY tl.id
+                LIMIT 1
+              ) AS first_product_name
+            FROM tasks t
+            JOIN users u ON u.id = t.created_by
+            WHERE t.id IN (
+              SELECT created_task.id
+              FROM tasks created_task
+              WHERE created_task.created_by = ?
+              UNION
+              SELECT interacted_task.task_id
+              FROM transactions interacted_task
+              WHERE interacted_task.user_id = ?
+                AND interacted_task.task_id IS NOT NULL
+            )
+            ORDER BY COALESCE(last_interaction_at, t.completed_at, t.last_touched_at, t.started_at) DESC, t.id DESC
+            LIMIT ?
+          `,
+        )
+        .all(
+          Number(userId),
+          Number(userId),
+          Number(userId),
+          Number(userId),
+          Number(userId),
+          Number(limit),
+        );
     },
 
     createPendingReviewTask({ type, summary, createdBy, lines }) {

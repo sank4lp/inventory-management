@@ -53,6 +53,12 @@ export function createHomePages({ db }) {
     return `/recommended-actions?key=${encodeURIComponent(action.key)}`;
   }
 
+  function taskOwnerLink(user, task) {
+    const label = task.created_by_name || task.created_by_username || `User #${task.created_by}`;
+    const href = user.role === "admin" ? `/admin/users/${task.created_by}` : "/profile";
+    return `<a class="mini-link" href="${href}">${escapeHtml(label)}</a>`;
+  }
+
   function renderHome(user, flash, url) {
     const tasks = listRecentTasksForUser(db, user);
     const recommendedActions = getRecommendedActions(db);
@@ -88,9 +94,10 @@ export function createHomePages({ db }) {
             ${
               tasks.length
                 ? table(
-                    ["Task", "Product", "Type", "Status", "Started", "Correction"],
+                    ["Task", "User", "Product", "Type", "Status", "Started", "Correction"],
                     tasks.map((task) => [
                       `<a href="/tasks/${task.id}">#${task.id}</a>`,
+                      taskOwnerLink(user, task),
                       `${escapeHtml(task.first_product_name || "—")}<br /><small>${escapeHtml(task.first_sku || "—")}</small>`,
                       statusBadge(task.type),
                       statusBadge(task.status),

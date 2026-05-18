@@ -49,6 +49,16 @@ export function copyIcon() {
   `;
 }
 
+export function suspendIcon() {
+  return `
+    <svg class="button-icon suspend-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M10 8v8" />
+      <path d="M14 8v8" />
+    </svg>
+  `;
+}
+
 export function quickActionLinks(productId, cellId = "") {
   return `
     <div class="mini-actions">

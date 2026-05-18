@@ -9,10 +9,19 @@ export function createProductRepository(db) {
           `
             SELECT
               p.*,
-              COALESCE(SUM(b.available_quantity), 0) AS total_available
+              COALESCE(
+                SUM(CASE WHEN stock_cell.active = 1 THEN b.available_quantity ELSE 0 END),
+                0
+              ) AS total_available,
+              COALESCE(
+                SUM(CASE WHEN stock_cell.active = 1 THEN b.reserved_quantity ELSE 0 END),
+                0
+              ) AS total_reserved
             FROM products p
             LEFT JOIN inventory_balances b ON b.product_id = p.id
-            WHERE p.sku LIKE ? OR p.name LIKE ? OR p.brand LIKE ?
+            LEFT JOIN cells stock_cell ON stock_cell.id = b.cell_id
+            WHERE p.active = 1
+              AND (p.sku LIKE ? OR p.name LIKE ? OR p.brand LIKE ?)
             GROUP BY p.id
             ORDER BY p.name
           `,
@@ -21,11 +30,21 @@ export function createProductRepository(db) {
     },
 
     findById(productId) {
-      return db.prepare("SELECT * FROM products WHERE id = ?").get(Number(productId)) || null;
+      return db
+        .prepare("SELECT * FROM products WHERE id = ? AND active = 1")
+        .get(Number(productId)) || null;
     },
 
     findBySku(sku) {
-      return db.prepare("SELECT * FROM products WHERE sku = ?").get(String(sku || "").trim()) || null;
+      return db
+        .prepare("SELECT * FROM products WHERE LOWER(sku) = LOWER(?) AND active = 1")
+        .get(String(sku || "").trim()) || null;
+    },
+
+    findAnyBySku(sku) {
+      return db
+        .prepare("SELECT * FROM products WHERE LOWER(sku) = LOWER(?)")
+        .get(String(sku || "").trim()) || null;
     },
 
     getDetail(productId) {
@@ -34,10 +53,18 @@ export function createProductRepository(db) {
           `
             SELECT
               p.*,
-              COALESCE(SUM(b.available_quantity), 0) AS total_available
+              COALESCE(
+                SUM(CASE WHEN stock_cell.active = 1 THEN b.available_quantity ELSE 0 END),
+                0
+              ) AS total_available,
+              COALESCE(
+                SUM(CASE WHEN stock_cell.active = 1 THEN b.reserved_quantity ELSE 0 END),
+                0
+              ) AS total_reserved
             FROM products p
             LEFT JOIN inventory_balances b ON b.product_id = p.id
-            WHERE p.id = ?
+            LEFT JOIN cells stock_cell ON stock_cell.id = b.cell_id
+            WHERE p.id = ? AND p.active = 1
             GROUP BY p.id
           `,
         )
@@ -57,7 +84,7 @@ export function createProductRepository(db) {
               COALESCE(b.available_quantity, 0) AS available_quantity
             FROM inventory_balances b
             JOIN cells c ON c.id = b.cell_id
-            WHERE b.product_id = ? AND b.available_quantity > 0
+            WHERE b.product_id = ? AND b.available_quantity > 0 AND c.active = 1
             ORDER BY c.row_number, c.column_number
           `,
         )
@@ -107,6 +134,98 @@ export function createProductRepository(db) {
           `,
         )
         .run(itemsPerCell, Number(productId));
+    },
+
+    updateDetails(productId, input) {
+      db
+        .prepare(
+          `
+            UPDATE products
+            SET
+              name = ?,
+              brand = ?,
+              category = ?,
+              variant = ?,
+              unit_of_measure = ?,
+              description = ?,
+              preferred_storage_strategy = ?
+            WHERE id = ? AND active = 1
+          `,
+        )
+        .run(
+          input.name,
+          input.brand,
+          input.category || null,
+          input.variant || null,
+          input.unit_of_measure,
+          input.description || null,
+          input.preferred_storage_strategy || "closest-cell-first",
+          Number(productId),
+        );
+
+      return this.findById(Number(productId));
+    },
+
+    restore(productId, input) {
+      db
+        .prepare(
+          `
+            UPDATE products
+            SET
+              name = ?,
+              brand = ?,
+              category = ?,
+              variant = ?,
+              unit_of_measure = ?,
+              description = ?,
+              preferred_storage_strategy = ?,
+              items_per_cell = ?,
+              active = 1
+            WHERE id = ?
+          `,
+        )
+        .run(
+          input.name,
+          input.brand,
+          input.category || null,
+          input.variant || null,
+          input.unit_of_measure,
+          input.description || null,
+          input.preferred_storage_strategy || "closest-cell-first",
+          input.items_per_cell,
+          Number(productId),
+        );
+
+      return this.findById(Number(productId));
+    },
+
+    stockTotals(productId) {
+      return db
+        .prepare(
+          `
+            SELECT
+              COALESCE(SUM(CASE WHEN c.active = 1 THEN b.available_quantity ELSE 0 END), 0) AS active_available,
+              COALESCE(SUM(CASE WHEN c.active = 1 THEN b.reserved_quantity ELSE 0 END), 0) AS active_reserved,
+              COALESCE(SUM(b.available_quantity), 0) AS total_available,
+              COALESCE(SUM(b.reserved_quantity), 0) AS total_reserved
+            FROM inventory_balances b
+            LEFT JOIN cells c ON c.id = b.cell_id
+            WHERE b.product_id = ?
+          `,
+        )
+        .get(Number(productId));
+    },
+
+    deactivate(productId) {
+      return db
+        .prepare(
+          `
+            UPDATE products
+            SET active = 0
+            WHERE id = ? AND active = 1
+          `,
+        )
+        .run(Number(productId));
     },
   };
 }

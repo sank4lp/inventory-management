@@ -1,8 +1,11 @@
 import { randomBytes } from "node:crypto";
 
 import { updateControllerHealth } from "./inventory.js";
+import {
+  readPendingReviewTimeoutSettings,
+  savePendingReviewTimeoutSettings,
+} from "./task-timeout-settings.js";
 
-const PENDING_REVIEW_TIMEOUT_MS = 5 * 60 * 1000;
 const CONTROLLER_QUICK_RETRY_MS = 30 * 1000;
 const CONTROLLER_QUICK_RETRY_LIMIT = 3;
 const CONTROLLER_SLOW_RETRY_MS = 5 * 60 * 1000;
@@ -374,10 +377,11 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
 
   function cancelStalePendingReviewTasks({
     now = new Date(),
-    timeoutMs = PENDING_REVIEW_TIMEOUT_MS,
+    timeoutMs = null,
   } = {}) {
     const currentTime = now instanceof Date ? now : new Date(now);
-    const cutoff = new Date(currentTime.getTime() - timeoutMs).toISOString();
+    const configuredTimeoutMs = timeoutMs ?? readPendingReviewTimeoutSettings(db).timeoutMs;
+    const cutoff = new Date(currentTime.getTime() - configuredTimeoutMs).toISOString();
     const cancelledTaskIds = [];
     const rows = db
       .prepare(
@@ -415,7 +419,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         message: `Cancelled stale pending review task #${task.id}.`,
         payload: {
           taskId: task.id,
-          timeoutMs,
+          timeoutMs: configuredTimeoutMs,
           lastTouchedAt: task.last_touched_at || task.started_at,
           degraded: clearResult.degraded,
           adapter: hardwareService.adapterName,
@@ -426,11 +430,36 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     if (cancelledTaskIds.length) {
       logger.info("task.pending_review.timeout_cancelled", {
         cancelledTaskIds,
-        timeoutMs,
+        timeoutMs: configuredTimeoutMs,
       });
     }
 
     return cancelledTaskIds;
+  }
+
+  function getPendingReviewTimeoutSettings() {
+    return readPendingReviewTimeoutSettings(db);
+  }
+
+  function updatePendingReviewTimeout({ timeoutMinutes, updatedBy = null, now = new Date() } = {}) {
+    const settings = savePendingReviewTimeoutSettings(db, {
+      timeoutMinutes,
+      now,
+    });
+    recordSystemEvent({
+      eventType: "pending_review_timeout_setting_updated",
+      status: "info",
+      message: `Task completion timeout set to ${settings.timeoutMinutes} minute(s).`,
+      payload: {
+        timeoutMinutes: settings.timeoutMinutes,
+        updatedBy,
+      },
+    });
+    logger.info("task.pending_review.timeout_updated", {
+      timeoutMinutes: settings.timeoutMinutes,
+      updatedBy,
+    });
+    return settings;
   }
 
   function issueSubmissionToken({ scope, taskId = null, userId = null }) {
@@ -527,6 +556,8 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     runStartupChecks,
     recoverPendingGuidance,
     cancelStalePendingReviewTasks,
+    getPendingReviewTimeoutSettings,
+    updatePendingReviewTimeout,
     issueSubmissionToken,
     consumeSubmissionToken,
     healthSummary,

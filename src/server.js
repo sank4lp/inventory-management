@@ -67,6 +67,12 @@ const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
 
 getAppState();
 
+function requestWantsJson(request) {
+  const accept = String(request.headers.accept || "").toLowerCase();
+  const requestedWith = String(request.headers["x-requested-with"] || "").toLowerCase();
+  return requestedWith === "fetch" || accept.includes("application/json");
+}
+
 function putCapacityRetryPath(form) {
   const retryPath = movementRetryPath("/put", form);
   return `${retryPath}${retryPath.includes("?") ? "&" : "?"}capacity_help=1`;
@@ -390,6 +396,51 @@ export const requestHandler = async (request, response) => {
         response,
         appendFlash(returnTo, nextFlash.message, nextFlash.tone),
       );
+      return;
+    }
+
+    const productDetailsMatch = url.pathname.match(/^\/products\/(\d+)\/details$/);
+    if (request.method === "POST" && productDetailsMatch) {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const productId = Number(productDetailsMatch[1]);
+      const form = await parseForm(request);
+      try {
+        catalogService.updateProductDetails({
+          productId,
+          name: form.name,
+          brand: form.brand,
+          category: form.category,
+          variant: form.variant,
+          unit_of_measure: form.unit_of_measure,
+          description: form.description,
+        });
+      } catch (error) {
+        sendRedirect(response, appendFlash(`/products/${productId}`, error.message, "error"));
+        return;
+      }
+      const backupResult = createAutomaticBackup("product-details-update");
+      const nextFlash = backupAwareFlash("Product details updated.", "success", backupResult);
+      sendRedirect(response, appendFlash(`/products/${productId}`, nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    const productDeleteMatch = url.pathname.match(/^\/products\/(\d+)\/delete$/);
+    if (request.method === "POST" && productDeleteMatch) {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const productId = Number(productDeleteMatch[1]);
+      try {
+        catalogService.removeProduct(productId);
+      } catch (error) {
+        sendRedirect(response, appendFlash(`/products/${productId}`, error.message, "error"));
+        return;
+      }
+      const backupResult = createAutomaticBackup("product-remove");
+      const nextFlash = backupAwareFlash("Product removed from the active catalog.", "success", backupResult);
+      sendRedirect(response, appendFlash("/products", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -1186,23 +1237,42 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/devices/cell-test") {
-      if (!ensureAdmin(response, user)) {
+      const wantsJson = requestWantsJson(request);
+      if (wantsJson ? !ensureApiAdmin(response, user) : !ensureAdmin(response, user)) {
         return;
       }
       const form = await parseForm(request);
       const cell = locationService.listCellCatalog().find((entry) => entry.id === Number(form.cell_id));
       if (!cell) {
+        if (wantsJson) {
+          sendJson(response, { error: "Cell not found." }, 404);
+          return;
+        }
         throw new Error("Cell not found.");
       }
       const result = hardwareService.sendCellTest(cell, form.color || "green");
+      const message = result.degraded
+        ? `Light test skipped for ${cell.logical_code}. Manual mode is active.`
+        : `Light test sent for ${cell.logical_code}.`;
+      if (wantsJson) {
+        sendJson(response, {
+          ok: result.ok,
+          degraded: result.degraded,
+          message,
+          cell: {
+            id: cell.id,
+            logicalCode: cell.logical_code,
+            hardwareChannel: cell.hardware_channel,
+          },
+        });
+        return;
+      }
       const returnTo = safeLocalPath(form.return_to, "/devices#cell-mapping");
       sendRedirect(
         response,
         appendFlash(
           returnTo,
-          result.degraded
-            ? `Light test skipped for ${cell.logical_code}. Manual mode is active.`
-            : `Light test sent for ${cell.logical_code}.`,
+          message,
           result.degraded ? "warning" : "success",
         ),
       );
@@ -1377,6 +1447,26 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/admin/task-timeout") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const settings = systemService.updatePendingReviewTimeout({
+        timeoutMinutes: form.timeout_minutes,
+        updatedBy: user.id,
+      });
+      systemService.cancelStalePendingReviewTasks();
+      const backupResult = createAutomaticBackup("task-timeout-update");
+      const nextFlash = backupAwareFlash(
+        `Task completion timeout saved: ${settings.timeoutMinutes} minute(s).`,
+        "success",
+        backupResult,
+      );
+      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/admin/adjustments/cell-products") {
       if (!ensureApiAdmin(response, user)) {
         return;
@@ -1479,7 +1569,7 @@ export const requestHandler = async (request, response) => {
 
     sendHtml(response, pages.renderNotFound(user), 404);
   } catch (error) {
-    if (url.pathname.startsWith("/api/")) {
+    if (url.pathname.startsWith("/api/") || requestWantsJson(request)) {
       sendJson(response, { error: error.message }, 400);
       return;
     }

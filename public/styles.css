@@ -1185,6 +1185,11 @@ body.modal-open .page-shell {
   gap: 10px;
 }
 
+.content-stack {
+  display: grid;
+  gap: 14px;
+}
+
 .stack-form {
   flex-direction: column;
 }

@@ -4,6 +4,7 @@ import {
   listRegistrationKeys,
   listUsers,
 } from "../../services/inventory.js";
+import { readPendingReviewTimeoutSettings } from "../../services/task-timeout-settings.js";
 import {
   card,
   cellPickerField,
@@ -16,6 +17,7 @@ import {
   renderAdjustmentLine,
   rolePickerField,
   statusBadge,
+  suspendIcon,
   table,
   trashIcon,
 } from "./shared.js";
@@ -97,6 +99,7 @@ export function createAdminPages({ db }) {
       ? "Suspend this reusable operator registration key? New users will no longer be able to register with it."
       : "Delete this registration key? New users will no longer be able to register with it.";
     const label = `${reusable ? "Suspend" : "Delete"} registration key ${key.key_value}`;
+    const actionIcon = reusable ? suspendIcon() : trashIcon();
 
     return `
       <div class="mini-actions">
@@ -115,7 +118,7 @@ export function createAdminPages({ db }) {
             aria-label="${escapeHtml(label)}"
             title="${escapeHtml(label)}"
             onclick="return confirm(${escapeHtml(JSON.stringify(confirmText))});"
-          >${trashIcon()}</button>
+          >${actionIcon}</button>
         </form>
       </div>
     `;
@@ -159,6 +162,38 @@ export function createAdminPages({ db }) {
         >${escapeHtml(label)}</button>
       </form>
     `;
+  }
+
+  function renderTaskTimeoutSettings() {
+    const settings = readPendingReviewTimeoutSettings(db);
+    return card(
+      "Task Completion Timeout",
+      `
+        <form method="post" action="/admin/task-timeout" class="stack-form">
+          <div class="meta-grid compact-meta-grid">
+            <div><strong>Current Wait</strong><br />${escapeHtml(String(settings.timeoutMinutes))} Minute(s)</div>
+            <div><strong>Default</strong><br />${escapeHtml(String(settings.defaultMinutes))} Minute(s)</div>
+            <div><strong>Range</strong><br />${escapeHtml(String(settings.minMinutes))}-${escapeHtml(String(settings.maxMinutes))} Minute(s)</div>
+            <div><strong>Last Updated</strong><br />${
+              settings.updatedAt ? escapeHtml(formatDate(settings.updatedAt)) : "Default Setting"
+            }</div>
+          </div>
+          <label>Complete Task Wait Time
+            <input
+              type="number"
+              name="timeout_minutes"
+              min="${escapeHtml(String(settings.minMinutes))}"
+              max="${escapeHtml(String(settings.maxMinutes))}"
+              step="1"
+              value="${escapeHtml(String(settings.timeoutMinutes))}"
+              required
+            />
+          </label>
+          <p class="muted">Pick and Put tasks waiting for Complete Task are cancelled after this many minutes from the last operator action.</p>
+          <button type="submit" class="blue-button">Save Timeout</button>
+        </form>
+      `,
+    );
   }
 
   function renderAdmin(user, flash) {
@@ -207,48 +242,50 @@ export function createAdminPages({ db }) {
         ${card(
           "Registration Keys",
           `
-            <p class="muted">Create one one-time key per person. The key sets the account role during registration and becomes used after that person creates an account.</p>
-            <div class="key-quick-actions">
-              <form method="post" action="/admin/registration-keys" class="inline-form">
-                <input type="hidden" name="role" value="operator" />
-                <button type="submit" class="blue-button">Generate Operator Key</button>
-              </form>
-              <form method="post" action="/admin/registration-keys" class="inline-form">
-                <input type="hidden" name="role" value="operator" />
-                <input type="hidden" name="usage_policy" value="global" />
-                <button type="submit" class="green-button">Generate Global Operator Key</button>
-              </form>
-              <form method="post" action="/admin/registration-keys" class="inline-form">
-                <input type="hidden" name="role" value="admin" />
-                <button type="submit" class="ghost-button">Generate Admin Key</button>
-              </form>
+            <div class="content-stack">
+              <p class="muted">Create one one-time key per person. The key sets the account role during registration and becomes used after that person creates an account.</p>
+              <div class="key-quick-actions">
+                <form method="post" action="/admin/registration-keys" class="inline-form">
+                  <input type="hidden" name="role" value="operator" />
+                  <button type="submit" class="blue-button">Generate Operator Key</button>
+                </form>
+                <form method="post" action="/admin/registration-keys" class="inline-form">
+                  <input type="hidden" name="role" value="operator" />
+                  <input type="hidden" name="usage_policy" value="global" />
+                  <button type="submit" class="green-button">Generate Global Operator Key</button>
+                </form>
+                <form method="post" action="/admin/registration-keys" class="inline-form">
+                  <input type="hidden" name="role" value="admin" />
+                  <button type="submit" class="ghost-button">Generate Admin Key</button>
+                </form>
+              </div>
+              <details class="form-disclosure">
+                <summary>Use A Custom Key Value</summary>
+                <form method="post" action="/admin/registration-keys" class="stack-form">
+                  <label>Key Value<input name="key_value" placeholder="INVITE-AKSHAY-2026" /></label>
+                  <label>Role
+                    ${rolePickerField()}
+                  </label>
+                  <label class="checkbox-line">
+                    <input type="checkbox" name="usage_policy" value="global" />
+                    Global Operator Team Key
+                  </label>
+                  <button type="submit">Issue Custom Key</button>
+                </form>
+              </details>
+              <div class="copy-status" data-copy-status role="status" aria-live="polite"></div>
+              ${table(
+                ["Key", "Role", "Type", "Usage", "Status", "Action"],
+                keys.map((key) => [
+                  `<code>${escapeHtml(key.key_value)}</code>`,
+                  statusBadge(key.role),
+                  registrationKeyTypeLabel(key),
+                  escapeHtml(registrationKeyUsageLabel(key)),
+                  statusBadge(key.status),
+                  renderRegistrationKeyActions(key),
+                ]),
+              )}
             </div>
-            <details class="form-disclosure">
-              <summary>Use A Custom Key Value</summary>
-              <form method="post" action="/admin/registration-keys" class="stack-form">
-                <label>Key Value<input name="key_value" placeholder="INVITE-AKSHAY-2026" /></label>
-                <label>Role
-                  ${rolePickerField()}
-                </label>
-                <label class="checkbox-line">
-                  <input type="checkbox" name="usage_policy" value="global" />
-                  Global Operator Team Key
-                </label>
-                <button type="submit">Issue Custom Key</button>
-              </form>
-            </details>
-            <div class="copy-status" data-copy-status role="status" aria-live="polite"></div>
-            ${table(
-              ["Key", "Role", "Type", "Usage", "Status", "Action"],
-              keys.map((key) => [
-                `<code>${escapeHtml(key.key_value)}</code>`,
-                statusBadge(key.role),
-                registrationKeyTypeLabel(key),
-                escapeHtml(registrationKeyUsageLabel(key)),
-                statusBadge(key.status),
-                renderRegistrationKeyActions(key),
-              ]),
-            )}
           `,
           "",
           `data-row-collapser data-row-limit="4" data-row-label="keys"`,
@@ -277,6 +314,7 @@ export function createAdminPages({ db }) {
       content: `
         ${accessManagementSection}
         ${countAdjustmentCard}
+        ${renderTaskTimeoutSettings()}
         ${
           dashboard
             ? card(
