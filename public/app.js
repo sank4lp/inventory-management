@@ -588,18 +588,33 @@ function wireNavOverflow() {
       return;
     }
 
-    const isOverflowing = () => nav.scrollWidth > nav.clientWidth + 1;
-    if (!isOverflowing()) {
+    const styles = window.getComputedStyle(nav);
+    const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
+    const navWidth = nav.getBoundingClientRect().width;
+    const linkWidths = links.map((link) => link.getBoundingClientRect().width);
+    const linksWidth = (count) =>
+      linkWidths.slice(0, count).reduce((sum, width) => sum + width, 0) +
+      Math.max(0, count - 1) * gap;
+    const allLinksWidth = linksWidth(links.length);
+
+    if (allLinksWidth <= navWidth) {
       return;
     }
 
     overflow.hidden = false;
-    const hiddenLinks = [];
-    for (let index = links.length - 1; index >= 0 && isOverflowing(); index -= 1) {
-      links[index].hidden = true;
-      hiddenLinks.unshift(links[index]);
+    const overflowWidth = overflow.getBoundingClientRect().width;
+    let visibleCount = links.length;
+    while (
+      visibleCount > 0 &&
+      linksWidth(visibleCount) + gap + overflowWidth > navWidth
+    ) {
+      visibleCount -= 1;
     }
 
+    links.forEach((link, index) => {
+      link.hidden = index >= visibleCount;
+    });
+    const hiddenLinks = links.slice(visibleCount);
     renderOverflowMenu(hiddenLinks);
   };
 
@@ -2873,6 +2888,7 @@ function wireCellMappingForm() {
         return;
       }
       if (event.target.matches?.("[data-led-command-form]")) {
+        state.allowNavigation = true;
         return;
       }
 
