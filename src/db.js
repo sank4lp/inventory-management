@@ -502,7 +502,44 @@ function seedProducts(db) {
   }
 }
 
-function seedInventory(db) {
+const LEGACY_DEMO_INVENTORY_CLEANUP_KEY = "legacy_demo_inventory_cleanup_at";
+const DEMO_INVENTORY_SEEDS = [
+  { sku: "SKU-SHOE-001", cell: "Z1-R1-C01", qty: 3 },
+  { sku: "SKU-SHOE-001", cell: "Z1-R1-C02", qty: 3 },
+  { sku: "SKU-SHOE-001", cell: "Z1-R1-C03", qty: 2 },
+  { sku: "SKU-TEE-002", cell: "Z1-R1-C04", qty: 6 },
+  { sku: "SKU-TEE-002", cell: "Z1-R1-C05", qty: 4 },
+  { sku: "ARMY-AMMO-023", cell: "Z1-R1-C06", qty: 5 },
+  { sku: "ARMY-AMMO-024", cell: "Z1-R1-C07", qty: 6 },
+  { sku: "ARMY-HELM-004", cell: "Z1-R1-C08", qty: 4 },
+  { sku: "ARMY-GLOV-005", cell: "Z1-R1-C09", qty: 7 },
+  { sku: "ARMY-MED-006", cell: "Z1-R1-C10", qty: 8 },
+  { sku: "ARMY-RAT-007", cell: "Z1-R1-C11", qty: 10 },
+  { sku: "ARMY-CANT-008", cell: "Z1-R1-C12", qty: 9 },
+  { sku: "ARMY-BATT-009", cell: "Z1-R1-C13", qty: 11 },
+  { sku: "ARMY-LAMP-010", cell: "Z1-R1-C14", qty: 6 },
+  { sku: "ARMY-PON-011", cell: "Z1-R1-C15", qty: 5 },
+  { sku: "ARMY-NET-012", cell: "Z1-R1-C16", qty: 2 },
+  { sku: "ARMY-ROPE-013", cell: "Z1-R1-C17", qty: 7 },
+  { sku: "ARMY-TOOL-014", cell: "Z1-R1-C18", qty: 3 },
+  { sku: "ARMY-BAND-015", cell: "Z1-R1-C19", qty: 12 },
+  { sku: "ARMY-FLAR-016", cell: "Z1-R1-C20", qty: 4 },
+  { sku: "ARMY-PURE-017", cell: "Z1-R1-C21", qty: 10 },
+  { sku: "ARMY-COMP-018", cell: "Z1-R1-C22", qty: 6 },
+  { sku: "ARMY-BINO-019", cell: "Z1-R1-C23", qty: 3 },
+  { sku: "ARMY-CLEAN-020", cell: "Z1-R1-C24", qty: 5 },
+  { sku: "ARMY-COVER-021", cell: "Z1-R1-C25", qty: 8 },
+  { sku: "ARMY-NOTE-022", cell: "Z1-R1-C26", qty: 9 },
+  { sku: "SKU-BOX-003", cell: "Z1-R1-C27", qty: 8 },
+  { sku: "ARMY-SLEEP-025", cell: "Z1-R2-C01", qty: 4 },
+  { sku: "ARMY-RAT-007", cell: "Z1-R2-C02", qty: 9 },
+  { sku: "ARMY-CANT-008", cell: "Z1-R2-C03", qty: 7 },
+  { sku: "ARMY-MED-006", cell: "Z1-R2-C04", qty: 5 },
+  { sku: "ARMY-GLOV-005", cell: "Z1-R2-C05", qty: 6 },
+  { sku: "ARMY-CLEAN-020", cell: "Z1-R2-C06", qty: 4 },
+];
+
+function demoInventorySeedRows(db) {
   const productRows = db
     .prepare("SELECT id, sku FROM products ORDER BY id")
     .all();
@@ -510,48 +547,18 @@ function seedInventory(db) {
     .prepare("SELECT id, logical_code FROM cells ORDER BY row_number, column_number")
     .all();
 
-  const seedPairs = [
-    { sku: "SKU-SHOE-001", cell: "Z1-R1-C01", qty: 3 },
-    { sku: "SKU-SHOE-001", cell: "Z1-R1-C02", qty: 3 },
-    { sku: "SKU-SHOE-001", cell: "Z1-R1-C03", qty: 2 },
-    { sku: "SKU-TEE-002", cell: "Z1-R1-C04", qty: 6 },
-    { sku: "SKU-TEE-002", cell: "Z1-R1-C05", qty: 4 },
-    { sku: "ARMY-AMMO-023", cell: "Z1-R1-C06", qty: 5 },
-    { sku: "ARMY-AMMO-024", cell: "Z1-R1-C07", qty: 6 },
-    { sku: "ARMY-HELM-004", cell: "Z1-R1-C08", qty: 4 },
-    { sku: "ARMY-GLOV-005", cell: "Z1-R1-C09", qty: 7 },
-    { sku: "ARMY-MED-006", cell: "Z1-R1-C10", qty: 8 },
-    { sku: "ARMY-RAT-007", cell: "Z1-R1-C11", qty: 10 },
-    { sku: "ARMY-CANT-008", cell: "Z1-R1-C12", qty: 9 },
-    { sku: "ARMY-BATT-009", cell: "Z1-R1-C13", qty: 11 },
-    { sku: "ARMY-LAMP-010", cell: "Z1-R1-C14", qty: 6 },
-    { sku: "ARMY-PON-011", cell: "Z1-R1-C15", qty: 5 },
-    { sku: "ARMY-NET-012", cell: "Z1-R1-C16", qty: 2 },
-    { sku: "ARMY-ROPE-013", cell: "Z1-R1-C17", qty: 7 },
-    { sku: "ARMY-TOOL-014", cell: "Z1-R1-C18", qty: 3 },
-    { sku: "ARMY-BAND-015", cell: "Z1-R1-C19", qty: 12 },
-    { sku: "ARMY-FLAR-016", cell: "Z1-R1-C20", qty: 4 },
-    { sku: "ARMY-PURE-017", cell: "Z1-R1-C21", qty: 10 },
-    { sku: "ARMY-COMP-018", cell: "Z1-R1-C22", qty: 6 },
-    { sku: "ARMY-BINO-019", cell: "Z1-R1-C23", qty: 3 },
-    { sku: "ARMY-CLEAN-020", cell: "Z1-R1-C24", qty: 5 },
-    { sku: "ARMY-COVER-021", cell: "Z1-R1-C25", qty: 8 },
-    { sku: "ARMY-NOTE-022", cell: "Z1-R1-C26", qty: 9 },
-    { sku: "SKU-BOX-003", cell: "Z1-R1-C27", qty: 8 },
-    { sku: "ARMY-SLEEP-025", cell: "Z1-R2-C01", qty: 4 },
-    { sku: "ARMY-RAT-007", cell: "Z1-R2-C02", qty: 9 },
-    { sku: "ARMY-CANT-008", cell: "Z1-R2-C03", qty: 7 },
-    { sku: "ARMY-MED-006", cell: "Z1-R2-C04", qty: 5 },
-    { sku: "ARMY-GLOV-005", cell: "Z1-R2-C05", qty: 6 },
-    { sku: "ARMY-CLEAN-020", cell: "Z1-R2-C06", qty: 4 },
-  ];
+  return DEMO_INVENTORY_SEEDS.map((seed) => ({
+    ...seed,
+    product: productRows.find((item) => item.sku === seed.sku) || null,
+    cell: cellRows.find((item) => item.logical_code === seed.cell) || null,
+  })).filter((seed) => seed.product && seed.cell);
+}
 
-  for (const seed of seedPairs) {
-    const product = productRows.find((item) => item.sku === seed.sku);
-    const cell = cellRows.find((item) => item.logical_code === seed.cell);
+function seedInventory(db) {
+  for (const seed of demoInventorySeedRows(db)) {
     const existing = db
       .prepare("SELECT id FROM inventory_balances WHERE product_id = ? AND cell_id = ?")
-      .get(product.id, cell.id);
+      .get(seed.product.id, seed.cell.id);
 
     if (!existing) {
       db.prepare(
@@ -559,9 +566,52 @@ function seedInventory(db) {
           INSERT INTO inventory_balances (product_id, cell_id, available_quantity, reserved_quantity)
           VALUES (?, ?, ?, 0)
         `,
-      ).run(product.id, cell.id, seed.qty);
+      ).run(seed.product.id, seed.cell.id, seed.qty);
     }
   }
+}
+
+function cleanupLegacyDemoInventory(db) {
+  const alreadyRan = db
+    .prepare("SELECT value FROM app_metadata WHERE key = ?")
+    .get(LEGACY_DEMO_INVENTORY_CLEANUP_KEY);
+  if (alreadyRan) {
+    return;
+  }
+
+  for (const seed of demoInventorySeedRows(db)) {
+    db.prepare(
+      `
+        DELETE FROM inventory_balances
+        WHERE product_id = ?
+          AND cell_id = ?
+          AND available_quantity = ?
+          AND reserved_quantity = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM transactions WHERE product_id = ? AND cell_id = ?
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_lines WHERE product_id = ? AND cell_id = ?
+          )
+      `,
+    ).run(
+      seed.product.id,
+      seed.cell.id,
+      seed.qty,
+      seed.product.id,
+      seed.cell.id,
+      seed.product.id,
+      seed.cell.id,
+    );
+  }
+
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(LEGACY_DEMO_INVENTORY_CLEANUP_KEY, nowIso(), nowIso());
 }
 
 function initializeSchema(db) {
@@ -750,6 +800,7 @@ function initializeSchema(db) {
   ensureColumn(db, "controllers", "module_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "controllers", "configured_at", "TEXT");
   ensureColumn(db, "controllers", "configured_by", "INTEGER REFERENCES users(id)");
+  ensureColumn(db, "users", "last_active_at", "TEXT");
   ensureColumn(db, "tasks", "last_touched_at", "TEXT");
   db.prepare(
     `
@@ -801,6 +852,10 @@ export function createDatabase(authHelpers) {
   }
   seedWarehouse(db);
   seedProducts(db);
-  seedInventory(db);
+  if (authHelpers.allowDemoInventorySeed === false) {
+    cleanupLegacyDemoInventory(db);
+  } else {
+    seedInventory(db);
+  }
   return db;
 }

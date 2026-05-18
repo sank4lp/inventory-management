@@ -96,6 +96,7 @@ function buildAppState() {
     hashPassword,
     bootstrapAdmin: appConfig.bootstrapAdmin,
     allowDevAuthSeeds: appConfig.allowDevAuthSeeds,
+    allowDemoInventorySeed: appConfig.allowDemoInventorySeed,
   });
   const hardwareService = createHardwareService({
     db,

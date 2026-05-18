@@ -832,12 +832,74 @@ export function listUsers(db) {
   return db
     .prepare(
       `
-        SELECT id, name, username, role, status, created_at
+        SELECT id, name, username, role, status, created_at, last_active_at
         FROM users
         ORDER BY role DESC, username
       `,
     )
     .all();
+}
+
+export function updateUserLastActive(db, userId, activeAt = nowIso()) {
+  const cutoff = new Date(new Date(activeAt).getTime() - 60 * 1000).toISOString();
+  db.prepare(
+    `
+      UPDATE users
+      SET last_active_at = ?
+      WHERE id = ?
+        AND (
+          last_active_at IS NULL
+          OR last_active_at < ?
+        )
+    `,
+  ).run(activeAt, Number(userId), cutoff);
+}
+
+export function getUserProfile(db, userId) {
+  const profile = db
+    .prepare(
+      `
+        SELECT id, name, username, role, status, created_at, last_active_at
+        FROM users
+        WHERE id = ?
+      `,
+    )
+    .get(Number(userId));
+  if (!profile) {
+    return null;
+  }
+
+  const activity = db
+    .prepare(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM tasks WHERE created_by = ?) AS tasks_created,
+          (SELECT COUNT(*) FROM tasks WHERE created_by = ? AND status = 'completed') AS tasks_completed,
+          (SELECT COUNT(*) FROM transactions WHERE user_id = ?) AS transactions_recorded,
+          (
+            SELECT MAX(COALESCE(completed_at, started_at))
+            FROM tasks
+            WHERE created_by = ?
+          ) AS last_task_at,
+          (
+            SELECT MAX(created_at)
+            FROM transactions
+            WHERE user_id = ?
+          ) AS last_transaction_at
+      `,
+    )
+    .get(profile.id, profile.id, profile.id, profile.id, profile.id);
+
+  return {
+    ...profile,
+    activity: {
+      tasksCreated: Number(activity.tasks_created || 0),
+      tasksCompleted: Number(activity.tasks_completed || 0),
+      transactionsRecorded: Number(activity.transactions_recorded || 0),
+      lastTaskAt: activity.last_task_at || null,
+      lastTransactionAt: activity.last_transaction_at || null,
+    },
+  };
 }
 
 export function listRegistrationKeys(db) {

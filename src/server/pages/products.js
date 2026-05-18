@@ -22,6 +22,9 @@ import {
 } from "./shared.js";
 
 const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
+const LOW_STOCK_HISTORY_DAYS = 30;
+const LOW_STOCK_SIGNIFICANT_RATIO = 0.6;
+const LOW_STOCK_MIN_AVERAGE = 5;
 
 export function createProductPages({ db }) {
   function uniquePositiveQuantities(values) {
@@ -208,8 +211,23 @@ export function createProductPages({ db }) {
       `${escapeHtml(product.name)}<br /><small>${escapeHtml(product.brand)}</small>`,
       escapeHtml(formatQuantity(product.total_available)),
       escapeHtml(product.unit_of_measure),
-      escapeHtml(formatQuantity(product.items_per_cell)),
+      escapeHtml(formatQuantity(product.stock_30_day_average || 0)),
+      escapeHtml(productStockStatusLabel(product)),
     ]);
+  }
+
+  function productStockStatusLabel(product) {
+    const currentStock = Number(product.total_available || 0);
+    if (currentStock <= 0) {
+      return "Out of stock";
+    }
+    if (product.is_low_stock) {
+      return `Low (${formatQuantity(product.stock_shortfall_percent)}% below 30-day average)`;
+    }
+    if (Number(product.stock_30_day_transaction_count || 0) > 0) {
+      return "Within 30-day range";
+    }
+    return "No 30-day movement";
   }
 
   function productReportTemplate(report, generatedAt, reportFormat) {
@@ -239,7 +257,7 @@ export function createProductPages({ db }) {
             </dl>
           </header>
           ${table(
-            ["SKU", "Name", "Available", "Unit", "Items/cell"],
+            ["SKU", "Name", "Available", "Unit", "30-day avg", "Status"],
             productStatusRows(report.products),
             report.emptyMessage,
           )}
@@ -303,16 +321,93 @@ export function createProductPages({ db }) {
     `;
   }
 
+  function enrichProductsWithStockTrends(products) {
+    if (!products.length) {
+      return products;
+    }
+
+    const now = new Date();
+    const windowMs = LOW_STOCK_HISTORY_DAYS * 24 * 60 * 60 * 1000;
+    const windowStart = new Date(now.getTime() - windowMs);
+    const transactionRows = db
+      .prepare(
+        `
+          SELECT product_id, quantity_delta, created_at
+          FROM transactions
+          WHERE created_at >= ? AND created_at <= ?
+          ORDER BY product_id, created_at, id
+        `,
+      )
+      .all(windowStart.toISOString(), now.toISOString());
+
+    const transactionsByProduct = new Map();
+    for (const row of transactionRows) {
+      const productId = Number(row.product_id);
+      const rows = transactionsByProduct.get(productId) || [];
+      rows.push(row);
+      transactionsByProduct.set(productId, rows);
+    }
+
+    return products.map((product) => {
+      const currentStock = Number(product.total_available || 0);
+      const transactions = transactionsByProduct.get(Number(product.id)) || [];
+      const windowDelta = transactions.reduce(
+        (sum, row) => sum + Number(row.quantity_delta || 0),
+        0,
+      );
+      let stockLevel = currentStock - windowDelta;
+      let lastTime = windowStart.getTime();
+      let weightedStockTotal = 0;
+
+      for (const row of transactions) {
+        const eventTime = new Date(row.created_at).getTime();
+        if (!Number.isFinite(eventTime)) {
+          continue;
+        }
+        const boundedEventTime = Math.min(Math.max(eventTime, windowStart.getTime()), now.getTime());
+        weightedStockTotal += Math.max(0, stockLevel) * Math.max(0, boundedEventTime - lastTime);
+        stockLevel += Number(row.quantity_delta || 0);
+        lastTime = Math.max(lastTime, boundedEventTime);
+      }
+
+      weightedStockTotal += Math.max(0, stockLevel) * Math.max(0, now.getTime() - lastTime);
+      const averageStock = windowMs > 0 ? weightedStockTotal / windowMs : currentStock;
+      const lowStockThreshold = averageStock * LOW_STOCK_SIGNIFICANT_RATIO;
+      const isLowStock =
+        currentStock > 0 &&
+        averageStock >= LOW_STOCK_MIN_AVERAGE &&
+        currentStock < lowStockThreshold;
+
+      return {
+        ...product,
+        stock_30_day_average: averageStock,
+        stock_30_day_transaction_count: transactions.length,
+        stock_low_stock_threshold: lowStockThreshold,
+        stock_shortfall_percent: averageStock > 0
+          ? Math.max(0, ((averageStock - currentStock) / averageStock) * 100)
+          : 0,
+        is_low_stock: isLowStock,
+      };
+    });
+  }
+
+  function productMatchesSearch(product, search) {
+    const searchLabel = String(search || "").trim().toLowerCase();
+    if (!searchLabel) {
+      return true;
+    }
+
+    return [product.sku, product.name, product.brand].some((value) =>
+      String(value || "").toLowerCase().includes(searchLabel),
+    );
+  }
+
   function renderProducts(user, flash, search, showAddProduct) {
-    const allProducts = listProducts(db);
-    const products = listProducts(db, search);
+    const allProducts = enrichProductsWithStockTrends(listProducts(db));
+    const products = allProducts.filter((product) => productMatchesSearch(product, search));
     const stockedProducts = allProducts.filter((product) => Number(product.total_available || 0) > 0);
     const outOfStockProducts = allProducts.filter((product) => Number(product.total_available || 0) <= 0);
-    const lowStockProducts = allProducts.filter(
-      (product) =>
-        Number(product.total_available || 0) > 0 &&
-        Number(product.total_available || 0) <= Number(product.items_per_cell || 0),
-    );
+    const lowStockProducts = allProducts.filter((product) => product.is_low_stock);
     const reportFormat = getReportFormatSettings(db);
     const generatedAt = new Date().toISOString();
     const productStatusReports = [
@@ -336,7 +431,7 @@ export function createProductPages({ db }) {
         key: "low-stock",
         label: "Low stock",
         title: "Low Stock Products",
-        description: "Products with stock at or below their ideal items-per-cell quantity.",
+        description: `Products currently below ${formatQuantity(LOW_STOCK_SIGNIFICANT_RATIO * 100)}% of their ${formatQuantity(LOW_STOCK_HISTORY_DAYS)}-day average stock.`,
         products: lowStockProducts,
         emptyMessage: "No products are currently low on stock.",
       },
@@ -635,8 +730,8 @@ export function createProductPages({ db }) {
     }
 
     const message = `
-      <p><strong>Can adjust more in the cell?</strong> Update the items per cell for this product.</p>
-      <p class="muted">Current capacity for ${escapeHtml(product.sku)} is ${escapeHtml(formatQuantity(product.items_per_cell))} item(s) per cell.</p>
+      <p><strong>System is already full for this product.</strong> The planner can split larger put quantities across eligible empty locations and locations already holding ${escapeHtml(product.sku)}, but there is not enough eligible room for this request.</p>
+      <p class="muted">Current planning batch for ${escapeHtml(product.sku)} is ${escapeHtml(formatQuantity(product.items_per_cell))} ${escapeHtml(product.unit_of_measure)} per location.</p>
     `;
 
     if (user.role !== "admin") {
@@ -645,13 +740,13 @@ export function createProductPages({ db }) {
           <div class="modal-panel">
             <div class="modal-header">
               <div>
-                <h2 id="put-capacity-title">Not enough cell capacity</h2>
-                <p class="muted">${escapeHtml(flash?.message || "The requested quantity cannot fit in the available cells.")}</p>
+                <h2 id="put-capacity-title">System already full</h2>
+                <p class="muted">${escapeHtml(flash?.message || "No eligible location has enough room for this put quantity.")}</p>
               </div>
               <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
             </div>
             ${message}
-            <p class="flash flash-warning">Admin access is required to update product capacity.</p>
+            <p class="flash flash-warning">Ask an admin to add or map more locations, or adjust this product's items-per-location setting if each location can physically hold more.</p>
           </div>
         </section>
       `;
@@ -662,18 +757,19 @@ export function createProductPages({ db }) {
         <div class="modal-panel">
           <div class="modal-header">
             <div>
-              <h2 id="put-capacity-title">Not enough cell capacity</h2>
-              <p class="muted">${escapeHtml(flash?.message || "The requested quantity cannot fit in the available cells.")}</p>
+              <h2 id="put-capacity-title">System already full</h2>
+              <p class="muted">${escapeHtml(flash?.message || "No eligible location has enough room for this put quantity.")}</p>
             </div>
             <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
           </div>
           ${message}
+          <p class="muted">Only increase this value if each location can physically hold more of this product.</p>
           <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form">
             <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
-            <label>Items per cell
+            <label>Items per location
               <input type="number" min="1" step="1" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
             </label>
-            <button type="submit">Update items per cell</button>
+            <button type="submit">Update items per location</button>
           </form>
         </div>
       </section>
@@ -753,7 +849,7 @@ export function createProductPages({ db }) {
                   tone: "put",
                   shortcuts: [
                     { value: 1, label: "Put one" },
-                    { value: selectedProduct?.items_per_cell, label: "Full location capacity" },
+                    { value: selectedProduct?.items_per_cell, label: "One location batch" },
                   ],
                 })}
                 <button class="blue-button" type="submit" data-led-command-submit data-led-loading-label="Creating">Create put task</button>
@@ -761,7 +857,7 @@ export function createProductPages({ db }) {
               <p class="muted">Can't find the item? <a href="/products?show_add=1">Add it to Products first</a>, then return to Put.</p>
               <p class="muted">
                 ${selectedProduct ? `Selected product: ${escapeHtml(selectedProduct.name)}. ` : ""}
-                ${selectedProduct ? `Usual capacity is ${escapeHtml(formatQuantity(selectedProduct.items_per_cell))} ${escapeHtml(selectedProduct.unit_of_measure)} per location. ` : ""}
+                ${selectedProduct ? `The planning batch is ${escapeHtml(formatQuantity(selectedProduct.items_per_cell))} ${escapeHtml(selectedProduct.unit_of_measure)} per location. You can enter a larger quantity; the system will split it across eligible locations when space is available. ` : ""}
                 ${selectedCell ? `The system will try ${escapeHtml(selectedCell.logical_code)} first, then add more cells only if needed. ` : ""}
                 After the task is created, follow the RED LED instructions and confirm where the items were placed.
               </p>

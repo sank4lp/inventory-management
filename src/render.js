@@ -101,6 +101,9 @@ function iconSvg(name, className = "ui-icon") {
       <path d="M12 3 5 6v5c0 4.4 2.8 8.3 7 10 4.2-1.7 7-5.6 7-10V6l-7-3Z" />
       <path d="M9.5 12.2 11.2 14l3.6-4" />
     `,
+    chevronDown: `
+      <path d="m6 9 6 6 6-6" />
+    `,
   };
 
   return `
@@ -140,22 +143,34 @@ function nav(user, currentTitle = "") {
             <div class="brand-title">Inventory Management</div>
           </div>
         </div>
-        <div class="nav-links">
+        <div class="nav-links" data-nav-links>
           ${links
             .map(
               ([href, label, icon]) =>
-                `<a class="${activeTitle.includes(label.toLowerCase()) || (label === "Overview" && activeTitle === "home") ? "nav-link-active" : ""}" href="${href}">${iconSvg(icon, "nav-icon")}<span>${escapeHtml(label)}</span></a>`,
+                `<a class="${activeTitle.includes(label.toLowerCase()) || (label === "Overview" && activeTitle === "home") ? "nav-link-active" : ""}" href="${href}" data-nav-link>${iconSvg(icon, "nav-icon")}<span>${escapeHtml(label)}</span></a>`,
             )
             .join("")}
+          <div class="nav-overflow" data-nav-overflow hidden>
+            <button
+              type="button"
+              class="nav-overflow-toggle"
+              data-nav-overflow-toggle
+              aria-label="Show more navigation tabs"
+              aria-expanded="false"
+            >
+              ${iconSvg("chevronDown", "nav-icon nav-overflow-icon")}
+            </button>
+            <div class="nav-overflow-menu" data-nav-overflow-menu hidden></div>
+          </div>
         </div>
         <div class="session-box">
-          <div class="session-identity">
+          <a class="session-identity" href="/profile" aria-label="Open profile for ${escapeHtml(user.name)}">
             <span class="session-avatar">${escapeHtml(user.name.charAt(0).toUpperCase())}</span>
             <div class="session-copy">
               <div class="session-name">${escapeHtml(user.name)}</div>
               <div class="session-role">${escapeHtml(user.role)}</div>
             </div>
-          </div>
+          </a>
           <form method="post" action="/logout">
             <button class="ghost-button" type="submit">Logout</button>
           </form>

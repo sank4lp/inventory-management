@@ -514,9 +514,6 @@ export function createLocationPages({ db }) {
               required
             />
           </label>
-          <label>Capacity
-            <input name="capacity" type="number" min="1" step="1" value="12" required />
-          </label>
           <button type="submit" class="ghost-button">Add location</button>
         </form>
       </section>
@@ -855,7 +852,7 @@ export function createLocationPages({ db }) {
             <a class="operation-tile" href="#cell-create" data-config-section-link="cell-create" aria-controls="cell-create">
               <span>
                 <strong>Add locations</strong>
-                Create a storage location with capacity.
+                Create a logical storage location.
               </span>
               <span class="operation-kbd">02</span>
             </a>

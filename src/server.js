@@ -52,6 +52,7 @@ import {
   PUT_CAPACITY_ERROR_MESSAGE,
   registerUser,
   searchCells,
+  updateUserLastActive,
 } from "./services/inventory.js";
 import {
   reportFormatFromForm,
@@ -188,6 +189,10 @@ export const requestHandler = async (request, response) => {
   }
 
   try {
+    if (user) {
+      updateUserLastActive(db, user.id);
+    }
+
     systemService.cancelStalePendingReviewTasks();
 
     if (request.method === "GET" && url.pathname === "/api/system/health") {
@@ -293,6 +298,14 @@ export const requestHandler = async (request, response) => {
       sendRedirect(response, "/login", {
         "Set-Cookie": clearSessionCookie(),
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/profile") {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      sendHtml(response, pages.renderProfile(user, flash));
       return;
     }
 
@@ -1231,7 +1244,6 @@ export const requestHandler = async (request, response) => {
       const form = await parseForm(request);
       const cell = locationService.createCell({
         logicalCode: form.logical_code,
-        capacity: form.capacity || 12,
         createdBy: user.id,
       });
       const backupResult = createCriticalBackup("cell-created");

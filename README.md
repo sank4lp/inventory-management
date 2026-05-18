@@ -17,7 +17,7 @@ Phase-1 local-first software implementation based on the docs in `docs/`.
 - Device, controller, and cell mapping visibility
 - Launch-priority reports with custom datetime ranges and quick presets from 1 hour to previous month
 - RS485 hardware command simulation via `stdout`
-- Seeded with a simple army-warehouse-style sample inventory
+- Seeded with a simple army-warehouse-style sample catalog; stock quantities start empty by default
 
 ## Run
 
@@ -44,6 +44,7 @@ Then open [http://localhost:3000](http://localhost:3000).
   - `WAREHOUSE_SITE_ID`
   - `LOG_LEVEL`
   - LED brightness policy vars: `LED_DAY_BRIGHTNESS_PERCENT` (default `20`), `LED_NIGHT_BRIGHTNESS_PERCENT` (default `8`), `LED_DAY_START_HOUR` (default `6`), `LED_NIGHT_START_HOUR` (default `18`)
+  - `DEMO_INVENTORY_SEED=1` if you explicitly want sample stock quantities for a throwaway demo database
   - optional production bootstrap admin vars: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD`, `BOOTSTRAP_ADMIN_NAME`
 - The seeded catalog includes items like combat boots, field uniforms, helmets, gloves, canteens, batteries, ration packs, medical pouches, and other field gear.
 - The software does not use a reservation step for stock. Inventory is either still present in the cell or it has been picked.

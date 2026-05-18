@@ -55,6 +55,7 @@ export function resolveConfig(env = process.env) {
     min: 30,
     max: 3650,
   });
+  const allowDemoInventorySeed = env.DEMO_INVENTORY_SEED === "1";
   const bootstrapAdmin =
     env.BOOTSTRAP_ADMIN_USERNAME && env.BOOTSTRAP_ADMIN_PASSWORD
       ? {
@@ -106,6 +107,7 @@ export function resolveConfig(env = process.env) {
     businessArchiveAfterDays,
     bootstrapAdmin,
     allowDevAuthSeeds: nodeEnv !== "production",
+    allowDemoInventorySeed,
   };
 }
 

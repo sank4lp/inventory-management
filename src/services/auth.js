@@ -79,7 +79,7 @@ export function getSessionUser(request, db) {
   return (
     db
       .prepare(
-        "SELECT id, name, username, role, status FROM users WHERE id = ? AND status = 'active'",
+        "SELECT id, name, username, role, status, created_at, last_active_at FROM users WHERE id = ? AND status = 'active'",
       )
       .get(payload.userId) || null
   );

@@ -1,5 +1,5 @@
 export const PUT_CAPACITY_ERROR_MESSAGE =
-  "Not enough free cells are available for this product capacity.";
+  "System is already full for this product. Eligible empty and same-product cells do not have enough remaining room.";
 
 function inventoryLine(productId, cellId, plannedQuantity, guidanceColor) {
   return {

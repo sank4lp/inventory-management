@@ -531,6 +531,112 @@ function wireNavState() {
   }
 }
 
+function wireNavOverflow() {
+  const nav = document.querySelector("[data-nav-links]");
+  if (!nav || nav.dataset.navOverflowBound === "true") {
+    return;
+  }
+
+  const links = Array.from(nav.querySelectorAll("[data-nav-link]"));
+  const overflow = nav.querySelector("[data-nav-overflow]");
+  const toggle = nav.querySelector("[data-nav-overflow-toggle]");
+  const menu = nav.querySelector("[data-nav-overflow-menu]");
+  if (!links.length || !overflow || !toggle || !menu) {
+    return;
+  }
+
+  nav.dataset.navOverflowBound = "true";
+  let layoutFrame = null;
+
+  const setOpen = (open) => {
+    const nextOpen = Boolean(open && !overflow.hidden && menu.children.length);
+    menu.hidden = !nextOpen;
+    toggle.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+  };
+
+  const renderOverflowMenu = (hiddenLinks) => {
+    menu.textContent = "";
+    for (const link of hiddenLinks) {
+      const menuLink = link.cloneNode(true);
+      menuLink.hidden = false;
+      menuLink.removeAttribute("data-nav-link");
+      menuLink.classList.add("nav-overflow-link");
+      menu.append(menuLink);
+    }
+
+    overflow.hidden = hiddenLinks.length === 0;
+    toggle.classList.toggle(
+      "nav-overflow-active",
+      hiddenLinks.some((link) => link.classList.contains("nav-link-active")),
+    );
+    if (!hiddenLinks.length) {
+      setOpen(false);
+    }
+  };
+
+  const layout = () => {
+    layoutFrame = null;
+    setOpen(false);
+    links.forEach((link) => {
+      link.hidden = false;
+    });
+    overflow.hidden = true;
+    toggle.classList.remove("nav-overflow-active");
+    menu.textContent = "";
+
+    if (!nav.clientWidth) {
+      return;
+    }
+
+    const isOverflowing = () => nav.scrollWidth > nav.clientWidth + 1;
+    if (!isOverflowing()) {
+      return;
+    }
+
+    overflow.hidden = false;
+    const hiddenLinks = [];
+    for (let index = links.length - 1; index >= 0 && isOverflowing(); index -= 1) {
+      links[index].hidden = true;
+      hiddenLinks.unshift(links[index]);
+    }
+
+    renderOverflowMenu(hiddenLinks);
+  };
+
+  const scheduleLayout = () => {
+    if (layoutFrame !== null) {
+      window.cancelAnimationFrame(layoutFrame);
+    }
+    layoutFrame = window.requestAnimationFrame(layout);
+  };
+
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setOpen(menu.hidden);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!nav.contains(event.target)) {
+      setOpen(false);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setOpen(false);
+    }
+  });
+
+  window.addEventListener("resize", scheduleLayout);
+  if ("ResizeObserver" in window) {
+    const observer = new ResizeObserver(scheduleLayout);
+    observer.observe(nav);
+    observer.observe(nav.closest(".top-nav-shell") || nav);
+  }
+  document.fonts?.ready?.then(scheduleLayout).catch(() => {});
+  scheduleLayout();
+}
+
 function wireReportsWorkspace() {
   const workspace = document.querySelector("[data-reports-workspace]");
   if (!workspace || workspace.dataset.reportsWorkspaceBound === "true") {
@@ -2689,6 +2795,8 @@ function wireCellMappingForm() {
   };
 
   const localPath = (url) => `${url.pathname}${url.search}${url.hash}`;
+  const isPhysicalLedCommand = (target) =>
+    Boolean(target?.closest?.("[data-locate-cell], [data-led-command-submit], [data-led-command-form]"));
 
   document.addEventListener("inventory:mapping-request-navigation", (event) => {
     if (!isDirty() || state.allowNavigation || state.submittingMapping) {
@@ -2734,6 +2842,9 @@ function wireCellMappingForm() {
       if (event.target.closest("[data-mapping-unsaved-modal]")) {
         return;
       }
+      if (isPhysicalLedCommand(event.target)) {
+        return;
+      }
 
       const link = event.target.closest("a[href]");
       if (!link || link.target || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -2759,6 +2870,9 @@ function wireCellMappingForm() {
     "submit",
     (event) => {
       if (!isDirty() || state.allowNavigation || state.submittingMapping || event.target === form) {
+        return;
+      }
+      if (event.target.matches?.("[data-led-command-form]")) {
         return;
       }
 
@@ -2969,6 +3083,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireToasts();
   wireCopyButtons();
   wireNavState();
+  wireNavOverflow();
   wireLiveSearch();
   wireQuantityShortcuts();
   wireCompletionRedirects();

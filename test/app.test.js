@@ -291,6 +291,144 @@ test("core inventory flows work against a fresh seeded database", async () => {
   assert.ok(actions.length > 0);
 });
 
+test("demo inventory stock can be disabled and untouched legacy sample stock is cleared", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-empty-stock-seed-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const seededDb = createDatabase({
+    hashPassword: auth.hashPassword,
+    allowDemoInventorySeed: true,
+  });
+  const shoe = inventory.listProducts(seededDb).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+  assert.ok(inventory.getProductDetail(seededDb, shoe.id).locations.length > 0);
+  seededDb.close();
+
+  const realDb = createDatabase({
+    hashPassword: auth.hashPassword,
+    allowDemoInventorySeed: false,
+  });
+  const cleanedShoe = inventory.listProducts(realDb).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(cleanedShoe);
+  assert.equal(inventory.getProductDetail(realDb, cleanedShoe.id).locations.length, 0);
+  assert.equal(
+    inventory.listCells(realDb).filter((cell) => Number(cell.occupied_quantity || 0) > 0).length,
+    0,
+  );
+
+  const putTask = inventory.planPut(realDb, {
+    userId: 1,
+    productId: cleanedShoe.id,
+    quantity: 5,
+  });
+  assert.equal(
+    putTask.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0),
+    5,
+  );
+});
+
+test("product low stock uses significant drop below thirty-day average", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-low-stock-average-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createProductPages } = await freshImport("../src/server/pages/products.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const product = inventory.createProduct(db, {
+    sku: "AVG-LOW-001",
+    name: "Average Sensitive Item",
+    brand: "Trend",
+    unit_of_measure: "pieces",
+    items_per_cell: "5",
+  });
+  const targetCell = inventory.listCells(db).find((cell) => Number(cell.occupied_quantity || 0) === 0);
+  assert.ok(targetCell);
+
+  inventory.createAdjustment(db, {
+    cellId: targetCell.id,
+    userId: 1,
+    reason: "Opening average stock",
+    lines: [
+      {
+        productId: product.id,
+        absoluteQuantity: 100,
+      },
+    ],
+  });
+  db.prepare("UPDATE transactions SET created_at = ? WHERE product_id = ? AND reason = ?").run(
+    new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString(),
+    product.id,
+    "Opening average stock",
+  );
+  inventory.createAdjustment(db, {
+    cellId: targetCell.id,
+    userId: 1,
+    reason: "Recent demand drop",
+    lines: [
+      {
+        productId: product.id,
+        absoluteQuantity: 30,
+      },
+    ],
+  });
+
+  const html = createProductPages({ db }).renderProducts(
+    { id: 1, name: "Admin", username: "admin", role: "admin" },
+    null,
+    "",
+    false,
+  );
+  const lowStockTemplate = html.match(/data-report-template="low-stock"[\s\S]*?<\/template>/)?.[0] || "";
+
+  assert.match(lowStockTemplate, /AVG-LOW-001/);
+  assert.match(lowStockTemplate, /30-day avg/);
+  assert.match(lowStockTemplate, /below 30-day average/);
+  assert.match(lowStockTemplate, /Average Sensitive Item/);
+});
+
+test("profile page shows account details and activity summary", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-profile-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createPageRenderer } = await freshImport("../src/server/pages/index.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const activeAt = "2026-01-02T03:04:05.000Z";
+  inventory.updateUserLastActive(db, 1, activeAt);
+  assert.equal(
+    db.prepare("SELECT last_active_at FROM users WHERE id = 1").get().last_active_at,
+    activeAt,
+  );
+
+  const pages = createPageRenderer({ db, backupService: null });
+  const html = pages.renderProfile(
+    { id: 1, name: "System Admin", username: "admin", role: "admin" },
+    null,
+  );
+
+  assert.match(html, /href="\/profile"/);
+  assert.match(html, /data-nav-links/);
+  assert.match(html, /data-nav-overflow-toggle/);
+  assert.match(html, /data-nav-overflow-menu/);
+  assert.match(html, /Signed in as/);
+  assert.match(html, /System Admin/);
+  assert.match(html, /admin/);
+  assert.match(html, /Date joined/);
+  assert.match(html, /Last active/);
+  assert.match(html, /Tasks created/);
+  assert.match(html, /Inventory transactions/);
+});
+
 test("operators can view reports but not admin-only pages by direct URL", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-operator-route-access-"));
   process.chdir(sandbox);
@@ -400,13 +538,14 @@ test("put capacity error page offers an inline items-per-cell update", async () 
   const html = pages.renderPut(
     { id: 1, name: "Admin", username: "admin", role: "admin" },
     {
-      message: "Not enough free cells are available for this product capacity.",
+      message: "System is already full for this product. Eligible empty and same-product cells do not have enough remaining room.",
       tone: "error",
     },
     new URL(`http://localhost/put?product_id=${shoe.id}&quantity=99&capacity_help=1`),
   );
 
-  assert.match(html, /Can adjust more in the cell\?/);
+  assert.match(html, /System already full/);
+  assert.match(html, /planner can split larger put quantities/);
   assert.match(html, new RegExp(`action="/products/${shoe.id}/items-per-cell"`));
   assert.match(html, /name="items_per_cell"/);
   assert.match(html, /name="quantity" value="99"/);
@@ -557,6 +696,32 @@ test("active pick and put tasks allow changed quantities on eligible cells", asy
       }),
     /already contains SKU-SHOE-001/,
   );
+
+  const shoeQuantityInCell = Number(shoeCell.occupied_quantity || 0);
+  const emptyShoeCellTask = inventory.allocatePick(db, {
+    userId: 1,
+    productId: shoe.id,
+    quantity: shoeQuantityInCell,
+    preferredCellId: shoeCell.id,
+  });
+  inventory.completeTask(db, {
+    taskId: emptyShoeCellTask.id,
+    actualQuantities: { [emptyShoeCellTask.lines[0].id]: shoeQuantityInCell },
+    actualCellIds: { [emptyShoeCellTask.lines[0].id]: shoeCell.id },
+    userId: 1,
+    note: "Empty the old shoe cell",
+  });
+  const emptiedFormerShoeCell = inventory
+    .listCells(db)
+    .find((cell) => Number(cell.id) === Number(shoeCell.id));
+  assert.equal(Number(emptiedFormerShoeCell.occupied_quantity), 0);
+  const shirtIntoFormerShoeCell = inventory.planPut(db, {
+    userId: 1,
+    productId: shirt.id,
+    quantity: 1,
+    preferredCellId: shoeCell.id,
+  });
+  assert.equal(Number(shirtIntoFormerShoeCell.lines[0].cell_id), Number(shoeCell.id));
 
   const putTask = inventory.planPut(db, {
     userId: 1,
@@ -732,7 +897,9 @@ test("operator movement screens keep context and use plain task actions", async 
     new URL(`http://localhost/put?product_id=${shoe.id}&quantity=2`),
   );
   assert.match(putHtml, /Quick quantity picker/);
-  assert.match(putHtml, /Full location capacity/);
+  assert.match(putHtml, /One location batch/);
+  assert.doesNotMatch(putHtml, /Full location capacity/);
+  assert.match(putHtml, /system will split it across eligible locations/);
   assert.match(putHtml, /Current stock/);
   assert.match(putHtml, new RegExp(`${productDetail.sku}[\\s\\S]*${productDetail.name}`));
   assert.match(putHtml, new RegExp(`${productDetail.locations[0].logical_code}[\\s\\S]*${productDetail.locations[0].available_quantity}`));
@@ -2495,6 +2662,8 @@ test("submission tokens are one-time use and production config requires a sessio
   const inventory = await freshImport("../src/services/inventory.js");
 
   assert.throws(() => resolveConfig({ NODE_ENV: "production" }), /SESSION_SECRET must be set/);
+  assert.equal(resolveConfig({}).allowDemoInventorySeed, false);
+  assert.equal(resolveConfig({ DEMO_INVENTORY_SEED: "1" }).allowDemoInventorySeed, true);
 
   const db = createDatabase({ hashPassword: auth.hashPassword });
   const logger = createLogger({ level: "error", siteId: "test-site" });
