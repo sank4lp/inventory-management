@@ -1031,6 +1031,8 @@ export function listCells(db) {
           ctrl.controller_code,
           ctrl.address AS controller_address,
           ctrl.active AS controller_active,
+          ctrl.heartbeat_status AS controller_health,
+          ctrl.module_count AS controller_module_count,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
           COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
           (
@@ -1065,7 +1067,50 @@ export function listCells(db) {
     .all();
 }
 
+function ensureOnlineControllerModuleRows(db) {
+  const controllers = db
+    .prepare(
+      `
+        SELECT *
+        FROM controllers
+        WHERE active = 1
+          AND heartbeat_status = 'online'
+          AND COALESCE(module_count, 0) > 0
+        ORDER BY id
+      `,
+    )
+    .all();
+
+  for (const controller of controllers) {
+    const moduleCount = Number(controller.module_count || 0);
+    for (let channel = 1; channel <= moduleCount; channel += 1) {
+      const existing = db
+        .prepare("SELECT id FROM cells WHERE controller_id = ? AND hardware_channel = ?")
+        .get(controller.id, channel);
+      if (existing) {
+        continue;
+      }
+
+      createModulePlaceholder(
+        db,
+        {
+          controller_id: controller.id,
+          controller_code: controller.controller_code,
+          hardware_channel: channel,
+          zone_id: controller.zone_id,
+          row_number: 1,
+          column_number: channel,
+          capacity: 12,
+        },
+        controller.configured_by || null,
+      );
+    }
+  }
+}
+
 export function listCellCatalog(db) {
+  ensureOnlineControllerModuleRows(db);
+
   return db
     .prepare(
       `
@@ -1075,6 +1120,8 @@ export function listCellCatalog(db) {
           ctrl.controller_code,
           ctrl.address AS controller_address,
           ctrl.active AS controller_active,
+          ctrl.heartbeat_status AS controller_health,
+          ctrl.module_count AS controller_module_count,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
           COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
           (

@@ -573,10 +573,16 @@ export function createLocationPages({ db }) {
     const cellCatalog = listCellCatalog(db).filter((cell) => Number(cell.active) === 1);
     const mappedCells = cells
       .filter(
-        (cell) =>
-          cell.controller_id &&
-          cell.hardware_channel &&
-          Number(cell.controller_active) === 1,
+        (cell) => {
+          const moduleCount = Number(cell.controller_module_count || 0);
+          return (
+            cell.controller_id &&
+            cell.hardware_channel &&
+            Number(cell.controller_active) === 1 &&
+            String(cell.controller_health || "").toLowerCase() === "online" &&
+            (moduleCount <= 0 || Number(cell.hardware_channel) <= moduleCount)
+          );
+        },
       )
       .sort((left, right) => {
         const controllerCompare = String(left.controller_code || "").localeCompare(
@@ -669,7 +675,7 @@ export function createLocationPages({ db }) {
                 <div class="mini-actions">
                   <button
                     type="button"
-                    class="green-button ping-button locate-button"
+                    class="ghost-button locate-button"
                     data-locate-cell
                     data-cell-id="${cell.id}"
                     aria-pressed="false"
@@ -678,7 +684,7 @@ export function createLocationPages({ db }) {
                   <button
                     type="submit"
                     form="cell-ping-${cell.id}"
-                    class="ghost-button ping-button"
+                    class="green-button ping-button"
                     data-led-command-submit
                     data-led-loading-label="Pinging"
                     data-led-loading-title="Pinging ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"

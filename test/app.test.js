@@ -2252,6 +2252,53 @@ test("mapping form errors return to the mapping workflow", async () => {
   );
 });
 
+test("cell mapping shows every online controller module and hides offline modules", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-module-backfill-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createLocationPages } = await freshImport("../src/server/pages/locations.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const controller = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-VISIBLE",
+    controllerAddress: "CTRL-VISIBLE",
+    moduleCount: 3,
+    configuredBy: 1,
+  });
+
+  db.prepare("DELETE FROM cells WHERE controller_id = ?").run(controller.id);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM cells WHERE controller_id = ?").get(controller.id).count,
+    0,
+  );
+
+  const onlineHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-mapping");
+  const restoredModules = inventory
+    .listCellCatalog(db)
+    .filter((cell) => cell.controller_id === controller.id)
+    .sort((left, right) => left.hardware_channel - right.hardware_channel);
+
+  assert.deepEqual(
+    restoredModules.map((cell) => Number(cell.hardware_channel)),
+    [1, 2, 3],
+  );
+  assert.ok(restoredModules.every((cell) => Number(cell.active) === 0));
+  assert.match(onlineHtml, /ESP32-VISIBLE/);
+  assert.match(onlineHtml, /data-module-name="1"/);
+  assert.match(onlineHtml, /data-module-name="2"/);
+  assert.match(onlineHtml, /data-module-name="3"/);
+
+  inventory.updateControllerHealth(db, {
+    controllerId: controller.id,
+    status: "offline",
+  });
+  const offlineHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-mapping");
+  assert.doesNotMatch(offlineHtml, /ESP32-VISIBLE/);
+});
+
 test("no-op adjustments return to admin with informational feedback", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-adjustment-http-"));
   process.chdir(sandbox);
