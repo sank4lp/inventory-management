@@ -2257,7 +2257,7 @@ function sendLocateClearAll({ beacon = true } = {}) {
 }
 
 function wireLocationLocate() {
-  const page = document.querySelector("[data-location-page]");
+  const page = document.querySelector("[data-location-page], [data-config-workspace]");
   if (!page || page.dataset.locateBound === "true") {
     return;
   }
@@ -2633,8 +2633,8 @@ function wireCellMappingForm() {
   };
 
   const describeChange = (control) => {
-    const from = control.dataset.originalLabel || "Unassigned";
-    const to = mappingControlLabel(control) || "Unassigned";
+    const from = control.dataset.originalLabel || "No location assigned";
+    const to = mappingControlLabel(control) || "No location assigned";
     const controller = control.dataset.controllerName || "Controller";
     const module = control.dataset.moduleName || "?";
     return `${controller} module ${module}: ${from} -> ${to}`;

@@ -476,7 +476,7 @@ export const requestHandler = async (request, response) => {
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value) && value > 0);
       const selectedCells = cellIds.length
-        ? locationService.listCells().filter((cell) => cellIds.includes(cell.id))
+        ? locationService.listCellCatalog().filter((cell) => cellIds.includes(cell.id))
         : [];
       const result = hardwareService.clearAllCellLocates(selectedCells);
       sendJson(response, {
@@ -495,7 +495,7 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const cell = locationService
-        .listCells()
+        .listCellCatalog()
         .find((entry) => entry.id === Number(apiCellLocateMatch[1]));
       if (!cell) {
         sendJson(response, { error: "Cell not found." }, 404);
@@ -1157,7 +1157,7 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const cell = locationService.listCells().find((entry) => entry.id === Number(form.cell_id));
+      const cell = locationService.listCellCatalog().find((entry) => entry.id === Number(form.cell_id));
       if (!cell) {
         throw new Error("Cell not found.");
       }

@@ -129,8 +129,17 @@ function cellHasStock(cell) {
   return Number(cell.occupied_quantity || 0) !== 0 || Number(cell.reserved_quantity || 0) !== 0;
 }
 
+function cellIsMapped(cell) {
+  return (
+    Number(cell.active) === 1 &&
+    cell.mapping_status === "mapped" &&
+    Boolean(cell.controller_id) &&
+    Boolean(cell.hardware_channel)
+  );
+}
+
 function cellMappingDisplayName(cell) {
-  return Number(cell.active) === 1 ? cell.logical_code : "Unassigned";
+  return Number(cell.active) === 1 ? cell.logical_code : "No location assigned";
 }
 
 function renderCellMappingOptions(cellCatalog, selectedCellId) {
@@ -562,7 +571,19 @@ export function createLocationPages({ db }) {
 
   function renderCellMappingSection(cells) {
     const cellCatalog = listCellCatalog(db).filter((cell) => Number(cell.active) === 1);
-    const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
+    const mappedCells = cells
+      .filter((cell) => cell.controller_id && cell.hardware_channel)
+      .sort((left, right) => {
+        const controllerCompare = String(left.controller_code || "").localeCompare(
+          String(right.controller_code || ""),
+          undefined,
+          { numeric: true },
+        );
+        if (controllerCompare !== 0) {
+          return controllerCompare;
+        }
+        return Number(left.hardware_channel || 0) - Number(right.hardware_channel || 0);
+      });
 
     return `
       <section id="cell-mapping" class="app-panel" data-config-section="cell-mapping" data-row-collapser data-row-limit="4" data-row-label="mappings">
@@ -593,7 +614,7 @@ export function createLocationPages({ db }) {
               .join("")}
           </datalist>
           ${table(
-            ["Controller", "LED module", "Location name", "Stock", "Ping"],
+            ["Controller", "LED module", "Assigned location", "Stock", "Locate"],
             mappedCells.map((cell) => {
               const assigned = Number(cell.active) === 1;
               const displayName = cellMappingDisplayName(cell);
@@ -641,38 +662,18 @@ export function createLocationPages({ db }) {
                 stockLabel,
                 `
                 <button
-                  type="submit"
-                  form="cell-ping-${cell.id}"
-                  class="green-button ping-button"
-                  data-led-command-submit
-                  data-led-loading-label="Pinging"
-                  data-led-loading-title="Sending ping to ${escapeHtml(cell.logical_code)}"
-                  title="Ping ${escapeHtml(cell.logical_code)}"
-                >Ping</button>
+                  type="button"
+                  class="green-button ping-button locate-button"
+                  data-locate-cell
+                  data-cell-id="${cell.id}"
+                  aria-pressed="false"
+                  title="Locate ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
+                >Locate</button>
               `,
               ];
             }),
           )}
         </form>
-        ${mappedCells
-          .map(
-            (cell) => `
-              <form
-                id="cell-ping-${cell.id}"
-                method="post"
-                action="/devices/cell-test"
-                data-led-command-form
-                data-led-loading-label="Pinging"
-                data-led-return-hash="#cell-mapping"
-                hidden
-              >
-                <input type="hidden" name="cell_id" value="${cell.id}" />
-                <input type="hidden" name="color" value="green" />
-                <input type="hidden" name="return_to" value="/devices#cell-mapping" data-led-command-return-to />
-              </form>
-            `,
-          )
-          .join("")}
         <div class="modal-backdrop app-alert-modal" data-mapping-unsaved-modal role="dialog" aria-modal="true" aria-labelledby="mapping-unsaved-title" hidden>
           <div class="modal-panel mapping-unsaved-panel">
             <div class="modal-header">
@@ -714,11 +715,11 @@ export function createLocationPages({ db }) {
   function renderDevices(user, flash) {
     const controllers = listControllers(db);
     const cells = listCells(db);
-    const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
+    const mappedCells = cells.filter(cellIsMapped);
+    const manualCells = cells.filter((cell) => !cellIsMapped(cell));
     const onlineControllers = controllers.filter(
       (controller) => String(controller.heartbeat_status || "").toLowerCase() === "online",
     ).length;
-    const manualCells = cells.length - mappedCells.length;
     const moduleTotal = controllers.reduce(
       (sum, controller) => sum + Number(controller.module_count || controller.mapped_cells || 0),
       0,
@@ -838,7 +839,7 @@ export function createLocationPages({ db }) {
               </div>
               <div class="status-metric">
                 <span class="muted">Manual cells</span>
-                <strong>${escapeHtml(formatQuantity(manualCells))}</strong>
+                <strong>${escapeHtml(formatQuantity(manualCells.length))}</strong>
               </div>
             </div>
           </section>

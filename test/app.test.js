@@ -1856,7 +1856,7 @@ test("reflashing an existing controller migrates mappings to the new RS485 id", 
   const initial = inventory.configureControllerModules(db, {
     controllerCode: "ESP32-01",
     controllerAddress: "CTRL-OLD-000001",
-    moduleCount: 2,
+    moduleCount: 28,
     configuredBy: 1,
   });
   const initialCells = inventory
@@ -1864,18 +1864,23 @@ test("reflashing an existing controller migrates mappings to the new RS485 id", 
     .filter((cell) => cell.controller_id === initial.id)
     .sort((left, right) => left.hardware_channel - right.hardware_channel);
 
-  assert.equal(initialCells.length, 2);
-  inventory.updateCellMapping(db, {
-    cellId: initialCells[0].id,
-    hardwareChannel: 1,
+  assert.equal(initialCells.length, 28);
+  const customCell = inventory.createCell(db, {
     logicalCode: "Z9-R9-C99",
+    capacity: 12,
+    createdBy: 1,
+  });
+  inventory.updateCellMapping(db, {
+    cellId: initialCells[27].id,
+    hardwareChannel: 28,
+    targetCellId: customCell.id,
     mappedBy: 1,
   });
 
   const replacement = inventory.configureControllerModules(db, {
     controllerCode: "ESP32-01",
     controllerAddress: "CTRL-NEW-000001",
-    moduleCount: 2,
+    moduleCount: 28,
     configuredBy: 1,
   });
   const migratedCells = inventory
@@ -1887,10 +1892,10 @@ test("reflashing an existing controller migrates mappings to the new RS485 id", 
   assert.equal(replacement.address, "CTRL-NEW-000001");
   assert.deepEqual(
     migratedCells.map((cell) => cell.id),
-    initialCells.map((cell) => cell.id),
+    [...initialCells.slice(0, 27).map((cell) => cell.id), customCell.id],
   );
-  assert.equal(migratedCells[0].logical_code, "Z9-R9-C99");
-  assert.equal(migratedCells[0].controller_address, "CTRL-NEW-000001");
+  assert.equal(migratedCells[27].logical_code, "Z9-R9-C99");
+  assert.equal(migratedCells[27].controller_address, "CTRL-NEW-000001");
 });
 
 test("reflashing the same physical controller preserves what it can when module count changes", async () => {
@@ -2099,7 +2104,7 @@ test("controllers can be health-checked and deleted by an admin", async () => {
   assert.equal(manualPickTask.lines[0].controller_id, null);
 });
 
-test("mapping a new module to an existing cell preserves that cell inventory", async () => {
+test("mapping a new module to an existing cell preserves inventory and unassigns displaced LED", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-cell-remap-"));
   process.chdir(sandbox);
 
@@ -2147,6 +2152,15 @@ test("mapping a new module to an existing cell preserves that cell inventory", a
   assert.equal(afterRemap.controller_address, "CTRL-NEW-REMAP");
   assert.equal(Number(afterRemap.occupied_quantity), Number(existingCell.occupied_quantity));
   assert.ok(!inventory.listCells(db).some((cell) => cell.id === placeholderCell.id));
+  const displacedModule = inventory
+    .listCellCatalog(db)
+    .find(
+      (cell) =>
+        cell.controller_id === existingController.id &&
+        Number(cell.hardware_channel) === 1 &&
+        Number(cell.active) === 0,
+    );
+  assert.ok(displacedModule);
 
   const added = inventory.createCell(db, {
     logicalCode: "Z1-R1-C99",
@@ -2285,10 +2299,28 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
   assert.ok(!inventory.listCells(db).some((cell) => cell.id === deletedMapped.modulePlaceholder.id));
 
   const mappingHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-mapping");
-  assert.match(mappingHtml, /Unassigned/);
+  assert.match(mappingHtml, /No location assigned/);
   assert.match(
     mappingHtml,
     new RegExp(`name="target_cell_id_${deletedMapped.modulePlaceholder.id}"\\s+value=""`),
+  );
+  assert.match(
+    mappingHtml,
+    new RegExp(`data-locate-cell[\\s\\S]*data-cell-id="${deletedMapped.modulePlaceholder.id}"`),
+  );
+  assert.doesNotMatch(
+    mappingHtml,
+    new RegExp(`<option[\\s\\S]*value="${mappedEmptyCell.logical_code}"`),
+  );
+  assert.throws(
+    () =>
+      inventory.updateCellMapping(db, {
+        cellId: deletedMapped.modulePlaceholder.id,
+        hardwareChannel: deletedMapped.modulePlaceholder.hardware_channel,
+        logicalCode: mappedEmptyCell.logical_code,
+        mappedBy: 1,
+      }),
+    /Add this location before assigning/,
   );
 
   const remapTarget = inventory.createCell(db, {
@@ -2296,6 +2328,18 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
     capacity: 4,
     createdBy: 1,
   });
+  const statusHtml = createLocationPages({ db }).renderDevices(
+    { id: 1, name: "Admin", username: "admin", role: "admin" },
+    null,
+  );
+  assert.match(
+    statusHtml,
+    /<span class="muted">Mapped cells<\/span>\s*<strong>27<\/strong>/,
+  );
+  assert.match(
+    statusHtml,
+    /<span class="muted">Manual cells<\/span>\s*<strong>1<\/strong>/,
+  );
   const remapped = inventory.updateCellMapping(db, {
     cellId: deletedMapped.modulePlaceholder.id,
     hardwareChannel: deletedMapped.modulePlaceholder.hardware_channel,

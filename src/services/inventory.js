@@ -1178,7 +1178,14 @@ export function listControllers(db) {
         SELECT
           ctrl.*,
           z.code AS zone_code,
-          COUNT(CASE WHEN c.active = 1 THEN c.id END) AS mapped_cells
+          COUNT(
+            CASE
+              WHEN c.active = 1
+                AND c.mapping_status = 'mapped'
+                AND c.hardware_channel IS NOT NULL
+              THEN c.id
+            END
+          ) AS mapped_cells
         FROM controllers ctrl
         JOIN zones z ON z.id = ctrl.zone_id
         LEFT JOIN cells c ON c.controller_id = ctrl.id
@@ -1577,23 +1584,13 @@ export function updateCellMapping(
       const nextLogicalCode = normalizeLogicalCode(logicalCode);
       targetCell = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(nextLogicalCode) || null;
       if (!targetCell) {
-        db.prepare(
-          `
-            UPDATE cells
-            SET
-              logical_code = ?,
-              hardware_channel = ?,
-              mapping_status = 'mapped',
-              active = 1,
-              last_mapped_at = ?,
-              mapped_by = ?
-            WHERE id = ?
-          `,
-        ).run(nextLogicalCode, channel, nowIso(), mappedBy, sourceCell.id);
-        return db.prepare("SELECT * FROM cells WHERE id = ?").get(sourceCell.id);
+        throw new Error("Add this location before assigning it to an LED module.");
+      }
+      if (Number(targetCell.active) !== 1) {
+        throw new Error("Selected cell is not active. Add this location before assigning it to an LED module.");
       }
     } else {
-      targetCell = sourceCell;
+      throw new Error("Choose a location to assign this LED module.");
     }
 
     const now = nowIso();
@@ -1611,6 +1608,25 @@ export function updateCellMapping(
         `,
       ).run(channel, now, mappedBy, sourceCell.id);
       return db.prepare("SELECT * FROM cells WHERE id = ?").get(sourceCell.id);
+    }
+
+    const targetHasDifferentModule =
+      targetCell.controller_id &&
+      targetCell.hardware_channel &&
+      (Number(targetCell.controller_id) !== Number(sourceCell.controller_id) ||
+        Number(targetCell.hardware_channel) !== channel);
+    if (targetHasDifferentModule) {
+      const displacedModule = db
+        .prepare(
+          `
+            SELECT c.*, ctrl.controller_code
+            FROM cells c
+            LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
+            WHERE c.id = ?
+          `,
+        )
+        .get(targetCell.id);
+      createModulePlaceholder(db, displacedModule, mappedBy);
     }
 
     db.prepare(
