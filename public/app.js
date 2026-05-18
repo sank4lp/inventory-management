@@ -8,6 +8,7 @@ import {
 const ACTION_SCROLL_KEY = "inventory-management:action-scroll";
 const COMBO_RECENCY_KEY_PREFIX = "inventory-management:combo-recency:";
 const SYSTEM_HEALTH_POLL_MS = 30 * 1000;
+let recommendationLedClearWindowBound = false;
 
 function saveActionScrollPosition() {
   try {
@@ -2434,6 +2435,69 @@ function sendLocateClearAll({ beacon = true } = {}) {
   }).catch(() => {});
 }
 
+function recommendationLedClearBody(form) {
+  const body = new URLSearchParams(new FormData(form));
+  body.set("active", "0");
+  return body;
+}
+
+function sendRecommendationLedClear(form, { beacon = true } = {}) {
+  const endpoint = form.dataset.recommendationLedClearEndpoint || "/recommended-actions/clear-leds";
+  const body = recommendationLedClearBody(form);
+
+  if (navigator.sendBeacon) {
+    const blob = new Blob([body.toString()], {
+      type: "application/x-www-form-urlencoded; charset=UTF-8",
+    });
+    if (beacon && navigator.sendBeacon(endpoint, blob)) {
+      return Promise.resolve();
+    }
+  }
+
+  return fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function wireRecommendationLedCleanup() {
+  document.querySelectorAll("[data-recommendation-led-clear-form]").forEach((form) => {
+    if (form.dataset.recommendationLedClearBound === "true") {
+      return;
+    }
+    form.dataset.recommendationLedClearBound = "true";
+    form.dataset.recommendationLedSkipClear = "false";
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      form.dataset.recommendationLedSkipClear = "true";
+      window.setTimeout(() => {
+        form.dataset.recommendationLedSkipClear = "false";
+      }, 5000);
+    });
+  });
+
+  if (recommendationLedClearWindowBound) {
+    return;
+  }
+  recommendationLedClearWindowBound = true;
+  window.addEventListener("pagehide", () => {
+    document.querySelectorAll("[data-recommendation-led-clear-form]").forEach((form) => {
+      if (form.dataset.recommendationLedSkipClear === "true") {
+        return;
+      }
+      sendRecommendationLedClear(form);
+    });
+  });
+}
+
 function wireLocationLocate() {
   const page = document.querySelector("[data-location-page], [data-config-workspace]");
   if (!page || page.dataset.locateBound === "true") {
@@ -3175,6 +3239,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireLocationLocate();
   wireControllerHealthForms();
   wireLedCommandForms();
+  wireRecommendationLedCleanup();
   wireConfigurationWorkspace();
   wireCellMappingForm();
   wireCellDeleteForms();

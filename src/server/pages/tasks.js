@@ -509,6 +509,8 @@ export function createTaskPages({ db }) {
     const allActions = getRecommendedActions(db);
     const returnTo = safeRecommendedReturnPath(options.returnTo);
     const openedFromCapacityUpdate = options.source === "capacity" && Boolean(selectedKey);
+    const fullOptimizationLedReady = options.ledReady === true;
+    const activeLedMoveIndex = String(options.ledMoveIndex || "").trim();
     const returnToInput = returnTo
       ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />`
       : "";
@@ -574,21 +576,32 @@ export function createTaskPages({ db }) {
         }
         ${actions.length
           ? actions
-              .map((action) =>
-                card(
+              .map((action) => {
+                const activeMoveIndex =
+                  action.optimizationPlan && fullOptimizationLedReady ? "all" : activeLedMoveIndex;
+                const ledClearAttrs = activeMoveIndex
+                  ? ` data-recommendation-led-clear-form data-recommendation-led-clear-endpoint="/recommended-actions/clear-leds"`
+                  : "";
+                const activeMoveInput = activeMoveIndex
+                  ? `<input type="hidden" name="active_light_move_index" value="${escapeHtml(activeMoveIndex)}" />`
+                  : "";
+                return card(
                   action.title,
                   `
+                    ${action.optimizationPlan && fullOptimizationLedReady ? `<p class="flash flash-success">Full optimization LEDs are active. Review the move plan, then apply the recommendation.</p>` : ""}
                     ${renderRecommendedActionIntro(action, cellHasMappedLed)}
                     ${
                       action.unresolvedQuantity > 0
                         ? `<p class="flash flash-error">The system could not find room for ${escapeHtml(formatQuantity(action.unresolvedQuantity))} item(s). Please review manually.</p>`
                         : ""
                     }
-                    <form method="post" action="/recommended-actions/apply" class="stack-form" data-led-command-form data-led-loading-label="Working">
+                    <form method="post" action="/recommended-actions/apply" class="stack-form" data-led-command-form data-led-loading-label="Working"${ledClearAttrs}>
                       <input type="hidden" name="source_cell_id" value="${action.cellId}" />
                       <input type="hidden" name="product_id" value="${action.productId}" />
                       <input type="hidden" name="reason" value="${escapeHtml(action.title)}" />
                       <input type="hidden" name="recommendation_key" value="${escapeHtml(action.key)}" />
+                      ${action.optimizationPlan && fullOptimizationLedReady ? `<input type="hidden" name="led_ready" value="1" />` : ""}
+                      ${activeMoveInput}
                       ${returnToInput}
                       ${recommendationSourceInput}
                       ${action.recommendedMoves
@@ -598,28 +611,34 @@ export function createTaskPages({ db }) {
                           const sourceMapped = cellHasMappedLed(sourceCellId);
                           const targetMapped = cellHasMappedLed(move.targetCellId);
                           return `
-                            <div class="recommendation-row">
+                            <div class="recommendation-row ${action.optimizationPlan ? "recommendation-row-compact" : ""}">
                               <div class="recommendation-summary">
                                 <strong>${escapeHtml(action.productSku)}</strong>
                                 <p class="muted">Move ${escapeHtml(formatQuantity(move.quantity))} item(s) from ${escapeHtml(sourceLogicalCode)} to the target cell below.</p>
-                                <div class="recommended-led-plan">
-                                  ${renderLedInstruction({
-                                    action: "Pick From",
-                                    cellCode: sourceLogicalCode,
-                                    color: "green",
-                                    quantity: move.quantity,
-                                    mapped: sourceMapped,
-                                    detail: sourceMapped ? "The source cell will show this GREEN LED instruction." : "",
-                                  })}
-                                  ${renderLedInstruction({
-                                    action: "Put Into",
-                                    cellCode: move.targetLogicalCode || "selected target",
-                                    color: "red",
-                                    quantity: move.quantity,
-                                    mapped: targetMapped,
-                                    detail: targetMapped ? "The selected target cell will show this RED LED instruction." : "",
-                                  })}
-                                </div>
+                                ${
+                                  action.optimizationPlan
+                                    ? ""
+                                    : `
+                                      <div class="recommended-led-plan">
+                                        ${renderLedInstruction({
+                                          action: "Pick From",
+                                          cellCode: sourceLogicalCode,
+                                          color: "green",
+                                          quantity: move.quantity,
+                                          mapped: sourceMapped,
+                                          detail: sourceMapped ? "The source cell will show this GREEN LED instruction." : "",
+                                        })}
+                                        ${renderLedInstruction({
+                                          action: "Put Into",
+                                          cellCode: move.targetLogicalCode || "selected target",
+                                          color: "red",
+                                          quantity: move.quantity,
+                                          mapped: targetMapped,
+                                          detail: targetMapped ? "The selected target cell will show this RED LED instruction." : "",
+                                        })}
+                                      </div>
+                                    `
+                                }
                               </div>
                               <div class="recommendation-fields">
                                 <input type="hidden" name="move_source_${index}" value="${escapeHtml(sourceCellId)}" />
@@ -665,11 +684,16 @@ export function createTaskPages({ db }) {
                           `
                           : ""
                       }
-                      <button type="submit" data-led-command-submit data-led-loading-label="Applying">Apply Recommendation</button>
+                      <button
+                        type="submit"
+                        data-led-command-submit
+                        data-led-loading-label="Applying"
+                        ${action.optimizationPlan && !fullOptimizationLedReady ? `disabled title="Show full optimization LEDs before applying this recommendation."` : ""}
+                      >Apply Recommendation</button>
                     </form>
                   `,
-                ),
-              )
+                );
+              })
               .join("")
           : card(
               selectedKey ? "Recommended Action" : "Recommended Actions",

@@ -64,6 +64,7 @@ import { renderAdjustmentLine } from "./server/pages/shared.js";
 const PORT = Number(process.env.PORT || 3000);
 const publicDir = join(process.cwd(), "public");
 const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
+const ACTIVE_RECOMMENDATION_GUIDANCE_PREFIX = "active_recommendation_guidance";
 
 getAppState();
 
@@ -96,6 +97,102 @@ function capacityRecommendationPromptPath(returnTo, recommendationKey) {
   const url = new URL(returnTo, "http://localhost");
   url.searchParams.set(CAPACITY_RECOMMENDATION_KEY_PARAM, recommendationKey);
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function activeRecommendationGuidanceKey(userId, recommendationKey) {
+  const key = String(recommendationKey || "").trim();
+  if (!userId || !key) {
+    return "";
+  }
+  return `${ACTIVE_RECOMMENDATION_GUIDANCE_PREFIX}:${userId}:${key}`;
+}
+
+function readActiveRecommendationGuidance(db, userId, recommendationKey) {
+  const metadataKey = activeRecommendationGuidanceKey(userId, recommendationKey);
+  if (!metadataKey) {
+    return null;
+  }
+  const row = db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(metadataKey);
+  if (!row?.value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(row.value);
+    return {
+      metadataKey,
+      lines: Array.isArray(parsed.lines) ? parsed.lines : [],
+      recommendationKey: parsed.recommendationKey || recommendationKey,
+      reason: parsed.reason || "",
+    };
+  } catch {
+    return {
+      metadataKey,
+      lines: [],
+      recommendationKey,
+      reason: "",
+    };
+  }
+}
+
+function saveActiveRecommendationGuidance(db, userId, form, guidanceLines) {
+  const metadataKey = activeRecommendationGuidanceKey(userId, form.recommendation_key);
+  if (!metadataKey || !guidanceLines.length) {
+    return;
+  }
+  const now = new Date().toISOString();
+  const lines = guidanceLines.map((line) => ({
+    id: line.id ?? line.cell_id ?? null,
+    cell_id: line.cell_id ?? line.id ?? null,
+    logical_code: line.logical_code || "",
+    controller_id: line.controller_id ?? null,
+    controller_address: line.controller_address || line.address || "",
+    hardware_channel: line.hardware_channel ?? null,
+    planned_quantity: line.planned_quantity ?? null,
+    guidance_color: line.guidance_color || "",
+    guidance_role: line.guidance_role || "",
+  }));
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(
+    metadataKey,
+    JSON.stringify({
+      recommendationKey: form.recommendation_key || "",
+      reason: form.reason || "",
+      lines,
+      updatedAt: now,
+    }),
+    now,
+  );
+}
+
+function deleteActiveRecommendationGuidance(db, userId, recommendationKey) {
+  const metadataKey = activeRecommendationGuidanceKey(userId, recommendationKey);
+  if (!metadataKey) {
+    return;
+  }
+  db.prepare("DELETE FROM app_metadata WHERE key = ?").run(metadataKey);
+}
+
+function buildRecommendationGuidanceLines(cells, form, { moveIndex = "all" } = {}) {
+  const index = String(moveIndex || "all").trim();
+  const moves = parseRecommendedActionMoves(form);
+  const selectedMoves =
+    index && index !== "all" ? moves.filter((move) => String(move.index) === index) : moves;
+
+  return uniqueGuidanceLines(
+    selectedMoves.flatMap((move) =>
+      recommendationGuidanceLines(cells, {
+        sourceCellId: move.sourceCellId || form.source_cell_id,
+        targetCellId: move.targetCellId,
+        quantity: move.quantity,
+      }),
+    ),
+  );
 }
 
 function createAutomaticBackup(source) {
@@ -955,6 +1052,8 @@ export const requestHandler = async (request, response) => {
         pages.renderRecommendedActions(user, flash, url.searchParams.get("key") || "", {
           returnTo: url.searchParams.get("return_to") || "",
           source: url.searchParams.get("source") || "",
+          ledReady: url.searchParams.get("led_ready") === "1",
+          ledMoveIndex: url.searchParams.get("led_move_index") || "",
         }),
       );
       return;
@@ -965,17 +1064,26 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
+      const action = anomalyService
+        .getRecommendedActions()
+        .find((entry) => entry.key === form.recommendation_key);
+      if (action?.optimizationPlan && form.led_ready !== "1") {
+        const returnTo = safeLocalPath(form.return_to, "");
+        const sourceParam = form.recommendation_source === "capacity" ? "&source=capacity" : "";
+        const recommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
+        sendRedirect(
+          response,
+          appendFlash(
+            recommendationPath,
+            "Show full optimization LEDs before applying this recommendation.",
+            "error",
+          ),
+        );
+        return;
+      }
       const moves = parseRecommendedActionMoves(form);
       const guidanceCells = listCells(db);
-      const guidanceLines = uniqueGuidanceLines(
-        moves.flatMap((move) =>
-          recommendationGuidanceLines(guidanceCells, {
-            sourceCellId: move.sourceCellId || form.source_cell_id,
-            targetCellId: move.targetCellId,
-            quantity: move.quantity,
-          }),
-        ),
-      );
+      const guidanceLines = buildRecommendationGuidanceLines(guidanceCells, form);
       anomalyService.applyRecommendedAction({
         sourceCellId: form.source_cell_id,
         productId: form.product_id,
@@ -983,9 +1091,16 @@ export const requestHandler = async (request, response) => {
         userId: user.id,
         reason: form.reason,
       });
-      hardwareService.clearGuidance(recommendationGuidanceTask(form), guidanceLines, {
+      const activeGuidance = readActiveRecommendationGuidance(
+        db,
+        user.id,
+        form.recommendation_key,
+      );
+      const clearGuidanceLines = activeGuidance?.lines?.length ? activeGuidance.lines : guidanceLines;
+      hardwareService.clearGuidance(recommendationGuidanceTask(form), clearGuidanceLines, {
         source: "recommended_action_apply",
       });
+      deleteActiveRecommendationGuidance(db, user.id, form.recommendation_key);
       const backupResult = createAutomaticBackup("recommended-action-apply");
       const nextFlash = backupAwareFlash("Recommended action applied.", "success", backupResult);
       const returnTo = safeLocalPath(form.return_to, "/recommended-actions");
@@ -993,6 +1108,37 @@ export const requestHandler = async (request, response) => {
         response,
         appendFlash(returnTo, nextFlash.message, nextFlash.tone),
       );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/recommended-actions/clear-leds") {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const activeGuidance = readActiveRecommendationGuidance(
+        db,
+        user.id,
+        form.recommendation_key,
+      );
+      let guidanceLines = activeGuidance?.lines || [];
+      if (!guidanceLines.length) {
+        try {
+          guidanceLines = buildRecommendationGuidanceLines(listCells(db), form, {
+            moveIndex: form.active_light_move_index || "all",
+          });
+        } catch {
+          guidanceLines = [];
+        }
+      }
+      if (guidanceLines.length) {
+        hardwareService.clearGuidance(recommendationGuidanceTask(form), guidanceLines, {
+          source: "recommended_action_leave",
+          recommendationKey: form.recommendation_key || "",
+        });
+      }
+      deleteActiveRecommendationGuidance(db, user.id, form.recommendation_key);
+      sendText(response, "", 204, { "Cache-Control": "no-store" });
       return;
     }
 
@@ -1005,25 +1151,16 @@ export const requestHandler = async (request, response) => {
       const cells = listCells(db);
       const returnTo = safeLocalPath(form.return_to, "");
       const sourceParam = form.recommendation_source === "capacity" ? "&source=capacity" : "";
+      const ledReadyParam = moveIndex === "all" ? "&led_ready=1" : "";
+      const ledMoveParam = moveIndex ? `&led_move_index=${encodeURIComponent(moveIndex)}` : "";
       const recommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
+      const activeRecommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${ledReadyParam}${ledMoveParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
       let guidanceLines;
       try {
         guidanceLines =
           moveIndex === "all"
-            ? uniqueGuidanceLines(
-                parseRecommendedActionMoves(form).flatMap((move) =>
-                  recommendationGuidanceLines(cells, {
-                    sourceCellId: move.sourceCellId || form.source_cell_id,
-                    targetCellId: move.targetCellId,
-                    quantity: move.quantity,
-                  }),
-                ),
-              )
-            : recommendationGuidanceLines(cells, {
-                sourceCellId: form[`move_source_${moveIndex}`] || form.source_cell_id,
-                targetCellId: Number(form[`move_cell_${moveIndex}`]),
-                quantity: Number(form[`move_qty_${moveIndex}`]),
-              });
+            ? buildRecommendationGuidanceLines(cells, form)
+            : buildRecommendationGuidanceLines(cells, form, { moveIndex });
       } catch (error) {
         sendRedirect(
           response,
@@ -1046,10 +1183,25 @@ export const requestHandler = async (request, response) => {
         );
         return;
       }
+      const activeGuidance = readActiveRecommendationGuidance(
+        db,
+        user.id,
+        form.recommendation_key,
+      );
+      if (activeGuidance?.lines?.length) {
+        hardwareService.clearGuidance(recommendationGuidanceTask(form), activeGuidance.lines, {
+          source: "recommended_action_relight",
+          recommendationKey: form.recommendation_key || "",
+        });
+        deleteActiveRecommendationGuidance(db, user.id, form.recommendation_key);
+      }
       const guidance = hardwareService.activateGuidance(recommendationGuidanceTask(form), guidanceLines, {
         source: "recommended_action_light",
         recommendationKey: form.recommendation_key || "",
       });
+      if (guidance.ok !== false) {
+        saveActiveRecommendationGuidance(db, user.id, form, guidanceLines);
+      }
       const pickLines = guidanceLines.filter((line) => line.guidance_color === "green");
       const putLines = guidanceLines.filter((line) => line.guidance_color === "red");
       const ledSummary = `GREEN LED pick cells: ${pickLines
@@ -1063,7 +1215,7 @@ export const requestHandler = async (request, response) => {
       sendRedirect(
         response,
         appendFlash(
-          recommendationPath,
+          activeRecommendationPath,
           guidanceMessage,
           guidance.degraded ? "warning" : "success",
         ),

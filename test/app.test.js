@@ -1597,7 +1597,19 @@ test("warehouse optimization recommendations consolidate product into closer cel
   assert.match(detailHtml, /Show Full Optimization LEDs/);
   assert.match(detailHtml, /Put Into cell OPT-R1-C01[\s\S]*Quantity: 3/);
   assert.match(detailHtml, /Pick From cell OPT-R1-C04[\s\S]*Quantity: 2/);
+  assert.equal((detailHtml.match(/Pick From cell OPT-R1-C04/g) || []).length, 1);
   assert.match(detailHtml, /name="move_source_0"/);
+  assert.match(detailHtml, /disabled title="Show full optimization LEDs before applying this recommendation\."/);
+  assert.doesNotMatch(detailHtml, /name="led_ready" value="1"/);
+  assert.doesNotMatch(detailHtml, /data-recommendation-led-clear-form/);
+  const ledReadyHtml = createTaskPages({ db }).renderRecommendedActions(user, null, action.key, {
+    ledReady: true,
+  });
+  assert.match(ledReadyHtml, /Full optimization LEDs are active/);
+  assert.match(ledReadyHtml, /name="led_ready" value="1"/);
+  assert.match(ledReadyHtml, /data-recommendation-led-clear-form/);
+  assert.match(ledReadyHtml, /name="active_light_move_index" value="all"/);
+  assert.doesNotMatch(ledReadyHtml, /disabled title="Show full optimization LEDs before applying this recommendation\."/);
   const guidanceLines = recommendationGuidance.uniqueGuidanceLines(
     action.recommendedMoves.flatMap((move) =>
       recommendationGuidance.recommendationGuidanceLines(inventory.listCells(db), {
@@ -1633,6 +1645,142 @@ test("warehouse optimization recommendations consolidate product into closer cel
     );
   });
   assert.deepEqual(finalQuantities, [5, 4, 0, 0, 0]);
+});
+
+test("recommended action LEDs clear when the operator leaves without applying", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recommendation-led-clear-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const { reloadAppState, getAppState } = await import("../src/server/app-state.js");
+  reloadAppState();
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+
+  const { db } = getAppState();
+  const user = { id: 1, role: "admin" };
+  const cookie = auth.createSessionCookie(user).split(";")[0];
+  const product = inventory.createProduct(db, {
+    sku: "OPT-CLEAR",
+    name: "Optimization Clear Product",
+    brand: "Warehouse",
+    unit_of_measure: "items",
+    items_per_cell: 5,
+  });
+  const cells = [1, 2, 3].map((index) =>
+    inventory.createCell(db, {
+      logicalCode: `CLR-R1-C0${index}`,
+      createdBy: user.id,
+    }),
+  );
+  [1, 1, 1].forEach((quantity, index) => {
+    inventory.createAdjustment(db, {
+      cellId: cells[index].id,
+      userId: user.id,
+      reason: "Seed recommendation LED clear",
+      lines: [{ productId: product.id, absoluteQuantity: quantity }],
+    });
+  });
+
+  const action = inventory
+    .getRecommendedActions(db)
+    .find((entry) => entry.type === "warehouse_optimization" && entry.productId === product.id);
+  assert.ok(action);
+
+  const invalidLightResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/recommended-actions/light-cell",
+      body: new URLSearchParams({
+        source_cell_id: String(action.cellId),
+        product_id: String(action.productId),
+        reason: action.title,
+        recommendation_key: action.key,
+        light_move_index: "all",
+        move_source_0: String(action.recommendedMoves[0].sourceCellId || action.cellId),
+        move_qty_0: "0",
+        move_cell_0: String(action.recommendedMoves[0].targetCellId),
+      }).toString(),
+      cookie,
+    }),
+    invalidLightResponse,
+  );
+  assert.equal(invalidLightResponse.statusCode, 302);
+  assert.doesNotMatch(invalidLightResponse.headers.Location, /led_ready=1/);
+  assert.doesNotMatch(invalidLightResponse.headers.Location, /led_move_index=/);
+
+  const lightBody = new URLSearchParams({
+    source_cell_id: String(action.cellId),
+    product_id: String(action.productId),
+    reason: action.title,
+    recommendation_key: action.key,
+    light_move_index: "all",
+  });
+  action.recommendedMoves.forEach((move, index) => {
+    lightBody.set(`move_source_${index}`, String(move.sourceCellId || action.cellId));
+    lightBody.set(`move_qty_${index}`, String(move.quantity));
+    lightBody.set(`move_cell_${index}`, String(move.targetCellId));
+  });
+
+  const lightResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/recommended-actions/light-cell",
+      body: lightBody.toString(),
+      cookie,
+    }),
+    lightResponse,
+  );
+
+  assert.equal(lightResponse.statusCode, 302);
+  assert.match(lightResponse.headers.Location, /led_move_index=all/);
+
+  const activeMetadataKey = `active_recommendation_guidance:${user.id}:${action.key}`;
+  const activeMetadata = db
+    .prepare("SELECT value FROM app_metadata WHERE key = ?")
+    .get(activeMetadataKey);
+  assert.ok(activeMetadata);
+  const activatedEvents = db
+    .prepare(
+      "SELECT event_type FROM device_events WHERE event_type IN ('guidance_activated', 'guidance_manual')",
+    )
+    .all();
+  assert.ok(activatedEvents.length > 0);
+  const clearedBeforeLeave = db
+    .prepare(
+      "SELECT COUNT(*) AS count FROM device_events WHERE event_type IN ('guidance_cleared', 'guidance_manual_clear')",
+    )
+    .get().count;
+
+  const clearResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/recommended-actions/clear-leds",
+      body: new URLSearchParams({
+        recommendation_key: action.key,
+        reason: action.title,
+        active_light_move_index: "all",
+      }).toString(),
+      cookie,
+      headers: {
+        "x-requested-with": "fetch",
+      },
+    }),
+    clearResponse,
+  );
+
+  assert.equal(clearResponse.statusCode, 204);
+  const clearedEvents = db
+    .prepare(
+      "SELECT event_type FROM device_events WHERE event_type IN ('guidance_cleared', 'guidance_manual_clear')",
+    )
+    .all();
+  assert.equal(clearedEvents.length - clearedBeforeLeave, activatedEvents.length);
+  assert.equal(
+    db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey),
+    undefined,
+  );
 });
 
 test("admins can revoke registration keys and suspend user access", async () => {
