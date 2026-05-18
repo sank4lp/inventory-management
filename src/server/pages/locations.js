@@ -190,7 +190,7 @@ export function createLocationPages({ db }) {
 
   function renderAllLocations(cells) {
     return table(
-      ["Location", "Light controller", "LED module", "Stock", "Products", "Actions"],
+        ["Location", "Light Controller", "LED Module", "Stock", "Products", "Actions"],
       cells.map((cell) => [
         `<a href="/cells/${cell.id}">${escapeHtml(cell.logical_code)}</a>`,
         cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
@@ -229,12 +229,12 @@ export function createLocationPages({ db }) {
         <div data-location-page>
           ${statsGrid([
             { label: "Locations", value: formatQuantity(allCells.length) },
-            { label: "With stock", value: formatQuantity(occupiedCount) },
+            { label: "With Stock", value: formatQuantity(occupiedCount) },
             { label: "Empty", value: formatQuantity(emptyCount) },
-            { label: "LED mapped", value: formatQuantity(mappedCount) },
+            { label: "LED Mapped", value: formatQuantity(mappedCount) },
           ])}
           ${card(
-            "Find a location",
+            "Find A Location",
             `
               <form
                 method="get"
@@ -245,7 +245,7 @@ export function createLocationPages({ db }) {
                 data-target="#cell-search-results"
                 data-empty-html="<p class=&quot;muted&quot;>Search a location to see what products are inside it.</p>"
               >
-                <label class="inline-form-wrap">Search locations
+                <label class="inline-form-wrap">Search Locations
                   <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Type a location code, for example Z1-R1-C01" />
                 </label>
                 <button type="submit">Search</button>
@@ -260,7 +260,7 @@ export function createLocationPages({ db }) {
             `,
           )}
           ${card(
-            "All locations",
+            "All Locations",
             allCells.length
               ? renderAllLocations(allCells)
               : `<p class="muted">No active locations are configured. Ask an admin to add cells in Configuration.</p>`,
@@ -275,10 +275,10 @@ export function createLocationPages({ db }) {
   function renderCellDetail(user, flash, cell) {
     if (!cell) {
       return page({
-        title: "Cell not found",
+        title: "Cell Not Found",
         user,
         flash: flash || { message: "Cell not found.", tone: "error" },
-        content: `<p><a href="/cells">Back to cells</a></p>`,
+        content: `<p><a href="/cells">Back To Cells</a></p>`,
       });
     }
 
@@ -288,7 +288,7 @@ export function createLocationPages({ db }) {
       flash,
       content: `
         ${card(
-          "Location summary",
+          "Location Summary",
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
             <p>${
@@ -302,7 +302,7 @@ export function createLocationPages({ db }) {
           `,
         )}
         ${card(
-          "Products in this location",
+          "Products In This Location",
           table(
             ["Product", "Available", "Action"],
             cell.products.map((product) => [
@@ -403,7 +403,7 @@ export function createLocationPages({ db }) {
 
             <section class="firmware-step" data-firmware-step="2" hidden>
               <div class="firmware-grid">
-                <label>Controller name
+                <label>Controller Name
                   <input
                     name="controller_name"
                     list="firmware-controller-names"
@@ -411,7 +411,7 @@ export function createLocationPages({ db }) {
                     required
                   />
                 </label>
-                <label>LED modules
+                <label>LED Modules
                   <input
                     type="number"
                     name="module_count"
@@ -422,7 +422,7 @@ export function createLocationPages({ db }) {
                     required
                   />
                 </label>
-                <label>Serial port
+                <label>Serial Port
                   <div class="firmware-port-input-row">
                     <input
                       name="port"
@@ -460,7 +460,7 @@ export function createLocationPages({ db }) {
                 ${renderPortChoices([], port)}
               </div>
               <details class="firmware-other-devices" data-firmware-other-devices>
-                <summary>Other serial devices / manual reflash</summary>
+                <summary>Other Serial Devices / Manual Reflash</summary>
                 <div class="firmware-other-device-list" data-firmware-other-device-list></div>
               </details>
               <div class="mini-actions">
@@ -472,7 +472,7 @@ export function createLocationPages({ db }) {
             <section class="firmware-step" data-firmware-step="3" hidden>
               <div class="mini-actions">
                 <button type="button" class="ghost-button" data-firmware-prev>Back</button>
-                <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Flash controller</button>
+                <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Flash Controller</button>
               </div>
               <div class="firmware-progress" data-firmware-progress hidden>
                 <div class="firmware-progress-head">
@@ -501,12 +501,12 @@ export function createLocationPages({ db }) {
       <section id="cell-create" class="app-panel" data-config-section="cell-create">
         <div class="panel-heading">
           <div>
-            <h2>Add locations</h2>
+            <h2>Add Locations</h2>
             <p class="muted">Create the logical storage locations that operators will pick from and put into.</p>
           </div>
         </div>
         <form method="post" action="/devices/cells" class="inline-form">
-          <label>Location name
+          <label>Location Name
             <input
               name="logical_code"
               placeholder="Z1-R1-C01"
@@ -514,7 +514,7 @@ export function createLocationPages({ db }) {
               required
             />
           </label>
-          <button type="submit" class="ghost-button">Add location</button>
+          <button type="submit" class="ghost-button">Add Location</button>
         </form>
       </section>
     `;
@@ -526,7 +526,7 @@ export function createLocationPages({ db }) {
         ${
           cells.length
             ? table(
-                ["Location", "Mapped controller", "Mapped LED module", "Stock", "Products", "Actions"],
+                ["Location", "Mapped Controller", "Mapped LED Module", "Stock", "Products", "Actions"],
                 cells.map((cell) => {
                   const hasStock = cellHasStock(cell);
                   const deleteTitle = hasStock
@@ -613,8 +613,8 @@ export function createLocationPages({ db }) {
             <p class="muted">Ping a module, then assign it to the physical cell it controls.</p>
           </div>
           <div class="mini-actions mapping-toolbar">
-            <span class="mapping-toolbar-status" data-mapping-dirty-count>All mappings saved</span>
-            <button type="submit" form="cell-mapping-form" class="blue-button" data-mapping-save disabled>Save all</button>
+            <span class="mapping-toolbar-status" data-mapping-dirty-count>All Mappings Saved</span>
+            <button type="submit" form="cell-mapping-form" class="blue-button" data-mapping-save disabled>Save All</button>
           </div>
         </div>
         <form id="cell-mapping-form" method="post" action="/mapping/bulk" data-cell-mapping-form>
@@ -634,7 +634,7 @@ export function createLocationPages({ db }) {
               .join("")}
           </datalist>
           ${table(
-            ["Controller", "LED module", "Assigned location", "Stock", "Actions"],
+            ["Controller", "LED Module", "Assigned Location", "Stock", "Actions"],
             mappedCells.map((cell) => {
               const assigned = Number(cell.active) === 1;
               const displayName = cellMappingDisplayName(cell);
@@ -733,13 +733,13 @@ export function createLocationPages({ db }) {
           <div class="modal-panel mapping-unsaved-panel">
             <div class="modal-header">
               <div>
-                <h2 id="mapping-unsaved-title">Unsaved cell mapping changes</h2>
+                <h2 id="mapping-unsaved-title">Unsaved Cell Mapping Changes</h2>
                 <p class="muted">Save or discard the pending mapping changes before leaving this section.</p>
               </div>
             </div>
             <ul class="mapping-unsaved-list" data-mapping-unsaved-list></ul>
             <div class="modal-actions">
-              <button type="button" class="blue-button" data-mapping-modal-save>Save all</button>
+              <button type="button" class="blue-button" data-mapping-modal-save>Save All</button>
               <button type="button" class="ghost-button danger-button" data-mapping-modal-discard>Discard</button>
               <button type="button" class="ghost-button" data-mapping-modal-review>Review</button>
             </div>
@@ -844,28 +844,28 @@ export function createLocationPages({ db }) {
           <section class="operation-grid" aria-label="Configuration actions">
             <a class="operation-tile" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
               <span>
-                <strong>Add controller</strong>
+                <strong>Add Controller</strong>
                 Flash a new ESP32 through a guided setup.
               </span>
               <span class="operation-kbd">01</span>
             </a>
             <a class="operation-tile" href="#cell-create" data-config-section-link="cell-create" aria-controls="cell-create">
               <span>
-                <strong>Add locations</strong>
+                <strong>Add Locations</strong>
                 Create a logical storage location.
               </span>
               <span class="operation-kbd">02</span>
             </a>
             <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
               <span>
-                <strong>Manage locations</strong>
+                <strong>Manage Locations</strong>
                 Review or remove active storage locations.
               </span>
               <span class="operation-kbd">03</span>
             </a>
             <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
               <span>
-                <strong>Cell mapping</strong>
+                <strong>Cell Mapping</strong>
                 Ping modules and assign them to storage locations.
               </span>
               <span class="operation-kbd">04</span>
@@ -881,19 +881,19 @@ export function createLocationPages({ db }) {
             </div>
             <div class="status-strip">
               <div class="status-metric">
-                <span class="muted">Controllers online</span>
+                <span class="muted">Controllers Online</span>
                 <strong>${escapeHtml(`${onlineControllers}/${controllers.length}`)}</strong>
               </div>
               <div class="status-metric">
-                <span class="muted">LED modules</span>
+                <span class="muted">LED Modules</span>
                 <strong>${escapeHtml(formatQuantity(moduleTotal))}</strong>
               </div>
               <div class="status-metric">
-                <span class="muted">Mapped cells</span>
+                <span class="muted">Mapped Cells</span>
                 <strong>${escapeHtml(formatQuantity(mappedCells.length))}</strong>
               </div>
               <div class="status-metric">
-                <span class="muted">Manual cells</span>
+                <span class="muted">Manual Cells</span>
                 <strong>${escapeHtml(formatQuantity(manualCells.length))}</strong>
               </div>
             </div>
@@ -907,7 +907,7 @@ export function createLocationPages({ db }) {
               </div>
             </div>
             ${table(
-              ["Controller", "RS485 id", "Health", "Last seen", "LED modules", "Cells", "Actions"],
+              ["Controller", "RS485 ID", "Health", "Last Seen", "LED Modules", "Cells", "Actions"],
               controllerRows,
             )}
           </section>

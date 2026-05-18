@@ -252,8 +252,8 @@ test("core inventory flows work against a fresh seeded database", async () => {
   assert.match(reportHtml, /data-report-print-option="stock-snapshot"/);
   assert.match(reportHtml, /data-report-template="movement"/);
   assert.match(reportHtml, /data-report-format-editor/);
-  assert.match(reportHtml, /Edit report format/);
-  assert.match(reportHtml, /Last 30 days/);
+  assert.match(reportHtml, /Edit Report Format/);
+  assert.match(reportHtml, /Last 30 Days/);
 
   const operatorReportHtml = createReportsPages({ db }).renderReports(
     { id: 2, name: "Operator", username: "operator", role: "operator" },
@@ -420,13 +420,23 @@ test("profile page shows account details and activity summary", async () => {
   assert.match(html, /data-nav-links/);
   assert.match(html, /data-nav-overflow-toggle/);
   assert.match(html, /data-nav-overflow-menu/);
-  assert.match(html, /Signed in as/);
+  assert.match(html, /Signed In As/);
   assert.match(html, /System Admin/);
   assert.match(html, /admin/);
-  assert.match(html, /Date joined/);
-  assert.match(html, /Last active/);
-  assert.match(html, /Tasks created/);
-  assert.match(html, /Inventory transactions/);
+  assert.match(html, /Date Joined/);
+  assert.match(html, /Last Active/);
+  assert.match(html, /Tasks Created/);
+  assert.match(html, /Inventory Transactions/);
+
+  const operator = inventory.listUsers(db).find((entry) => entry.username === "operator");
+  const adminUserHtml = pages.renderAdminUserProfile(
+    { id: 1, name: "System Admin", username: "admin", role: "admin" },
+    null,
+    operator.id,
+  );
+  assert.match(adminUserHtml, /User Account/);
+  assert.match(adminUserHtml, /Warehouse Operator/);
+  assert.match(adminUserHtml, /Back To Admin/);
 });
 
 test("operators can view reports but not admin-only pages by direct URL", async () => {
@@ -460,7 +470,7 @@ test("operators can view reports but not admin-only pages by direct URL", async 
   assert.doesNotMatch(reportsResponse.body, /href="\/backups"/);
   assert.doesNotMatch(reportsResponse.body, /href="\/admin"/);
 
-  for (const path of ["/devices", "/devices/sections/controller-setup", "/admin", "/backups"]) {
+  for (const path of ["/devices", "/devices/sections/controller-setup", "/admin", "/admin/users/1", "/backups"]) {
     const response = new MockResponse();
     await requestHandler(
       formRequest({
@@ -475,6 +485,21 @@ test("operators can view reports but not admin-only pages by direct URL", async 
     assert.match(response.headers.Location, /^\/\?/, path);
     assert.match(response.headers.Location, /Admin\+access\+is\+required/, path);
   }
+
+  const adminCookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
+  const adminUserResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      method: "GET",
+      url: `/admin/users/${operator.id}`,
+      body: "",
+      cookie: adminCookie,
+    }),
+    adminUserResponse,
+  );
+  assert.equal(adminUserResponse.statusCode, 200);
+  assert.match(adminUserResponse.body, /User Account/);
+  assert.match(adminUserResponse.body, /Warehouse Operator/);
 });
 
 test("database-backed settings and inventory survive an app restart", async () => {
@@ -544,7 +569,7 @@ test("put capacity error page offers an inline items-per-cell update", async () 
     new URL(`http://localhost/put?product_id=${shoe.id}&quantity=99&capacity_help=1`),
   );
 
-  assert.match(html, /System already full/);
+  assert.match(html, /System Already Full/);
   assert.match(html, /planner can split larger put quantities/);
   assert.match(html, new RegExp(`action="/products/${shoe.id}/items-per-cell"`));
   assert.match(html, /name="items_per_cell"/);
@@ -597,11 +622,11 @@ test("capacity updates show newly-created recommended actions in a same-page pro
   );
 
   assert.equal(detailResponse.statusCode, 200);
-  assert.match(detailResponse.body, /Recommended action created/);
-  assert.match(detailResponse.body, /Review recommendation/);
-  assert.match(detailResponse.body, /Skip for now/);
+  assert.match(detailResponse.body, /Recommended Action Created/);
+  assert.match(detailResponse.body, /Review Recommendation/);
+  assert.match(detailResponse.body, /Skip For Now/);
   assert.match(detailResponse.body, /href="\/recommended-actions\?key=overflow-\d+-1&amp;source=capacity&amp;return_to=%2Fproducts%2F1"/);
-  assert.match(detailResponse.body, /href="\/products\/1">Skip for now/);
+  assert.match(detailResponse.body, /href="\/products\/1">Skip For Now/);
 });
 
 test("active pick and put tasks allow changed quantities on eligible cells", async () => {
@@ -782,7 +807,7 @@ test("locations expose direct pick and put actions", async () => {
   assert.doesNotMatch(locationsHtml, /Put item here|Put any item here/);
 
   const searchHtml = locationPages.renderCells(user, null, stockedCell.logical_code);
-  assert.match(searchHtml, /Search locations/);
+  assert.match(searchHtml, /Search Locations/);
   assert.match(searchHtml, /location\(s\) match/);
   assert.match(searchHtml, new RegExp(`href="/pick\\?cell_id=${stockedCell.id}"`));
   assert.match(searchHtml, new RegExp(`href="/put\\?cell_id=${stockedCell.id}"`));
@@ -864,11 +889,11 @@ test("operator movement screens keep context and use plain task actions", async 
 
   const productPages = createProductPages({ db });
   const addProductHtml = productPages.renderProducts(user, null, "", true);
-  assert.match(addProductHtml, /Save and put stock/);
-  assert.match(addProductHtml, /Optional catalog details/);
+  assert.match(addProductHtml, /Save And Put Stock/);
+  assert.match(addProductHtml, /Optional Catalog Details/);
   assert.match(addProductHtml, /data-report-open="out-of-stock"/);
   assert.match(addProductHtml, /data-report-template="out-of-stock"/);
-  assert.match(addProductHtml, /Open printable list/);
+  assert.match(addProductHtml, /Open Printable List/);
   assert.match(addProductHtml, /Out Of Stock Products/);
   assert.match(addProductHtml, /data-report-print-current/);
   const productSearchHtml = productPages.renderCatalogProductResults(
@@ -887,8 +912,8 @@ test("operator movement screens keep context and use plain task actions", async 
     new URL(`http://localhost/pick?product_id=${shoe.id}&cell_id=${preferredCellId}&quantity=2`),
   );
   assert.match(pickHtml, /name="quantity"[\s\S]*value="2"/);
-  assert.match(pickHtml, /Quick quantity picker/);
-  assert.match(pickHtml, /Pick all in this location/);
+  assert.match(pickHtml, /Quick Quantity Picker/);
+  assert.match(pickHtml, /Pick All In This Location/);
   assert.match(pickHtml, /Available to pick/);
 
   const putHtml = productPages.renderPut(
@@ -896,11 +921,11 @@ test("operator movement screens keep context and use plain task actions", async 
     null,
     new URL(`http://localhost/put?product_id=${shoe.id}&quantity=2`),
   );
-  assert.match(putHtml, /Quick quantity picker/);
-  assert.match(putHtml, /One location batch/);
+  assert.match(putHtml, /Quick Quantity Picker/);
+  assert.match(putHtml, /One Location Batch/);
   assert.doesNotMatch(putHtml, /Full location capacity/);
   assert.match(putHtml, /system will split it across eligible locations/);
-  assert.match(putHtml, /Current stock/);
+  assert.match(putHtml, /Current Stock/);
   assert.match(putHtml, new RegExp(`${productDetail.sku}[\\s\\S]*${productDetail.name}`));
   assert.match(putHtml, new RegExp(`${productDetail.locations[0].logical_code}[\\s\\S]*${productDetail.locations[0].available_quantity}`));
   assert.match(putHtml, /data-put-product-summary-form/);
@@ -919,14 +944,14 @@ test("operator movement screens keep context and use plain task actions", async 
 
   assert.match(taskHtml, new RegExp(`Pick Task #${task.id}`));
   assert.doesNotMatch(taskHtml, /Mark reached|Physical/);
-  assert.match(taskHtml, /Complete pick/);
+  assert.match(taskHtml, /Complete Pick/);
   assert.match(
     taskHtml,
     new RegExp(`step="1"[\\s\\S]*name="actual_${task.lines[0].id}"`),
   );
-  assert.match(taskHtml, /Cancel task/);
+  assert.match(taskHtml, /Cancel Task/);
   assert.match(taskHtml, /Cancel this task\?/);
-  assert.doesNotMatch(taskHtml, /Simulate button|Finish task|Cancel Task|Pick Action Initiated|Use the row below/);
+  assert.doesNotMatch(taskHtml, /Simulate button|Finish task|Pick Action Initiated|Use the row below/);
 
   const putTask = inventory.planPut(db, {
     userId: user.id,
@@ -938,7 +963,7 @@ test("operator movement screens keep context and use plain task actions", async 
     confirm: "confirm-token",
     putPlan: "put-plan-token",
   });
-  assert.match(putTaskHtml, /Complete put/);
+  assert.match(putTaskHtml, /Complete Put/);
   assert.match(
     putTaskHtml,
     new RegExp(`step="1"[\\s\\S]*name="actual_${putTask.lines[0].id}"`),
@@ -966,7 +991,7 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(completionHtml, /Task Summary/);
   assert.match(completionHtml, /Redirecting to Overview in 10 seconds/);
   assert.match(completionHtml, /data-completion-redirect/);
-  assert.match(completionHtml, /Go to Overview/);
+  assert.match(completionHtml, /Go To Overview/);
 });
 
 test("pick and put product pickers prioritize recently selected movement products", async () => {
@@ -1113,17 +1138,17 @@ test("recommended actions open as a scan-friendly list before detailed cleanup",
 
   const taskPages = createTaskPages({ db });
   const listHtml = taskPages.renderRecommendedActions(user, null, "");
-  assert.match(listHtml, /Recommended cleanup/);
+  assert.match(listHtml, /Recommended Cleanup/);
   assert.match(listHtml, /Review/);
-  assert.doesNotMatch(listHtml, /Apply recommendation/);
+  assert.doesNotMatch(listHtml, /Apply Recommendation/);
 
   const detailHtml = taskPages.renderRecommendedActions(user, null, actions[0].key, {
     source: "capacity",
     returnTo: "/products/1",
   });
-  assert.match(detailHtml, /Apply recommendation/);
-  assert.match(detailHtml, /Show PICK\/PUT LEDs/);
-  assert.match(detailHtml, /Skip for now/);
+  assert.match(detailHtml, /Apply Recommendation/);
+  assert.match(detailHtml, /Show Pick\/Put LEDs/);
+  assert.match(detailHtml, /Skip For Now/);
   assert.match(detailHtml, /The capacity update created this recommended action/);
   assert.match(detailHtml, /name="return_to" value="\/products\/1"/);
 
@@ -1148,6 +1173,72 @@ test("admins can revoke registration keys and suspend user access", async () => 
   });
   assert.match(generatedKey.key_value, /^OP-/);
   assert.equal(generatedKey.status, "active");
+  assert.equal(generatedKey.usage_policy, "single_use");
+
+  const singleUseKey = inventory.issueRegistrationKey(db, {
+    keyValue: "SINGLE-OP-KEY",
+    role: "operator",
+    userId: 1,
+  });
+  inventory.registerUser(db, {
+    registrationKey: singleUseKey.key_value,
+    name: "Single Use Operator",
+    username: "single-use-operator",
+    password: "operator123",
+    hashPassword: auth.hashPassword,
+  });
+  const usedSingleUseKey = inventory
+    .listRegistrationKeys(db)
+    .find((entry) => entry.key_value === singleUseKey.key_value);
+  assert.equal(usedSingleUseKey.status, "used");
+  assert.equal(usedSingleUseKey.usage_count, 1);
+  assert.throws(
+    () =>
+      inventory.registerUser(db, {
+        registrationKey: singleUseKey.key_value,
+        name: "Second Single Use Operator",
+        username: "second-single-use-operator",
+        password: "operator123",
+        hashPassword: auth.hashPassword,
+      }),
+    /Registration key is not active\./,
+  );
+
+  const teamKey = inventory.issueRegistrationKey(db, {
+    keyValue: "TEAM-OPS-KEY",
+    role: "operator",
+    usagePolicy: "global",
+    userId: 1,
+  });
+  assert.equal(teamKey.usage_policy, "global");
+  assert.equal(teamKey.expires_at, null);
+  for (const username of ["team-operator-a", "team-operator-b"]) {
+    inventory.registerUser(db, {
+      registrationKey: teamKey.key_value,
+      name: username.replaceAll("-", " "),
+      username,
+      password: "operator123",
+      hashPassword: auth.hashPassword,
+    });
+  }
+  const usedTeamKey = inventory
+    .listRegistrationKeys(db)
+    .find((entry) => entry.key_value === teamKey.key_value);
+  assert.equal(usedTeamKey.status, "active");
+  assert.equal(usedTeamKey.usage_count, 2);
+  const suspendedTeamKey = inventory.revokeRegistrationKey(db, { keyId: teamKey.id });
+  assert.equal(suspendedTeamKey.status, "revoked");
+  assert.throws(
+    () =>
+      inventory.registerUser(db, {
+        registrationKey: teamKey.key_value,
+        name: "Late Team Operator",
+        username: "late-team-operator",
+        password: "operator123",
+        hashPassword: auth.hashPassword,
+      }),
+    /Registration key is not active\./,
+  );
 
   inventory.issueRegistrationKey(db, {
     keyValue: "TEMP-OP-KEY",
@@ -1220,12 +1311,26 @@ test("admins can revoke registration keys and suspend user access", async () => 
     { id: 1, name: "Admin", username: "admin", role: "admin" },
     null,
   );
-  assert.match(adminHtml, /Generate operator key/);
-  assert.match(adminHtml, /Generate admin key/);
+  assert.match(adminHtml, /Generate Operator Key/);
+  assert.match(adminHtml, /Generate Global Operator Key/);
+  assert.match(adminHtml, /Generate Admin Key/);
+  assert.match(adminHtml, /Global Operator Team Key/);
+  assert.match(adminHtml, /Global Operator/);
+  assert.match(adminHtml, /2 Registered/);
   assert.match(adminHtml, /one-time key per person/);
   assert.match(adminHtml, /data-copy-value=/);
-  assert.match(adminHtml, /Preview quantity LED/);
-  assert.match(adminHtml, /Products counted in this cell/);
+  assert.match(adminHtml, new RegExp(`href="/admin/users/${operator.id}"`));
+  const registrationKeysIndex = adminHtml.indexOf("<h2>Registration Keys</h2>");
+  const usersIndex = adminHtml.indexOf("<h2>Users</h2>");
+  const countAdjustmentIndex = adminHtml.indexOf("<h2>Count Adjustment</h2>");
+  assert.ok(registrationKeysIndex !== -1);
+  assert.ok(usersIndex !== -1);
+  assert.ok(countAdjustmentIndex !== -1);
+  assert.ok(registrationKeysIndex < countAdjustmentIndex);
+  assert.ok(usersIndex < countAdjustmentIndex);
+  assert.doesNotMatch(adminHtml, /<h2>Backup Schedule<\/h2>/);
+  assert.match(adminHtml, /Preview Quantity LED/);
+  assert.match(adminHtml, /Products Counted In This Cell/);
   assert.match(adminHtml, /Select a cell to load saved product counts\./);
   assert.match(adminHtml, /data-adjustment-empty/);
 });
@@ -1431,6 +1536,127 @@ test("backups can restore previous data and prune old automatic snapshots", asyn
   assert.equal(backupService.getSummary().automaticBackupSchedule.cadence, "weekly");
 });
 
+test("backup maintenance compacts previous days and enforces retention days", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-backup-compaction-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const { createBackupService } = await freshImport("../src/services/backups.js");
+
+  let currentDb = createDatabase({ hashPassword: auth.hashPassword });
+  const backupService = createBackupService({
+    getDb: () => currentDb,
+    reloadAppState: () => ({ db: currentDb }),
+    logger: {
+      info() {},
+      warn() {},
+    },
+    autoBackupLimit: 20,
+  });
+
+  const olderMorning = backupService.createBackup({
+    kind: "manual",
+    source: "older-morning",
+    now: new Date("2026-05-16T08:00:00.000Z"),
+  });
+  const olderEvening = backupService.createBackup({
+    kind: "manual",
+    source: "older-evening",
+    now: new Date("2026-05-16T18:00:00.000Z"),
+  });
+  assert.equal(
+    backupService.listBackups().filter((backup) => backup.createdAt.startsWith("2026-05-16"))
+      .length,
+    2,
+  );
+
+  backupService.createBackup({
+    kind: "auto",
+    source: "new-day-rollover",
+    now: new Date("2026-05-17T00:05:00.000Z"),
+  });
+
+  const compactedDayBackups = backupService
+    .listBackups()
+    .filter((backup) => backup.createdAt.startsWith("2026-05-16"));
+  assert.equal(compactedDayBackups.length, 1);
+  assert.equal(compactedDayBackups[0].kind, "compacted");
+  assert.match(compactedDayBackups[0].filename, /^compacted-.*-compacted-backup-2026-05-16\.sqlite$/);
+  assert.equal(compactedDayBackups[0].label, "Compacted Backup For 2026-05-16");
+  assert.equal(existsSync(olderMorning.path), false);
+  assert.equal(existsSync(olderEvening.path), false);
+
+  const retention = backupService.updateBackupRetention({
+    retentionDays: 1,
+    now: new Date("2026-05-18T01:00:00.000Z"),
+  });
+  assert.equal(retention.retentionDays, 1);
+  assert.equal(
+    backupService.listBackups().some((backup) => backup.createdAt.startsWith("2026-05-16")),
+    false,
+  );
+  assert.equal(backupService.getSummary().retentionDays, 1);
+});
+
+test("backup maintenance keeps retained days and prunes excess active-day backups", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-backup-active-day-prune-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const { createBackupService } = await freshImport("../src/services/backups.js");
+
+  let currentDb = createDatabase({ hashPassword: auth.hashPassword });
+  const backupService = createBackupService({
+    getDb: () => currentDb,
+    reloadAppState: () => ({ db: currentDb }),
+    logger: {
+      info() {},
+      warn() {},
+    },
+    autoBackupLimit: 15,
+  });
+
+  backupService.updateBackupRetention({
+    retentionDays: 10,
+    now: new Date("2026-05-01T00:00:00.000Z"),
+  });
+
+  for (let day = 8; day <= 17; day += 1) {
+    backupService.createBackup({
+      kind: "manual",
+      source: `retained-day-${day}`,
+      now: new Date(`2026-05-${String(day).padStart(2, "0")}T12:00:00.000Z`),
+    });
+  }
+
+  for (let index = 0; index <= 50; index += 1) {
+    backupService.createBackup({
+      kind: "manual",
+      source: `t-${index}`,
+      now: new Date(`2026-05-18T12:${String(index).padStart(2, "0")}:00.000Z`),
+    });
+  }
+
+  const backups = backupService.listBackups();
+  const retainedDays = backups.filter((backup) => backup.createdAt < "2026-05-18T00:00:00.000Z");
+  const todayBackups = backups.filter((backup) => backup.createdAt.startsWith("2026-05-18"));
+
+  assert.equal(retainedDays.length, 10);
+  assert.ok(
+    retainedDays.every((backup) => backup.kind === "compacted"),
+    "previous days should be compacted to one backup per day",
+  );
+  assert.equal(todayBackups.length, 5);
+  assert.deepEqual(
+    todayBackups.map((backup) => backup.source),
+    ["t-50", "t-49", "t-48", "t-47", "t-46"],
+  );
+  assert.equal(backups.length, 15);
+  assert.equal(backupService.getSummary().activeDayBackupLimit, 5);
+});
+
 test("admins can update automatic backup schedule from the backup panel", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-backup-schedule-http-"));
   process.chdir(sandbox);
@@ -1458,6 +1684,23 @@ test("admins can update automatic backup schedule from the backup panel", async 
   assert.match(response.headers.Location, /^\/admin\?/);
   assert.match(response.headers.Location, /tone=success/);
 
+  const retentionResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/backups/retention",
+      body: new URLSearchParams({
+        retention_days: "20",
+        return_to: "/backups",
+      }).toString(),
+      cookie,
+    }),
+    retentionResponse,
+  );
+
+  assert.equal(retentionResponse.statusCode, 302);
+  assert.match(retentionResponse.headers.Location, /^\/backups\?/);
+  assert.match(retentionResponse.headers.Location, /tone=success/);
+
   const pageResponse = new MockResponse();
   await requestHandler(
     formRequest({
@@ -1472,7 +1715,10 @@ test("admins can update automatic backup schedule from the backup panel", async 
   assert.equal(pageResponse.statusCode, 200);
   assert.match(pageResponse.body, /Bi Weekly/);
   assert.match(pageResponse.body, /04:45/);
-  assert.match(pageResponse.body, /Save schedule/);
+  assert.match(pageResponse.body, /Save Schedule/);
+  assert.match(pageResponse.body, /Retention And Compaction/);
+  assert.match(pageResponse.body, /20 Day\(s\)/);
+  assert.match(pageResponse.body, /Save Retention/);
 });
 
 test("critical device changes create interim critical backups", async () => {
@@ -1925,9 +2171,16 @@ test("offline controllers retry three times at thirty seconds before five minute
     const results = systemService.refreshDueControllerHealths({
       now: new Date(startedAt.getTime() + elapsedMs),
     });
-    assert.equal(results.length, 1);
-    assert.equal(results[0].controllerId, offlineController.id);
-    assert.equal(results[0].status, "offline");
+    assert.equal(results.length, controllers.length);
+    assert.ok(
+      results.some(
+        (result) => result.controllerId === offlineController.id && result.status === "offline",
+      ),
+    );
+    assert.equal(
+      results.filter((result) => result.controllerId !== offlineController.id).length,
+      controllers.length - 1,
+    );
     assert.match(
       systemService.healthSummary(startup).message,
       new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 30 seconds\\.`),
@@ -1937,8 +2190,12 @@ test("offline controllers retry three times at thirty seconds before five minute
   const thirdRetry = systemService.refreshDueControllerHealths({
     now: new Date(startedAt.getTime() + 90_000),
   });
-  assert.equal(thirdRetry.length, 1);
-  assert.equal(thirdRetry[0].controllerId, offlineController.id);
+  assert.equal(thirdRetry.length, controllers.length);
+  assert.ok(
+    thirdRetry.some(
+      (result) => result.controllerId === offlineController.id && result.status === "offline",
+    ),
+  );
   assert.match(
     systemService.healthSummary(startup).message,
     new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 5 minutes\\.`),
@@ -1953,10 +2210,23 @@ test("offline controllers retry three times at thirty seconds before five minute
   assert.ok(onlineRefresh.every((result) => result.status === "online"));
 
   assert.deepEqual(
-    systemService.refreshDueControllerHealths({ now: new Date(startedAt.getTime() + 389_000) }),
+    systemService.refreshDueControllerHealths({ now: new Date(startedAt.getTime() + 329_000) }),
     [],
   );
   assert.equal(attempts.get(offlineController.id), 4);
+
+  const recurringOnlineRefresh = systemService.refreshDueControllerHealths({
+    now: new Date(startedAt.getTime() + 330_000),
+  });
+  assert.equal(recurringOnlineRefresh.length, controllers.length - 1);
+  assert.ok(recurringOnlineRefresh.every((result) => result.controllerId !== offlineController.id));
+  assert.ok(recurringOnlineRefresh.every((result) => result.status === "online"));
+
+  const beforeBackoffRetry = systemService.refreshDueControllerHealths({
+    now: new Date(startedAt.getTime() + 389_000),
+  });
+  assert.equal(attempts.get(offlineController.id), 4);
+  assert.ok(beforeBackoffRetry.every((result) => result.controllerId !== offlineController.id));
 
   const backedOffRetry = systemService.refreshDueControllerHealths({
     now: new Date(startedAt.getTime() + 390_000),
@@ -2604,11 +2874,11 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
   );
   assert.match(
     statusHtml,
-    /<span class="muted">Mapped cells<\/span>\s*<strong>0<\/strong>/,
+    /<span class="muted">Mapped Cells<\/span>\s*<strong>0<\/strong>/,
   );
   assert.match(
     statusHtml,
-    /<span class="muted">Manual cells<\/span>\s*<strong>82<\/strong>/,
+    /<span class="muted">Manual Cells<\/span>\s*<strong>82<\/strong>/,
   );
   const remapped = inventory.updateCellMapping(db, {
     cellId: deletedMapped.modulePlaceholder.id,

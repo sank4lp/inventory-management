@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 const DATA_DIR = join(process.cwd(), "data");
 const DB_PATH = join(DATA_DIR, "inventory.db");
-export const APP_SCHEMA_VERSION = "2";
+export const APP_SCHEMA_VERSION = "3";
 
 function ensureDirectory(path) {
   mkdirSync(path, { recursive: true });
@@ -634,6 +634,8 @@ function initializeSchema(db) {
       key_value TEXT NOT NULL UNIQUE,
       role TEXT NOT NULL CHECK(role IN ('admin', 'operator')),
       status TEXT NOT NULL CHECK(status IN ('active', 'used', 'revoked', 'expired')),
+      usage_policy TEXT NOT NULL DEFAULT 'single_use' CHECK(usage_policy IN ('single_use', 'global')),
+      usage_count INTEGER NOT NULL DEFAULT 0,
       expires_at TEXT,
       created_by INTEGER REFERENCES users(id),
       used_by INTEGER REFERENCES users(id),
@@ -801,6 +803,17 @@ function initializeSchema(db) {
   ensureColumn(db, "controllers", "configured_at", "TEXT");
   ensureColumn(db, "controllers", "configured_by", "INTEGER REFERENCES users(id)");
   ensureColumn(db, "users", "last_active_at", "TEXT");
+  ensureColumn(db, "registration_keys", "usage_policy", "TEXT NOT NULL DEFAULT 'single_use'");
+  ensureColumn(db, "registration_keys", "usage_count", "INTEGER NOT NULL DEFAULT 0");
+  db.prepare(
+    `
+      UPDATE registration_keys
+      SET usage_count = 1
+      WHERE status = 'used'
+        AND used_by IS NOT NULL
+        AND usage_count = 0
+    `,
+  ).run();
   ensureColumn(db, "tasks", "last_touched_at", "TEXT");
   db.prepare(
     `

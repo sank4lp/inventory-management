@@ -59,8 +59,8 @@ export function createProductPages({ db }) {
     }
 
     return `
-      <fieldset class="quantity-shortcuts ${tone ? `quantity-shortcuts-${escapeHtml(tone)}` : ""}" aria-label="Quick quantity picker">
-        <legend class="quantity-shortcuts-label">Quick quantity picker</legend>
+      <fieldset class="quantity-shortcuts ${tone ? `quantity-shortcuts-${escapeHtml(tone)}` : ""}" aria-label="Quick Quantity Picker">
+        <legend class="quantity-shortcuts-label">Quick Quantity Picker</legend>
         <div class="quantity-shortcut-buttons">
         ${quantities
           .map(
@@ -189,7 +189,7 @@ export function createProductPages({ db }) {
         <div class="modal-panel">
           <div class="modal-header">
             <div>
-              <h2 id="capacity-recommendation-title">Recommended action created</h2>
+              <h2 id="capacity-recommendation-title">Recommended Action Created</h2>
               <p class="muted">The capacity update created an inventory action you can review now or leave for later.</p>
             </div>
             <a class="mini-link" href="${escapeHtml(skipPath)}">Close</a>
@@ -197,8 +197,8 @@ export function createProductPages({ db }) {
           <p><strong>${escapeHtml(action.title)}</strong></p>
           <p class="muted">${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
           <div class="modal-actions">
-            <a class="action-cta-button" href="${escapeHtml(reviewPath)}">Review recommendation</a>
-            <a class="action-cta-button secondary-cta" href="${escapeHtml(skipPath)}">Skip for now</a>
+            <a class="action-cta-button" href="${escapeHtml(reviewPath)}">Review Recommendation</a>
+            <a class="action-cta-button secondary-cta" href="${escapeHtml(skipPath)}">Skip For Now</a>
           </div>
         </div>
       </section>
@@ -219,7 +219,7 @@ export function createProductPages({ db }) {
   function productStockStatusLabel(product) {
     const currentStock = Number(product.total_available || 0);
     if (currentStock <= 0) {
-      return "Out of stock";
+      return "Out Of Stock";
     }
     if (product.is_low_stock) {
       return `Low (${formatQuantity(product.stock_shortfall_percent)}% below 30-day average)`;
@@ -227,7 +227,7 @@ export function createProductPages({ db }) {
     if (Number(product.stock_30_day_transaction_count || 0) > 0) {
       return "Within 30-day range";
     }
-    return "No 30-day movement";
+    return "No 30-Day Movement";
   }
 
   function productReportTemplate(report, generatedAt, reportFormat) {
@@ -277,7 +277,7 @@ export function createProductPages({ db }) {
       >
         <span class="stat-label">${escapeHtml(report.label)}</span>
         <span class="stat-value">${escapeHtml(formatQuantity(report.products.length))}</span>
-        <span class="stat-action-hint">Open printable list</span>
+        <span class="stat-action-hint">Open Printable List</span>
       </button>
     `;
   }
@@ -302,7 +302,7 @@ export function createProductPages({ db }) {
         <div class="modal-panel report-modal-panel">
           <div class="modal-header">
             <div>
-              <p class="report-eyebrow">Product list</p>
+              <p class="report-eyebrow">Product List</p>
               <h2 id="product-status-report-title" data-report-modal-title>Products</h2>
               <p class="muted" data-report-modal-description></p>
             </div>
@@ -313,7 +313,7 @@ export function createProductPages({ db }) {
           </div>
           <div class="report-modal-content" data-report-modal-content></div>
           <div class="modal-actions report-modal-actions">
-            <button type="button" class="blue-button" data-report-print-current>PRINT</button>
+            <button type="button" class="blue-button" data-report-print-current>Print</button>
             <button type="button" class="ghost-button" data-report-close>Close</button>
           </div>
         </div>
@@ -413,7 +413,7 @@ export function createProductPages({ db }) {
     const productStatusReports = [
       {
         key: "catalog-items",
-        label: "Catalog items",
+        label: "Catalog Items",
         title: "Catalog Items",
         description: "All products currently registered in the catalog.",
         products: allProducts,
@@ -421,7 +421,7 @@ export function createProductPages({ db }) {
       },
       {
         key: "in-stock",
-        label: "In stock",
+        label: "In Stock",
         title: "Products In Stock",
         description: "Products with available quantity greater than zero.",
         products: stockedProducts,
@@ -429,7 +429,7 @@ export function createProductPages({ db }) {
       },
       {
         key: "low-stock",
-        label: "Low stock",
+        label: "Low Stock",
         title: "Low Stock Products",
         description: `Products currently below ${formatQuantity(LOW_STOCK_SIGNIFICANT_RATIO * 100)}% of their ${formatQuantity(LOW_STOCK_HISTORY_DAYS)}-day average stock.`,
         products: lowStockProducts,
@@ -437,7 +437,7 @@ export function createProductPages({ db }) {
       },
       {
         key: "out-of-stock",
-        label: "Out of stock",
+        label: "Out Of Stock",
         title: "Out Of Stock Products",
         description: "Products with no available quantity in inventory.",
         products: outOfStockProducts,
@@ -498,7 +498,7 @@ export function createProductPages({ db }) {
                 <div class="modal-panel">
                   <div class="modal-header">
                     <div>
-                      <h2 id="add-product-title">Add product</h2>
+                      <h2 id="add-product-title">Add Product</h2>
                       <p class="muted">Enter the fields operators need during pick and put. Optional catalog details can wait.</p>
                     </div>
                     <a class="mini-link" href="/products">Close</a>
@@ -508,11 +508,11 @@ export function createProductPages({ db }) {
                       <label>SKU<input name="sku" autocomplete="off" autofocus required placeholder="ARMY-BOOT-001" /></label>
                       <label>Name<input name="name" required placeholder="Combat Boots" /></label>
                       <label>Brand<input name="brand" required placeholder="Supplier or brand" /></label>
-                      <label>Unit of measure<input name="unit_of_measure" required placeholder="pieces, pairs, boxes" /></label>
-                      <label>Items per location<input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="6" required /></label>
+                      <label>Unit Of Measure<input name="unit_of_measure" required placeholder="pieces, pairs, boxes" /></label>
+                      <label>Items Per Location<input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="6" required /></label>
                     </div>
                     <details class="form-disclosure">
-                      <summary>Optional catalog details</summary>
+                      <summary>Optional Catalog Details</summary>
                       <div class="form-grid">
                         <label>Category<input name="category" placeholder="Footwear, medical, tools" /></label>
                         <label>Variant / Size<input name="variant" placeholder="Size 10, XL, red" /></label>
@@ -520,8 +520,8 @@ export function createProductPages({ db }) {
                     </details>
                     <div class="modal-actions">
                       <a class="mini-link" href="/products">Cancel</a>
-                      <button type="submit" class="ghost-button" name="next_action" value="detail">Save product</button>
-                      <button type="submit" class="blue-button" name="next_action" value="put">Save and put stock</button>
+                      <button type="submit" class="ghost-button" name="next_action" value="detail">Save Product</button>
+                      <button type="submit" class="blue-button" name="next_action" value="put">Save And Put Stock</button>
                     </div>
                   </form>
                   <p class="muted">Use one product record per SKU. After saving, Put is usually the next step to place starting stock.</p>
@@ -537,10 +537,10 @@ export function createProductPages({ db }) {
   function renderProductDetail(user, flash, product, url = new URL("http://localhost/")) {
     if (!product) {
       return page({
-        title: "Product not found",
+        title: "Product Not Found",
         user,
         flash: flash || { message: "Product not found.", tone: "error" },
-        content: `<p><a href="/products">Back to products</a></p>`,
+        content: `<p><a href="/products">Back To Products</a></p>`,
       });
     }
 
@@ -550,7 +550,7 @@ export function createProductPages({ db }) {
       flash,
       content: `
         ${card(
-          "Product summary",
+          "Product Summary",
           `
             <p><strong>${escapeHtml(product.sku)}</strong></p>
             <p>${escapeHtml(product.brand)} · ${escapeHtml(product.unit_of_measure)}</p>
@@ -564,10 +564,10 @@ export function createProductPages({ db }) {
               user.role === "admin"
                 ? `
                   <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form top-gap">
-                    <label>Items per cell
+                    <label>Items Per Cell
                       <input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
                     </label>
-                    <button type="submit">Update capacity</button>
+                    <button type="submit">Update Capacity</button>
                   </form>
                   <p class="muted">The next put task will use this value to fill existing cells first and minimize new cells.</p>
                 `
@@ -576,7 +576,7 @@ export function createProductPages({ db }) {
           `,
         )}
         ${card(
-          "Locations holding this product",
+          "Locations Holding This Product",
           table(
             ["Cell", "Available", "Action"],
             product.locations.map((location) => [
@@ -640,12 +640,12 @@ export function createProductPages({ db }) {
       content: `
         <section class="single-column">
           <section class="guide-strip">
-            <span class="guide-pill active-guide">Step 1: Choose product</span>
-            <span class="guide-pill">Step 2: Enter quantity</span>
-            <span class="guide-pill">Step 3: Review cells</span>
+            <span class="guide-pill active-guide">Step 1: Choose Product</span>
+            <span class="guide-pill">Step 2: Enter Quantity</span>
+            <span class="guide-pill">Step 3: Review Cells</span>
           </section>
           ${card(
-            "Pick items",
+            "Pick Items",
             `
               <form method="post" action="/pick" class="stack-form" data-led-command-form data-led-loading-label="Creating">
                 ${productPickerField(
@@ -658,7 +658,7 @@ export function createProductPages({ db }) {
                   { recencyKey: "movement-product" },
                 )}
                 ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
-                <label>Requested quantity
+                <label>Requested Quantity
                   <input
                     type="number"
                     min="1"
@@ -672,10 +672,10 @@ export function createProductPages({ db }) {
                 ${renderQuantityShortcuts({
                   tone: "pick",
                   shortcuts: [
-                    { value: 1, label: "Pick one" },
+                    { value: 1, label: "Pick One" },
                     {
                       value: availableToPick,
-                      label: selectedCell ? "Pick all in this location" : "Pick all available",
+                      label: selectedCell ? "Pick All In This Location" : "Pick All Available",
                     },
                   ],
                 })}
@@ -685,7 +685,7 @@ export function createProductPages({ db }) {
                   data-led-command-submit
                   data-led-loading-label="Creating"
                   ${hasPickableProducts ? "" : "disabled"}
-                >Create pick task</button>
+                >Create Pick Task</button>
               </form>
               ${
                 selectedProductUnavailableInCell
@@ -730,7 +730,7 @@ export function createProductPages({ db }) {
     }
 
     const message = `
-      <p><strong>System is already full for this product.</strong> The planner can split larger put quantities across eligible empty locations and locations already holding ${escapeHtml(product.sku)}, but there is not enough eligible room for this request.</p>
+      <p><strong>System Is Already Full For This Product.</strong> The planner can split larger put quantities across eligible empty locations and locations already holding ${escapeHtml(product.sku)}, but there is not enough eligible room for this request.</p>
       <p class="muted">Current planning batch for ${escapeHtml(product.sku)} is ${escapeHtml(formatQuantity(product.items_per_cell))} ${escapeHtml(product.unit_of_measure)} per location.</p>
     `;
 
@@ -740,7 +740,7 @@ export function createProductPages({ db }) {
           <div class="modal-panel">
             <div class="modal-header">
               <div>
-                <h2 id="put-capacity-title">System already full</h2>
+                <h2 id="put-capacity-title">System Already Full</h2>
                 <p class="muted">${escapeHtml(flash?.message || "No eligible location has enough room for this put quantity.")}</p>
               </div>
               <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
@@ -757,7 +757,7 @@ export function createProductPages({ db }) {
         <div class="modal-panel">
           <div class="modal-header">
             <div>
-              <h2 id="put-capacity-title">System already full</h2>
+              <h2 id="put-capacity-title">System Already Full</h2>
               <p class="muted">${escapeHtml(flash?.message || "No eligible location has enough room for this put quantity.")}</p>
             </div>
             <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
@@ -766,10 +766,10 @@ export function createProductPages({ db }) {
           <p class="muted">Only increase this value if each location can physically hold more of this product.</p>
           <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form">
             <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
-            <label>Items per location
+            <label>Items Per Location
               <input type="number" min="1" step="1" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
             </label>
-            <button type="submit">Update items per location</button>
+            <button type="submit">Update Items Per Location</button>
           </form>
         </div>
       </section>
@@ -786,7 +786,7 @@ export function createProductPages({ db }) {
       <section class="put-stock-summary" aria-label="Selected product stock summary">
         <div class="put-stock-summary-header">
           <div>
-            <strong>Current stock</strong>
+            <strong>Current Stock</strong>
             <span>${escapeHtml(product.sku)} · ${escapeHtml(product.name)}</span>
           </div>
           <div class="put-stock-total">
@@ -831,12 +831,12 @@ export function createProductPages({ db }) {
       content: `
         <section class="single-column">
           <section class="guide-strip">
-            <span class="guide-pill active-guide">Step 1: Choose product</span>
-            <span class="guide-pill">Step 2: Enter quantity</span>
-            <span class="guide-pill">Step 3: Review cells</span>
+            <span class="guide-pill active-guide">Step 1: Choose Product</span>
+            <span class="guide-pill">Step 2: Enter Quantity</span>
+            <span class="guide-pill">Step 3: Review Cells</span>
           </section>
           ${card(
-            "Put items away",
+            "Put Items Away",
             `
               <form method="post" action="/put" class="stack-form" data-led-command-form data-led-loading-label="Creating" data-put-product-summary-form>
                 ${productPickerField(products, selectedProductId, "put-product", "product_id", "", true, {
@@ -844,15 +844,15 @@ export function createProductPages({ db }) {
                 })}
                 ${renderPutProductStockSummary(selectedProductDetail)}
                 ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
-                <label>Quantity to place<input type="number" min="1" step="1" inputmode="numeric" name="quantity" value="${escapeHtml(requestedQuantity)}" required /></label>
+                <label>Quantity To Place<input type="number" min="1" step="1" inputmode="numeric" name="quantity" value="${escapeHtml(requestedQuantity)}" required /></label>
                 ${renderQuantityShortcuts({
                   tone: "put",
                   shortcuts: [
-                    { value: 1, label: "Put one" },
-                    { value: selectedProduct?.items_per_cell, label: "One location batch" },
+                    { value: 1, label: "Put One" },
+                    { value: selectedProduct?.items_per_cell, label: "One Location Batch" },
                   ],
                 })}
-                <button class="blue-button" type="submit" data-led-command-submit data-led-loading-label="Creating">Create put task</button>
+                <button class="blue-button" type="submit" data-led-command-submit data-led-loading-label="Creating">Create Put Task</button>
               </form>
               <p class="muted">Can't find the item? <a href="/products?show_add=1">Add it to Products first</a>, then return to Put.</p>
               <p class="muted">

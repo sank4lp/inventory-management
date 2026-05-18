@@ -2782,8 +2782,8 @@ function wireCellMappingForm() {
     }
     if (dirtyCount) {
       dirtyCount.textContent = changes.length
-        ? `${changes.length} unsaved mapping${changes.length === 1 ? "" : "s"}`
-        : "All mappings saved";
+        ? `${changes.length} Unsaved Mapping${changes.length === 1 ? "" : "s"}`
+        : "All Mappings Saved";
     }
   };
 
@@ -3042,6 +3042,7 @@ function wireRowCollapsers(root = document) {
     section.dataset.rowCollapserBound = "true";
 
     const label = section.dataset.rowLabel || "rows";
+    const displayLabel = label.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
     const iconToggle = section.dataset.rowToggleStyle !== "plain";
     const footer = document.createElement("div");
     footer.className = "row-collapse-footer";
@@ -3075,14 +3076,14 @@ function wireRowCollapsers(root = document) {
       if (iconToggle) {
         footer.classList.toggle("row-collapse-footer-expanded", expanded);
         button.classList.toggle("row-collapse-icon-button-expanded", expanded);
-        button.setAttribute("aria-label", expanded ? `Show fewer ${label}` : `Show more ${label}`);
+        button.setAttribute("aria-label", expanded ? `Show Fewer ${displayLabel}` : `Show More ${displayLabel}`);
       } else {
-        button.textContent = expanded ? "Show less" : "Show more";
+        button.textContent = expanded ? "Show Less" : "Show More";
       }
       button.setAttribute("aria-expanded", expanded ? "true" : "false");
       status.textContent = expanded
-        ? `Showing all ${rows.length} ${label}`
-        : `Showing ${limit} of ${rows.length} ${label}`;
+        ? `Showing All ${rows.length} ${displayLabel}`
+        : `Showing ${limit} Of ${rows.length} ${displayLabel}`;
     };
 
     button.addEventListener("click", () => {

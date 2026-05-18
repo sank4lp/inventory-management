@@ -38,7 +38,7 @@ export function createTaskPages({ db }) {
   }
 
   function taskActionLabel(taskType) {
-    return taskType === "put" ? "Put into" : "Pick from";
+    return taskType === "put" ? "Put Into" : "Pick From";
   }
 
   function operatorTaskSummary(task) {
@@ -116,7 +116,7 @@ export function createTaskPages({ db }) {
                 .join("")}
             </ul>
           </section>
-          <a class="action-cta-button completion-overview-button" href="/" data-completion-overview>Go to Overview</a>
+          <a class="action-cta-button completion-overview-button" href="/" data-completion-overview>Go To Overview</a>
         </div>
       </section>
     `;
@@ -217,10 +217,10 @@ export function createTaskPages({ db }) {
   function renderTask(user, flash, task, mode = "view", actionTokens = {}, options = {}) {
     if (!task) {
       return page({
-        title: "Task not found",
+        title: "Task Not Found",
         user,
         flash: flash || { message: "Task not found.", tone: "error" },
-        content: `<p><a href="/">Back to dashboard</a></p>`,
+        content: `<p><a href="/">Back To Dashboard</a></p>`,
       });
     }
 
@@ -231,22 +231,22 @@ export function createTaskPages({ db }) {
     const editable = editMode && canEditTask(user, task) && task.status === "completed";
     const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
     const taskLabel = task.type === "pick" ? "Pick Task" : "Put Task";
-    const movementLabel = task.type === "pick" ? "pick" : "put";
-    const actionLabel = task.type === "pick" ? "Complete pick" : "Complete put";
+    const movementLabel = task.type === "pick" ? "Pick" : "Put";
+    const actionLabel = task.type === "pick" ? "Complete Pick" : "Complete Put";
     const taskTitle = `${editMode ? "Correct" : task.type === "pick" ? "Pick" : "Put"} Task #${task.id}`;
     const editSubmitPath = editMode && task.status === "completed" ? "correct" : "confirm";
     const canAdjustPutPlan = task.type === "put" && taskIsActive && canEditTask(user, task);
     const reviewHeaders = task.type === "put"
       ? [
           "Instruction",
-          "Final cell",
+          "Final Cell",
           "Suggested",
           "Actual",
           ...(canAdjustPutPlan ? ["Update"] : []),
         ]
       : [
           "Instruction",
-          ...(editable || taskIsActive ? ["Final cell"] : []),
+          ...(editable || taskIsActive ? ["Final Cell"] : []),
           "Suggested",
           "Actual",
         ];
@@ -323,8 +323,8 @@ export function createTaskPages({ db }) {
           ${
             canEditTask(user, task) && task.status === "completed"
               ? editMode
-                ? `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}">Back to task</a>`
-                : `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}?mode=edit">Correct task</a>`
+                ? `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}">Back To Task</a>`
+                : `<a class="action-cta-button secondary-cta" href="/tasks/${task.id}?mode=edit">Correct Task</a>`
               : ""
           }
           ${
@@ -338,7 +338,7 @@ export function createTaskPages({ db }) {
                   onsubmit="return confirm('Cancel this task? Inventory has not been changed yet, but the LED guidance will stop.');"
                 >
                   ${hiddenSubmissionToken(actionTokens.cancel)}
-                  <button class="ghost-button danger-button" type="submit" data-led-command-submit data-led-loading-label="Cancelling">Cancel task</button>
+                  <button class="ghost-button danger-button" type="submit" data-led-command-submit data-led-loading-label="Cancelling">Cancel Task</button>
                 </form>
               `
               : ""
@@ -346,10 +346,10 @@ export function createTaskPages({ db }) {
         </section>
         <section class="guide-strip">
           <span class="guide-pill">${escapeHtml(taskLabel)}</span>
-          <span class="guide-pill active-guide">Review cells</span>
+          <span class="guide-pill active-guide">Review Cells</span>
         </section>
         ${card(
-          editMode ? `Correct ${movementLabel} result` : "Task summary",
+          editMode ? `Correct ${movementLabel} Result` : "Task Summary",
           `
             <div class="meta-grid compact-meta-grid">
               <div><strong>Status</strong><br />${statusBadge(task.status)}</div>
@@ -364,7 +364,7 @@ export function createTaskPages({ db }) {
             `,
         )}
         ${card(
-          editMode ? "Save corrected result" : actionLabel,
+          editMode ? "Save Corrected Result" : actionLabel,
           `
             ${
               task.status === "cancelled"
@@ -381,8 +381,8 @@ export function createTaskPages({ db }) {
                       ${renderPutPlanRow(cells, { key: "new___INDEX__", quantity: 0, removable: true })}
                     </template>
                     <div class="mini-actions put-plan-actions">
-                      <button type="button" class="ghost-button" data-put-plan-add>Add another cell</button>
-                      <span class="muted" data-put-plan-total>Adjusted total: ${escapeHtml(formatQuantity(plannedTotal))}</span>
+                      <button type="button" class="ghost-button" data-put-plan-add>Add Another Cell</button>
+                      <span class="muted" data-put-plan-total>Adjusted Total: ${escapeHtml(formatQuantity(plannedTotal))}</span>
                     </div>
                     <form
                       id="put-plan-form"
@@ -412,7 +412,7 @@ export function createTaskPages({ db }) {
                     >
                       ${hiddenSubmissionToken(editMode ? actionTokens.correct : actionTokens.confirm)}
                       <label>Note<textarea name="note" rows="3" placeholder="Optional note"></textarea></label>
-                      <button type="submit"${editMode ? "" : ` data-led-command-submit data-led-loading-label="Finishing"`}>${editMode ? "Save correction" : actionLabel}</button>
+                      <button type="submit"${editMode ? "" : ` data-led-command-submit data-led-loading-label="Finishing"`}>${editMode ? "Save Correction" : actionLabel}</button>
                     </form>
                   `
                 : `<p class="muted">${
@@ -445,10 +445,10 @@ export function createTaskPages({ db }) {
         flash,
         content: `
           ${card(
-            "Recommended cleanup",
+            "Recommended Cleanup",
             allActions.length
               ? table(
-                  ["Issue", "Location", "Product", "Suggested next step", "Action"],
+                  ["Issue", "Location", "Product", "Suggested Next Step", "Action"],
                   allActions.map((action) => [
                     `<strong>${escapeHtml(action.title)}</strong>`,
                     escapeHtml(action.logicalCode),
@@ -485,7 +485,7 @@ export function createTaskPages({ db }) {
             ? `
               <section class="page-actions page-actions-left">
                 <a class="action-cta-button secondary-cta" href="/recommended-actions">All Recommendations</a>
-                ${returnTo ? `<a class="action-cta-button secondary-cta" href="${escapeHtml(returnTo)}">Skip for now</a>` : ""}
+                ${returnTo ? `<a class="action-cta-button secondary-cta" href="${escapeHtml(returnTo)}">Skip For Now</a>` : ""}
               </section>
             `
             : ""
@@ -502,7 +502,7 @@ export function createTaskPages({ db }) {
                   action.title,
                   `
                     <p><strong>Products currently in ${escapeHtml(action.logicalCode)}:</strong> ${escapeHtml(action.description)}</p>
-                    <p><strong>Recommended action:</strong> ${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
+                    <p><strong>Recommended Action:</strong> ${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
                     ${
                       action.unresolvedQuantity > 0
                         ? `<p class="flash flash-error">The system could not find room for ${escapeHtml(formatQuantity(action.unresolvedQuantity))} item(s). Please review manually.</p>`
@@ -526,7 +526,7 @@ export function createTaskPages({ db }) {
                                 <p class="muted">Move ${escapeHtml(formatQuantity(move.quantity))} item(s) from ${escapeHtml(action.logicalCode)} to the target cell below.</p>
                                 <div class="recommended-led-plan">
                                   ${renderLedInstruction({
-                                    action: "Pick from",
+                                    action: "Pick From",
                                     cellCode: action.logicalCode,
                                     color: "green",
                                     quantity: move.quantity,
@@ -534,7 +534,7 @@ export function createTaskPages({ db }) {
                                     detail: sourceMapped ? "The source cell will show this GREEN LED instruction." : "",
                                   })}
                                   ${renderLedInstruction({
-                                    action: "Put into",
+                                    action: "Put Into",
                                     cellCode: move.targetLogicalCode || "selected target",
                                     color: "red",
                                     quantity: move.quantity,
@@ -544,10 +544,10 @@ export function createTaskPages({ db }) {
                                 </div>
                               </div>
                               <div class="recommendation-fields">
-                                <label>Move quantity
+                                <label>Move Quantity
                                   <input type="number" min="0" step="0.01" name="move_qty_${index}" value="${escapeHtml(move.quantity)}" />
                                 </label>
-                                <label>Target cell
+                                <label>Target Cell
                                   ${cellPickerField(
                                     cells,
                                     move.targetCellId,
@@ -564,14 +564,14 @@ export function createTaskPages({ db }) {
                                   data-led-command-submit
                                   data-led-loading-label="Sending LEDs"
                                 >
-                                  Show PICK/PUT LEDs
+                                  Show Pick/Put LEDs
                                 </button>
                               </div>
                             </div>
                           `;
                         })
                         .join("")}
-                      <button type="submit" data-led-command-submit data-led-loading-label="Applying">Apply recommendation</button>
+                      <button type="submit" data-led-command-submit data-led-loading-label="Applying">Apply Recommendation</button>
                     </form>
                   `,
                 ),

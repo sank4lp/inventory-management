@@ -223,12 +223,12 @@ export function rolePickerField(selectedRole = "operator", fieldPrefix = "regist
   const roles = [
     {
       value: "operator",
-      label: "operator",
+      label: "Operator",
       detail: "Pick, put, and correction of own tasks",
     },
     {
       value: "admin",
-      label: "admin",
+      label: "Admin",
       detail: "Full console access and correction rights",
     },
   ];
@@ -268,8 +268,8 @@ export function backupScheduleForm(summary = {}, { returnTo = "/backups" } = {})
     label: "Daily",
   };
   const options = summary.automaticBackupScheduleOptions || [
-    { cadence: "every_8_hours", label: "Every 8 hours" },
-    { cadence: "every_12_hours", label: "Every 12 hours" },
+    { cadence: "every_8_hours", label: "Every 8 Hours" },
+    { cadence: "every_12_hours", label: "Every 12 Hours" },
     { cadence: "daily", label: "Daily" },
     { cadence: "weekly", label: "Weekly" },
     { cadence: "biweekly", label: "Bi Weekly" },
@@ -280,7 +280,7 @@ export function backupScheduleForm(summary = {}, { returnTo = "/backups" } = {})
   return `
     <form method="post" action="/backups/schedule" class="backup-schedule-form">
       <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
-      <label>Automatic backup
+      <label>Automatic Backup
         <select name="cadence" required>
           ${options
             .map(
@@ -293,10 +293,10 @@ export function backupScheduleForm(summary = {}, { returnTo = "/backups" } = {})
             .join("")}
         </select>
       </label>
-      <label>Start time
+      <label>Start Time
         <input type="time" name="start_time" value="${escapeHtml(schedule.startTime || "00:00")}" required />
       </label>
-      <button type="submit">Save schedule</button>
+      <button type="submit">Save Schedule</button>
       <div class="backup-schedule-summary">
         <strong>${escapeHtml(schedule.label || "Daily")}</strong>
         <span>Starts at ${escapeHtml(schedule.startTime || "00:00")}</span>
@@ -343,7 +343,7 @@ export function renderAdjustmentLine(products, index, options = {}) {
           "",
           false,
         )}
-        <label>Counted quantity
+        <label>Counted Quantity
           <input
             type="number"
             min="0"
@@ -357,7 +357,7 @@ export function renderAdjustmentLine(products, index, options = {}) {
       </div>
       <div class="adjustment-line-footer">
         <span class="adjustment-line-state" data-adjustment-line-state>${stateLabel}</span>
-        <button type="button" class="ghost-button" data-adjustment-remove>Remove line</button>
+        <button type="button" class="ghost-button" data-adjustment-remove>Remove Line</button>
       </div>
     </div>
   `;

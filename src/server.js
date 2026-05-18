@@ -851,6 +851,26 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/backups/retention") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const result = backupService.updateBackupRetention({
+        retentionDays: form.retention_days,
+      });
+      const returnTo = safeLocalPath(form.return_to, "/backups");
+      sendRedirect(
+        response,
+        appendFlash(
+          returnTo,
+          `Backup retention saved: ${result.retentionDays} day(s).`,
+          "success",
+        ),
+      );
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/backups/restore") {
       if (!ensureAdmin(response, user)) {
         return;
@@ -1294,6 +1314,15 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    const adminUserMatch = url.pathname.match(/^\/admin\/users\/(\d+)$/);
+    if (request.method === "GET" && adminUserMatch) {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      sendHtml(response, pages.renderAdminUserProfile(user, flash, Number(adminUserMatch[1])));
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/admin/registration-keys") {
       if (!ensureAdmin(response, user)) {
         return;
@@ -1302,11 +1331,13 @@ export const requestHandler = async (request, response) => {
       const key = adminService.issueRegistrationKey({
         keyValue: form.key_value,
         role: form.role,
+        usagePolicy: form.usage_policy,
         userId: user.id,
       });
       const backupResult = createAutomaticBackup("registration-key-issue");
       const roleLabel = key.role === "admin" ? "Admin" : "Operator";
-      const nextFlash = backupAwareFlash(`${roleLabel} registration key issued.`, "success", backupResult);
+      const keyLabel = key.usage_policy === "global" ? "global registration key" : "registration key";
+      const nextFlash = backupAwareFlash(`${roleLabel} ${keyLabel} issued.`, "success", backupResult);
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
       return;
     }
@@ -1320,7 +1351,7 @@ export const requestHandler = async (request, response) => {
         keyId: form.key_id,
       });
       const backupResult = createAutomaticBackup("registration-key-revoke");
-      const nextFlash = backupAwareFlash("Registration key deleted.", "success", backupResult);
+      const nextFlash = backupAwareFlash("Registration key suspended.", "success", backupResult);
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
       return;
     }

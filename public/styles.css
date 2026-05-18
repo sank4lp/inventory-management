@@ -257,6 +257,12 @@ small {
   overflow: visible;
 }
 
+.nav-links > a[hidden],
+.nav-overflow[hidden],
+.nav-overflow-menu[hidden] {
+  display: none !important;
+}
+
 .nav-links a,
 .nav-overflow-toggle {
   position: relative;
@@ -1206,9 +1212,20 @@ body.modal-open .page-shell {
 
 .backup-schedule-form {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(150px, 0.7fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(124px, 0.55fr);
   gap: 12px;
   align-items: end;
+}
+
+.backup-schedule-form label {
+  min-width: 0;
+}
+
+.backup-schedule-form button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-width: 132px;
+  white-space: nowrap;
 }
 
 .backup-schedule-summary {
@@ -1257,6 +1274,18 @@ label {
   gap: 6px;
   font-size: var(--font-size-sm);
   font-weight: 700;
+}
+
+.checkbox-line {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+}
+
+.checkbox-line input {
+  width: auto;
+  min-height: 0;
 }
 
 input,
@@ -1734,7 +1763,7 @@ button[disabled] {
 }
 
 .report-format-summary::after {
-  content: "Edit report format";
+  content: "Edit Report Format";
   display: inline-flex;
   align-items: center;
   min-height: 36px;
@@ -1748,7 +1777,7 @@ button[disabled] {
 }
 
 .report-format-panel[open] .report-format-summary::after {
-  content: "Close format editor";
+  content: "Close Format Editor";
 }
 
 .report-format-editor-grid {
@@ -3477,7 +3506,7 @@ tbody tr:last-child td {
 
 @media (max-width: 1020px) {
   .top-nav-shell {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(44px, 1fr) auto;
     gap: 8px;
     padding: 8px 12px;
   }
@@ -3501,6 +3530,10 @@ tbody tr:last-child td {
 
   .nav-icon {
     display: none;
+  }
+
+  .nav-overflow-toggle .nav-overflow-icon {
+    display: block;
   }
 
   .session-copy {

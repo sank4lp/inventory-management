@@ -21,9 +21,9 @@ export function createPageRenderer({ db, backupService }) {
 
   function renderNotFound(user) {
     return page({
-      title: "Not found",
+      title: "Not Found",
       user,
-      content: `<p>The requested page does not exist.</p><p><a href="/">Back to dashboard</a></p>`,
+      content: `<p>The requested page does not exist.</p><p><a href="/">Back To Dashboard</a></p>`,
     });
   }
 

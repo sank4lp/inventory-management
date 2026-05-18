@@ -148,8 +148,8 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         status,
         quickRetriesUsed: 0,
         lastCheckedAt: checkedAtIso,
-        nextCheckAt: addMs(checkedAt, CONTROLLER_SLOW_RETRY_MS),
-        retryDelayMs: CONTROLLER_SLOW_RETRY_MS,
+        nextCheckAt: addMs(checkedAt, CONTROLLER_QUICK_RETRY_MS),
+        retryDelayMs: CONTROLLER_QUICK_RETRY_MS,
       });
       return;
     }

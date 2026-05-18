@@ -66,63 +66,63 @@ function resolveReportRange(url, defaultDays = 30) {
   let toAt = null;
   let from = url.searchParams.get("from") || "";
   let to = url.searchParams.get("to") || "";
-  let label = "Custom range";
+  let label = "Custom Range";
 
   if (preset === "last-1h") {
     fromAt = hoursAgo(1, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = "Last 1 hour";
+    label = "Last 1 Hour";
   } else if (preset === "last-3h") {
     fromAt = hoursAgo(3, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = "Last 3 hours";
+    label = "Last 3 Hours";
   } else if (preset === "last-6h") {
     fromAt = hoursAgo(6, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = "Last 6 hours";
+    label = "Last 6 Hours";
   } else if (preset === "last-12h") {
     fromAt = hoursAgo(12, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = "Last 12 hours";
+    label = "Last 12 Hours";
   } else if (preset === "last-24h") {
     fromAt = hoursAgo(24, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = "Last 24 hours";
+    label = "Last 24 Hours";
   } else if (preset === "last-7d") {
     fromAt = daysAgo(7, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = "Last 7 days";
+    label = "Last 7 Days";
   } else if (preset === "last-30d") {
     fromAt = daysAgo(30, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = "Last 30 days";
+    label = "Last 30 Days";
   } else if (preset === "last-90d") {
     fromAt = daysAgo(90, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = "Last 90 days";
+    label = "Last 90 Days";
   } else if (/^last-\d+d$/.test(preset)) {
     const days = Number(preset.match(/^last-(\d+)d$/)?.[1] || defaultDays);
     fromAt = daysAgo(days, now).toISOString();
     toAt = now.toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(now);
-    label = `Last ${days} days`;
+    label = `Last ${days} Days`;
   } else if (preset === "previous-day") {
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
@@ -130,7 +130,7 @@ function resolveReportRange(url, defaultDays = 30) {
     toAt = endOfDay(yesterday).toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(new Date(toAt));
-    label = "Previous day";
+    label = "Previous Day";
   } else if (preset === "previous-week") {
     const day = now.getDay();
     const mondayOffset = day === 0 ? 6 : day - 1;
@@ -144,7 +144,7 @@ function resolveReportRange(url, defaultDays = 30) {
     toAt = endOfDay(previousWeekEnd).toISOString();
     from = formatDateTimeInput(new Date(fromAt));
     to = formatDateTimeInput(new Date(toAt));
-    label = "Previous week";
+    label = "Previous Week";
   } else if (preset === "previous-month") {
     const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
@@ -152,14 +152,14 @@ function resolveReportRange(url, defaultDays = 30) {
     toAt = endOfDay(previousMonthEnd).toISOString();
     from = formatDateTimeInput(previousMonthStart);
     to = formatDateTimeInput(endOfDay(previousMonthEnd));
-    label = "Previous month";
+    label = "Previous Month";
   } else if (preset === "all-time") {
-    label = "All time";
+    label = "All Time";
   } else {
     fromAt = toIsoOrNull(from);
     toAt = toIsoOrNull(to);
     if (!from && !to) {
-      label = "All time";
+      label = "All Time";
     }
   }
 
@@ -201,7 +201,7 @@ function reportCard(report) {
       <span>${escapeHtml(report.title)}</span>
       <strong>${escapeHtml(report.metric)}</strong>
       <small>${escapeHtml(report.metricLabel)}</small>
-      <em>Open report</em>
+      <em>Open Report</em>
     </button>
   `;
 }
@@ -268,15 +268,15 @@ function reportFormatEditor(reportFormat, url, user) {
     <details class="report-format-panel app-panel" data-report-format-editor ${url.searchParams.get("format") === "1" ? "open" : ""}>
       <summary class="report-format-summary">
         <span>
-          <span class="report-eyebrow">Report format</span>
-          <strong>Edit report format</strong>
+          <span class="report-eyebrow">Report Format</span>
+          <strong>Edit Report Format</strong>
         </span>
       </summary>
       <div class="report-format-editor-grid">
         <form method="post" action="/reports/format" class="report-format-form" data-report-format-form>
           <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
           <div class="report-format-form-grid">
-            <label>Company name
+            <label>Company Name
               <input
                 name="company_name"
                 value="${escapeHtml(reportFormat.companyName)}"
@@ -284,7 +284,7 @@ function reportFormatEditor(reportFormat, url, user) {
                 data-report-format-field="companyName"
               />
             </label>
-            <label>Header label
+            <label>Header Label
               <input
                 name="header_label"
                 value="${escapeHtml(reportFormat.headerLabel)}"
@@ -297,7 +297,7 @@ function reportFormatEditor(reportFormat, url, user) {
                 ${REPORT_FONT_OPTIONS.map((option) => reportFormatOption(option, reportFormat.fontFamily)).join("")}
               </select>
             </label>
-            <label>Body size
+            <label>Body Size
               <input
                 type="number"
                 name="body_font_size"
@@ -308,7 +308,7 @@ function reportFormatEditor(reportFormat, url, user) {
                 data-report-format-field="bodyFontSize"
               />
             </label>
-            <label>Heading size
+            <label>Heading Size
               <input
                 type="number"
                 name="heading_font_size"
@@ -319,7 +319,7 @@ function reportFormatEditor(reportFormat, url, user) {
                 data-report-format-field="headingFontSize"
               />
             </label>
-            <label>Sub heading size
+            <label>Subheading Size
               <input
                 type="number"
                 name="subheading_font_size"
@@ -340,8 +340,8 @@ function reportFormatEditor(reportFormat, url, user) {
             </label>
           </div>
           <div class="report-format-actions">
-            <button type="submit" class="blue-button">Save format</button>
-            <button type="submit" formaction="/reports/format/reset" class="ghost-button">Reset default</button>
+            <button type="submit" class="blue-button">Save Format</button>
+            <button type="submit" formaction="/reports/format/reset" class="ghost-button">Reset Default</button>
           </div>
         </form>
         <div class="report-format-preview-shell" aria-label="Report format preview">
@@ -350,13 +350,13 @@ function reportFormatEditor(reportFormat, url, user) {
               <div class="report-document-title-block">
                 <p class="report-document-company" data-report-format-preview-company>${escapeHtml(reportFormat.companyName)}</p>
                 <p class="report-document-kicker" data-report-format-preview-label>${escapeHtml(reportFormat.headerLabel)}</p>
-                <h3>Stock snapshot</h3>
+                <h3>Stock Snapshot</h3>
                 <p class="report-document-subheading">Printable stock list with the selected format.</p>
               </div>
               <dl class="report-document-meta">
                 <div>
                   <dt>Timeframe</dt>
-                  <dd>Last 30 days</dd>
+                  <dd>Last 30 Days</dd>
                 </div>
               </dl>
             </header>
@@ -388,10 +388,10 @@ export function createReportsPages({ db }) {
     const reportSections = [
       {
         key: "stock-snapshot",
-        title: "Stock snapshot",
+        title: "Stock Snapshot",
         description: "Current available stock by product, printed with the selected timeframe for context.",
         metric: formatQuantity(reports.stockSnapshot.length),
-        metricLabel: "products in view",
+        metricLabel: "Products In View",
         body: table(
           ["Item", "Available"],
           reports.stockSnapshot.map((row) => [
@@ -406,9 +406,9 @@ export function createReportsPages({ db }) {
         title: "Movement",
         description: "Picked, put away, and net quantity changes in the selected timeframe.",
         metric: formatQuantity(netMovement),
-        metricLabel: "net quantity change",
+        metricLabel: "Net Quantity Change",
         body: table(
-          ["Date", "Picked", "Put away", "Net change"],
+          ["Date", "Picked", "Put Away", "Net Change"],
           reports.movementSummary.map((row) => [
             escapeHtml(row.movement_date),
             escapeHtml(formatQuantity(row.picked)),
@@ -420,15 +420,15 @@ export function createReportsPages({ db }) {
       },
       {
         key: "team-activity",
-        title: "Team activity",
+        title: "Team Activity",
         description: "Operator task creation, inventory transactions, and recent task activity.",
         metric: formatQuantity(reports.userActivity.length),
-        metricLabel: "users listed",
+        metricLabel: "Users Listed",
         body: `
           <section class="report-document-section">
-            <h4>Activity by user</h4>
+            <h4>Activity By User</h4>
             ${table(
-              ["User", "Tasks created", "Transactions recorded"],
+              ["User", "Tasks Created", "Transactions Recorded"],
               reports.userActivity.map((row) => [
                 escapeHtml(row.username),
                 escapeHtml(formatQuantity(row.tasks_created)),
@@ -438,7 +438,7 @@ export function createReportsPages({ db }) {
             )}
           </section>
           <section class="report-document-section">
-            <h4>Recent tasks</h4>
+            <h4>Recent Tasks</h4>
             ${table(
               ["Task", "Who", "What", "Status", "Started", "Completed"],
               reports.recentTaskActivity.map((row) => [
@@ -459,7 +459,7 @@ export function createReportsPages({ db }) {
         title: "Issues",
         description: "Task exceptions that may need follow-up before the stock record can be trusted.",
         metric: formatQuantity(reports.exceptions.length),
-        metricLabel: "task exceptions",
+        metricLabel: "Task Exceptions",
         body: table(
           ["Task", "Item", "Cell", "Gap"],
           reports.exceptions.map((row) => [
@@ -476,7 +476,7 @@ export function createReportsPages({ db }) {
         title: "Adjustments",
         description: "Manual count changes, including when they happened and why.",
         metric: formatQuantity(reports.adjustments.length),
-        metricLabel: "count changes",
+        metricLabel: "Count Changes",
         body: table(
           ["When", "Item", "Cell", "Delta", "Reason"],
           reports.adjustments.map((row) => [
@@ -498,33 +498,33 @@ export function createReportsPages({ db }) {
       content: `
         <section class="reports-workspace" data-reports-workspace>
           ${statsGrid([
-            { label: "Available units", value: formatQuantity(totalStock) },
-            { label: "Net movement", value: formatQuantity(netMovement) },
-            { label: "Recent tasks", value: formatQuantity(tasksInView) },
-            { label: "Issues + adjustments", value: formatQuantity(issueCount) },
+            { label: "Available Units", value: formatQuantity(totalStock) },
+            { label: "Net Movement", value: formatQuantity(netMovement) },
+            { label: "Recent Tasks", value: formatQuantity(tasksInView) },
+            { label: "Issues + Adjustments", value: formatQuantity(issueCount) },
           ])}
           ${reportFormatEditor(reportFormat, url, user)}
           <section class="report-filter-panel app-panel" aria-label="Report timeframe">
             <div class="report-filter-header">
               <div>
-                <p class="report-eyebrow">Selected time</p>
+                <p class="report-eyebrow">Selected Time</p>
                 <h2>${escapeHtml(range.label)}</h2>
               </div>
-              <button type="button" class="blue-button report-print-button" data-report-print-open>PRINT</button>
+              <button type="button" class="blue-button report-print-button" data-report-print-open>Print</button>
             </div>
             <div class="preset-row">
-              <a class="preset-chip ${range.preset === "last-1h" ? "preset-chip-active" : ""}" href="${presetHref("last-1h")}">Last 1 hour</a>
-              <a class="preset-chip ${range.preset === "last-3h" ? "preset-chip-active" : ""}" href="${presetHref("last-3h")}">Last 3 hours</a>
-              <a class="preset-chip ${range.preset === "last-6h" ? "preset-chip-active" : ""}" href="${presetHref("last-6h")}">Last 6 hours</a>
-              <a class="preset-chip ${range.preset === "last-12h" ? "preset-chip-active" : ""}" href="${presetHref("last-12h")}">Last 12 hours</a>
-              <a class="preset-chip ${range.preset === "last-24h" ? "preset-chip-active" : ""}" href="${presetHref("last-24h")}">Last 24 hours</a>
-              <a class="preset-chip ${range.preset === "last-7d" ? "preset-chip-active" : ""}" href="${presetHref("last-7d")}">Last 7 days</a>
-              <a class="preset-chip ${range.preset === "last-30d" ? "preset-chip-active" : ""}" href="${presetHref("last-30d")}">Last 30 days</a>
-              <a class="preset-chip ${range.preset === "last-90d" ? "preset-chip-active" : ""}" href="${presetHref("last-90d")}">Last 90 days</a>
-              <a class="preset-chip ${range.preset === "previous-day" ? "preset-chip-active" : ""}" href="${presetHref("previous-day")}">Previous day</a>
-              <a class="preset-chip ${range.preset === "previous-week" ? "preset-chip-active" : ""}" href="${presetHref("previous-week")}">Previous week</a>
-              <a class="preset-chip ${range.preset === "previous-month" ? "preset-chip-active" : ""}" href="${presetHref("previous-month")}">Previous month</a>
-              <a class="preset-chip ${range.preset === "all-time" ? "preset-chip-active" : ""}" href="${presetHref("all-time")}">All time</a>
+              <a class="preset-chip ${range.preset === "last-1h" ? "preset-chip-active" : ""}" href="${presetHref("last-1h")}">Last 1 Hour</a>
+              <a class="preset-chip ${range.preset === "last-3h" ? "preset-chip-active" : ""}" href="${presetHref("last-3h")}">Last 3 Hours</a>
+              <a class="preset-chip ${range.preset === "last-6h" ? "preset-chip-active" : ""}" href="${presetHref("last-6h")}">Last 6 Hours</a>
+              <a class="preset-chip ${range.preset === "last-12h" ? "preset-chip-active" : ""}" href="${presetHref("last-12h")}">Last 12 Hours</a>
+              <a class="preset-chip ${range.preset === "last-24h" ? "preset-chip-active" : ""}" href="${presetHref("last-24h")}">Last 24 Hours</a>
+              <a class="preset-chip ${range.preset === "last-7d" ? "preset-chip-active" : ""}" href="${presetHref("last-7d")}">Last 7 Days</a>
+              <a class="preset-chip ${range.preset === "last-30d" ? "preset-chip-active" : ""}" href="${presetHref("last-30d")}">Last 30 Days</a>
+              <a class="preset-chip ${range.preset === "last-90d" ? "preset-chip-active" : ""}" href="${presetHref("last-90d")}">Last 90 Days</a>
+              <a class="preset-chip ${range.preset === "previous-day" ? "preset-chip-active" : ""}" href="${presetHref("previous-day")}">Previous Day</a>
+              <a class="preset-chip ${range.preset === "previous-week" ? "preset-chip-active" : ""}" href="${presetHref("previous-week")}">Previous Week</a>
+              <a class="preset-chip ${range.preset === "previous-month" ? "preset-chip-active" : ""}" href="${presetHref("previous-month")}">Previous Month</a>
+              <a class="preset-chip ${range.preset === "all-time" ? "preset-chip-active" : ""}" href="${presetHref("all-time")}">All Time</a>
             </div>
             <form method="get" action="/reports" class="inline-form">
               <label>From <input type="datetime-local" name="from" value="${escapeHtml(range.from)}" /></label>
@@ -550,7 +550,7 @@ export function createReportsPages({ db }) {
             <div class="modal-panel report-modal-panel">
               <div class="modal-header">
                 <div>
-                  <p class="report-eyebrow">Report preview</p>
+                  <p class="report-eyebrow">Report Preview</p>
                   <h2 id="report-modal-title" data-report-modal-title>Report</h2>
                   <p class="muted" data-report-modal-description></p>
                 </div>
@@ -562,7 +562,7 @@ export function createReportsPages({ db }) {
               </div>
               <div class="report-modal-content" data-report-modal-content></div>
               <div class="modal-actions report-modal-actions">
-                <button type="button" class="blue-button" data-report-print-current>PRINT</button>
+                <button type="button" class="blue-button" data-report-print-current>Print</button>
                 <button type="button" class="ghost-button" data-report-close>Close</button>
               </div>
             </div>
@@ -578,8 +578,8 @@ export function createReportsPages({ db }) {
             <div class="modal-panel report-print-panel">
               <div class="modal-header">
                 <div>
-                  <p class="report-eyebrow">Print report</p>
-                  <h2 id="report-print-title">Choose a report to print</h2>
+                  <p class="report-eyebrow">Print Report</p>
+                  <h2 id="report-print-title">Choose A Report To Print</h2>
                   <p class="muted">The selected report will open in the browser print menu for ${escapeHtml(
                     range.label.toLowerCase(),
                   )}.</p>

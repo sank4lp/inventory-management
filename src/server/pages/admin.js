@@ -5,7 +5,6 @@ import {
   listUsers,
 } from "../../services/inventory.js";
 import {
-  backupScheduleForm,
   card,
   cellPickerField,
   copyIcon,
@@ -29,54 +28,54 @@ export function createAdminPages({ db }) {
     const backupSummary = health.backupSummary;
 
     return card(
-      "Database health",
+      "Database Health",
       `
         <div class="meta-grid compact-meta-grid">
           <div><strong>Database</strong><br />${escapeHtml(formatBytes(health.databaseBytes))}</div>
-          <div><strong>WAL file</strong><br />${escapeHtml(formatBytes(health.walBytes))}</div>
+          <div><strong>WAL File</strong><br />${escapeHtml(formatBytes(health.walBytes))}</div>
           <div><strong>Backups</strong><br />${escapeHtml(formatBytes(health.backupBytes))}</div>
           <div><strong>Archives</strong><br />${escapeHtml(formatBytes(archive.totalBytes))}</div>
-          <div><strong>Free pages</strong><br />${escapeHtml(formatBytes(health.freeBytes))}</div>
-          <div><strong>Auto backup</strong><br />${escapeHtml(
+          <div><strong>Free Pages</strong><br />${escapeHtml(formatBytes(health.freeBytes))}</div>
+          <div><strong>Auto Backup</strong><br />${escapeHtml(
             health.settings.automaticBackupSchedule?.label ||
               `Every ${String(health.settings.automaticBackupIntervalHours)} hour(s)`,
           )}</div>
         </div>
-        <h3>Maintenance policy</h3>
+        <h3>Maintenance Policy</h3>
         <div class="meta-grid compact-meta-grid">
-          <div><strong>Reports default</strong><br />Last ${escapeHtml(
+          <div><strong>Reports Default</strong><br />Last ${escapeHtml(
             String(health.settings.reportDefaultDays),
           )} day(s)</div>
-          <div><strong>Device logs</strong><br />${escapeHtml(
+          <div><strong>Device Logs</strong><br />${escapeHtml(
             String(health.settings.deviceEventRetentionDays),
           )} day(s)</div>
-          <div><strong>System logs</strong><br />${escapeHtml(
+          <div><strong>System Logs</strong><br />${escapeHtml(
             String(health.settings.systemEventRetentionDays),
           )} day(s)</div>
-          <div><strong>Business archive</strong><br />After ${escapeHtml(
+          <div><strong>Business Archive</strong><br />After ${escapeHtml(
             String(health.settings.businessArchiveAfterDays),
           )} day(s)</div>
         </div>
-        <h3>Storage paths</h3>
+        <h3>Storage Paths</h3>
         <div class="meta-grid compact-meta-grid">
-          <div><strong>Database file</strong><br /><code class="path-code">${escapeHtml(health.databasePath)}</code></div>
-          <div><strong>Archive folder</strong><br /><code class="path-code">${escapeHtml(health.archiveDirectory)}</code></div>
-          <div><strong>Latest auto backup</strong><br />${
+          <div><strong>Database File</strong><br /><code class="path-code">${escapeHtml(health.databasePath)}</code></div>
+          <div><strong>Archive Folder</strong><br /><code class="path-code">${escapeHtml(health.archiveDirectory)}</code></div>
+          <div><strong>Latest Auto Backup</strong><br />${
             backupSummary?.latestAutomaticBackup
               ? escapeHtml(formatDate(backupSummary.latestAutomaticBackup.createdAt))
               : "No automatic backup yet"
           }</div>
-          <div><strong>Latest archive</strong><br />${
+          <div><strong>Latest Archive</strong><br />${
             archive.latestFile ? escapeHtml(formatDate(archive.latestFile.createdAt)) : "No archive files yet"
           }</div>
-          <div><strong>Last maintenance</strong><br />${
+          <div><strong>Last Maintenance</strong><br />${
             lastMaintenance?.completedAt ? escapeHtml(formatDate(lastMaintenance.completedAt)) : "Not recorded yet"
           }</div>
-          <div><strong>Maintenance errors</strong><br />${escapeHtml(
+          <div><strong>Maintenance Errors</strong><br />${escapeHtml(
             formatQuantity(lastMaintenance?.errors?.length || 0),
           )}</div>
         </div>
-        <h3>Rows by table</h3>
+        <h3>Rows By Table</h3>
         ${table(
           ["Table", "Rows"],
           health.rowCounts.map((row) => [
@@ -90,11 +89,14 @@ export function createAdminPages({ db }) {
 
   function renderRegistrationKeyActions(key) {
     if (key.status !== "active") {
-      return `<span class="muted">No action</span>`;
+      return `<span class="muted">No Action</span>`;
     }
 
-    const confirmText = "Delete this registration key? New users will no longer be able to register with it.";
-    const label = `Delete registration key ${key.key_value}`;
+    const reusable = key.usage_policy === "global";
+    const confirmText = reusable
+      ? "Suspend this reusable operator registration key? New users will no longer be able to register with it."
+      : "Delete this registration key? New users will no longer be able to register with it.";
+    const label = `${reusable ? "Suspend" : "Delete"} registration key ${key.key_value}`;
 
     return `
       <div class="mini-actions">
@@ -119,9 +121,23 @@ export function createAdminPages({ db }) {
     `;
   }
 
+  function registrationKeyTypeLabel(key) {
+    return key.usage_policy === "global"
+      ? `<span class="badge badge-active">Global Operator</span>`
+      : `<span class="badge">One-Time</span>`;
+  }
+
+  function registrationKeyUsageLabel(key) {
+    const count = Number(key.usage_count || 0);
+    if (key.usage_policy === "global") {
+      return `${formatQuantity(count)} Registered`;
+    }
+    return key.status === "used" ? "1 Of 1 Used" : `${formatQuantity(count)} Of 1 Used`;
+  }
+
   function renderUserActions(currentUser, entry) {
     if (Number(entry.id) === Number(currentUser.id)) {
-      return `<span class="muted">Signed in</span>`;
+      return `<span class="muted">Signed In</span>`;
     }
 
     const nextStatus = entry.status === "active" ? "inactive" : "active";
@@ -153,21 +169,20 @@ export function createAdminPages({ db }) {
     const runtime = getRuntimeContext();
     const dashboard = runtime.systemService?.getDashboardData(runtime.startup);
     const databaseHealth = runtime.databaseMaintenanceService?.getDatabaseHealth();
-    const backupSummary = databaseHealth?.backupSummary || null;
     const countAdjustmentCard = card(
-      "Count adjustment",
+      "Count Adjustment",
       `
         <form method="post" action="/admin/adjustments" class="stack-form" data-adjustment-form>
           <div class="adjustment-cell-selector">
             <label>Cell
               ${cellPickerField(cells, null, "adjustment-cell")}
             </label>
-            <button type="button" class="ghost-button" data-adjustment-locate-cell disabled>Locate cell</button>
+            <button type="button" class="ghost-button" data-adjustment-locate-cell disabled>Locate Cell</button>
           </div>
           <div class="adjustment-lines-shell">
             <div class="adjustment-lines-header">
-              <strong>Products counted in this cell</strong>
-              <button type="button" class="ghost-button" data-adjustment-add disabled>Add product line</button>
+              <strong>Products Counted In This Cell</strong>
+              <button type="button" class="ghost-button" data-adjustment-add disabled>Add Product Line</button>
             </div>
             <div class="stack-form adjustment-lines" data-adjustment-lines>
               <div class="adjustment-empty-state" data-adjustment-empty>
@@ -180,33 +195,88 @@ export function createAdminPages({ db }) {
           </template>
           <label>Reason<textarea name="reason" rows="3" required placeholder="Cycle count, damaged stock, or correction note"></textarea></label>
           <div class="adjustment-guidance-actions">
-            <button type="button" class="ghost-button" data-adjustment-light-quantity disabled>Preview quantity LED</button>
-            <button type="submit">Save count</button>
+            <button type="button" class="ghost-button" data-adjustment-light-quantity disabled>Preview Quantity LED</button>
+            <button type="submit">Save Count</button>
           </div>
           <div class="adjustment-guidance-status" data-adjustment-led-status role="status" aria-live="polite"></div>
         </form>
       `,
     );
-    const backupScheduleCard = backupSummary
-      ? card(
-          "Backup schedule",
+    const accessManagementSection = `
+      <section class="two-column">
+        ${card(
+          "Registration Keys",
           `
-            <div class="backup-schedule-panel">
-              <div>
-                <p>Choose when automatic snapshots should run.</p>
-                <p class="muted">The app checks this schedule whenever it performs a data-changing operation.</p>
-              </div>
-              ${backupScheduleForm(backupSummary, { returnTo: "/admin" })}
+            <p class="muted">Create one one-time key per person. The key sets the account role during registration and becomes used after that person creates an account.</p>
+            <div class="key-quick-actions">
+              <form method="post" action="/admin/registration-keys" class="inline-form">
+                <input type="hidden" name="role" value="operator" />
+                <button type="submit" class="blue-button">Generate Operator Key</button>
+              </form>
+              <form method="post" action="/admin/registration-keys" class="inline-form">
+                <input type="hidden" name="role" value="operator" />
+                <input type="hidden" name="usage_policy" value="global" />
+                <button type="submit" class="green-button">Generate Global Operator Key</button>
+              </form>
+              <form method="post" action="/admin/registration-keys" class="inline-form">
+                <input type="hidden" name="role" value="admin" />
+                <button type="submit" class="ghost-button">Generate Admin Key</button>
+              </form>
             </div>
+            <details class="form-disclosure">
+              <summary>Use A Custom Key Value</summary>
+              <form method="post" action="/admin/registration-keys" class="stack-form">
+                <label>Key Value<input name="key_value" placeholder="INVITE-AKSHAY-2026" /></label>
+                <label>Role
+                  ${rolePickerField()}
+                </label>
+                <label class="checkbox-line">
+                  <input type="checkbox" name="usage_policy" value="global" />
+                  Global Operator Team Key
+                </label>
+                <button type="submit">Issue Custom Key</button>
+              </form>
+            </details>
+            <div class="copy-status" data-copy-status role="status" aria-live="polite"></div>
+            ${table(
+              ["Key", "Role", "Type", "Usage", "Status", "Action"],
+              keys.map((key) => [
+                `<code>${escapeHtml(key.key_value)}</code>`,
+                statusBadge(key.role),
+                registrationKeyTypeLabel(key),
+                escapeHtml(registrationKeyUsageLabel(key)),
+                statusBadge(key.status),
+                renderRegistrationKeyActions(key),
+              ]),
+            )}
           `,
-        )
-      : "";
+          "",
+          `data-row-collapser data-row-limit="4" data-row-label="keys"`,
+        )}
+        ${card(
+          "Users",
+          table(
+            ["Name", "Role", "Status", "Action"],
+            users.map((entry) => [
+              `<a href="/admin/users/${entry.id}">${escapeHtml(entry.name)}</a><br /><small>${escapeHtml(entry.username)}</small>`,
+              statusBadge(entry.role),
+              statusBadge(entry.status),
+              renderUserActions(user, entry),
+            ]),
+          ),
+          "",
+          `data-row-collapser data-row-limit="4" data-row-label="users"`,
+        )}
+      </section>
+    `;
 
     return page({
       title: "Admin",
       user,
       flash,
       content: `
+        ${accessManagementSection}
+        ${countAdjustmentCard}
         ${
           dashboard
             ? card(
@@ -222,7 +292,7 @@ export function createAdminPages({ db }) {
                       dashboard.health.startup.recovery.message,
                     )}</div>
                   </div>
-                  <h3>Recent recovery actions</h3>
+                  <h3>Recent Recovery Actions</h3>
                   ${
                     dashboard.recentRecoveryEvents.length
                       ? table(
@@ -235,7 +305,7 @@ export function createAdminPages({ db }) {
                         )
                       : `<p class="muted">No recent recovery actions recorded.</p>`
                   }
-                  <h3>Recent hardware warnings</h3>
+                  <h3>Recent Hardware Warnings</h3>
                   <p class="muted">Historical warning log from hardware commands; current controller health is shown in Overall/Recovery and Devices.</p>
                   ${
                     dashboard.recentHardwareFailures.length
@@ -265,62 +335,6 @@ export function createAdminPages({ db }) {
               )
             : ""
         }
-        ${countAdjustmentCard}
-        ${backupScheduleCard}
-        <section class="two-column">
-          ${card(
-            "Registration keys",
-            `
-              <p class="muted">Create one one-time key per person. The key sets the account role during registration and becomes used after that person creates an account.</p>
-              <div class="key-quick-actions">
-                <form method="post" action="/admin/registration-keys" class="inline-form">
-                  <input type="hidden" name="role" value="operator" />
-                  <button type="submit" class="blue-button">Generate operator key</button>
-                </form>
-                <form method="post" action="/admin/registration-keys" class="inline-form">
-                  <input type="hidden" name="role" value="admin" />
-                  <button type="submit" class="ghost-button">Generate admin key</button>
-                </form>
-              </div>
-              <details class="form-disclosure">
-                <summary>Use a custom key value</summary>
-                <form method="post" action="/admin/registration-keys" class="stack-form">
-                  <label>Key value<input name="key_value" placeholder="INVITE-AKSHAY-2026" /></label>
-                  <label>Role
-                    ${rolePickerField()}
-                  </label>
-                  <button type="submit">Issue custom key</button>
-                </form>
-              </details>
-              <div class="copy-status" data-copy-status role="status" aria-live="polite"></div>
-              ${table(
-                ["Key", "Role", "Status", "Action"],
-                keys.map((key) => [
-                  `<code>${escapeHtml(key.key_value)}</code>`,
-                  statusBadge(key.role),
-                  statusBadge(key.status),
-                  renderRegistrationKeyActions(key),
-                ]),
-              )}
-            `,
-            "",
-            `data-row-collapser data-row-limit="4" data-row-label="keys"`,
-          )}
-          ${card(
-            "Users",
-            table(
-              ["Name", "Role", "Status", "Action"],
-              users.map((entry) => [
-                `${escapeHtml(entry.name)}<br /><small>${escapeHtml(entry.username)}</small>`,
-                statusBadge(entry.role),
-                statusBadge(entry.status),
-                renderUserActions(user, entry),
-              ]),
-            ),
-            "",
-            `data-row-collapser data-row-limit="4" data-row-label="users"`,
-          )}
-        </section>
         ${databaseHealth ? renderDatabaseHealth(databaseHealth) : ""}
       `,
     });

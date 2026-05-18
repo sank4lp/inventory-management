@@ -109,10 +109,10 @@ export function createHomePages({ db }) {
                 <section class="secondary-panel overview-recommendations-panel">
                   <div class="secondary-panel-header">
                     <h2>Recommended Actions</h2>
-                    <a class="mini-link" href="/recommended-actions">View all</a>
+                    <a class="mini-link" href="/recommended-actions">View All</a>
                   </div>
                   ${table(
-                    ["Issue", "Location", "Product", "Next step", "Action"],
+                    ["Issue", "Location", "Product", "Next Step", "Action"],
                     recommendedActions.map((action) => [
                       `<strong>${escapeHtml(action.title)}</strong>`,
                       escapeHtml(action.logicalCode),

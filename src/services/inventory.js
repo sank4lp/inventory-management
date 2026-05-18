@@ -915,19 +915,26 @@ export function listRegistrationKeys(db) {
     .all();
 }
 
-export function issueRegistrationKey(db, { keyValue, role, userId }) {
+export function issueRegistrationKey(db, { keyValue, role, userId, usagePolicy = "single_use" }) {
   const normalizedRole = role === "admin" ? "admin" : "operator";
   const normalized = String(keyValue || "").trim() || generateRegistrationKeyValue(normalizedRole);
+  const normalizedUsagePolicy =
+    normalizedRole === "operator" && usagePolicy === "global" ? "global" : "single_use";
+  const expiresAt =
+    normalizedUsagePolicy === "global"
+      ? null
+      : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
   const result = db.prepare(
     `
-      INSERT INTO registration_keys (key_value, role, status, expires_at, created_by, created_at)
-      VALUES (?, ?, 'active', ?, ?, ?)
+      INSERT INTO registration_keys (key_value, role, status, usage_policy, usage_count, expires_at, created_by, created_at)
+      VALUES (?, ?, 'active', ?, 0, ?, ?, ?)
     `,
   ).run(
     normalized,
     normalizedRole,
-    new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+    normalizedUsagePolicy,
+    expiresAt,
     userId,
     nowIso(),
   );
@@ -1006,13 +1013,23 @@ export function registerUser(db, { registrationKey, name, username, password, ha
         nowIso(),
       );
 
-    db.prepare(
-      `
-        UPDATE registration_keys
-        SET status = 'used', used_by = ?, used_at = ?
-        WHERE id = ?
-      `,
-    ).run(Number(result.lastInsertRowid), nowIso(), key.id);
+    if (key.usage_policy === "global") {
+      db.prepare(
+        `
+          UPDATE registration_keys
+          SET usage_count = usage_count + 1, used_by = ?, used_at = ?
+          WHERE id = ?
+        `,
+      ).run(Number(result.lastInsertRowid), nowIso(), key.id);
+    } else {
+      db.prepare(
+        `
+          UPDATE registration_keys
+          SET status = 'used', usage_count = 1, used_by = ?, used_at = ?
+          WHERE id = ?
+        `,
+      ).run(Number(result.lastInsertRowid), nowIso(), key.id);
+    }
 
     return db
       .prepare(

@@ -14,41 +14,46 @@ function lastActiveLabel(profile) {
 }
 
 export function createProfilePages({ db }) {
-  function renderProfile(user, flash) {
-    const profile = getUserProfile(db, user.id);
+  function renderProfilePage({ user, flash, profile, title = "Profile", kicker = "Signed In As", backLink = "" }) {
     if (!profile) {
       return page({
-        title: "Profile",
+        title,
         user,
         flash,
-        content: `<p class="flash flash-error">Profile not found.</p>`,
+        content: `
+          <section class="single-column-wide profile-page">
+            <p class="flash flash-error">Profile Not Found.</p>
+            ${backLink}
+          </section>
+        `,
       });
     }
 
     return page({
-      title: "Profile",
+      title,
       user,
       flash,
       content: `
         <section class="single-column-wide profile-page">
+          ${backLink}
           <section class="profile-hero app-panel">
             <div class="profile-hero-mark">${escapeHtml(profile.name.charAt(0).toUpperCase())}</div>
             <div class="profile-hero-copy">
-              <p class="profile-kicker">Signed in as</p>
+              <p class="profile-kicker">${escapeHtml(kicker)}</p>
               <h2>${escapeHtml(profile.name)}</h2>
               <p class="muted">${escapeHtml(profile.username)} · ${statusBadge(profile.role)} ${statusBadge(profile.status)}</p>
             </div>
           </section>
 
           ${statsGrid([
-            { label: "Tasks created", value: formatQuantity(profile.activity.tasksCreated) },
-            { label: "Tasks completed", value: formatQuantity(profile.activity.tasksCompleted) },
-            { label: "Inventory transactions", value: formatQuantity(profile.activity.transactionsRecorded) },
-            { label: "Last active", value: formatDate(lastActiveLabel(profile)) },
+            { label: "Tasks Created", value: formatQuantity(profile.activity.tasksCreated) },
+            { label: "Tasks Completed", value: formatQuantity(profile.activity.tasksCompleted) },
+            { label: "Inventory Transactions", value: formatQuantity(profile.activity.transactionsRecorded) },
+            { label: "Last Active", value: formatDate(lastActiveLabel(profile)) },
           ])}
 
           ${card(
-            "Account details",
+            "Account Details",
             `
               <div class="meta-grid">
                 <div>
@@ -68,11 +73,11 @@ export function createProfilePages({ db }) {
                   <span>${statusBadge(profile.status)}</span>
                 </div>
                 <div>
-                  <strong>Date joined</strong>
+                  <strong>Date Joined</strong>
                   <span>${escapeHtml(formatDate(profile.created_at))}</span>
                 </div>
                 <div>
-                  <strong>Last active</strong>
+                  <strong>Last Active</strong>
                   <span>${escapeHtml(formatDate(lastActiveLabel(profile)))}</span>
                 </div>
               </div>
@@ -80,15 +85,15 @@ export function createProfilePages({ db }) {
           )}
 
           ${card(
-            "Recent activity",
+            "Recent Activity",
             `
               <div class="meta-grid">
                 <div>
-                  <strong>Last task activity</strong>
+                  <strong>Last Task Activity</strong>
                   <span>${escapeHtml(formatDate(profile.activity.lastTaskAt))}</span>
                 </div>
                 <div>
-                  <strong>Last inventory transaction</strong>
+                  <strong>Last Inventory Transaction</strong>
                   <span>${escapeHtml(formatDate(profile.activity.lastTransactionAt))}</span>
                 </div>
               </div>
@@ -99,7 +104,27 @@ export function createProfilePages({ db }) {
     });
   }
 
+  function renderProfile(user, flash) {
+    return renderProfilePage({
+      user,
+      flash,
+      profile: getUserProfile(db, user.id),
+    });
+  }
+
+  function renderAdminUserProfile(user, flash, targetUserId) {
+    return renderProfilePage({
+      user,
+      flash,
+      profile: getUserProfile(db, targetUserId),
+      title: "Admin User Profile",
+      kicker: "User Account",
+      backLink: `<p><a class="mini-link" href="/admin">Back To Admin</a></p>`,
+    });
+  }
+
   return {
+    renderAdminUserProfile,
     renderProfile,
   };
 }
