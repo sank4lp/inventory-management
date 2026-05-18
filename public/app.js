@@ -2633,8 +2633,8 @@ function wireCellMappingForm() {
   };
 
   const describeChange = (control) => {
-    const from = control.dataset.originalLabel || "No location assigned";
-    const to = mappingControlLabel(control) || "No location assigned";
+    const from = control.dataset.originalLabel || "Empty";
+    const to = mappingControlLabel(control) || "Empty";
     const controller = control.dataset.controllerName || "Controller";
     const module = control.dataset.moduleName || "?";
     return `${controller} module ${module}: ${from} -> ${to}`;

@@ -2397,7 +2397,9 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
   assert.ok(!inventory.listCells(db).some((cell) => cell.id === deletedMapped.modulePlaceholder.id));
 
   const mappingHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-mapping");
-  assert.match(mappingHtml, /No location assigned/);
+  assert.match(mappingHtml, />Empty</);
+  assert.match(mappingHtml, /label="Z1-R1-C01 · stock 3 · recommended · unmapped"/);
+  assert.match(mappingHtml, /placeholder="Suggested: Z1-R1-C01"/);
   assert.match(
     mappingHtml,
     new RegExp(`name="target_cell_id_${deletedMapped.modulePlaceholder.id}"\\s+value=""`),
@@ -2426,6 +2428,9 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
     capacity: 4,
     createdBy: 1,
   });
+  const managementHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-management");
+  assert.match(managementHtml, /Z9-R9-REMAP/);
+  assert.match(managementHtml, /<span class="muted">Unmapped<\/span>/);
   const statusHtml = createLocationPages({ db }).renderDevices(
     { id: 1, name: "Admin", username: "admin", role: "admin" },
     null,

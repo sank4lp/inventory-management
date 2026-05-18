@@ -118,9 +118,9 @@ function renderPortChoices(ports = [], selectedPort = "") {
 
 function cellMappingOptionLabel(cell) {
   const stock = Number(cell.occupied_quantity || 0) > 0 ? ` · stock ${formatQuantity(cell.occupied_quantity)}` : "";
-  const controller = cell.controller_code
-    ? ` · ${cell.controller_code}${cell.hardware_channel ? ` module ${cell.hardware_channel}` : ""}`
-    : " · unmapped";
+  const controller = cellIsMapped(cell)
+    ? ` · mapped to ${cell.controller_code}${cell.hardware_channel ? ` module ${cell.hardware_channel}` : ""}`
+    : " · recommended · unmapped";
   const state = Number(cell.active) === 1 ? "" : " · inactive";
   return `${cell.logical_code}${stock}${controller}${state}`;
 }
@@ -139,7 +139,7 @@ function cellIsMapped(cell) {
 }
 
 function cellMappingDisplayName(cell) {
-  return Number(cell.active) === 1 ? cell.logical_code : "No location assigned";
+  return Number(cell.active) === 1 ? cell.logical_code : "Empty";
 }
 
 function renderCellMappingOptions(cellCatalog, selectedCellId) {
@@ -537,8 +537,8 @@ export function createLocationPages({ db }) {
                     : `Delete ${cell.logical_code}`;
                   return [
                     escapeHtml(cell.logical_code),
-                    cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
-                    cellIsMapped(cell) ? escapeHtml(cell.hardware_channel) : `<span class="muted">Manual</span>`,
+                    cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Unmapped</span>`,
+                    cellIsMapped(cell) ? escapeHtml(cell.hardware_channel) : `<span class="muted">Unmapped</span>`,
                     escapeHtml(formatQuantity(cell.occupied_quantity)),
                     cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
                     `
@@ -570,7 +570,19 @@ export function createLocationPages({ db }) {
   }
 
   function renderCellMappingSection(cells) {
-    const cellCatalog = listCellCatalog(db).filter((cell) => Number(cell.active) === 1);
+    const cellCatalog = listCellCatalog(db)
+      .filter((cell) => Number(cell.active) === 1)
+      .sort((left, right) => {
+        const leftMapped = cellIsMapped(left) ? 1 : 0;
+        const rightMapped = cellIsMapped(right) ? 1 : 0;
+        if (leftMapped !== rightMapped) {
+          return leftMapped - rightMapped;
+        }
+        return String(left.logical_code || "").localeCompare(String(right.logical_code || ""), undefined, {
+          numeric: true,
+        });
+      });
+    const firstRecommendedCell = cellCatalog.find((cell) => !cellIsMapped(cell));
     const mappedCells = cells
       .filter(
         (cell) => {
@@ -633,7 +645,12 @@ export function createLocationPages({ db }) {
               const inputValue = assigned ? cell.logical_code : "";
               const stockLabel = assigned
                 ? escapeHtml(formatQuantity(cell.occupied_quantity))
-                : `<span class="muted">No location assigned</span>`;
+                : `<span class="muted">Empty</span>`;
+              const inputPlaceholder = assigned
+                ? ""
+                : firstRecommendedCell
+                  ? `Suggested: ${firstRecommendedCell.logical_code}`
+                  : "Choose a location";
               return [
                 escapeHtml(cell.controller_code || "No controller"),
                 escapeHtml(cell.hardware_channel),
@@ -666,7 +683,7 @@ export function createLocationPages({ db }) {
                     autocomplete="off"
                     data-mapping-input
                     data-mapping-input-for="${cell.id}"
-                    placeholder="Choose a cell"
+                    placeholder="${escapeHtml(inputPlaceholder)}"
                   />
                 </div>
               `,
