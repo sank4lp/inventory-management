@@ -1564,6 +1564,61 @@ test("startup recovery records stale guidance cleanup in degraded mode", async (
   assert.ok(hardwareEvents.length >= 1);
 });
 
+test("system health summary reflects current controller health after startup warning", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-live-controller-health-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createLogger } = await freshImport("../src/logger.js");
+  const { createSystemService } = await freshImport("../src/services/system.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  db.prepare("UPDATE tasks SET status = 'cancelled' WHERE status = 'pending_review'").run();
+  const logger = createLogger({ level: "error", siteId: "test-site" });
+  let controllerStatus = "offline";
+  const hardwareService = {
+    adapterName: "test-rs485",
+    healthCheck() {
+      return {
+        status: "healthy",
+        message: "Test RS485 adapter active.",
+      };
+    },
+    checkControllerHealth(controller) {
+      return {
+        ok: controllerStatus === "online",
+        degraded: controllerStatus !== "online",
+        status: controllerStatus,
+        message: `${controller.controller_code} is ${controllerStatus}.`,
+      };
+    },
+  };
+  const systemService = createSystemService({
+    db,
+    config: {
+      siteId: "test-site",
+    },
+    logger,
+    hardwareService,
+    getTask: inventory.getTask,
+  });
+
+  const startup = systemService.runStartupChecks();
+  assert.equal(startup.controllers.status, "warning");
+  assert.equal(systemService.healthSummary(startup).overallStatus, "warning");
+
+  controllerStatus = "online";
+  assert.ok(systemService.refreshControllerHealths().every((result) => result.status === "online"));
+
+  const summary = systemService.healthSummary(startup);
+  assert.equal(startup.controllers.status, "warning");
+  assert.equal(summary.startup.controllers.status, "healthy");
+  assert.equal(summary.overallStatus, "healthy");
+  assert.match(summary.startup.controllers.message, /controllers online/);
+});
+
 test("reflashing an existing controller migrates mappings to the new RS485 id", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-migration-"));
   process.chdir(sandbox);

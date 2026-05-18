@@ -1013,12 +1013,8 @@ export const requestHandler = async (request, response) => {
       if (!controller) {
         throw new Error("Controller not found.");
       }
-      const result = hardwareService.checkControllerHealth(controller);
-      const healthStatus = result.status || (result.ok && !result.degraded ? "online" : "unknown");
-      locationService.updateControllerHealth({
-        controllerId: controller.id,
-        status: healthStatus,
-      });
+      const result = systemService.refreshControllerHealth(controller);
+      const healthStatus = result.status;
       const returnTo = safeLocalPath(form.return_to, "/devices#controller-health");
       sendRedirect(
         response,

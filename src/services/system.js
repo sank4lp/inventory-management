@@ -25,6 +25,54 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     return "unknown";
   }
 
+  function controllerHealthSummary(previousChecks = []) {
+    const controllers = db
+      .prepare(
+        `
+          SELECT id, controller_code, heartbeat_status
+          FROM controllers
+          WHERE active = 1
+          ORDER BY id
+        `,
+      )
+      .all();
+    const previousById = new Map(previousChecks.map((check) => [Number(check.controllerId), check]));
+    const total = controllers.length;
+    const online = controllers.filter((controller) => controller.heartbeat_status === "online").length;
+
+    return {
+      status: total === online ? "healthy" : "warning",
+      message:
+        total === 0
+          ? "No active controllers configured."
+          : `${online} of ${total} controllers online.`,
+      checked: controllers.map((controller) => {
+        const previous = previousById.get(Number(controller.id)) || {};
+        return {
+          ...previous,
+          controllerId: controller.id,
+          controllerCode: controller.controller_code,
+          status: normalizeControllerHealthStatus({ status: controller.heartbeat_status }),
+        };
+      }),
+    };
+  }
+
+  function refreshControllerHealth(controller) {
+    const result = hardwareService.checkControllerHealth(controller);
+    const status = normalizeControllerHealthStatus(result);
+    updateControllerHealth(db, {
+      controllerId: controller.id,
+      status,
+    });
+    return {
+      controllerId: controller.id,
+      controllerCode: controller.controller_code,
+      status,
+      message: result.message || null,
+    };
+  }
+
   function refreshControllerHealths() {
     const controllers = db
       .prepare(
@@ -37,20 +85,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
       )
       .all();
 
-    return controllers.map((controller) => {
-      const result = hardwareService.checkControllerHealth(controller);
-      const status = normalizeControllerHealthStatus(result);
-      updateControllerHealth(db, {
-        controllerId: controller.id,
-        status,
-      });
-      return {
-        controllerId: controller.id,
-        controllerCode: controller.controller_code,
-        status,
-        message: result.message || null,
-      };
-    });
+    return controllers.map((controller) => refreshControllerHealth(controller));
   }
 
   function recordSystemEvent({ eventType, status = "info", message, payload = null }) {
@@ -106,17 +141,6 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     );
     const hardwareHealth = hardwareService.healthCheck();
     const controllerHealthResults = refreshControllerHealths();
-    const controllerSummary = db
-      .prepare(
-        `
-          SELECT
-            COUNT(*) AS total,
-            SUM(CASE WHEN heartbeat_status = 'online' THEN 1 ELSE 0 END) AS online
-          FROM controllers
-          WHERE active = 1
-        `,
-      )
-      .get();
     const pendingTasks = db
       .prepare(
         `
@@ -139,19 +163,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         message: adminCount > 0 ? "Configuration is valid." : "No active admin users found.",
       },
       hardware: hardwareHealth,
-      controllers: {
-        status:
-          Number(controllerSummary.total || 0) === Number(controllerSummary.online || 0)
-            ? "healthy"
-            : "warning",
-        message:
-          Number(controllerSummary.total || 0) === 0
-            ? "No active controllers configured."
-            : `${Number(controllerSummary.online || 0)} of ${Number(
-                controllerSummary.total || 0,
-              )} controllers online.`,
-        checked: controllerHealthResults,
-      },
+      controllers: controllerHealthSummary(controllerHealthResults),
       recovery: {
         status: pendingTasks.length ? "warning" : "healthy",
         message: pendingTasks.length
@@ -164,7 +176,12 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
 
     recordSystemEvent({
       eventType: "startup_check",
-      status: startup.hardware.status === "healthy" ? "info" : "warning",
+      status:
+        [startup.db, startup.config, startup.hardware, startup.controllers, startup.recovery].every(
+          (part) => part.status === "healthy",
+        )
+          ? "info"
+          : "warning",
       message: "Startup checks completed.",
       payload: startup,
     });
@@ -318,7 +335,11 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   }
 
   function healthSummary(startupState = null) {
-    const startup = startupState || runStartupChecks();
+    const baseStartup = startupState || runStartupChecks();
+    const startup = {
+      ...baseStartup,
+      controllers: controllerHealthSummary(baseStartup.controllers?.checked || []),
+    };
     const parts = [startup.db, startup.config, startup.hardware, startup.controllers, startup.recovery];
     const degraded = parts.some((part) => part.status !== "healthy");
     return {
@@ -357,6 +378,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   return {
     recordSystemEvent,
     listRecentSystemEvents,
+    refreshControllerHealth,
     refreshControllerHealths,
     runStartupChecks,
     recoverPendingGuidance,

@@ -24,6 +24,9 @@ export const logger = createLogger({
 let appState = null;
 let stalePendingTaskTimer = null;
 let databaseMaintenanceTimer = null;
+let controllerHealthTimer = null;
+
+const CONTROLLER_HEALTH_INTERVAL_MS = 60 * 1000;
 
 function stopStalePendingTaskMaintenance() {
   if (stalePendingTaskTimer) {
@@ -39,6 +42,13 @@ function stopDatabaseMaintenance() {
   }
 }
 
+function stopControllerHealthMaintenance() {
+  if (controllerHealthTimer) {
+    clearInterval(controllerHealthTimer);
+    controllerHealthTimer = null;
+  }
+}
+
 function startStalePendingTaskMaintenance(systemService) {
   if (process.env.NO_SERVER_LISTEN === "1") {
     return;
@@ -49,6 +59,24 @@ function startStalePendingTaskMaintenance(systemService) {
     systemService.cancelStalePendingReviewTasks();
   }, 30 * 1000);
   stalePendingTaskTimer.unref?.();
+}
+
+function startControllerHealthMaintenance(systemService) {
+  if (process.env.NO_SERVER_LISTEN === "1") {
+    return;
+  }
+
+  stopControllerHealthMaintenance();
+  controllerHealthTimer = setInterval(() => {
+    try {
+      systemService.refreshControllerHealths();
+    } catch (error) {
+      logger.warn("controller.health.refresh_failed", {
+        error: error.message,
+      });
+    }
+  }, CONTROLLER_HEALTH_INTERVAL_MS);
+  controllerHealthTimer.unref?.();
 }
 
 function startDatabaseMaintenance(databaseMaintenanceService) {
@@ -85,6 +113,7 @@ function buildAppState() {
   const startup = systemService.runStartupChecks();
   startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
   startStalePendingTaskMaintenance(systemService);
+  startControllerHealthMaintenance(systemService);
   const backupService = createBackupService({
     getDb: () => db,
     reloadAppState,
@@ -140,6 +169,7 @@ function buildAppState() {
 
 export function reloadAppState({ closeCurrentDb = true } = {}) {
   stopStalePendingTaskMaintenance();
+  stopControllerHealthMaintenance();
   stopDatabaseMaintenance();
   if (closeCurrentDb && appState?.db) {
     appState.db.close();
