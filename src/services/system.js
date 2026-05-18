@@ -13,6 +13,10 @@ function firstColumnValue(row) {
   return values[0];
 }
 
+function finiteIds(ids = []) {
+  return ids.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+}
+
 export function createSystemService({ db, config, logger, hardwareService, getTask }) {
   function normalizeControllerHealthStatus(result = {}) {
     const status = String(result.status || "").trim().toLowerCase();
@@ -56,6 +60,52 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         };
       }),
     };
+  }
+
+  function startupRecoverySummary(baseRecovery = {}) {
+    const startupPendingIds = finiteIds(baseRecovery.pendingTaskIds || []);
+    if (!startupPendingIds.length) {
+      return {
+        ...baseRecovery,
+        status: "healthy",
+        message: "No unfinished tasks found during startup recovery scan.",
+        pendingTaskIds: [],
+      };
+    }
+
+    const unresolvedRows = db
+      .prepare(
+        `
+          SELECT id
+          FROM tasks
+          WHERE status = 'pending_review'
+            AND id IN (${startupPendingIds.map(() => "?").join(", ")})
+          ORDER BY id
+        `,
+      )
+      .all(...startupPendingIds);
+    const unresolvedIds = unresolvedRows.map((row) => row.id);
+
+    return {
+      ...baseRecovery,
+      status: unresolvedIds.length ? "warning" : "healthy",
+      message: unresolvedIds.length
+        ? `${unresolvedIds.length} startup recovery task(s) still require operator review.`
+        : "Startup recovery tasks have been resolved.",
+      pendingTaskIds: unresolvedIds,
+    };
+  }
+
+  function warningMessages(startup) {
+    return [
+      ["Database", startup.db],
+      ["Configuration", startup.config],
+      ["Hardware", startup.hardware],
+      ["Controllers", startup.controllers],
+      ["Recovery", startup.recovery],
+    ]
+      .filter(([, part]) => part?.status !== "healthy")
+      .map(([label, part]) => `${label}: ${part?.message || "Warning active."}`);
   }
 
   function refreshControllerHealth(controller) {
@@ -339,16 +389,17 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     const startup = {
       ...baseStartup,
       controllers: controllerHealthSummary(baseStartup.controllers?.checked || []),
+      recovery: startupRecoverySummary(baseStartup.recovery),
     };
     const parts = [startup.db, startup.config, startup.hardware, startup.controllers, startup.recovery];
     const degraded = parts.some((part) => part.status !== "healthy");
+    const warnings = warningMessages(startup);
     return {
       overallStatus: degraded ? "warning" : "healthy",
       degraded,
-      message: degraded
-        ? "System is running with warnings. Operators can continue with manual guidance if needed."
-        : "System is healthy.",
+      message: degraded ? warnings.join(" ") : "System is healthy.",
       startup,
+      warnings,
     };
   }
 

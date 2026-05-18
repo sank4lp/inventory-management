@@ -172,7 +172,7 @@ export function page({ title, user, flash, content }) {
     user && systemHealth?.degraded
       ? `<div class="flash flash-warning">System warning: ${escapeHtml(
           systemHealth.message,
-        )} Adapter: ${escapeHtml(runtime.startup?.hardware?.message || runtime.config?.hardwareAdapter || "unknown")}.</div>`
+        )}</div>`
       : "";
   const toast =
     flash
