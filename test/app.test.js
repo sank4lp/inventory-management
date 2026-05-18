@@ -255,6 +255,18 @@ test("core inventory flows work against a fresh seeded database", async () => {
   assert.match(reportHtml, /Edit report format/);
   assert.match(reportHtml, /Last 30 days/);
 
+  const operatorReportHtml = createReportsPages({ db }).renderReports(
+    { id: 2, name: "Operator", username: "operator", role: "operator" },
+    null,
+    new URL("http://localhost/reports"),
+  );
+  assert.match(operatorReportHtml, /href="\/reports"/);
+  assert.match(operatorReportHtml, /report-overview-grid/);
+  assert.doesNotMatch(operatorReportHtml, /href="\/devices"/);
+  assert.doesNotMatch(operatorReportHtml, /href="\/backups"/);
+  assert.doesNotMatch(operatorReportHtml, /href="\/admin"/);
+  assert.doesNotMatch(operatorReportHtml, /data-report-format-editor/);
+
   reportFormat.updateReportFormatSettings(db, {
     companyName: "Rajpoot Warehouse",
     headerLabel: "Stock control report",
@@ -277,6 +289,54 @@ test("core inventory flows work against a fresh seeded database", async () => {
 
   const actions = inventory.getRecommendedActions(db);
   assert.ok(actions.length > 0);
+});
+
+test("operators can view reports but not admin-only pages by direct URL", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-operator-route-access-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const auth = await freshImport("../src/services/auth.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+  const { getAppState } = await import("../src/server/app-state.js");
+  const operator = getAppState().db
+    .prepare("SELECT id, role FROM users WHERE username = ?")
+    .get("operator");
+  assert.ok(operator);
+  const operatorCookie = auth.createSessionCookie(operator).split(";")[0];
+
+  const reportsResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      method: "GET",
+      url: "/reports",
+      body: "",
+      cookie: operatorCookie,
+    }),
+    reportsResponse,
+  );
+  assert.equal(reportsResponse.statusCode, 200);
+  assert.match(reportsResponse.body, /href="\/reports"/);
+  assert.match(reportsResponse.body, /report-overview-grid/);
+  assert.doesNotMatch(reportsResponse.body, /href="\/devices"/);
+  assert.doesNotMatch(reportsResponse.body, /href="\/backups"/);
+  assert.doesNotMatch(reportsResponse.body, /href="\/admin"/);
+
+  for (const path of ["/devices", "/devices/sections/controller-setup", "/admin", "/backups"]) {
+    const response = new MockResponse();
+    await requestHandler(
+      formRequest({
+        method: "GET",
+        url: path,
+        body: "",
+        cookie: operatorCookie,
+      }),
+      response,
+    );
+    assert.equal(response.statusCode, 302, path);
+    assert.match(response.headers.Location, /^\/\?/, path);
+    assert.match(response.headers.Location, /Admin\+access\+is\+required/, path);
+  }
 });
 
 test("database-backed settings and inventory survive an app restart", async () => {
@@ -1619,6 +1679,110 @@ test("system health summary reflects current controller health after startup war
   assert.match(summary.startup.controllers.message, /controllers online/);
 });
 
+test("offline controllers retry three times at thirty seconds before five minute backoff", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-retry-cadence-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createLogger } = await freshImport("../src/logger.js");
+  const { createSystemService } = await freshImport("../src/services/system.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  db.prepare("UPDATE tasks SET status = 'cancelled' WHERE status = 'pending_review'").run();
+  const controllers = inventory.listControllers(db);
+  const offlineController = controllers[0];
+  const attempts = new Map();
+  const logger = createLogger({ level: "error", siteId: "test-site" });
+  const hardwareService = {
+    adapterName: "test-rs485",
+    healthCheck() {
+      return {
+        status: "healthy",
+        message: "Test RS485 adapter active.",
+      };
+    },
+    checkControllerHealth(controller) {
+      attempts.set(controller.id, Number(attempts.get(controller.id) || 0) + 1);
+      const isOffline = controller.id === offlineController.id;
+      return {
+        ok: !isOffline,
+        degraded: isOffline,
+        status: isOffline ? "offline" : "online",
+        message: `${controller.controller_code} ${isOffline ? "did not respond" : "responded"}.`,
+      };
+    },
+  };
+  const systemService = createSystemService({
+    db,
+    config: {
+      siteId: "test-site",
+    },
+    logger,
+    hardwareService,
+    getTask: inventory.getTask,
+  });
+
+  const startedAt = new Date("2026-05-18T10:00:00.000Z");
+  const startup = systemService.runStartupChecks({ now: startedAt });
+  assert.equal(attempts.get(offlineController.id), 1);
+  assert.match(
+    systemService.healthSummary(startup).message,
+    new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 30 seconds\\.`),
+  );
+
+  assert.deepEqual(
+    systemService.refreshDueControllerHealths({ now: new Date(startedAt.getTime() + 29_000) }),
+    [],
+  );
+  assert.equal(attempts.get(offlineController.id), 1);
+
+  for (const elapsedMs of [30_000, 60_000]) {
+    const results = systemService.refreshDueControllerHealths({
+      now: new Date(startedAt.getTime() + elapsedMs),
+    });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].controllerId, offlineController.id);
+    assert.equal(results[0].status, "offline");
+    assert.match(
+      systemService.healthSummary(startup).message,
+      new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 30 seconds\\.`),
+    );
+  }
+
+  const thirdRetry = systemService.refreshDueControllerHealths({
+    now: new Date(startedAt.getTime() + 90_000),
+  });
+  assert.equal(thirdRetry.length, 1);
+  assert.equal(thirdRetry[0].controllerId, offlineController.id);
+  assert.match(
+    systemService.healthSummary(startup).message,
+    new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 5 minutes\\.`),
+  );
+  assert.equal(attempts.get(offlineController.id), 4);
+
+  const onlineRefresh = systemService.refreshDueControllerHealths({
+    now: new Date(startedAt.getTime() + 300_000),
+  });
+  assert.equal(onlineRefresh.length, controllers.length - 1);
+  assert.ok(onlineRefresh.every((result) => result.controllerId !== offlineController.id));
+  assert.ok(onlineRefresh.every((result) => result.status === "online"));
+
+  assert.deepEqual(
+    systemService.refreshDueControllerHealths({ now: new Date(startedAt.getTime() + 389_000) }),
+    [],
+  );
+  assert.equal(attempts.get(offlineController.id), 4);
+
+  const backedOffRetry = systemService.refreshDueControllerHealths({
+    now: new Date(startedAt.getTime() + 390_000),
+  });
+  assert.equal(backedOffRetry.length, 1);
+  assert.equal(backedOffRetry[0].controllerId, offlineController.id);
+  assert.equal(attempts.get(offlineController.id), 5);
+});
+
 test("system health warning clears when startup recovery tasks are resolved", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recovery-health-clear-"));
   process.chdir(sandbox);
@@ -2065,13 +2229,14 @@ test("no-op adjustments return to admin with informational feedback", async () =
   );
 });
 
-test("deleting a cell requires explicit data confirmation when stock or history exists", async () => {
+test("deleting a cell requires it to be empty and preserves mapped LED modules", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-cell-delete-"));
   process.chdir(sandbox);
 
   const { createDatabase } = await freshImport("../src/db.js");
   const auth = await freshImport("../src/services/auth.js");
   const inventory = await freshImport("../src/services/inventory.js");
+  const { createLocationPages } = await freshImport("../src/server/pages/locations.js");
 
   const db = createDatabase({ hashPassword: auth.hashPassword });
   const emptyCell = inventory.createCell(db, {
@@ -2084,6 +2249,63 @@ test("deleting a cell requires explicit data confirmation when stock or history 
   });
   assert.equal(deletedEmpty.deleted, true);
   assert.equal(db.prepare("SELECT * FROM cells WHERE id = ?").get(emptyCell.id), undefined);
+
+  const controller = inventory.configureControllerModules(db, {
+    controllerCode: "ESP32-DELETE",
+    controllerAddress: "CTRL-DELETE-0001",
+    moduleCount: 28,
+    configuredBy: 1,
+  });
+  const mappedEmptyCell = inventory
+    .listCells(db)
+    .filter((cell) => cell.controller_id === controller.id)
+    .find(
+      (cell) =>
+        Number(cell.occupied_quantity || 0) === 0 &&
+        Number(cell.reserved_quantity || 0) === 0,
+    );
+  assert.ok(mappedEmptyCell);
+
+  const deletedMapped = inventory.deleteCell(db, {
+    cellId: mappedEmptyCell.id,
+    deletedBy: 1,
+  });
+  assert.equal(deletedMapped.deleted, true);
+  assert.equal(deletedMapped.modulePlaceholder.controller_id, mappedEmptyCell.controller_id);
+  assert.equal(deletedMapped.modulePlaceholder.hardware_channel, mappedEmptyCell.hardware_channel);
+  assert.equal(Number(deletedMapped.modulePlaceholder.active), 0);
+  const storedDeletedCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(mappedEmptyCell.id);
+  if (deletedMapped.preservedHistory) {
+    assert.equal(Number(storedDeletedCell.active), 0);
+    assert.equal(storedDeletedCell.controller_id, null);
+    assert.equal(storedDeletedCell.hardware_channel, null);
+  } else {
+    assert.equal(storedDeletedCell, undefined);
+  }
+  assert.ok(!inventory.listCells(db).some((cell) => cell.id === deletedMapped.modulePlaceholder.id));
+
+  const mappingHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-mapping");
+  assert.match(mappingHtml, /Unassigned/);
+  assert.match(
+    mappingHtml,
+    new RegExp(`name="target_cell_id_${deletedMapped.modulePlaceholder.id}"\\s+value=""`),
+  );
+
+  const remapTarget = inventory.createCell(db, {
+    logicalCode: "Z9-R9-REMAP",
+    capacity: 4,
+    createdBy: 1,
+  });
+  const remapped = inventory.updateCellMapping(db, {
+    cellId: deletedMapped.modulePlaceholder.id,
+    hardwareChannel: deletedMapped.modulePlaceholder.hardware_channel,
+    targetCellId: remapTarget.id,
+    mappedBy: 1,
+  });
+  assert.equal(remapped.id, remapTarget.id);
+  assert.equal(remapped.controller_id, deletedMapped.modulePlaceholder.controller_id);
+  assert.equal(remapped.hardware_channel, deletedMapped.modulePlaceholder.hardware_channel);
+  assert.equal(db.prepare("SELECT * FROM cells WHERE id = ?").get(deletedMapped.modulePlaceholder.id), undefined);
 
   const product = inventory.listProducts(db).find((entry) => entry.sku === "SKU-SHOE-001");
   const stockedCell = inventory
@@ -2108,23 +2330,9 @@ test("deleting a cell requires explicit data confirmation when stock or history 
       inventory.deleteCell(db, {
         cellId: stockedCell.id,
       }),
-    /Confirm deleting associated data/,
+    /Move all stock out/,
   );
   assert.ok(db.prepare("SELECT * FROM cells WHERE id = ?").get(stockedCell.id));
-
-  const deletedWithData = inventory.deleteCell(db, {
-    cellId: stockedCell.id,
-    deleteDataConfirmed: true,
-  });
-  assert.equal(deletedWithData.deleted, true);
-  assert.equal(deletedWithData.hasData, true);
-  assert.ok(deletedWithData.balanceRows > 0);
-  assert.ok(deletedWithData.taskLines > 0);
-  assert.ok(deletedWithData.deviceEvents > 0);
-  assert.equal(db.prepare("SELECT * FROM cells WHERE id = ?").get(stockedCell.id), undefined);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM inventory_balances WHERE cell_id = ?").get(stockedCell.id).count, 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM task_lines WHERE cell_id = ?").get(stockedCell.id).count, 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM device_events WHERE cell_id = ?").get(stockedCell.id).count, 0);
 });
 
 test("submission tokens are one-time use and production config requires a session secret", async () => {

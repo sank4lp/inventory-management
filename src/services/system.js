@@ -3,6 +3,9 @@ import { randomBytes } from "node:crypto";
 import { updateControllerHealth } from "./inventory.js";
 
 const PENDING_REVIEW_TIMEOUT_MS = 5 * 60 * 1000;
+const CONTROLLER_QUICK_RETRY_MS = 30 * 1000;
+const CONTROLLER_QUICK_RETRY_LIMIT = 3;
+const CONTROLLER_SLOW_RETRY_MS = 5 * 60 * 1000;
 
 function nowIso() {
   return new Date().toISOString();
@@ -17,7 +20,23 @@ function finiteIds(ids = []) {
   return ids.map((id) => Number(id)).filter((id) => Number.isFinite(id));
 }
 
+function addMs(date, ms) {
+  return new Date(date.getTime() + ms).toISOString();
+}
+
+function retryDelayLabel(delayMs) {
+  if (delayMs === CONTROLLER_QUICK_RETRY_MS) {
+    return "30 seconds";
+  }
+  if (delayMs === CONTROLLER_SLOW_RETRY_MS) {
+    return "5 minutes";
+  }
+  return `${Math.max(1, Math.round(delayMs / 1000))} seconds`;
+}
+
 export function createSystemService({ db, config, logger, hardwareService, getTask }) {
+  const controllerHealthSchedule = new Map();
+
   function normalizeControllerHealthStatus(result = {}) {
     const status = String(result.status || "").trim().toLowerCase();
     if (["online", "offline", "unknown"].includes(status)) {
@@ -43,20 +62,32 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     const previousById = new Map(previousChecks.map((check) => [Number(check.controllerId), check]));
     const total = controllers.length;
     const online = controllers.filter((controller) => controller.heartbeat_status === "online").length;
+    const offlineControllers = controllers.filter((controller) => controller.heartbeat_status !== "online");
+    const retryNotices = offlineControllers.map((controller) => {
+      const schedule = controllerHealthSchedule.get(Number(controller.id));
+      const delayMs = schedule?.retryDelayMs || CONTROLLER_QUICK_RETRY_MS;
+      return `Controller ${controller.controller_code} offline. Retrying after ${retryDelayLabel(delayMs)}.`;
+    });
 
     return {
       status: total === online ? "healthy" : "warning",
       message:
         total === 0
           ? "No active controllers configured."
-          : `${online} of ${total} controllers online.`,
+          : [
+              `${online} of ${total} controllers online.`,
+              ...retryNotices,
+            ].join(" "),
       checked: controllers.map((controller) => {
         const previous = previousById.get(Number(controller.id)) || {};
+        const schedule = controllerHealthSchedule.get(Number(controller.id));
         return {
           ...previous,
           controllerId: controller.id,
           controllerCode: controller.controller_code,
           status: normalizeControllerHealthStatus({ status: controller.heartbeat_status }),
+          nextCheckAt: schedule?.nextCheckAt || null,
+          retryDelayMs: schedule?.retryDelayMs || null,
         };
       }),
     };
@@ -108,13 +139,55 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
       .map(([label, part]) => `${label}: ${part?.message || "Warning active."}`);
   }
 
-  function refreshControllerHealth(controller) {
+  function updateControllerHealthSchedule(controller, status, checkedAt) {
+    const controllerId = Number(controller.id);
+    const checkedAtIso = checkedAt.toISOString();
+
+    if (status === "online") {
+      controllerHealthSchedule.set(controllerId, {
+        status,
+        quickRetriesUsed: 0,
+        lastCheckedAt: checkedAtIso,
+        nextCheckAt: addMs(checkedAt, CONTROLLER_SLOW_RETRY_MS),
+        retryDelayMs: CONTROLLER_SLOW_RETRY_MS,
+      });
+      return;
+    }
+
+    const previous = controllerHealthSchedule.get(controllerId);
+    const continuingOffline = previous && previous.status !== "online";
+    const quickRetriesUsed = continuingOffline ? Number(previous.quickRetriesUsed || 0) + 1 : 0;
+    const retryDelayMs =
+      quickRetriesUsed < CONTROLLER_QUICK_RETRY_LIMIT
+        ? CONTROLLER_QUICK_RETRY_MS
+        : CONTROLLER_SLOW_RETRY_MS;
+
+    controllerHealthSchedule.set(controllerId, {
+      status,
+      quickRetriesUsed,
+      lastCheckedAt: checkedAtIso,
+      nextCheckAt: addMs(checkedAt, retryDelayMs),
+      retryDelayMs,
+    });
+  }
+
+  function pruneControllerHealthSchedule(activeControllerIds) {
+    for (const controllerId of controllerHealthSchedule.keys()) {
+      if (!activeControllerIds.has(controllerId)) {
+        controllerHealthSchedule.delete(controllerId);
+      }
+    }
+  }
+
+  function refreshControllerHealth(controller, { now = new Date() } = {}) {
+    const checkedAt = now instanceof Date ? now : new Date(now);
     const result = hardwareService.checkControllerHealth(controller);
     const status = normalizeControllerHealthStatus(result);
     updateControllerHealth(db, {
       controllerId: controller.id,
       status,
     });
+    updateControllerHealthSchedule(controller, status, checkedAt);
     return {
       controllerId: controller.id,
       controllerCode: controller.controller_code,
@@ -123,7 +196,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     };
   }
 
-  function refreshControllerHealths() {
+  function activeControllers() {
     const controllers = db
       .prepare(
         `
@@ -134,8 +207,27 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         `,
       )
       .all();
+    pruneControllerHealthSchedule(new Set(controllers.map((controller) => Number(controller.id))));
+    return controllers;
+  }
 
-    return controllers.map((controller) => refreshControllerHealth(controller));
+  function refreshControllerHealths({ now = new Date() } = {}) {
+    const checkedAt = now instanceof Date ? now : new Date(now);
+    return activeControllers().map((controller) => refreshControllerHealth(controller, { now: checkedAt }));
+  }
+
+  function refreshDueControllerHealths({ now = new Date() } = {}) {
+    const checkedAt = now instanceof Date ? now : new Date(now);
+    return activeControllers()
+      .filter((controller) => {
+        const schedule = controllerHealthSchedule.get(Number(controller.id));
+        if (!schedule?.nextCheckAt) {
+          return true;
+        }
+        const nextCheckAt = new Date(schedule.nextCheckAt);
+        return Number.isNaN(nextCheckAt.getTime()) || nextCheckAt.getTime() <= checkedAt.getTime();
+      })
+      .map((controller) => refreshControllerHealth(controller, { now: checkedAt }));
   }
 
   function recordSystemEvent({ eventType, status = "info", message, payload = null }) {
@@ -174,7 +266,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
       .all(limit);
   }
 
-  function runStartupChecks() {
+  function runStartupChecks({ now = new Date() } = {}) {
     const integrityRow = db.prepare("PRAGMA integrity_check").get();
     const integrityValue = String(firstColumnValue(integrityRow) || "");
     if (integrityValue.toLowerCase() !== "ok") {
@@ -190,7 +282,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         .count,
     );
     const hardwareHealth = hardwareService.healthCheck();
-    const controllerHealthResults = refreshControllerHealths();
+    const controllerHealthResults = refreshControllerHealths({ now });
     const pendingTasks = db
       .prepare(
         `
@@ -431,6 +523,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     listRecentSystemEvents,
     refreshControllerHealth,
     refreshControllerHealths,
+    refreshDueControllerHealths,
     runStartupChecks,
     recoverPendingGuidance,
     cancelStalePendingReviewTasks,

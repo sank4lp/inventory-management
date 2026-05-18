@@ -26,7 +26,7 @@ let stalePendingTaskTimer = null;
 let databaseMaintenanceTimer = null;
 let controllerHealthTimer = null;
 
-const CONTROLLER_HEALTH_INTERVAL_MS = 60 * 1000;
+const CONTROLLER_HEALTH_TIMER_INTERVAL_MS = 5 * 1000;
 
 function stopStalePendingTaskMaintenance() {
   if (stalePendingTaskTimer) {
@@ -69,13 +69,13 @@ function startControllerHealthMaintenance(systemService) {
   stopControllerHealthMaintenance();
   controllerHealthTimer = setInterval(() => {
     try {
-      systemService.refreshControllerHealths();
+      systemService.refreshDueControllerHealths();
     } catch (error) {
       logger.warn("controller.health.refresh_failed", {
         error: error.message,
       });
     }
-  }, CONTROLLER_HEALTH_INTERVAL_MS);
+  }, CONTROLLER_HEALTH_TIMER_INTERVAL_MS);
   controllerHealthTimer.unref?.();
 }
 

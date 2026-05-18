@@ -1300,6 +1300,67 @@ function cellHasHistory(db, cellId) {
   return Number(row?.task_lines || 0) > 0 || Number(row?.transactions || 0) > 0;
 }
 
+function cellHasOperationalHistory(db, cellId) {
+  const row = db
+    .prepare(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM task_lines WHERE cell_id = ?) AS taskLines,
+          (SELECT COUNT(*) FROM transactions WHERE cell_id = ?) AS transactions,
+          (SELECT COUNT(*) FROM device_events WHERE cell_id = ?) AS deviceEvents
+      `,
+    )
+    .get(Number(cellId), Number(cellId), Number(cellId));
+  return (
+    Number(row?.taskLines || 0) > 0 ||
+    Number(row?.transactions || 0) > 0 ||
+    Number(row?.deviceEvents || 0) > 0
+  );
+}
+
+function availableModulePlaceholderCode(db, controllerCode, hardwareChannel) {
+  const normalizedControllerCode = String(controllerCode || "CONTROLLER")
+    .toUpperCase()
+    .replace(/[^A-Z0-9._:-]+/g, "-");
+  const base = `UNASSIGNED-${normalizedControllerCode}-M${String(hardwareChannel).padStart(2, "0")}`;
+  let candidate = base;
+  let suffix = 2;
+  while (db.prepare("SELECT id FROM cells WHERE logical_code = ?").get(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function createModulePlaceholder(db, cell, deletedBy = null) {
+  if (!cell.controller_id || !cell.hardware_channel) {
+    return null;
+  }
+
+  const result = db
+    .prepare(
+      `
+        INSERT INTO cells (
+          logical_code, zone_id, row_number, column_number, controller_id,
+          hardware_channel, mapping_status, active, capacity, last_mapped_at, mapped_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'unmapped', 0, ?, NULL, ?)
+      `,
+    )
+    .run(
+      availableModulePlaceholderCode(db, cell.controller_code, cell.hardware_channel),
+      cell.zone_id,
+      cell.row_number,
+      cell.column_number,
+      cell.controller_id,
+      cell.hardware_channel,
+      cell.capacity || 12,
+      deletedBy,
+    );
+
+  return db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(result.lastInsertRowid));
+}
+
 export function getCellDeletionImpact(db, cellId) {
   const id = Number(cellId);
   const cell = db
@@ -1346,6 +1407,8 @@ export function getCellDeletionImpact(db, cellId) {
   return {
     cell,
     hasData,
+    hasStock:
+      Number(cell.occupied_quantity || 0) !== 0 || Number(cell.reserved_quantity || 0) !== 0,
     occupiedQuantity: Number(cell.occupied_quantity || 0),
     reservedQuantity: Number(cell.reserved_quantity || 0),
     balanceRows: Number(counts.balanceRows || 0),
@@ -1355,28 +1418,45 @@ export function getCellDeletionImpact(db, cellId) {
   };
 }
 
-export function deleteCell(db, { cellId, deleteDataConfirmed = false } = {}) {
+export function deleteCell(db, { cellId, deletedBy = null } = {}) {
   return withTransaction(db, () => {
     const impact = getCellDeletionImpact(db, cellId);
-    if (impact.hasData && !deleteDataConfirmed) {
-      throw new Error("This cell has stock, task history, or hardware events. Confirm deleting associated data first.");
+    if (impact.hasStock) {
+      throw new Error("Move all stock out of this cell before deleting it.");
     }
 
     const id = Number(cellId);
-    db.prepare("DELETE FROM device_events WHERE cell_id = ?").run(id);
-    db.prepare("DELETE FROM transactions WHERE cell_id = ?").run(id);
-    db.prepare("DELETE FROM task_lines WHERE cell_id = ?").run(id);
     db.prepare("DELETE FROM inventory_balances WHERE cell_id = ?").run(id);
-    db.prepare("DELETE FROM cells WHERE id = ?").run(id);
+    const placeholder = createModulePlaceholder(db, impact.cell, deletedBy);
+    const hasHistory = cellHasOperationalHistory(db, id);
+
+    if (hasHistory) {
+      db.prepare(
+        `
+          UPDATE cells
+          SET
+            active = 0,
+            controller_id = NULL,
+            hardware_channel = NULL,
+            mapping_status = 'unmapped'
+          WHERE id = ?
+        `,
+      ).run(id);
+    } else {
+      db.prepare("DELETE FROM cells WHERE id = ?").run(id);
+    }
 
     return {
       ...impact,
       deleted: true,
+      preservedHistory: hasHistory,
+      modulePlaceholder: placeholder,
     };
   });
 }
 
 function retireEmptyMappingCell(db, cellId) {
+  const cell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
   if (cellHasStock(db, cellId)) {
     throw new Error("Move stock out of the current mapped cell before replacing it.");
   }
@@ -1386,13 +1466,13 @@ function retireEmptyMappingCell(db, cellId) {
       `
         UPDATE cells
         SET
-          controller_id = NULL,
-          hardware_channel = NULL,
-          mapping_status = 'unmapped',
-          active = 1
-        WHERE id = ?
-      `,
-    ).run(Number(cellId));
+            controller_id = NULL,
+            hardware_channel = NULL,
+            mapping_status = 'unmapped',
+            active = ?
+          WHERE id = ?
+        `,
+    ).run(cell && Number(cell.active) === 0 ? 0 : 1, Number(cellId));
     return "detached";
   }
 
@@ -1489,6 +1569,9 @@ export function updateCellMapping(
       targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(targetCellId));
       if (!targetCell) {
         throw new Error("Selected cell was not found.");
+      }
+      if (Number(targetCell.active) !== 1) {
+        throw new Error("Selected cell is not active. Choose an active cell from the list.");
       }
     } else if (logicalCode != null) {
       const nextLogicalCode = normalizeLogicalCode(logicalCode);

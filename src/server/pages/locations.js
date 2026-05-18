@@ -125,15 +125,12 @@ function cellMappingOptionLabel(cell) {
   return `${cell.logical_code}${stock}${controller}${state}`;
 }
 
-function cellHasDeletionData(cell) {
-  return (
-    Number(cell.occupied_quantity || 0) !== 0 ||
-    Number(cell.reserved_quantity || 0) !== 0 ||
-    Number(cell.balance_record_count || 0) > 0 ||
-    Number(cell.task_line_count || 0) > 0 ||
-    Number(cell.transaction_count || 0) > 0 ||
-    Number(cell.device_event_count || 0) > 0
-  );
+function cellHasStock(cell) {
+  return Number(cell.occupied_quantity || 0) !== 0 || Number(cell.reserved_quantity || 0) !== 0;
+}
+
+function cellMappingDisplayName(cell) {
+  return Number(cell.active) === 1 ? cell.logical_code : "Unassigned";
 }
 
 function renderCellMappingOptions(cellCatalog, selectedCellId) {
@@ -525,7 +522,10 @@ export function createLocationPages({ db }) {
             ? table(
                 ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
                 cells.map((cell) => {
-                  const hasData = cellHasDeletionData(cell);
+                  const hasStock = cellHasStock(cell);
+                  const deleteTitle = hasStock
+                    ? `Move all stock out of ${cell.logical_code} before deleting it`
+                    : `Delete ${cell.logical_code}`;
                   return [
                     escapeHtml(cell.logical_code),
                     cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
@@ -539,15 +539,15 @@ export function createLocationPages({ db }) {
                         class="inline-form"
                         data-delete-cell-form
                         data-cell-name="${escapeHtml(cell.logical_code)}"
-                        data-cell-has-data="${hasData ? "true" : "false"}"
+                        data-cell-has-stock="${hasStock ? "true" : "false"}"
                       >
                         <input type="hidden" name="cell_id" value="${cell.id}" />
-                        <input type="hidden" name="delete_data_confirmed" value="0" data-delete-data-confirmed />
                         <button
                           type="submit"
                           class="icon-button danger-button"
                           aria-label="Delete ${escapeHtml(cell.logical_code)}"
-                          title="Delete ${escapeHtml(cell.logical_code)}"
+                          title="${escapeHtml(deleteTitle)}"
+                          ${hasStock ? "disabled" : ""}
                         >${trashIcon()}</button>
                       </form>
                     `,
@@ -561,7 +561,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderCellMappingSection(cells) {
-    const cellCatalog = listCellCatalog(db);
+    const cellCatalog = listCellCatalog(db).filter((cell) => Number(cell.active) === 1);
     const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
 
     return `
@@ -594,43 +594,52 @@ export function createLocationPages({ db }) {
           </datalist>
           ${table(
             ["Controller", "LED module", "Location name", "Stock", "Ping"],
-            mappedCells.map((cell) => [
-              escapeHtml(cell.controller_code || "No controller"),
-              escapeHtml(cell.hardware_channel),
-              `
-                <input type="hidden" name="hardware_channel_${cell.id}" value="${escapeHtml(cell.hardware_channel)}" />
-                <input type="hidden" name="original_target_cell_id_${cell.id}" value="${cell.id}" />
+            mappedCells.map((cell) => {
+              const assigned = Number(cell.active) === 1;
+              const displayName = cellMappingDisplayName(cell);
+              const originalValue = assigned ? String(cell.id) : "";
+              const inputValue = assigned ? cell.logical_code : "";
+              const stockLabel = assigned
+                ? escapeHtml(formatQuantity(cell.occupied_quantity))
+                : `<span class="muted">No location assigned</span>`;
+              return [
+                escapeHtml(cell.controller_code || "No controller"),
+                escapeHtml(cell.hardware_channel),
+                `
+                  <input type="hidden" name="hardware_channel_${cell.id}" value="${escapeHtml(cell.hardware_channel)}" />
+                  <input type="hidden" name="original_target_cell_id_${cell.id}" value="${escapeHtml(originalValue)}" />
                 <div class="mapping-cell-control">
                   <span
                     class="mapping-cell-name mapping-cell-name-saved"
                     data-mapping-cell-name
-                    data-original-label="${escapeHtml(cell.logical_code)}"
-                  >${escapeHtml(cell.logical_code)}</span>
+                    data-original-label="${escapeHtml(displayName)}"
+                  >${escapeHtml(displayName)}</span>
                   <input
                     type="hidden"
                     name="target_cell_id_${cell.id}"
-                    value="${cell.id}"
+                    value="${escapeHtml(originalValue)}"
                     data-mapping-control
                     data-mapping-key="${cell.id}"
-                    data-original-value="${cell.id}"
-                    data-original-label="${escapeHtml(cell.logical_code)}"
-                    data-current-label="${escapeHtml(cell.logical_code)}"
+                    data-original-value="${escapeHtml(originalValue)}"
+                    data-original-label="${escapeHtml(displayName)}"
+                    data-current-label="${escapeHtml(displayName)}"
                     data-controller-name="${escapeHtml(cell.controller_code || "No controller")}"
                     data-module-name="${escapeHtml(cell.hardware_channel)}"
                   />
                   <input
                     class="compact-input cell-mapping-select"
                     list="cell-mapping-options"
-                    value="${escapeHtml(cell.logical_code)}"
-                    required
+                    value="${escapeHtml(inputValue)}"
+                    ${assigned ? "required" : ""}
                     autocomplete="off"
                     data-mapping-input
                     data-mapping-input-for="${cell.id}"
+                    placeholder="Choose a cell"
                   />
                 </div>
               `,
-              escapeHtml(formatQuantity(cell.occupied_quantity)),
-              `
+                stockLabel,
+                `
                 <button
                   type="submit"
                   form="cell-ping-${cell.id}"
@@ -641,7 +650,8 @@ export function createLocationPages({ db }) {
                   title="Ping ${escapeHtml(cell.logical_code)}"
                 >Ping</button>
               `,
-            ]),
+              ];
+            }),
           )}
         </form>
         ${mappedCells
@@ -695,7 +705,7 @@ export function createLocationPages({ db }) {
       case "cell-management":
         return renderCellManagementSection(cells);
       case "cell-mapping":
-        return renderCellMappingSection(cells);
+        return renderCellMappingSection(listCellCatalog(db));
       default:
         return "";
     }

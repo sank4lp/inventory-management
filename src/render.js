@@ -121,9 +121,9 @@ function nav(user, currentTitle = "") {
     ["/put", "Put", "put"],
     ["/products", "Products", "products"],
     ["/cells", "Locations", "locations"],
+    ["/reports", "Reporting", "reports"],
   ];
   if (user.role === "admin") {
-    links.push(["/reports", "Reporting", "reports"]);
     links.push(["/devices", "Configuration", "devices"]);
     links.push(["/backups", "Backups", "backups"]);
     links.push(["/admin", "Admin", "admin"]);
@@ -169,10 +169,10 @@ export function page({ title, user, flash, content }) {
   const runtime = getRuntimeContext();
   const systemHealth = runtime.systemService?.healthSummary(runtime.startup);
   const systemNotice =
-    user && systemHealth?.degraded
-      ? `<div class="flash flash-warning">System warning: ${escapeHtml(
-          systemHealth.message,
-        )}</div>`
+    user
+      ? `<div class="flash flash-warning" data-system-notice aria-live="polite" ${
+          systemHealth?.degraded ? "" : "hidden"
+        }>System warning: ${escapeHtml(systemHealth?.degraded ? systemHealth.message : "")}</div>`
       : "";
   const toast =
     flash

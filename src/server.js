@@ -190,6 +190,20 @@ export const requestHandler = async (request, response) => {
   try {
     systemService.cancelStalePendingReviewTasks();
 
+    if (request.method === "GET" && url.pathname === "/api/system/health") {
+      if (!ensureApiAuth(response, user)) {
+        return;
+      }
+      const health = systemService.healthSummary(getAppState().startup);
+      sendJson(response, {
+        degraded: health.degraded,
+        message: health.message,
+        warnings: health.warnings,
+        overallStatus: health.overallStatus,
+      });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/fragments/catalog-products") {
       if (!ensureAuth(response, user)) {
         return;
@@ -950,7 +964,7 @@ export const requestHandler = async (request, response) => {
 
     const deviceSectionMatch = url.pathname.match(/^\/devices\/sections\/([a-z-]+)$/);
     if (request.method === "GET" && deviceSectionMatch) {
-      if (!ensureAuth(response, user)) {
+      if (!ensureAdmin(response, user)) {
         return;
       }
       const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1]);
@@ -963,7 +977,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/devices") {
-      if (!ensureAuth(response, user)) {
+      if (!ensureAdmin(response, user)) {
         return;
       }
       sendHtml(response, pages.renderDevices(user, flash));
@@ -1231,30 +1245,30 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const deleteDataConfirmed = ["1", "true", "yes"].includes(
-        String(form.delete_data_confirmed || "").toLowerCase(),
-      );
       const impact = locationService.getCellDeletionImpact(form.cell_id);
-      if (impact.hasData && !deleteDataConfirmed) {
-        throw new Error("This cell has stock, task history, or hardware events. Confirm deleting associated data first.");
+      if (impact.hasStock) {
+        throw new Error("Move all stock out of this cell before deleting it.");
       }
       if (impact.cell.controller_id && impact.cell.hardware_channel) {
         hardwareService.setCellLocate(impact.cell, false);
       }
       const safetyBackup = createRequiredCriticalBackup(
-        impact.hasData ? "cell-delete-with-data-before" : "cell-delete-before",
+        impact.hasData ? "cell-delete-with-history-before" : "cell-delete-before",
       );
       const deleted = locationService.deleteCell({
         cellId: form.cell_id,
-        deleteDataConfirmed,
+        deletedBy: user.id,
       });
-      const dataSummary = deleted.hasData
-        ? ` Deleted ${deleted.balanceRows} balance row(s), ${deleted.taskLines} task line(s), ${deleted.transactions} transaction(s), and ${deleted.deviceEvents} hardware event(s).`
+      const moduleSummary = deleted.modulePlaceholder
+        ? ` LED module ${deleted.modulePlaceholder.hardware_channel} remains available in Cell Mapping.`
+        : "";
+      const dataSummary = deleted.preservedHistory
+        ? " Historical task and hardware records were preserved."
         : "";
       const nextFlash = backupAwareFlash(
-        `Cell ${deleted.cell.logical_code} deleted.${dataSummary} Safety backup: ${safetyBackup.filename}.`,
+        `Cell ${deleted.cell.logical_code} deleted.${moduleSummary}${dataSummary} Safety backup: ${safetyBackup.filename}.`,
         "success",
-        createCriticalBackup(deleted.hasData ? "cell-delete-with-data" : "cell-delete"),
+        createCriticalBackup(deleted.hasData ? "cell-delete-with-history" : "cell-delete"),
       );
       sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
       return;

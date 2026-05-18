@@ -7,6 +7,7 @@ import {
 
 const ACTION_SCROLL_KEY = "inventory-management:action-scroll";
 const COMBO_RECENCY_KEY_PREFIX = "inventory-management:combo-recency:";
+const SYSTEM_HEALTH_POLL_MS = 30 * 1000;
 
 function saveActionScrollPosition() {
   try {
@@ -126,6 +127,38 @@ function wireControllerHealthForms() {
       }, 0);
     });
   });
+}
+
+function wireSystemHealthNotice() {
+  const notice = document.querySelector("[data-system-notice]");
+  if (!notice) {
+    return;
+  }
+
+  const refresh = async () => {
+    try {
+      const response = await fetch("/api/system/health", {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json();
+      if (payload.degraded) {
+        notice.textContent = `System warning: ${payload.message || "System is running with warnings."}`;
+        notice.hidden = false;
+      } else {
+        notice.textContent = "";
+        notice.hidden = true;
+      }
+    } catch {
+      // Health polling is only for live notice updates; page navigation still renders the latest state.
+    }
+  };
+
+  window.setInterval(refresh, SYSTEM_HEALTH_POLL_MS);
 }
 
 function wireLedCommandForms() {
@@ -2804,25 +2837,16 @@ function wireCellDeleteForms() {
     form.dataset.deleteCellBound = "true";
     form.addEventListener("submit", (event) => {
       const cellName = form.dataset.cellName || "this cell";
-      const hasData = form.dataset.cellHasData === "true";
-      const deleteDataInput = form.querySelector("[data-delete-data-confirmed]");
+      const hasStock = form.dataset.cellHasStock === "true";
 
-      if (!window.confirm(`Delete ${cellName}? This cannot be undone.`)) {
+      if (hasStock) {
         event.preventDefault();
+        window.alert(`Move all stock out of ${cellName} before deleting it.`);
         return;
       }
 
-      if (hasData) {
-        const confirmed = window.confirm(
-          `${cellName} has stock, task history, or hardware events. Deleting it will delete that associated data too. Continue?`,
-        );
-        if (!confirmed) {
-          event.preventDefault();
-          return;
-        }
-        if (deleteDataInput) {
-          deleteDataInput.value = "1";
-        }
+      if (!window.confirm(`Delete ${cellName}? The location must be empty. Any mapped LED module will remain available in Cell Mapping.`)) {
+        event.preventDefault();
       }
     });
   });
@@ -2941,6 +2965,7 @@ function wireRowCollapsers(root = document) {
 
 document.addEventListener("DOMContentLoaded", () => {
   wireActionScrollRestore();
+  wireSystemHealthNotice();
   wireToasts();
   wireCopyButtons();
   wireNavState();
