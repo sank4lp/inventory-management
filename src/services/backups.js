@@ -860,8 +860,9 @@ export function createBackupService({
     };
   }
 
-  function getSummary() {
-    runBackupMaintenance({ reason: "summary" });
+  function getSummary({ now = new Date() } = {}) {
+    const currentTime = now instanceof Date ? now : new Date(now);
+    runBackupMaintenance({ now: currentTime, reason: "summary" });
     const backups = rawListBackups();
     const latestAuto = backups.find((backup) => backup.kind === "auto") || null;
     const automaticBackupState = getAutomaticBackupState();
@@ -871,7 +872,7 @@ export function createBackupService({
     const retentionDays = readBackupRetentionDays();
     const backupSlotLimit = totalBackupSlotLimit(retentionDays);
     const completedDayBackups = backups.filter(
-      (backup) => backupDateKey(backup) < localDateString(new Date()),
+      (backup) => backupDateKey(backup) < localDateString(currentTime),
     ).length;
     const activeDayBackupLimit = Math.max(1, backupSlotLimit - completedDayBackups);
     const estimatedRetentionBytes = latestBackupSizeBytes * (retentionDays + activeDayBackupLimit);

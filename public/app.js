@@ -8,6 +8,7 @@ import {
 const ACTION_SCROLL_KEY = "inventory-management:action-scroll";
 const COMBO_RECENCY_KEY_PREFIX = "inventory-management:combo-recency:";
 const SYSTEM_HEALTH_POLL_MS = 30 * 1000;
+let productFindLedClearWindowBound = false;
 let recommendationLedClearWindowBound = false;
 
 function saveActionScrollPosition() {
@@ -532,12 +533,12 @@ function wireQuantityChangeConfirmations() {
   });
 }
 
-function wirePutProductSummaryForms() {
-  document.querySelectorAll("[data-put-product-summary-form]").forEach((form) => {
-    if (form.dataset.putProductSummaryBound === "true") {
+function wireProductSummaryForms() {
+  document.querySelectorAll("[data-product-summary-form]").forEach((form) => {
+    if (form.dataset.productSummaryBound === "true") {
       return;
     }
-    form.dataset.putProductSummaryBound = "true";
+    form.dataset.productSummaryBound = "true";
 
     const productInput = form.querySelector('input[name="product_id"]');
     if (!productInput) {
@@ -550,7 +551,8 @@ function wirePutProductSummaryForms() {
         return;
       }
 
-      const url = new URL("/put", window.location.origin);
+      const summaryPath = form.dataset.productSummaryPath || window.location.pathname;
+      const url = new URL(summaryPath, window.location.origin);
       url.searchParams.set("product_id", productId);
 
       const quantity = form.querySelector('input[name="quantity"]')?.value?.trim();
@@ -558,13 +560,94 @@ function wirePutProductSummaryForms() {
         url.searchParams.set("quantity", quantity);
       }
 
-      const preferredCellId = form.querySelector('input[name="preferred_cell_id"]')?.value?.trim();
+      const preferredCellId =
+        form.querySelector('input[name="context_cell_id"]')?.value?.trim() ||
+        form.querySelector('input[name="preferred_cell_id"]')?.value?.trim();
       if (preferredCellId) {
         url.searchParams.set("cell_id", preferredCellId);
       }
 
       window.location.assign(`${url.pathname}${url.search}`);
     });
+  });
+}
+
+function wireMovementStockSummaries(root = document) {
+  root.querySelectorAll("[data-movement-stock-summary]").forEach((section) => {
+    if (section.dataset.movementStockBound === "true") {
+      return;
+    }
+    section.dataset.movementStockBound = "true";
+
+    const tbody = section.querySelector("[data-movement-stock-rows]");
+    const button = section.querySelector("[data-movement-stock-load-more]");
+    const status = section.querySelector("[data-movement-stock-status]");
+    const footer = section.querySelector("[data-movement-stock-footer]");
+
+    if (!tbody || !button || !footer) {
+      return;
+    }
+
+    const totalCount = Number(section.dataset.movementStockTotal || 0);
+    const pageSize = Math.max(1, Number(section.dataset.movementStockLimit || 5));
+    const rowCount = () => tbody.querySelectorAll("[data-stock-cell-row]").length;
+    const updateStatus = () => {
+      const loadedCount = rowCount();
+      const offset = Math.max(0, Number(section.dataset.movementStockOffset || loadedCount));
+      if (status) {
+        status.textContent = `Showing ${Math.min(loadedCount, totalCount)} Of ${totalCount} Locations`;
+      }
+      if (loadedCount >= totalCount || offset >= totalCount) {
+        footer.hidden = true;
+      }
+    };
+
+    button.addEventListener("click", async () => {
+      const endpoint = section.dataset.movementStockEndpoint;
+      if (!endpoint || button.disabled) {
+        return;
+      }
+
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      try {
+        const offset = Math.max(0, Number(section.dataset.movementStockOffset || rowCount()));
+        const url = new URL(endpoint, window.location.origin);
+        url.searchParams.set("offset", String(offset));
+        url.searchParams.set("limit", String(pageSize));
+
+        const response = await fetch(`${url.pathname}${url.search}`, {
+          headers: { "X-Requested-With": "fetch" },
+        });
+        if (!response.ok) {
+          return;
+        }
+
+        const template = document.createElement("template");
+        template.innerHTML = await response.text();
+        const existingCellIds = new Set(
+          Array.from(tbody.querySelectorAll("[data-stock-cell-row]")).map(
+            (row) => row.dataset.cellId || "",
+          ),
+        );
+        template.content.querySelectorAll("[data-stock-cell-row]").forEach((row) => {
+          const cellId = row.dataset.cellId || "";
+          if (cellId && existingCellIds.has(cellId)) {
+            return;
+          }
+          existingCellIds.add(cellId);
+          tbody.append(row);
+        });
+
+        section.dataset.movementStockOffset = String(offset + pageSize);
+        updateStatus();
+      } finally {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      }
+    });
+
+    updateStatus();
   });
 }
 
@@ -2435,7 +2518,7 @@ function sendLocateClearAll({ beacon = true } = {}) {
   }).catch(() => {});
 }
 
-function recommendationLedClearBody(form) {
+function formLedClearBody(form) {
   const body = new URLSearchParams(new FormData(form));
   body.set("active", "0");
   return body;
@@ -2443,7 +2526,7 @@ function recommendationLedClearBody(form) {
 
 function sendRecommendationLedClear(form, { beacon = true } = {}) {
   const endpoint = form.dataset.recommendationLedClearEndpoint || "/recommended-actions/clear-leds";
-  const body = recommendationLedClearBody(form);
+  const body = formLedClearBody(form);
 
   if (navigator.sendBeacon) {
     const blob = new Blob([body.toString()], {
@@ -2463,6 +2546,69 @@ function sendRecommendationLedClear(form, { beacon = true } = {}) {
     body,
     keepalive: true,
   }).catch(() => {});
+}
+
+function sendProductFindLedClear(form, { beacon = true } = {}) {
+  const endpoint = form.dataset.productFindLedClearEndpoint;
+  if (!endpoint) {
+    return Promise.resolve();
+  }
+  const body = formLedClearBody(form);
+
+  if (navigator.sendBeacon) {
+    const blob = new Blob([body.toString()], {
+      type: "application/x-www-form-urlencoded; charset=UTF-8",
+    });
+    if (beacon && navigator.sendBeacon(endpoint, blob)) {
+      return Promise.resolve();
+    }
+  }
+
+  return fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function wireProductFindLedCleanup() {
+  document.querySelectorAll("[data-product-find-led-clear-form]").forEach((form) => {
+    if (form.dataset.productFindLedClearBound === "true") {
+      return;
+    }
+    form.dataset.productFindLedClearBound = "true";
+    form.dataset.productFindLedSkipClear = "false";
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (!event.submitter?.matches?.("[data-product-find-submit]")) {
+        return;
+      }
+      form.dataset.productFindLedSkipClear = "true";
+      window.setTimeout(() => {
+        form.dataset.productFindLedSkipClear = "false";
+      }, 5000);
+    });
+  });
+
+  if (productFindLedClearWindowBound) {
+    return;
+  }
+  productFindLedClearWindowBound = true;
+  window.addEventListener("pagehide", () => {
+    document.querySelectorAll("[data-product-find-led-clear-form]").forEach((form) => {
+      if (form.dataset.productFindLedSkipClear === "true") {
+        return;
+      }
+      sendProductFindLedClear(form);
+    });
+  });
 }
 
 function wireRecommendationLedCleanup() {
@@ -3229,7 +3375,8 @@ document.addEventListener("DOMContentLoaded", () => {
   wireQuantityShortcuts();
   wireCompletionRedirects();
   wireQuantityChangeConfirmations();
-  wirePutProductSummaryForms();
+  wireProductSummaryForms();
+  wireMovementStockSummaries();
   wireReportsWorkspace();
   wireReportFormatEditors();
   wireComboBoxes();
@@ -3239,6 +3386,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireLocationLocate();
   wireControllerHealthForms();
   wireLedCommandForms();
+  wireProductFindLedCleanup();
   wireRecommendationLedCleanup();
   wireConfigurationWorkspace();
   wireCellMappingForm();

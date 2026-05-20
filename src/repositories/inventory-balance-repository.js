@@ -1,3 +1,47 @@
+function normalizeCellIdSet(cellIds) {
+  const values = Array.isArray(cellIds) ? cellIds : [cellIds];
+  return new Set(
+    values
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0),
+  );
+}
+
+function activityTime(row) {
+  const timestamp = Date.parse(row?.last_activity_at || "");
+  return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
+}
+
+function compareByPreferredActivityAndLocation(preferredCellIds) {
+  return (left, right) => {
+    const leftPreferred = preferredCellIds.has(Number(left.cell_id)) ? 0 : 1;
+    const rightPreferred = preferredCellIds.has(Number(right.cell_id)) ? 0 : 1;
+    if (leftPreferred !== rightPreferred) {
+      return leftPreferred - rightPreferred;
+    }
+
+    const activityDelta = activityTime(left) - activityTime(right);
+    if (activityDelta !== 0) {
+      return activityDelta;
+    }
+
+    const rowDelta = Number(left.row_number || 0) - Number(right.row_number || 0);
+    if (rowDelta !== 0) {
+      return rowDelta;
+    }
+
+    const columnDelta = Number(left.column_number || 0) - Number(right.column_number || 0);
+    if (columnDelta !== 0) {
+      return columnDelta;
+    }
+
+    return String(left.logical_code || "").localeCompare(String(right.logical_code || ""), "en", {
+      numeric: true,
+      sensitivity: "base",
+    });
+  };
+}
+
 export function createInventoryBalanceRepository(db) {
   return {
     sumCellOccupancy(cellId) {
@@ -36,7 +80,8 @@ export function createInventoryBalanceRepository(db) {
         .get(Number(result.lastInsertRowid));
     },
 
-    listPickCandidates(productId, preferredCellId = null) {
+    listPickCandidates(productId, preferredCellIds = null) {
+      const preferred = normalizeCellIdSet(preferredCellIds);
       return db
         .prepare(
           `
@@ -48,17 +93,20 @@ export function createInventoryBalanceRepository(db) {
               c.hardware_channel,
               c.controller_id,
               c.row_number,
-              c.column_number
+              c.column_number,
+              (
+                SELECT MAX(t.created_at)
+                FROM transactions t
+                WHERE t.product_id = b.product_id
+                  AND t.cell_id = b.cell_id
+              ) AS last_activity_at
             FROM inventory_balances b
             JOIN cells c ON c.id = b.cell_id
             WHERE b.product_id = ? AND c.active = 1 AND b.available_quantity > 0
-            ORDER BY
-              CASE WHEN c.id = ? THEN 0 ELSE 1 END,
-              c.row_number,
-              c.column_number
           `,
         )
-        .all(Number(productId), preferredCellId ? Number(preferredCellId) : -1);
+        .all(Number(productId))
+        .sort(compareByPreferredActivityAndLocation(preferred));
     },
 
     getPreferredPutCell(cellId, productId) {
@@ -76,14 +124,25 @@ export function createInventoryBalanceRepository(db) {
               c.controller_id,
               c.row_number,
               c.column_number,
-              COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity
+              COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
+              (
+                SELECT MAX(t.created_at)
+                FROM transactions t
+                WHERE t.product_id = ?
+                  AND t.cell_id = c.id
+              ) AS product_last_activity_at,
+              (
+                SELECT MAX(t.created_at)
+                FROM transactions t
+                WHERE t.cell_id = c.id
+              ) AS cell_last_activity_at
             FROM cells c
             LEFT JOIN inventory_balances b ON b.cell_id = c.id
             WHERE c.id = ? AND c.active = 1
             GROUP BY c.id
           `,
         )
-        .get(Number(cellId));
+        .get(Number(productId), Number(cellId));
 
       if (!cell) {
         return null;
@@ -101,11 +160,13 @@ export function createInventoryBalanceRepository(db) {
 
       return {
         ...cell,
+        last_activity_at: cell.product_last_activity_at || cell.cell_last_activity_at || null,
         same_product_quantity: sameProduct ? Number(sameProduct.available_quantity) : undefined,
       };
     },
 
-    listSameProductPutCells(productId, excludedCellId = null) {
+    listSameProductPutCells(productId, excludedCellIds = null) {
+      const excluded = normalizeCellIdSet(excludedCellIds);
       return db
         .prepare(
           `
@@ -116,7 +177,13 @@ export function createInventoryBalanceRepository(db) {
               c.controller_id,
               c.row_number,
               c.column_number,
-              COALESCE(b.available_quantity, 0) AS available_quantity
+              COALESCE(b.available_quantity, 0) AS available_quantity,
+              (
+                SELECT MAX(t.created_at)
+                FROM transactions t
+                WHERE t.product_id = b.product_id
+                  AND t.cell_id = b.cell_id
+              ) AS last_activity_at
             FROM cells c
             JOIN inventory_balances b ON b.cell_id = c.id
             WHERE b.product_id = ?
@@ -129,16 +196,15 @@ export function createInventoryBalanceRepository(db) {
                   AND other_balance.product_id != ?
                   AND other_balance.available_quantity > 0
               )
-            ORDER BY COALESCE(b.available_quantity, 0) DESC,
-                     c.row_number,
-                     c.column_number
           `,
         )
         .all(Number(productId), Number(productId))
-        .filter((cell) => cell.cell_id !== Number(excludedCellId || 0));
+        .filter((cell) => !excluded.has(Number(cell.cell_id)))
+        .sort(compareByPreferredActivityAndLocation(new Set()));
     },
 
-    listEmptyPutCells(productId, excludedCellId = null) {
+    listEmptyPutCells(productId, excludedCellIds = null) {
+      const excluded = normalizeCellIdSet(excludedCellIds);
       return db
         .prepare(
           `
@@ -148,17 +214,22 @@ export function createInventoryBalanceRepository(db) {
               c.hardware_channel,
               c.controller_id,
               c.row_number,
-              c.column_number
+              c.column_number,
+              (
+                SELECT MAX(t.created_at)
+                FROM transactions t
+                WHERE t.cell_id = c.id
+              ) AS last_activity_at
             FROM cells c
             LEFT JOIN inventory_balances b
               ON b.cell_id = c.id AND b.available_quantity > 0
             WHERE c.active = 1
               AND b.id IS NULL
-            ORDER BY c.row_number, c.column_number
           `,
         )
         .all()
-        .filter((cell) => cell.cell_id !== Number(excludedCellId || 0));
+        .filter((cell) => !excluded.has(Number(cell.cell_id)))
+        .sort(compareByPreferredActivityAndLocation(new Set()));
     },
 
     listSameProductMoveTargets(productId, sourceCellId) {

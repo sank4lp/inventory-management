@@ -1364,6 +1364,18 @@ button[disabled] {
   opacity: 0.58;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .ghost-button {
   background: linear-gradient(180deg, #ffffff, #f8fafc);
   color: var(--text);
@@ -1520,6 +1532,14 @@ button[disabled] {
   gap: 6px;
 }
 
+.product-management-actions {
+  margin-top: 12px;
+}
+
+.product-management-actions .inline-form {
+  margin-top: 0;
+}
+
 .quantity-shortcuts {
   min-width: 0;
   margin: 0;
@@ -1604,6 +1624,11 @@ button[disabled] {
   background: var(--workflow-put-subtle);
 }
 
+.put-stock-summary-pick {
+  border-color: var(--workflow-pick-border);
+  background: var(--workflow-pick-subtle);
+}
+
 .put-stock-summary-header {
   display: flex;
   align-items: center;
@@ -1628,6 +1653,13 @@ button[disabled] {
   font-weight: 700;
 }
 
+.put-stock-summary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .put-stock-total {
   min-width: 92px;
   padding: 8px 10px;
@@ -1639,6 +1671,44 @@ button[disabled] {
   font-weight: 880;
   line-height: 1;
   text-align: right;
+}
+
+.put-stock-summary-pick .put-stock-total {
+  border-color: var(--workflow-pick-border);
+  color: var(--workflow-pick-text);
+}
+
+.preferred-cell-check {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: transparent;
+  cursor: pointer;
+}
+
+.preferred-cell-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.preferred-cell-check input:checked + span {
+  color: var(--primary-hover);
+}
+
+.preferred-cell-check:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.preferred-cell-check:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .key-quick-actions {
@@ -3672,6 +3742,11 @@ tbody tr:last-child td {
   }
 
   .put-stock-summary-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .put-stock-summary-actions {
     align-items: stretch;
     flex-direction: column;
   }

@@ -392,6 +392,171 @@ test("product quantities only count stock in active locations", async () => {
   assert.equal(batteryDetail.locations.length, 0);
 });
 
+test("product detail shows the latest activity time for each holding cell", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-product-cell-activity-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { formatDate } = await freshImport("../src/render.js");
+  const { createProductPages } = await freshImport("../src/server/pages/products.js");
+
+  const db = createDatabase({
+    hashPassword: auth.hashPassword,
+    allowDemoInventorySeed: false,
+  });
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const battery = inventory.listProducts(db).find((product) => product.sku === "ARMY-BATT-009");
+  const batteryCell = inventory.searchCells(db, "Z1-R1-C13")[0];
+  assert.ok(battery);
+  assert.ok(batteryCell);
+
+  inventory.createAdjustment(db, {
+    cellId: batteryCell.id,
+    userId: user.id,
+    reason: "Seed product cell activity",
+    lines: [{ productId: battery.id, absoluteQuantity: 4 }],
+  });
+  const lastActivityAt = "2026-05-20T09:15:00.000Z";
+  db.prepare(
+    `
+      UPDATE transactions
+      SET created_at = ?
+      WHERE product_id = ? AND cell_id = ?
+    `,
+  ).run(lastActivityAt, battery.id, batteryCell.id);
+
+  const detail = inventory.getProductDetail(db, battery.id);
+  assert.equal(detail.locations.length, 1);
+  assert.equal(detail.locations[0].last_activity_at, lastActivityAt);
+
+  const html = createProductPages({ db }).renderProductDetail(user, null, detail);
+  assert.match(html, /Locations Holding This Product/);
+  assert.match(html, /Last Activity/);
+  assert.match(html, new RegExp(formatDate(lastActivityAt).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("product find shows yellow quantity guidance on every mapped holding cell", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-product-find-guidance-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const { reloadAppState, getAppState } = await import("../src/server/app-state.js");
+  reloadAppState();
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createProductPages } = await freshImport("../src/server/pages/products.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+
+  const { db } = getAppState();
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const cookie = auth.createSessionCookie(user).split(";")[0];
+  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
+  assert.ok(shoe);
+  const detail = inventory.getProductDetail(db, shoe.id);
+  const mappedLocations = detail.locations.filter(
+    (location) => location.hardware_channel && (location.controller_address || location.controller_id),
+  );
+  assert.ok(mappedLocations.length > 0);
+
+  const activeHtml = createProductPages({ db }).renderProductDetail(
+    user,
+    null,
+    detail,
+    new URL(`http://localhost/products/${shoe.id}?find_led=1`),
+  );
+  assert.match(activeHtml, /data-product-find-led-clear-form/);
+  assert.match(activeHtml, new RegExp(`action="/products/${shoe.id}/find"`));
+
+  const response = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: `/products/${shoe.id}/find`,
+      body: "",
+      cookie,
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 302);
+  assert.match(response.headers.Location, /find_led=1/);
+
+  const payloads = db
+    .prepare("SELECT payload FROM device_events WHERE event_type = 'guidance_activated' ORDER BY id")
+    .all()
+    .map((row) => JSON.parse(row.payload))
+    .filter((payload) => payload.taskType === "product_find");
+  assert.equal(payloads.length, mappedLocations.length);
+  for (const location of mappedLocations) {
+    const payload = payloads.find((entry) => entry.cell === location.logical_code);
+    assert.ok(payload);
+    assert.equal(payload.color, "yellow");
+    assert.equal(Number(payload.quantity), Number(location.available_quantity));
+  }
+
+  const activeMetadataKey = `active_product_find_guidance:${user.id}:${shoe.id}`;
+  assert.ok(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey));
+  const clearedBeforeLeave = db
+    .prepare("SELECT COUNT(*) AS count FROM device_events WHERE event_type = 'guidance_cleared'")
+    .get().count;
+  const clearResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: `/products/${shoe.id}/find/clear`,
+      body: "",
+      cookie,
+      headers: {
+        "x-requested-with": "fetch",
+      },
+    }),
+    clearResponse,
+  );
+
+  assert.equal(clearResponse.statusCode, 204);
+  const clearedAfterLeave = db
+    .prepare("SELECT COUNT(*) AS count FROM device_events WHERE event_type = 'guidance_cleared'")
+    .get().count;
+  assert.equal(clearedAfterLeave - clearedBeforeLeave, mappedLocations.length);
+  assert.equal(
+    db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey),
+    undefined,
+  );
+
+  const movementFindResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: `/products/${shoe.id}/find`,
+      body: new URLSearchParams({
+        return_to: `/pick?product_id=${shoe.id}&quantity=2`,
+      }).toString(),
+      cookie,
+    }),
+    movementFindResponse,
+  );
+
+  assert.equal(movementFindResponse.statusCode, 302);
+  assert.match(movementFindResponse.headers.Location, /^\/pick\?/);
+  assert.match(movementFindResponse.headers.Location, new RegExp(`product_id=${shoe.id}`));
+  assert.match(movementFindResponse.headers.Location, /quantity=2/);
+  assert.match(movementFindResponse.headers.Location, /find_led=1/);
+  assert.ok(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey));
+
+  const movementClearResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: `/products/${shoe.id}/find/clear`,
+      body: "",
+      cookie,
+      headers: {
+        "x-requested-with": "fetch",
+      },
+    }),
+    movementClearResponse,
+  );
+  assert.equal(movementClearResponse.statusCode, 204);
+});
+
 test("product low stock uses significant drop below thirty-day average", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-low-stock-average-"));
   process.chdir(sandbox);
@@ -701,6 +866,7 @@ test("product removal is admin-safe and SKU re-add restores the same product ide
     new URL(`http://localhost/products/${shoe.id}`),
   );
   assert.match(stockedProductHtml, /Remove Product/);
+  assert.match(stockedProductHtml, /Find Products/);
   assert.match(stockedProductHtml, /Edit Product Details/);
   assert.match(stockedProductHtml, /SKU is the product identity and cannot be changed\./);
   assert.match(stockedProductHtml, /Create a Pick task to reduce this product&#39;s stock to 0 before removing it\./);
@@ -714,6 +880,7 @@ test("product removal is admin-safe and SKU re-add restores the same product ide
     new URL(`http://localhost/products/${product.id}`),
   );
   assert.doesNotMatch(operatorHtml, /Remove Product/);
+  assert.match(operatorHtml, /Find Products/);
 
   const removed = inventory.removeProduct(db, product.id);
   assert.equal(removed.id, originalId);
@@ -1087,10 +1254,12 @@ test("locations expose direct pick and put actions", async () => {
 test("operator movement screens keep context and use plain task actions", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-operator-ux-"));
   process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
 
   const { createDatabase } = await freshImport("../src/db.js");
   const auth = await freshImport("../src/services/auth.js");
   const inventory = await freshImport("../src/services/inventory.js");
+  const { formatDate } = await freshImport("../src/render.js");
   const { createProductPages } = await freshImport("../src/server/pages/products.js");
   const { createTaskPages } = await freshImport("../src/server/pages/tasks.js");
 
@@ -1100,10 +1269,75 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.ok(shoe);
 
   const productDetail = inventory.getProductDetail(db, shoe.id);
-  assert.ok(productDetail.locations.length > 0);
-  const preferredCellId = productDetail.locations[0].cell_id;
+  assert.ok(productDetail.locations.length >= 3);
 
   const productPages = createProductPages({ db });
+  const seededCellIds = new Set(productDetail.locations.map((location) => Number(location.cell_id)));
+  const movementCells = [
+    ...productDetail.locations.slice(0, 3).map((location) => ({
+      cell_id: location.cell_id,
+      logical_code: location.logical_code,
+    })),
+    ...inventory
+      .listCells(db)
+      .filter((cell) => !seededCellIds.has(Number(cell.id)))
+      .slice(0, 5)
+      .map((cell) => ({
+        cell_id: cell.id,
+        logical_code: cell.logical_code,
+      })),
+  ];
+  assert.ok(movementCells.length >= 7);
+  const activityTimes = [
+    "2026-05-20T10:30:00.000Z",
+    "2026-05-14T09:15:00.000Z",
+    "2026-05-18T07:45:00.000Z",
+    "2026-05-16T12:00:00.000Z",
+    "2026-05-15T11:30:00.000Z",
+    "2026-05-19T08:20:00.000Z",
+    "2026-05-17T14:10:00.000Z",
+  ];
+  const activityPlan = movementCells.slice(0, activityTimes.length).map((location, index) => ({
+    location,
+    at: activityTimes[index],
+  }));
+  for (const entry of activityPlan) {
+    inventory.createAdjustment(db, {
+      cellId: entry.location.cell_id,
+      productId: shoe.id,
+      quantityDelta: 1,
+      userId: user.id,
+      reason: "Seed movement screen activity",
+    });
+    db.prepare(
+      `
+        UPDATE transactions
+        SET created_at = ?
+        WHERE product_id = ? AND cell_id = ?
+      `,
+    ).run(entry.at, shoe.id, entry.location.cell_id);
+  }
+  const refreshedProductDetail = inventory.getProductDetail(db, shoe.id);
+  const refreshedByCellId = new Map(
+    refreshedProductDetail.locations.map((location) => [Number(location.cell_id), location]),
+  );
+  const expectedStockOrder = activityPlan
+    .map((entry) => ({
+      ...entry,
+      location: refreshedByCellId.get(Number(entry.location.cell_id)),
+    }))
+    .slice()
+    .sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+  const initialStockOrder = expectedStockOrder.slice(0, 5);
+  const nextStockOrder = expectedStockOrder.slice(5);
+  const preferredCellId = expectedStockOrder[0].location.cell_id;
+  const assertMovementStockOrder = (html) => {
+    const positions = initialStockOrder.map((entry) => html.indexOf(entry.location.logical_code));
+    assert.ok(positions.every((position) => position >= 0));
+    for (let index = 1; index < positions.length; index += 1) {
+      assert.ok(positions[index - 1] < positions[index]);
+    }
+  };
   const addProductHtml = productPages.renderProducts(user, null, "", true);
   assert.match(addProductHtml, /Save And Put Stock/);
   assert.match(addProductHtml, /Optional Catalog Details/);
@@ -1131,20 +1365,117 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(pickHtml, /Quick Quantity Picker/);
   assert.match(pickHtml, /Pick All In This Location/);
   assert.match(pickHtml, /Available to pick/);
+  assert.match(pickHtml, /Current Stock/);
+  assert.match(pickHtml, /data-product-summary-form/);
+  assert.match(pickHtml, /data-product-summary-path="\/pick"/);
+  assert.match(pickHtml, /data-movement-stock-summary/);
+  assert.match(pickHtml, /data-movement-stock-load-more/);
+  assert.match(pickHtml, /data-movement-stock-offset="5"/);
+  assert.match(pickHtml, /name="return_to" value="" data-led-command-return-to/);
+  assert.match(pickHtml, /Find Products/);
+  assert.match(pickHtml, new RegExp(`formaction="/products/${shoe.id}/find"`));
+  assert.match(pickHtml, /formnovalidate/);
+  assert.match(pickHtml, /data-product-find-submit/);
+  assert.match(pickHtml, /Last Activity/);
+  assert.match(pickHtml, /Preferred/);
+  assert.match(
+    pickHtml,
+    new RegExp(`name="preferred_cell_${preferredCellId}"[\\s\\S]{0,300}checked`),
+  );
+  assert.match(pickHtml, new RegExp(`name="context_cell_id" value="${preferredCellId}"`));
+  assert.match(pickHtml, new RegExp(`${refreshedProductDetail.sku}[\\s\\S]*${refreshedProductDetail.name}`));
+  assert.match(pickHtml, new RegExp(`${initialStockOrder[0].location.logical_code}[\\s\\S]*${initialStockOrder[0].location.available_quantity}`));
+  for (const entry of initialStockOrder) {
+    assert.match(pickHtml, new RegExp(formatDate(entry.at).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  for (const entry of nextStockOrder) {
+    assert.doesNotMatch(pickHtml, new RegExp(`<td>${entry.location.logical_code}</td>`));
+  }
+  assertMovementStockOrder(pickHtml);
+
+  const activePickHtml = productPages.renderPick(
+    user,
+    null,
+    new URL(`http://localhost/pick?product_id=${shoe.id}&cell_id=${preferredCellId}&quantity=2&find_led=1`),
+  );
+  assert.match(activePickHtml, /data-product-find-led-clear-form/);
+  assert.match(
+    activePickHtml,
+    new RegExp(`data-product-find-led-clear-endpoint="/products/${shoe.id}/find/clear"`),
+  );
+
+  const movementStockFragmentHtml = productPages.renderMovementStockRows(
+    inventory.getProductMovementStockSummary(db, shoe.id, { offset: 5, limit: 5 }),
+  );
+  assert.match(movementStockFragmentHtml, /data-stock-cell-row/);
+  for (const entry of nextStockOrder) {
+    assert.match(movementStockFragmentHtml, new RegExp(`<td>${entry.location.logical_code}</td>`));
+  }
 
   const putHtml = productPages.renderPut(
     user,
     null,
-    new URL(`http://localhost/put?product_id=${shoe.id}&quantity=2`),
+    new URL(`http://localhost/put?product_id=${shoe.id}&cell_id=${preferredCellId}&quantity=2`),
   );
   assert.match(putHtml, /Quick Quantity Picker/);
   assert.match(putHtml, /One Location Batch/);
   assert.doesNotMatch(putHtml, /Full location capacity/);
   assert.match(putHtml, /system will split it across eligible locations/);
   assert.match(putHtml, /Current Stock/);
-  assert.match(putHtml, new RegExp(`${productDetail.sku}[\\s\\S]*${productDetail.name}`));
-  assert.match(putHtml, new RegExp(`${productDetail.locations[0].logical_code}[\\s\\S]*${productDetail.locations[0].available_quantity}`));
+  assert.match(putHtml, /Last Activity/);
+  assert.match(putHtml, new RegExp(`${refreshedProductDetail.sku}[\\s\\S]*${refreshedProductDetail.name}`));
+  assert.match(putHtml, new RegExp(`${initialStockOrder[0].location.logical_code}[\\s\\S]*${initialStockOrder[0].location.available_quantity}`));
+  for (const entry of initialStockOrder) {
+    assert.match(putHtml, new RegExp(formatDate(entry.at).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assertMovementStockOrder(putHtml);
   assert.match(putHtml, /data-put-product-summary-form/);
+  assert.match(putHtml, /data-product-summary-form/);
+  assert.match(putHtml, /data-product-summary-path="\/put"/);
+  assert.match(putHtml, /data-movement-stock-summary/);
+  assert.match(putHtml, /data-movement-stock-load-more/);
+  assert.match(putHtml, /data-movement-stock-offset="5"/);
+  assert.match(putHtml, /name="return_to" value="" data-led-command-return-to/);
+  assert.match(putHtml, /Find Products/);
+  assert.match(putHtml, new RegExp(`formaction="/products/${shoe.id}/find"`));
+  assert.match(putHtml, /formnovalidate/);
+  assert.match(putHtml, /data-product-find-submit/);
+  assert.match(putHtml, /Preferred/);
+  assert.match(
+    putHtml,
+    new RegExp(`name="preferred_cell_${preferredCellId}"[\\s\\S]{0,300}checked`),
+  );
+  assert.match(putHtml, new RegExp(`name="context_cell_id" value="${preferredCellId}"`));
+
+  const activePutHtml = productPages.renderPut(
+    user,
+    null,
+    new URL(`http://localhost/put?product_id=${shoe.id}&cell_id=${preferredCellId}&quantity=2&find_led=1`),
+  );
+  assert.match(activePutHtml, /data-product-find-led-clear-form/);
+  assert.match(
+    activePutHtml,
+    new RegExp(`data-product-find-led-clear-endpoint="/products/${shoe.id}/find/clear"`),
+  );
+
+  const preferredPickLocation = refreshedProductDetail.locations.find(
+    (location) => Number(location.cell_id) === Number(expectedStockOrder[2].location.cell_id),
+  );
+  assert.ok(preferredPickLocation);
+  const preferredFallbackTask = inventory.allocatePick(db, {
+    userId: user.id,
+    productId: shoe.id,
+    quantity: Number(preferredPickLocation.available_quantity) + 1,
+    preferredCellIds: [preferredPickLocation.cell_id],
+  });
+  const preferredFallbackLines = db
+    .prepare("SELECT cell_id FROM task_lines WHERE task_id = ? ORDER BY id")
+    .all(preferredFallbackTask.id);
+  assert.equal(Number(preferredFallbackLines[0].cell_id), Number(preferredPickLocation.cell_id));
+  assert.equal(
+    Number(preferredFallbackLines[1].cell_id),
+    Number(expectedStockOrder[0].location.cell_id),
+  );
 
   const task = inventory.allocatePick(db, {
     userId: user.id,
@@ -1741,12 +2072,8 @@ test("recommended action LEDs clear when the operator leaves without applying", 
     .prepare("SELECT value FROM app_metadata WHERE key = ?")
     .get(activeMetadataKey);
   assert.ok(activeMetadata);
-  const activatedEvents = db
-    .prepare(
-      "SELECT event_type FROM device_events WHERE event_type IN ('guidance_activated', 'guidance_manual')",
-    )
-    .all();
-  assert.ok(activatedEvents.length > 0);
+  const expectedClearCount = JSON.parse(activeMetadata.value).lines.length;
+  assert.ok(expectedClearCount > 0);
   const clearedBeforeLeave = db
     .prepare(
       "SELECT COUNT(*) AS count FROM device_events WHERE event_type IN ('guidance_cleared', 'guidance_manual_clear')",
@@ -1776,7 +2103,7 @@ test("recommended action LEDs clear when the operator leaves without applying", 
       "SELECT event_type FROM device_events WHERE event_type IN ('guidance_cleared', 'guidance_manual_clear')",
     )
     .all();
-  assert.equal(clearedEvents.length - clearedBeforeLeave, activatedEvents.length);
+  assert.equal(clearedEvents.length - clearedBeforeLeave, expectedClearCount);
   assert.equal(
     db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey),
     undefined,
@@ -2294,7 +2621,11 @@ test("backup maintenance keeps retained days and prunes excess active-day backup
     ["t-50", "t-49", "t-48", "t-47", "t-46"],
   );
   assert.equal(backups.length, 15);
-  assert.equal(backupService.getSummary().activeDayBackupLimit, 5);
+  assert.equal(
+    backupService.getSummary({ now: new Date("2026-05-18T12:50:00.000Z") })
+      .activeDayBackupLimit,
+    5,
+  );
 });
 
 test("admins can update automatic backup schedule from the backup panel", async () => {

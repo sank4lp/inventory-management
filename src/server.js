@@ -31,6 +31,10 @@ import {
   adjustmentQuantityGuidance,
 } from "./server/guidance/adjustments.js";
 import {
+  productFindGuidanceLines,
+  productFindGuidanceTask,
+} from "./server/guidance/product-find.js";
+import {
   recommendationGuidanceLines,
   recommendationGuidanceTask,
   uniqueGuidanceLines,
@@ -47,6 +51,7 @@ import {
   authenticateUser,
   getCellDetail,
   getProductDetail,
+  getProductMovementStockSummary,
   listCells,
   listProducts,
   PUT_CAPACITY_ERROR_MESSAGE,
@@ -64,6 +69,7 @@ import { renderAdjustmentLine } from "./server/pages/shared.js";
 const PORT = Number(process.env.PORT || 3000);
 const publicDir = join(process.cwd(), "public");
 const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
+const ACTIVE_PRODUCT_FIND_GUIDANCE_PREFIX = "active_product_find_guidance";
 const ACTIVE_RECOMMENDATION_GUIDANCE_PREFIX = "active_recommendation_guidance";
 
 getAppState();
@@ -87,16 +93,111 @@ function movementRetryPath(path, form) {
   if (form.quantity) {
     params.set("quantity", form.quantity);
   }
-  if (form.preferred_cell_id) {
-    params.set("cell_id", form.preferred_cell_id);
+  if (form.context_cell_id || form.preferred_cell_id) {
+    params.set("cell_id", form.context_cell_id || form.preferred_cell_id);
   }
   return `${path}${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+function preferredCellIdsFromForm(form) {
+  return Object.entries(form)
+    .filter(([key, value]) => /^preferred_cell_\d+$/.test(key) && String(value || "").trim())
+    .map(([key, value]) => Number(value || key.replace("preferred_cell_", "")))
+    .filter((value) => Number.isInteger(value) && value > 0);
 }
 
 function capacityRecommendationPromptPath(returnTo, recommendationKey) {
   const url = new URL(returnTo, "http://localhost");
   url.searchParams.set(CAPACITY_RECOMMENDATION_KEY_PARAM, recommendationKey);
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function productFindActivePath(returnTo) {
+  const url = new URL(returnTo, "http://localhost");
+  url.searchParams.set("find_led", "1");
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function sanitizedGuidanceLines(guidanceLines) {
+  return guidanceLines.map((line) => ({
+    id: line.id ?? line.cell_id ?? null,
+    cell_id: line.cell_id ?? line.id ?? null,
+    logical_code: line.logical_code || "",
+    controller_id: line.controller_id ?? null,
+    controller_address: line.controller_address || line.address || "",
+    hardware_channel: line.hardware_channel ?? null,
+    planned_quantity: line.planned_quantity ?? null,
+    guidance_color: line.guidance_color || "",
+    guidance_role: line.guidance_role || "",
+  }));
+}
+
+function activeProductFindGuidanceKey(userId, productId) {
+  const id = Number(productId);
+  if (!userId || !Number.isFinite(id) || id <= 0) {
+    return "";
+  }
+  return `${ACTIVE_PRODUCT_FIND_GUIDANCE_PREFIX}:${userId}:${id}`;
+}
+
+function readActiveProductFindGuidance(db, userId, productId) {
+  const metadataKey = activeProductFindGuidanceKey(userId, productId);
+  if (!metadataKey) {
+    return null;
+  }
+  const row = db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(metadataKey);
+  if (!row?.value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(row.value);
+    return {
+      metadataKey,
+      lines: Array.isArray(parsed.lines) ? parsed.lines : [],
+      productId: parsed.productId || productId,
+      sku: parsed.sku || "",
+    };
+  } catch {
+    return {
+      metadataKey,
+      lines: [],
+      productId,
+      sku: "",
+    };
+  }
+}
+
+function saveActiveProductFindGuidance(db, userId, product, guidanceLines) {
+  const metadataKey = activeProductFindGuidanceKey(userId, product?.id);
+  if (!metadataKey || !guidanceLines.length) {
+    return;
+  }
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(
+    metadataKey,
+    JSON.stringify({
+      productId: product.id,
+      sku: product.sku || "",
+      lines: sanitizedGuidanceLines(guidanceLines),
+      updatedAt: now,
+    }),
+    now,
+  );
+}
+
+function deleteActiveProductFindGuidance(db, userId, productId) {
+  const metadataKey = activeProductFindGuidanceKey(userId, productId);
+  if (!metadataKey) {
+    return;
+  }
+  db.prepare("DELETE FROM app_metadata WHERE key = ?").run(metadataKey);
 }
 
 function activeRecommendationGuidanceKey(userId, recommendationKey) {
@@ -141,17 +242,6 @@ function saveActiveRecommendationGuidance(db, userId, form, guidanceLines) {
     return;
   }
   const now = new Date().toISOString();
-  const lines = guidanceLines.map((line) => ({
-    id: line.id ?? line.cell_id ?? null,
-    cell_id: line.cell_id ?? line.id ?? null,
-    logical_code: line.logical_code || "",
-    controller_id: line.controller_id ?? null,
-    controller_address: line.controller_address || line.address || "",
-    hardware_channel: line.hardware_channel ?? null,
-    planned_quantity: line.planned_quantity ?? null,
-    guidance_color: line.guidance_color || "",
-    guidance_role: line.guidance_role || "",
-  }));
   db.prepare(
     `
       INSERT INTO app_metadata (key, value, updated_at)
@@ -163,7 +253,7 @@ function saveActiveRecommendationGuidance(db, userId, form, guidanceLines) {
     JSON.stringify({
       recommendationKey: form.recommendation_key || "",
       reason: form.reason || "",
-      lines,
+      lines: sanitizedGuidanceLines(guidanceLines),
       updatedAt: now,
     }),
     now,
@@ -328,6 +418,18 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/fragments/movement-stock-locations") {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const productId = Number(url.searchParams.get("product_id") || 0);
+      const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
+      const limit = Math.min(25, Math.max(1, Number(url.searchParams.get("limit") || 5)));
+      const product = getProductMovementStockSummary(db, productId, { limit, offset });
+      sendText(response, product ? pages.renderMovementStockRows(product) : "");
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/fragments/cell-search") {
       if (!ensureAuth(response, user)) {
         return;
@@ -443,6 +545,88 @@ export const requestHandler = async (request, response) => {
       }
       const product = getProductDetail(db, Number(productMatch[1]));
       sendHtml(response, pages.renderProductDetail(user, flash, product, url));
+      return;
+    }
+
+    const productFindClearMatch = url.pathname.match(/^\/products\/(\d+)\/find\/clear$/);
+    if (request.method === "POST" && productFindClearMatch) {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const productId = Number(productFindClearMatch[1]);
+      const product = getProductDetail(db, productId);
+      const activeGuidance = readActiveProductFindGuidance(db, user.id, productId);
+      const guidanceLines = activeGuidance?.lines?.length
+        ? activeGuidance.lines
+        : productFindGuidanceLines(product || {});
+      if (guidanceLines.length) {
+        hardwareService.clearGuidance(productFindGuidanceTask(product || { id: productId }), guidanceLines, {
+          source: "product_find_leave",
+          productId,
+        });
+      }
+      deleteActiveProductFindGuidance(db, user.id, productId);
+      sendText(response, "", 204, { "Cache-Control": "no-store" });
+      return;
+    }
+
+    const productFindMatch = url.pathname.match(/^\/products\/(\d+)\/find$/);
+    if (request.method === "POST" && productFindMatch) {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const productId = Number(productFindMatch[1]);
+      const returnTo = safeLocalPath(form.return_to, `/products/${productId}`);
+      const product = getProductDetail(db, productId);
+      if (!product) {
+        sendRedirect(response, appendFlash(returnTo, "Product not found.", "error"));
+        return;
+      }
+      const guidanceLines = productFindGuidanceLines(product);
+      if (!guidanceLines.length) {
+        sendRedirect(
+          response,
+          appendFlash(
+            returnTo,
+            "This product is not stored in any location yet.",
+            "error",
+          ),
+        );
+        return;
+      }
+      const activeGuidance = readActiveProductFindGuidance(db, user.id, productId);
+      if (activeGuidance?.lines?.length) {
+        hardwareService.clearGuidance(productFindGuidanceTask(product), activeGuidance.lines, {
+          source: "product_find_relight",
+          productId,
+        });
+        deleteActiveProductFindGuidance(db, user.id, productId);
+      }
+      const guidance = hardwareService.activateGuidance(productFindGuidanceTask(product), guidanceLines, {
+        source: "product_find",
+        productId,
+      });
+      if (guidance.ok !== false) {
+        saveActiveProductFindGuidance(db, user.id, product, guidanceLines);
+      }
+      const mappedCount = guidanceLines.filter(
+        (line) => line.hardware_channel && (line.controller_address || line.controller_id),
+      ).length;
+      const baseMessage = mappedCount > 0
+        ? `Showing ${product.sku} quantities on ${mappedCount} mapped LED module(s) in yellow.`
+        : `${product.sku} is stored in ${guidanceLines.length} location(s), but none have mapped LED modules.`;
+      const message = guidance.degraded && guidance.message
+        ? `${baseMessage} ${guidance.message}`
+        : baseMessage;
+      sendRedirect(
+        response,
+        appendFlash(
+          productFindActivePath(returnTo),
+          message,
+          guidance.degraded ? "warning" : "success",
+        ),
+      );
       return;
     }
 
@@ -578,6 +762,7 @@ export const requestHandler = async (request, response) => {
           productId: form.product_id,
           quantity: form.quantity,
           preferredCellId: form.preferred_cell_id || null,
+          preferredCellIds: preferredCellIdsFromForm(form),
         }));
       } catch (error) {
         sendRedirect(
@@ -693,6 +878,7 @@ export const requestHandler = async (request, response) => {
           productId: form.product_id,
           quantity: form.quantity,
           preferredCellId: form.preferred_cell_id || null,
+          preferredCellIds: preferredCellIdsFromForm(form),
         }));
       } catch (error) {
         if (error.message === PUT_CAPACITY_ERROR_MESSAGE) {

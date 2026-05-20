@@ -441,6 +441,10 @@ export function getProductDetail(db, productId) {
   return createProductRepository(db).getDetail(productId);
 }
 
+export function getProductMovementStockSummary(db, productId, options = {}) {
+  return createProductRepository(db).getMovementStockSummary(productId, options);
+}
+
 export function createProduct(db, input) {
   const required = [
     ["sku", "SKU is required."],
@@ -566,14 +570,47 @@ export function listRecentTasksForProfileUser(db, userId, limit = 10) {
   return createTaskRepository(db).listRecentForProfileUser(userId, limit);
 }
 
-export function allocatePick(db, { userId, productId, quantity, preferredCellId = null }) {
+function normalizePreferredCellIds({ preferredCellId = null, preferredCellIds = [] } = {}) {
+  const values = [
+    ...(Array.isArray(preferredCellIds) ? preferredCellIds : [preferredCellIds]),
+    preferredCellId,
+  ];
+  const seen = new Set();
+  return values
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0)
+    .filter((value) => {
+      if (seen.has(value)) {
+        return false;
+      }
+      seen.add(value);
+      return true;
+    });
+}
+
+function compareCellsByActivity(left, right) {
+  const leftTime = Date.parse(left?.last_activity_at || "");
+  const rightTime = Date.parse(right?.last_activity_at || "");
+  const normalizedLeft = Number.isFinite(leftTime) ? leftTime : Number.POSITIVE_INFINITY;
+  const normalizedRight = Number.isFinite(rightTime) ? rightTime : Number.POSITIVE_INFINITY;
+  if (normalizedLeft !== normalizedRight) {
+    return normalizedLeft - normalizedRight;
+  }
+  return String(left?.logical_code || "").localeCompare(String(right?.logical_code || ""), "en", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+export function allocatePick(db, { userId, productId, quantity, preferredCellId = null, preferredCellIds = [] }) {
   const requestedQuantity = normalizePositiveQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
   const balances = createInventoryBalanceRepository(db);
+  const preferredIds = normalizePreferredCellIds({ preferredCellId, preferredCellIds });
   const lines = planPickLines({
     product,
     requestedQuantity,
-    balances: balances.listPickCandidates(product.id, preferredCellId),
+    balances: balances.listPickCandidates(product.id, preferredIds),
   });
 
   return withTransaction(db, () => {
@@ -592,21 +629,26 @@ export function allocatePick(db, { userId, productId, quantity, preferredCellId 
   });
 }
 
-export function planPut(db, { userId, productId, quantity, preferredCellId = null }) {
+export function planPut(db, { userId, productId, quantity, preferredCellId = null, preferredCellIds = [] }) {
   const requestedQuantity = normalizePositiveQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
   const balances = createInventoryBalanceRepository(db);
   const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
-  if (preferredCellId) {
-    assertPutCellEligible(db, { productId: product.id, cellId: preferredCellId });
+  const preferredIds = normalizePreferredCellIds({ preferredCellId, preferredCellIds });
+  for (const cellId of preferredIds) {
+    assertPutCellEligible(db, { productId: product.id, cellId });
   }
+  const preferredCells = preferredIds
+    .map((cellId) => balances.getPreferredPutCell(cellId, product.id))
+    .filter(Boolean)
+    .sort(compareCellsByActivity);
   const lines = planPutLines({
     product,
     requestedQuantity,
     itemsPerCell,
-    preferredCell: balances.getPreferredPutCell(preferredCellId, product.id),
-    sameProductCells: balances.listSameProductPutCells(product.id, preferredCellId),
-    emptyCells: balances.listEmptyPutCells(product.id, preferredCellId),
+    preferredCells,
+    sameProductCells: balances.listSameProductPutCells(product.id, preferredIds),
+    emptyCells: balances.listEmptyPutCells(product.id, preferredIds),
   });
 
   return withTransaction(db, () => {

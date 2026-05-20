@@ -1,6 +1,7 @@
 import {
   getCellDetail,
   getProductDetail,
+  getProductMovementStockSummary,
   getRecommendedActions,
   listCells,
   listProducts,
@@ -25,6 +26,7 @@ const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
 const LOW_STOCK_HISTORY_DAYS = 30;
 const LOW_STOCK_SIGNIFICANT_RATIO = 0.6;
 const LOW_STOCK_MIN_AVERAGE = 5;
+const MOVEMENT_STOCK_INITIAL_LIMIT = 5;
 
 export function createProductPages({ db }) {
   function uniquePositiveQuantities(values) {
@@ -229,6 +231,39 @@ export function createProductPages({ db }) {
             title="${escapeHtml(title)}"
             ${disabled ? "disabled" : ""}
           >Remove Product</button>
+        </span>
+      </form>
+    `;
+  }
+
+  function renderProductFindForm(product, active = false) {
+    const disabled = !product.locations.length;
+    const title = disabled
+      ? "Put stock into a mapped location before finding this product."
+      : "Show this product's available quantity on each mapped LED module.";
+    const clearAttrs = active
+      ? ` data-product-find-led-clear-form data-product-find-led-clear-endpoint="/products/${product.id}/find/clear"`
+      : "";
+
+    return `
+      <form
+        method="post"
+        action="/products/${product.id}/find"
+        class="inline-form top-gap"
+        data-led-command-form
+        data-led-loading-label="Finding"
+        ${clearAttrs}
+      >
+        <span title="${escapeHtml(title)}">
+          <button
+            type="submit"
+            class="ghost-button led-action-button"
+            data-led-command-submit
+            data-product-find-submit
+            data-led-loading-label="Finding"
+            title="${escapeHtml(title)}"
+            ${disabled ? "disabled" : ""}
+          >Find Products</button>
         </span>
       </form>
     `;
@@ -607,6 +642,8 @@ export function createProductPages({ db }) {
       });
     }
 
+    const productFindLedActive = url.searchParams.get("find_led") === "1";
+
     return page({
       title: product.name,
       user,
@@ -623,6 +660,7 @@ export function createProductPages({ db }) {
               <a class="mini-link" href="/pick?product_id=${product.id}">Pick</a>
               <a class="mini-link" href="/put?product_id=${product.id}">Put</a>
             </div>
+            ${user.role === "admin" ? "" : renderProductFindForm(product, productFindLedActive)}
             ${
               user.role === "admin"
                 ? `
@@ -634,7 +672,10 @@ export function createProductPages({ db }) {
                   </form>
                   <p class="muted">The next put task will use this value to fill existing cells first and minimize new cells.</p>
                   ${renderAdminProductDetailsForm(product)}
-                  ${renderAdminProductRemoval(product)}
+                  <div class="mini-actions product-management-actions">
+                    ${renderProductFindForm(product, productFindLedActive)}
+                    ${renderAdminProductRemoval(product)}
+                  </div>
                 `
                 : ""
             }
@@ -643,10 +684,11 @@ export function createProductPages({ db }) {
         ${card(
           "Locations Holding This Product",
           table(
-            ["Cell", "Available", "Action"],
+            ["Cell", "Available", "Last Activity", "Action"],
             product.locations.map((location) => [
               `<a href="/cells/${location.cell_id}">${escapeHtml(location.logical_code)}</a>`,
               escapeHtml(formatQuantity(location.available_quantity)),
+              escapeHtml(formatDate(location.last_activity_at)),
               `
                 <div class="mini-actions">
                   <a class="mini-link" href="/pick?product_id=${product.id}&cell_id=${location.cell_id}">Pick</a>
@@ -685,6 +727,12 @@ export function createProductPages({ db }) {
     const selectedProduct = selectedProductId
       ? products.find((product) => product.id === selectedProductId)
       : null;
+    const selectedProductDetail = selectedProduct
+      ? getProductMovementStockSummary(db, selectedProduct.id, {
+          limit: MOVEMENT_STOCK_INITIAL_LIMIT,
+          includeCellIds: selectedCell ? [selectedCell.id] : [],
+        })
+      : null;
     const selectedCellProduct = selectedProductId
       ? selectedCellDetail?.products.find(
           (product) => Number(product.product_id) === Number(selectedProductId),
@@ -697,6 +745,11 @@ export function createProductPages({ db }) {
       selectedCell && requestedProductId && !selectedProduct,
     );
     const hasPickableProducts = products.length > 0;
+    const preferredCellIds = selectedCell ? [selectedCell.id] : [];
+    const productFindLedActive = url.searchParams.get("find_led") === "1" && selectedProduct;
+    const productFindClearAttrs = productFindLedActive
+      ? ` data-product-find-led-clear-form data-product-find-led-clear-endpoint="/products/${escapeHtml(selectedProduct.id)}/find/clear"`
+      : "";
 
     return page({
       title: "Pick",
@@ -712,7 +765,8 @@ export function createProductPages({ db }) {
           ${card(
             "Pick Items",
             `
-              <form method="post" action="/pick" class="stack-form" data-led-command-form data-led-loading-label="Creating">
+              <form method="post" action="/pick" class="stack-form" data-led-command-form data-led-loading-label="Creating" data-product-summary-form data-product-summary-path="/pick"${productFindClearAttrs}>
+                <input type="hidden" name="return_to" value="" data-led-command-return-to />
                 ${productPickerField(
                   products,
                   selectedProductId,
@@ -722,7 +776,8 @@ export function createProductPages({ db }) {
                   hasPickableProducts,
                   { recencyKey: "movement-product" },
                 )}
-                ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
+                ${renderMovementProductStockSummary(selectedProductDetail, "pick", preferredCellIds)}
+                ${renderMovementContextCellInputs(selectedCell, selectedProductDetail)}
                 <label>Requested Quantity
                   <input
                     type="number"
@@ -841,33 +896,164 @@ export function createProductPages({ db }) {
     `;
   }
 
-  function renderPutProductStockSummary(product) {
+  function stockLocationActivityTime(location) {
+    const timestamp = Date.parse(location?.last_activity_at || "");
+    return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
+  }
+
+  function sortedStockLocationsByActivity(locations) {
+    return [...(locations || [])].sort((left, right) => {
+      const activityDelta = stockLocationActivityTime(left) - stockLocationActivityTime(right);
+      if (activityDelta !== 0) {
+        return activityDelta;
+      }
+      return String(left.logical_code || "").localeCompare(String(right.logical_code || ""), "en", {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+  }
+
+  function renderMovementContextCellInputs(selectedCell, selectedProductDetail) {
+    if (!selectedCell) {
+      return "";
+    }
+    const selectedCellId = Number(selectedCell.id);
+    const listedCellIds = new Set(
+      (selectedProductDetail?.locations || []).map((location) => Number(location.cell_id)),
+    );
+    const preferredInput = selectedProductDetail && listedCellIds.has(selectedCellId)
+      ? ""
+      : `<input type="hidden" name="preferred_cell_id" value="${selectedCellId}" />`;
+
+    return `
+      <input type="hidden" name="context_cell_id" value="${selectedCellId}" />
+      ${preferredInput}
+    `;
+  }
+
+  function movementStockShowMoreIcon() {
+    return `
+      <svg class="row-collapse-chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    `;
+  }
+
+  function renderMovementStockRows(product, preferredCellIds = []) {
+    const preferredIds = new Set(preferredCellIds.map((cellId) => Number(cellId)));
+    return (product?.locations || [])
+      .map(
+        (location) => `
+          <tr data-stock-cell-row data-cell-id="${escapeHtml(location.cell_id)}">
+            <td>
+              <label class="preferred-cell-check" title="Prefer ${escapeHtml(location.logical_code)} for this task">
+                <input
+                  type="checkbox"
+                  name="preferred_cell_${escapeHtml(location.cell_id)}"
+                  value="${escapeHtml(location.cell_id)}"
+                  ${preferredIds.has(Number(location.cell_id)) ? "checked" : ""}
+                />
+                <span aria-hidden="true">&#10003;</span>
+                <span class="sr-only">Prefer ${escapeHtml(location.logical_code)}</span>
+              </label>
+            </td>
+            <td>${escapeHtml(location.logical_code)}</td>
+            <td>${escapeHtml(formatQuantity(location.available_quantity))} ${escapeHtml(product.unit_of_measure)}</td>
+            <td>${escapeHtml(formatDate(location.last_activity_at))}</td>
+          </tr>
+        `,
+      )
+      .join("");
+  }
+
+  function renderMovementStockTable(product, preferredCellIds = []) {
+    return `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Preferred</th><th>Cell</th><th>Quantity</th><th>Last Activity</th></tr>
+          </thead>
+          <tbody data-movement-stock-rows>
+            ${renderMovementStockRows(product, preferredCellIds)}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function renderMovementStockFooter(product, loadedCount) {
+    const totalCount = Number(product.stock_location_count ?? loadedCount);
+    if (totalCount <= loadedCount) {
+      return "";
+    }
+
+    return `
+      <div class="row-collapse-footer row-collapse-footer-glow" data-movement-stock-footer>
+        <span class="muted row-collapse-status" data-movement-stock-status>Showing ${escapeHtml(loadedCount)} Of ${escapeHtml(totalCount)} Locations</span>
+        <button
+          type="button"
+          class="row-collapse-icon-button"
+          data-movement-stock-load-more
+          aria-label="Show More Locations"
+          aria-expanded="false"
+        >
+          ${movementStockShowMoreIcon()}
+        </button>
+      </div>
+    `;
+  }
+
+  function renderMovementProductStockSummary(product, tone = "put", preferredCellIds = []) {
     if (!product) {
       return "";
     }
 
     const totalAvailable = Number(product.total_available || 0);
+    const locations = sortedStockLocationsByActivity(product.locations);
+    const stockProduct = { ...product, locations };
+    const loadedCount = locations.length;
+    const totalCount = Number(product.stock_location_count ?? loadedCount);
+    const findTitle = locations.length
+      ? "Show this product's available quantity on each mapped LED module."
+      : "Put stock into a mapped location before finding this product.";
     return `
-      <section class="put-stock-summary" aria-label="Selected product stock summary">
+      <section
+        class="put-stock-summary put-stock-summary-${escapeHtml(tone)}"
+        aria-label="Selected product stock summary"
+        data-movement-stock-summary
+        data-movement-stock-endpoint="/fragments/movement-stock-locations?product_id=${escapeHtml(product.id)}"
+        data-movement-stock-offset="${escapeHtml(product.stock_location_limit || MOVEMENT_STOCK_INITIAL_LIMIT)}"
+        data-movement-stock-limit="${escapeHtml(product.stock_location_limit || MOVEMENT_STOCK_INITIAL_LIMIT)}"
+        data-movement-stock-total="${escapeHtml(totalCount)}"
+      >
         <div class="put-stock-summary-header">
           <div>
             <strong>Current Stock</strong>
             <span>${escapeHtml(product.sku)} · ${escapeHtml(product.name)}</span>
           </div>
-          <div class="put-stock-total">
-            ${escapeHtml(formatQuantity(totalAvailable))}
-            <span>${escapeHtml(product.unit_of_measure)}</span>
+          <div class="put-stock-summary-actions">
+            <button
+              type="submit"
+              class="ghost-button led-action-button"
+              formaction="/products/${escapeHtml(product.id)}/find"
+              formmethod="post"
+              formnovalidate
+              data-led-command-submit
+              data-product-find-submit
+              data-led-loading-label="Finding"
+              title="${escapeHtml(findTitle)}"
+              ${locations.length ? "" : "disabled"}
+            >Find Products</button>
+            <div class="put-stock-total">
+              ${escapeHtml(formatQuantity(totalAvailable))}
+              <span>${escapeHtml(product.unit_of_measure)}</span>
+            </div>
           </div>
         </div>
         ${
-          product.locations.length
-            ? table(
-                ["Cell", "Quantity"],
-                product.locations.map((location) => [
-                  escapeHtml(location.logical_code),
-                  `${escapeHtml(formatQuantity(location.available_quantity))} ${escapeHtml(product.unit_of_measure)}`,
-                ]),
-              )
+          locations.length
+            ? `${renderMovementStockTable(stockProduct, preferredCellIds)}${renderMovementStockFooter(stockProduct, loadedCount)}`
             : `<p class="muted">This product is not currently stored in any cell.</p>`
         }
       </section>
@@ -880,14 +1066,24 @@ export function createProductPages({ db }) {
     const selectedProduct = selectedProductId
       ? products.find((product) => product.id === selectedProductId)
       : null;
-    const selectedProductDetail = selectedProductId ? getProductDetail(db, selectedProductId) : null;
     const selectedCellId = Number(url.searchParams.get("cell_id") || 0);
     const selectedCell = selectedCellId
       ? listCells(db).find((cell) => cell.id === selectedCellId)
       : null;
+    const selectedProductDetail = selectedProduct
+      ? getProductMovementStockSummary(db, selectedProduct.id, {
+          limit: MOVEMENT_STOCK_INITIAL_LIMIT,
+          includeCellIds: selectedCell ? [selectedCell.id] : [],
+        })
+      : null;
     const requestedQuantity = url.searchParams.get("quantity") || "";
     const showCapacityRecovery = url.searchParams.get("capacity_help") === "1" && selectedProduct;
     const returnTo = putRetryReturnPath({ selectedProductId, selectedCellId, requestedQuantity });
+    const preferredCellIds = selectedCell ? [selectedCell.id] : [];
+    const productFindLedActive = url.searchParams.get("find_led") === "1" && selectedProduct;
+    const productFindClearAttrs = productFindLedActive
+      ? ` data-product-find-led-clear-form data-product-find-led-clear-endpoint="/products/${escapeHtml(selectedProduct.id)}/find/clear"`
+      : "";
 
     return page({
       title: "Put",
@@ -903,12 +1099,13 @@ export function createProductPages({ db }) {
           ${card(
             "Put Items Away",
             `
-              <form method="post" action="/put" class="stack-form" data-led-command-form data-led-loading-label="Creating" data-put-product-summary-form>
+              <form method="post" action="/put" class="stack-form" data-led-command-form data-led-loading-label="Creating" data-put-product-summary-form data-product-summary-form data-product-summary-path="/put"${productFindClearAttrs}>
+                <input type="hidden" name="return_to" value="" data-led-command-return-to />
                 ${productPickerField(products, selectedProductId, "put-product", "product_id", "", true, {
                   recencyKey: "movement-product",
                 })}
-                ${renderPutProductStockSummary(selectedProductDetail)}
-                ${selectedCell ? `<input type="hidden" name="preferred_cell_id" value="${selectedCell.id}" />` : ""}
+                ${renderMovementProductStockSummary(selectedProductDetail, "put", preferredCellIds)}
+                ${renderMovementContextCellInputs(selectedCell, selectedProductDetail)}
                 <label>Quantity To Place<input type="number" min="1" step="1" inputmode="numeric" name="quantity" value="${escapeHtml(requestedQuantity)}" required /></label>
                 ${renderQuantityShortcuts({
                   tone: "put",
@@ -937,6 +1134,7 @@ export function createProductPages({ db }) {
 
   return {
     renderCatalogProductResults,
+    renderMovementStockRows,
     renderPick,
     renderProductDetail,
     renderProducts,
