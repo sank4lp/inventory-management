@@ -108,3 +108,57 @@ test("hardware guidance records the resolved LED brightness", async () => {
     ["day", "day", "day"],
   );
 });
+
+test("RS485 guidance activation sends repeated full-plan bursts", async () => {
+  const { createRs485Adapter } = await freshImport("../src/services/hardware-adapters/rs485.js");
+  const { createLogger } = await freshImport("../src/logger.js");
+  const writes = [];
+  const adapter = createRs485Adapter({
+    config: {
+      rs485GuidanceBurstRepeats: 3,
+      rs485GuidanceBurstDelayMs: 0,
+      rs485InterCommandDelayMs: 0,
+      rs485WriteLine: (line) => writes.push(line.trim()),
+      ledBrightnessClock: () => new Date(2026, 4, 13, 14, 0, 0),
+    },
+    logger: createLogger({ level: "error", siteId: "test-site" }),
+  });
+
+  const result = adapter.activateGuidance(
+    { id: 42, type: "pick" },
+    [
+      {
+        cell_id: 1,
+        logical_code: "Z1-R1-C01",
+        controller_id: 7,
+        controller_address: "CTRL-A",
+        hardware_channel: 1,
+        planned_quantity: 2,
+        guidance_color: "green",
+      },
+      {
+        cell_id: 2,
+        logical_code: "Z1-R1-C02",
+        controller_id: 7,
+        controller_address: "CTRL-A",
+        hardware_channel: 2,
+        planned_quantity: 4,
+        guidance_color: "red",
+      },
+    ],
+  );
+
+  assert.deepEqual(writes, [
+    'to CTRL-A digit 1 "2" green 120 20',
+    'to CTRL-A digit 2 "4" red 120 20',
+    'to CTRL-A digit 1 "2" green 120 20',
+    'to CTRL-A digit 2 "4" red 120 20',
+    'to CTRL-A digit 1 "2" green 120 20',
+    'to CTRL-A digit 2 "4" red 120 20',
+  ]);
+  assert.equal(result.events.length, 2);
+  assert.deepEqual(
+    result.events.map((event) => event.payload.guidanceBurstRepeats),
+    [3, 3],
+  );
+});

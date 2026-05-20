@@ -727,10 +727,11 @@ export function createProductPages({ db }) {
     const selectedProduct = selectedProductId
       ? products.find((product) => product.id === selectedProductId)
       : null;
+    const preferredCellIds = preferredCellIdsFromUrl(url, selectedCell);
     const selectedProductDetail = selectedProduct
       ? getProductMovementStockSummary(db, selectedProduct.id, {
           limit: MOVEMENT_STOCK_INITIAL_LIMIT,
-          includeCellIds: selectedCell ? [selectedCell.id] : [],
+          includeCellIds: movementStockIncludeCellIds(selectedCell, preferredCellIds),
         })
       : null;
     const selectedCellProduct = selectedProductId
@@ -745,7 +746,6 @@ export function createProductPages({ db }) {
       selectedCell && requestedProductId && !selectedProduct,
     );
     const hasPickableProducts = products.length > 0;
-    const preferredCellIds = selectedCell ? [selectedCell.id] : [];
     const productFindLedActive = url.searchParams.get("find_led") === "1" && selectedProduct;
     const productFindClearAttrs = productFindLedActive
       ? ` data-product-find-led-clear-form data-product-find-led-clear-endpoint="/products/${escapeHtml(selectedProduct.id)}/find/clear"`
@@ -914,6 +914,43 @@ export function createProductPages({ db }) {
     });
   }
 
+  function preferredCellIdsFromUrl(url, selectedCell = null) {
+    if (!url.searchParams.has("preferred_cell_ids")) {
+      return selectedCell ? [selectedCell.id] : [];
+    }
+
+    const seen = new Set();
+    return String(url.searchParams.get("preferred_cell_ids") || "")
+      .split(",")
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .filter((value) => {
+        if (seen.has(value)) {
+          return false;
+        }
+        seen.add(value);
+        return true;
+      });
+  }
+
+  function movementStockIncludeCellIds(selectedCell, preferredCellIds = []) {
+    const values = [
+      selectedCell?.id,
+      ...preferredCellIds,
+    ];
+    const seen = new Set();
+    return values
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .filter((value) => {
+        if (seen.has(value)) {
+          return false;
+        }
+        seen.add(value);
+        return true;
+      });
+  }
+
   function renderMovementContextCellInputs(selectedCell, selectedProductDetail) {
     if (!selectedCell) {
       return "";
@@ -1070,16 +1107,16 @@ export function createProductPages({ db }) {
     const selectedCell = selectedCellId
       ? listCells(db).find((cell) => cell.id === selectedCellId)
       : null;
+    const preferredCellIds = preferredCellIdsFromUrl(url, selectedCell);
     const selectedProductDetail = selectedProduct
       ? getProductMovementStockSummary(db, selectedProduct.id, {
           limit: MOVEMENT_STOCK_INITIAL_LIMIT,
-          includeCellIds: selectedCell ? [selectedCell.id] : [],
+          includeCellIds: movementStockIncludeCellIds(selectedCell, preferredCellIds),
         })
       : null;
     const requestedQuantity = url.searchParams.get("quantity") || "";
     const showCapacityRecovery = url.searchParams.get("capacity_help") === "1" && selectedProduct;
     const returnTo = putRetryReturnPath({ selectedProductId, selectedCellId, requestedQuantity });
-    const preferredCellIds = selectedCell ? [selectedCell.id] : [];
     const productFindLedActive = url.searchParams.get("find_led") === "1" && selectedProduct;
     const productFindClearAttrs = productFindLedActive
       ? ` data-product-find-led-clear-form data-product-find-led-clear-endpoint="/products/${escapeHtml(selectedProduct.id)}/find/clear"`

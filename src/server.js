@@ -118,6 +118,41 @@ function productFindActivePath(returnTo) {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function productFindMovementReturnPath(returnTo, form, productId) {
+  const url = new URL(returnTo, "http://localhost");
+  if (!["/pick", "/put"].includes(url.pathname)) {
+    return returnTo;
+  }
+
+  const formHas = (key) => Object.prototype.hasOwnProperty.call(form, key);
+  const productValue = String(form.product_id || productId || "").trim();
+  if (productValue) {
+    url.searchParams.set("product_id", productValue);
+  }
+
+  if (formHas("quantity")) {
+    const quantity = String(form.quantity || "").trim();
+    if (quantity) {
+      url.searchParams.set("quantity", quantity);
+    } else {
+      url.searchParams.delete("quantity");
+    }
+  }
+
+  if (form.context_cell_id || form.preferred_cell_id) {
+    url.searchParams.set("cell_id", form.context_cell_id || form.preferred_cell_id);
+  }
+
+  const preferredCellIds = preferredCellIdsFromForm(form);
+  if (preferredCellIds.length) {
+    url.searchParams.set("preferred_cell_ids", preferredCellIds.join(","));
+  } else {
+    url.searchParams.delete("preferred_cell_ids");
+  }
+
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 function sanitizedGuidanceLines(guidanceLines) {
   return guidanceLines.map((line) => ({
     id: line.id ?? line.cell_id ?? null,
@@ -577,7 +612,11 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const productId = Number(productFindMatch[1]);
-      const returnTo = safeLocalPath(form.return_to, `/products/${productId}`);
+      const returnTo = productFindMovementReturnPath(
+        safeLocalPath(form.return_to, `/products/${productId}`),
+        form,
+        productId,
+      );
       const product = getProductDetail(db, productId);
       if (!product) {
         sendRedirect(response, appendFlash(returnTo, "Product not found.", "error"));

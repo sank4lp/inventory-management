@@ -43,6 +43,7 @@ Then open [http://localhost:3000](http://localhost:3000).
   - `HARDWARE_ADAPTER` (`simulator`, `degraded`, or `rs485`)
   - `WAREHOUSE_SITE_ID`
   - `LOG_LEVEL`
+  - RS485 guidance burst vars: `RS485_GUIDANCE_BURST_REPEATS` (default `3`) and `RS485_GUIDANCE_BURST_DELAY_MS` (default `0`) resend active LED guidance across the full task plan to reduce missed LED updates.
   - LED brightness policy vars: `LED_DAY_BRIGHTNESS_PERCENT` (default `20`), `LED_NIGHT_BRIGHTNESS_PERCENT` (default `8`), `LED_DAY_START_HOUR` (default `6`), `LED_NIGHT_START_HOUR` (default `18`)
   - `DEMO_INVENTORY_SEED=1` if you explicitly want sample stock quantities for a throwaway demo database
   - optional production bootstrap admin vars: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD`, `BOOTSTRAP_ADMIN_NAME`

@@ -19,6 +19,14 @@ export function resolveConfig(env = process.env) {
   const esp32Fqbn = env.ESP32_FQBN || "esp32:esp32:esp32";
   const esp32SketchPath = env.ESP32_SKETCH_PATH || "firmware/esp32-simple-matrix";
   const rs485SerialPort = env.RS485_SERIAL_PORT || "";
+  const rs485GuidanceBurstRepeats = numberSetting(env.RS485_GUIDANCE_BURST_REPEATS, 3, {
+    min: 1,
+    max: 5,
+  });
+  const rs485GuidanceBurstDelayMs = numberSetting(env.RS485_GUIDANCE_BURST_DELAY_MS, 0, {
+    min: 0,
+    max: 500,
+  });
   const ledDayBrightnessPercent = numberSetting(env.LED_DAY_BRIGHTNESS_PERCENT, 20, {
     min: 1,
     max: 100,
@@ -96,6 +104,8 @@ export function resolveConfig(env = process.env) {
     esp32Fqbn,
     esp32SketchPath,
     rs485SerialPort,
+    rs485GuidanceBurstRepeats,
+    rs485GuidanceBurstDelayMs,
     ledDayBrightnessPercent,
     ledNightBrightnessPercent,
     ledDayStartHour,

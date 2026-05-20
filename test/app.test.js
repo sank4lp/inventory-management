@@ -524,12 +524,18 @@ test("product find shows yellow quantity guidance on every mapped holding cell",
   );
 
   const movementFindResponse = new MockResponse();
+  const movementPreferredCell = detail.locations[1] || detail.locations[0];
+  assert.ok(movementPreferredCell);
+  const movementFindBody = new URLSearchParams({
+    return_to: `/pick?product_id=${shoe.id}&quantity=2`,
+    product_id: String(shoe.id),
+    quantity: "7",
+    [`preferred_cell_${movementPreferredCell.cell_id}`]: String(movementPreferredCell.cell_id),
+  });
   await requestHandler(
     formRequest({
       url: `/products/${shoe.id}/find`,
-      body: new URLSearchParams({
-        return_to: `/pick?product_id=${shoe.id}&quantity=2`,
-      }).toString(),
+      body: movementFindBody.toString(),
       cookie,
     }),
     movementFindResponse,
@@ -537,9 +543,14 @@ test("product find shows yellow quantity guidance on every mapped holding cell",
 
   assert.equal(movementFindResponse.statusCode, 302);
   assert.match(movementFindResponse.headers.Location, /^\/pick\?/);
-  assert.match(movementFindResponse.headers.Location, new RegExp(`product_id=${shoe.id}`));
-  assert.match(movementFindResponse.headers.Location, /quantity=2/);
-  assert.match(movementFindResponse.headers.Location, /find_led=1/);
+  const movementFindRedirect = new URL(movementFindResponse.headers.Location, "http://localhost");
+  assert.equal(movementFindRedirect.searchParams.get("product_id"), String(shoe.id));
+  assert.equal(movementFindRedirect.searchParams.get("quantity"), "7");
+  assert.equal(
+    movementFindRedirect.searchParams.get("preferred_cell_ids"),
+    String(movementPreferredCell.cell_id),
+  );
+  assert.equal(movementFindRedirect.searchParams.get("find_led"), "1");
   assert.ok(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey));
 
   const movementClearResponse = new MockResponse();
@@ -1393,6 +1404,18 @@ test("operator movement screens keep context and use plain task actions", async 
   }
   assertMovementStockOrder(pickHtml);
 
+  const preservedPreferredCellId = nextStockOrder[0].location.cell_id;
+  const preservedPickHtml = productPages.renderPick(
+    user,
+    null,
+    new URL(`http://localhost/pick?product_id=${shoe.id}&quantity=9&preferred_cell_ids=${preservedPreferredCellId}&find_led=1`),
+  );
+  assert.match(preservedPickHtml, /name="quantity"[\s\S]*value="9"/);
+  assert.match(
+    preservedPickHtml,
+    new RegExp(`name="preferred_cell_${preservedPreferredCellId}"[\\s\\S]{0,300}checked`),
+  );
+
   const activePickHtml = productPages.renderPick(
     user,
     null,
@@ -1446,6 +1469,17 @@ test("operator movement screens keep context and use plain task actions", async 
     new RegExp(`name="preferred_cell_${preferredCellId}"[\\s\\S]{0,300}checked`),
   );
   assert.match(putHtml, new RegExp(`name="context_cell_id" value="${preferredCellId}"`));
+
+  const preservedPutHtml = productPages.renderPut(
+    user,
+    null,
+    new URL(`http://localhost/put?product_id=${shoe.id}&quantity=9&preferred_cell_ids=${preservedPreferredCellId}&find_led=1`),
+  );
+  assert.match(preservedPutHtml, /name="quantity"[\s\S]*value="9"/);
+  assert.match(
+    preservedPutHtml,
+    new RegExp(`name="preferred_cell_${preservedPreferredCellId}"[\\s\\S]{0,300}checked`),
+  );
 
   const activePutHtml = productPages.renderPut(
     user,

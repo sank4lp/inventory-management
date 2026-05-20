@@ -31,6 +31,8 @@ const DEFAULT_RS485_WRITE_REPEATS = 3;
 const DEFAULT_RS485_WRITE_REPEAT_DELAY_MS = 90;
 const DEFAULT_RS485_INTER_COMMAND_DELAY_MS = 35;
 const DEFAULT_RS485_CLEAR_REPEATS = 5;
+const DEFAULT_RS485_GUIDANCE_BURST_REPEATS = 3;
+const DEFAULT_RS485_GUIDANCE_BURST_DELAY_MS = 0;
 const HEARTBEAT_SYNC_INTERVAL_MS = 5000;
 const HEARTBEAT_COLUMN_COUNT = 8;
 const CONTROLLER_PROBE_TIMEOUT_MS = 900;
@@ -67,20 +69,31 @@ function parseJsonLines(text) {
 export function createRs485Adapter({ config = {}, logger }) {
   const port = config.rs485SerialPort || process.env.RS485_SERIAL_PORT || "";
   const writeRepeats = numberSetting(
-    config.rs485WriteRepeats || process.env.RS485_WRITE_REPEATS,
+    config.rs485WriteRepeats ?? process.env.RS485_WRITE_REPEATS,
     DEFAULT_RS485_WRITE_REPEATS,
     { min: 1, max: 5 },
   );
   const writeRepeatDelayMs = numberSetting(
-    config.rs485WriteRepeatDelayMs || process.env.RS485_WRITE_REPEAT_DELAY_MS,
+    config.rs485WriteRepeatDelayMs ?? process.env.RS485_WRITE_REPEAT_DELAY_MS,
     DEFAULT_RS485_WRITE_REPEAT_DELAY_MS,
     { min: 0, max: 500 },
   );
   const interCommandDelayMs = numberSetting(
-    config.rs485InterCommandDelayMs || process.env.RS485_INTER_COMMAND_DELAY_MS,
+    config.rs485InterCommandDelayMs ?? process.env.RS485_INTER_COMMAND_DELAY_MS,
     DEFAULT_RS485_INTER_COMMAND_DELAY_MS,
     { min: 0, max: 500 },
   );
+  const guidanceBurstRepeats = numberSetting(
+    config.rs485GuidanceBurstRepeats ?? process.env.RS485_GUIDANCE_BURST_REPEATS,
+    DEFAULT_RS485_GUIDANCE_BURST_REPEATS,
+    { min: 1, max: 5 },
+  );
+  const guidanceBurstDelayMs = numberSetting(
+    config.rs485GuidanceBurstDelayMs ?? process.env.RS485_GUIDANCE_BURST_DELAY_MS,
+    DEFAULT_RS485_GUIDANCE_BURST_DELAY_MS,
+    { min: 0, max: 500 },
+  );
+  const writeLine = typeof config.rs485WriteLine === "function" ? config.rs485WriteLine : null;
   let configured = false;
   let portFd = null;
   let lastWriteAt = 0;
@@ -101,6 +114,10 @@ export function createRs485Adapter({ config = {}, logger }) {
   }
 
   function ensureReady() {
+    if (writeLine) {
+      startHeartbeatSync();
+      return;
+    }
     if (!port) {
       throw new Error("RS485_SERIAL_PORT is not configured.");
     }
@@ -140,7 +157,11 @@ export function createRs485Adapter({ config = {}, logger }) {
       }
 
       for (let attempt = 1; attempt <= repeats; attempt += 1) {
-        writeSync(portFd, `${command}\n`);
+        if (writeLine) {
+          writeLine(`${command}\n`, { command, attempt, repeats });
+        } else {
+          writeSync(portFd, `${command}\n`);
+        }
         lastWriteAt = Date.now();
         if (attempt < repeats) {
           sleepMs(writeRepeatDelayMs);
@@ -441,6 +462,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     },
     activateGuidance(task, lines) {
       const events = [];
+      const commands = [];
       let skipped = 0;
       for (const line of lines) {
         if (!hasModuleTarget(line)) {
@@ -457,23 +479,43 @@ export function createRs485Adapter({ config = {}, logger }) {
           `digit ${line.hardware_channel} ${firmwareToken(text)} ${color} 120 ${brightness.brightnessPercent}`,
         );
         clearLocateTimer(line.hardware_channel, controllerAddress);
-        send(command);
+        commands.push({
+          command,
+          line,
+          controllerAddress,
+          color,
+          brightness,
+        });
+      }
+
+      for (let burst = 1; burst <= guidanceBurstRepeats; burst += 1) {
+        for (const entry of commands) {
+          send(entry.command, { repeats: 1 });
+        }
+        if (burst < guidanceBurstRepeats) {
+          sleepMs(guidanceBurstDelayMs);
+        }
+      }
+
+      for (const entry of commands) {
         events.push(
           event({
-            controllerId: line.controller_id,
-            cellId: line.cell_id,
+            controllerId: entry.line.controller_id,
+            cellId: entry.line.cell_id,
             taskId: task.id,
             eventType: "guidance_activated",
             payload: {
               type: "task-module",
-              command,
-              hardwareChannel: line.hardware_channel,
-              controllerAddress,
-              cell: line.logical_code,
+              command: entry.command,
+              guidanceBurstRepeats,
+              guidanceBurstDelayMs,
+              hardwareChannel: entry.line.hardware_channel,
+              controllerAddress: entry.controllerAddress,
+              cell: entry.line.logical_code,
               taskType: task.type,
-              quantity: line.planned_quantity,
-              color,
-              ...brightnessPayload(brightness),
+              quantity: entry.line.planned_quantity,
+              color: entry.color,
+              ...brightnessPayload(entry.brightness),
             },
           }),
         );
