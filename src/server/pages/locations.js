@@ -503,13 +503,13 @@ export function createLocationPages({ db }) {
     `;
   }
 
-  function renderCellCreateSection() {
+  function renderCellManagementSection(cells) {
     return `
-      <section id="cell-create" class="app-panel" data-config-section="cell-create">
+      <section id="cell-management" class="configuration-table-section" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
         <div class="panel-heading">
           <div>
-            <h2>Add Locations</h2>
-            <p class="muted">Create the logical storage locations that operators will pick from and put into.</p>
+            <h2>Manage Locations</h2>
+            <p class="muted">Add logical locations, rename location names, or remove empty locations.</p>
           </div>
         </div>
         <form method="post" action="/devices/cells" class="inline-form">
@@ -523,24 +523,31 @@ export function createLocationPages({ db }) {
           </label>
           <button type="submit" class="ghost-button">Add Location</button>
         </form>
-      </section>
-    `;
-  }
-
-  function renderCellManagementSection(cells) {
-    return `
-      <section id="cell-management" class="configuration-table-section" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
         ${
           cells.length
             ? table(
-                ["Location", "Mapped Controller", "Mapped LED Module", "Stock", "Products", "Actions"],
+                ["Location Name", "Mapped Controller", "Mapped LED Module", "Stock", "Products", "Actions"],
                 cells.map((cell) => {
                   const hasStock = cellHasStock(cell);
                   const deleteTitle = hasStock
                     ? `Move all stock out of ${cell.logical_code} before deleting it`
                     : `Delete ${cell.logical_code}`;
                   return [
-                    escapeHtml(cell.logical_code),
+                    `
+                      <form method="post" action="/devices/cells/rename" class="inline-form">
+                        <input type="hidden" name="cell_id" value="${cell.id}" />
+                        <label class="sr-only" for="rename-cell-${cell.id}">Location Name</label>
+                        <input
+                          id="rename-cell-${cell.id}"
+                          class="compact-input"
+                          name="logical_code"
+                          value="${escapeHtml(cell.logical_code)}"
+                          pattern="[A-Za-z0-9._:-]+"
+                          required
+                        />
+                        <button type="submit" class="ghost-button">Rename</button>
+                      </form>
+                    `,
                     cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Unmapped</span>`,
                     cellIsMapped(cell) ? escapeHtml(cell.hardware_channel) : `<span class="muted">Unmapped</span>`,
                     escapeHtml(formatQuantity(cell.occupied_quantity)),
@@ -765,7 +772,7 @@ export function createLocationPages({ db }) {
       case "controller-setup":
         return renderControllerSetupSection(controllers);
       case "cell-create":
-        return renderCellCreateSection();
+        return renderCellManagementSection(cells);
       case "cell-management":
         return renderCellManagementSection(cells);
       case "cell-mapping":
@@ -857,26 +864,19 @@ export function createLocationPages({ db }) {
               </span>
               <span class="operation-kbd">01</span>
             </a>
-            <a class="operation-tile" href="#cell-create" data-config-section-link="cell-create" aria-controls="cell-create">
-              <span>
-                <strong>Add Locations</strong>
-                Create a logical storage location.
-              </span>
-              <span class="operation-kbd">02</span>
-            </a>
             <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
               <span>
                 <strong>Manage Locations</strong>
-                Review or remove active storage locations.
+                Add, rename, or remove active storage locations.
               </span>
-              <span class="operation-kbd">03</span>
+              <span class="operation-kbd">02</span>
             </a>
             <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
               <span>
                 <strong>Cell Mapping</strong>
                 Ping modules and assign them to storage locations.
               </span>
-              <span class="operation-kbd">04</span>
+              <span class="operation-kbd">03</span>
             </a>
           </section>
 

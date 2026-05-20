@@ -2745,7 +2745,6 @@ function wireConfigurationWorkspace() {
   const sectionHost = workspace.querySelector("[data-config-section-host]");
   const sectionGroups = {
     "controller-setup": ["controller-setup"],
-    "cell-create": ["cell-create"],
     "cell-management": ["cell-management"],
     "cell-mapping": ["cell-mapping"],
   };
@@ -2754,13 +2753,9 @@ function wireConfigurationWorkspace() {
       title: "Add Controller",
       description: "Follow the guided ESP32 setup without leaving the Configuration console.",
     },
-    "cell-create": {
-      title: "Add Locations",
-      description: "Create storage locations in a focused dialog, then return to the console.",
-    },
     "cell-management": {
       title: "Manage Locations",
-      description: "Delete and review active storage locations in a focused flow.",
+      description: "Add, rename, delete, and review active storage locations in a focused flow.",
     },
     "cell-mapping": {
       title: "Cell Mapping",

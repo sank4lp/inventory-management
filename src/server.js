@@ -1694,7 +1694,7 @@ export const requestHandler = async (request, response) => {
       });
       const backupResult = createCriticalBackup("cell-mapping-update");
       const nextFlash = backupAwareFlash("Cell mapping updated.", "success", backupResult);
-      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash("/devices#cell-mapping", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -1740,7 +1740,23 @@ export const requestHandler = async (request, response) => {
       });
       const backupResult = createCriticalBackup("cell-created");
       const nextFlash = backupAwareFlash(`Cell ${cell.logical_code} added.`, "success", backupResult);
-      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/devices/cells/rename") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const cell = locationService.renameCell({
+        cellId: form.cell_id,
+        logicalCode: form.logical_code,
+        renamedBy: user.id,
+      });
+      const backupResult = createCriticalBackup("cell-renamed");
+      const nextFlash = backupAwareFlash(`Cell renamed to ${cell.logical_code}.`, "success", backupResult);
+      sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -1774,7 +1790,7 @@ export const requestHandler = async (request, response) => {
         "success",
         createCriticalBackup(deleted.hasData ? "cell-delete-with-history" : "cell-delete"),
       );
-      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -1992,6 +2008,9 @@ export const requestHandler = async (request, response) => {
     }
     if (url.pathname === "/mapping" || url.pathname === "/mapping/bulk") {
       target = "/devices#cell-mapping";
+    }
+    if (url.pathname.startsWith("/devices/cells")) {
+      target = "/devices#cell-management";
     }
     if (url.pathname === "/admin/adjustments") {
       target = "/admin";

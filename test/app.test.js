@@ -2757,6 +2757,28 @@ test("critical device changes create interim critical backups", async () => {
     .find((cell) => cell.logical_code === "Z1-R9-C99");
   assert.ok(createdCell);
 
+  const renameResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/devices/cells/rename",
+      body: new URLSearchParams({
+        cell_id: String(createdCell.id),
+        logical_code: "Z1-R9-C98",
+      }).toString(),
+      cookie,
+    }),
+    renameResponse,
+  );
+
+  assert.equal(renameResponse.statusCode, 302);
+  assert.match(renameResponse.headers.Location, /Cell\+renamed\+to\+Z1-R9-C98/);
+  assert.equal(
+    getAppState()
+      .locationService.listCells()
+      .find((cell) => cell.id === createdCell.id).logical_code,
+    "Z1-R9-C98",
+  );
+
   const deleteResponse = new MockResponse();
   await requestHandler(
     formRequest({
@@ -2770,7 +2792,7 @@ test("critical device changes create interim critical backups", async () => {
   );
 
   assert.equal(deleteResponse.statusCode, 302);
-  assert.match(deleteResponse.headers.Location, /Cell\+Z1-R9-C99\+deleted/);
+  assert.match(deleteResponse.headers.Location, /Cell\+Z1-R9-C98\+deleted/);
 
   const backupNames = readdirSync(join(sandbox, "data", "backups"));
   assert.ok(
@@ -2781,6 +2803,11 @@ test("critical device changes create interim critical backups", async () => {
   assert.ok(
     backupNames.some(
       (name) => name.startsWith("critical-") && name.includes("cell-delete-before"),
+    ),
+  );
+  assert.ok(
+    backupNames.some(
+      (name) => name.startsWith("critical-") && name.includes("cell-renamed"),
     ),
   );
   assert.ok(
@@ -3909,8 +3936,26 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
     createdBy: 1,
   });
   const managementHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-management");
+  assert.match(managementHtml, /Add Location/);
+  assert.match(managementHtml, /action="\/devices\/cells"/);
+  assert.match(managementHtml, /action="\/devices\/cells\/rename"/);
   assert.match(managementHtml, /Z9-R9-REMAP/);
   assert.match(managementHtml, /<span class="muted">Unmapped<\/span>/);
+  const renamedCell = inventory.renameCell(db, {
+    cellId: remapTarget.id,
+    logicalCode: "Z9-R9-RENAMED",
+    renamedBy: 1,
+  });
+  assert.equal(renamedCell.logical_code, "Z9-R9-RENAMED");
+  assert.throws(
+    () =>
+      inventory.renameCell(db, {
+        cellId: remapTarget.id,
+        logicalCode: "Z1-R1-C01",
+        renamedBy: 1,
+      }),
+    /already exists/,
+  );
   const statusHtml = createLocationPages({ db }).renderDevices(
     { id: 1, name: "Admin", username: "admin", role: "admin" },
     null,

@@ -2024,6 +2024,39 @@ export function createCell(db, { logicalCode, capacity = 12, createdBy = null } 
   return db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(result.lastInsertRowid));
 }
 
+export function renameCell(db, { cellId, logicalCode, renamedBy = null } = {}) {
+  const id = Number(cellId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("Choose a location to rename.");
+  }
+  const code = normalizeLogicalCode(logicalCode);
+
+  return withTransaction(db, () => {
+    const cell = db.prepare("SELECT * FROM cells WHERE id = ? AND active = 1").get(id);
+    if (!cell) {
+      throw new Error("Location not found.");
+    }
+    if (cell.logical_code === code) {
+      return cell;
+    }
+
+    const existing = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(code);
+    if (existing && Number(existing.id) !== id) {
+      throw new Error("A cell with this name already exists.");
+    }
+
+    db.prepare(
+      `
+        UPDATE cells
+        SET logical_code = ?, mapped_by = COALESCE(mapped_by, ?)
+        WHERE id = ?
+      `,
+    ).run(code, renamedBy, id);
+
+    return db.prepare("SELECT * FROM cells WHERE id = ?").get(id);
+  });
+}
+
 export function updateCellMapping(
   db,
   { cellId, hardwareChannel, logicalCode = null, targetCellId = null, mappedBy },
