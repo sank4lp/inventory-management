@@ -391,7 +391,7 @@ function publicJob(job) {
   };
 }
 
-export function createFirmwareService({ db, config = {}, logger }) {
+export function createFirmwareService({ db, config = {}, logger, backupService = null }) {
   const jobs = new Map();
   const arduinoCliPath = config.arduinoCliPath || process.env.ARDUINO_CLI_PATH || "arduino-cli";
   const defaultFqbn = config.esp32Fqbn || process.env.ESP32_FQBN || DEFAULT_ESP32_FQBN;
@@ -487,6 +487,25 @@ export function createFirmwareService({ db, config = {}, logger }) {
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
       `,
     ).run(JSON.stringify(devices), nowIso());
+
+    try {
+      const backupResult = backupService?.createCriticalBackup?.({
+        source: previousController
+          ? `controller-reconfigured-${controller.controller_code}`
+          : `controller-added-${controller.controller_code}`,
+      });
+      if (backupResult?.backup?.filename) {
+        appendLog(job, `Critical backup recorded: ${backupResult.backup.filename}`);
+      }
+    } catch (error) {
+      appendLog(job, `WARNING: Critical backup failed: ${error.message}`);
+      logger?.error?.("backup.critical.failed", {
+        source: "firmware-controller-configuration",
+        controllerId: controller.id,
+        controllerCode: controller.controller_code,
+        error: error.message,
+      });
+    }
   }
 
   function runCommand(job, stage, progress, args) {
@@ -748,10 +767,11 @@ export function createFirmwareService({ db, config = {}, logger }) {
       if (detectedPort.deviceIdentity !== deviceIdentity) {
         throw new Error("Selected ESP32 changed after detection. Refresh ports and select it again.");
       }
-      const controllerName = normalizeControllerName(
-        input.controller_name || input.controllerName,
-        `ESP32-${String(Date.now()).slice(-6)}`,
-      );
+      const requestedControllerName = String(input.controller_name || input.controllerName || "").trim();
+      if (!requestedControllerName) {
+        throw new Error("Controller name is required.");
+      }
+      const controllerName = normalizeControllerName(requestedControllerName);
       const existingByName = db
         .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
         .get(controllerName);

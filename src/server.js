@@ -31,6 +31,10 @@ import {
   adjustmentQuantityGuidance,
 } from "./server/guidance/adjustments.js";
 import {
+  productFindGuidanceLines,
+  productFindGuidanceTask,
+} from "./server/guidance/product-find.js";
+import {
   recommendationGuidanceLines,
   recommendationGuidanceTask,
   uniqueGuidanceLines,
@@ -47,17 +51,34 @@ import {
   authenticateUser,
   getCellDetail,
   getProductDetail,
+  getProductMovementStockSummary,
   listCells,
   listProducts,
   PUT_CAPACITY_ERROR_MESSAGE,
   registerUser,
   searchCells,
+  updateUserLastActive,
 } from "./services/inventory.js";
+import {
+  reportFormatFromForm,
+  resetReportFormatSettings,
+  updateReportFormatSettings,
+} from "./services/report-format.js";
+import { renderAdjustmentLine } from "./server/pages/shared.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const publicDir = join(process.cwd(), "public");
+const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
+const ACTIVE_PRODUCT_FIND_GUIDANCE_PREFIX = "active_product_find_guidance";
+const ACTIVE_RECOMMENDATION_GUIDANCE_PREFIX = "active_recommendation_guidance";
 
 getAppState();
+
+function requestWantsJson(request) {
+  const accept = String(request.headers.accept || "").toLowerCase();
+  const requestedWith = String(request.headers["x-requested-with"] || "").toLowerCase();
+  return requestedWith === "fetch" || accept.includes("application/json");
+}
 
 function putCapacityRetryPath(form) {
   const retryPath = movementRetryPath("/put", form);
@@ -72,25 +93,283 @@ function movementRetryPath(path, form) {
   if (form.quantity) {
     params.set("quantity", form.quantity);
   }
-  if (form.preferred_cell_id) {
-    params.set("cell_id", form.preferred_cell_id);
+  if (form.context_cell_id || form.preferred_cell_id) {
+    params.set("cell_id", form.context_cell_id || form.preferred_cell_id);
   }
   return `${path}${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+function preferredCellIdsFromForm(form) {
+  return Object.entries(form)
+    .filter(([key, value]) => /^preferred_cell_\d+$/.test(key) && String(value || "").trim())
+    .map(([key, value]) => Number(value || key.replace("preferred_cell_", "")))
+    .filter((value) => Number.isInteger(value) && value > 0);
+}
+
+function capacityRecommendationPromptPath(returnTo, recommendationKey) {
+  const url = new URL(returnTo, "http://localhost");
+  url.searchParams.set(CAPACITY_RECOMMENDATION_KEY_PARAM, recommendationKey);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function productFindActivePath(returnTo) {
+  const url = new URL(returnTo, "http://localhost");
+  url.searchParams.set("find_led", "1");
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function productFindMovementReturnPath(returnTo, form, productId) {
+  const url = new URL(returnTo, "http://localhost");
+  if (!["/pick", "/put"].includes(url.pathname)) {
+    return returnTo;
+  }
+
+  const formHas = (key) => Object.prototype.hasOwnProperty.call(form, key);
+  const productValue = String(form.product_id || productId || "").trim();
+  if (productValue) {
+    url.searchParams.set("product_id", productValue);
+  }
+
+  if (formHas("quantity")) {
+    const quantity = String(form.quantity || "").trim();
+    if (quantity) {
+      url.searchParams.set("quantity", quantity);
+    } else {
+      url.searchParams.delete("quantity");
+    }
+  }
+
+  if (form.context_cell_id || form.preferred_cell_id) {
+    url.searchParams.set("cell_id", form.context_cell_id || form.preferred_cell_id);
+  }
+
+  const preferredCellIds = preferredCellIdsFromForm(form);
+  if (preferredCellIds.length) {
+    url.searchParams.set("preferred_cell_ids", preferredCellIds.join(","));
+  } else {
+    url.searchParams.delete("preferred_cell_ids");
+  }
+
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function sanitizedGuidanceLines(guidanceLines) {
+  return guidanceLines.map((line) => ({
+    id: line.id ?? line.cell_id ?? null,
+    cell_id: line.cell_id ?? line.id ?? null,
+    logical_code: line.logical_code || "",
+    controller_id: line.controller_id ?? null,
+    controller_address: line.controller_address || line.address || "",
+    hardware_channel: line.hardware_channel ?? null,
+    planned_quantity: line.planned_quantity ?? null,
+    guidance_color: line.guidance_color || "",
+    guidance_role: line.guidance_role || "",
+  }));
+}
+
+function activeProductFindGuidanceKey(userId, productId) {
+  const id = Number(productId);
+  if (!userId || !Number.isFinite(id) || id <= 0) {
+    return "";
+  }
+  return `${ACTIVE_PRODUCT_FIND_GUIDANCE_PREFIX}:${userId}:${id}`;
+}
+
+function readActiveProductFindGuidance(db, userId, productId) {
+  const metadataKey = activeProductFindGuidanceKey(userId, productId);
+  if (!metadataKey) {
+    return null;
+  }
+  const row = db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(metadataKey);
+  if (!row?.value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(row.value);
+    return {
+      metadataKey,
+      lines: Array.isArray(parsed.lines) ? parsed.lines : [],
+      productId: parsed.productId || productId,
+      sku: parsed.sku || "",
+    };
+  } catch {
+    return {
+      metadataKey,
+      lines: [],
+      productId,
+      sku: "",
+    };
+  }
+}
+
+function saveActiveProductFindGuidance(db, userId, product, guidanceLines) {
+  const metadataKey = activeProductFindGuidanceKey(userId, product?.id);
+  if (!metadataKey || !guidanceLines.length) {
+    return;
+  }
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(
+    metadataKey,
+    JSON.stringify({
+      productId: product.id,
+      sku: product.sku || "",
+      lines: sanitizedGuidanceLines(guidanceLines),
+      updatedAt: now,
+    }),
+    now,
+  );
+}
+
+function deleteActiveProductFindGuidance(db, userId, productId) {
+  const metadataKey = activeProductFindGuidanceKey(userId, productId);
+  if (!metadataKey) {
+    return;
+  }
+  db.prepare("DELETE FROM app_metadata WHERE key = ?").run(metadataKey);
+}
+
+function activeRecommendationGuidanceKey(userId, recommendationKey) {
+  const key = String(recommendationKey || "").trim();
+  if (!userId || !key) {
+    return "";
+  }
+  return `${ACTIVE_RECOMMENDATION_GUIDANCE_PREFIX}:${userId}:${key}`;
+}
+
+function readActiveRecommendationGuidance(db, userId, recommendationKey) {
+  const metadataKey = activeRecommendationGuidanceKey(userId, recommendationKey);
+  if (!metadataKey) {
+    return null;
+  }
+  const row = db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(metadataKey);
+  if (!row?.value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(row.value);
+    return {
+      metadataKey,
+      lines: Array.isArray(parsed.lines) ? parsed.lines : [],
+      recommendationKey: parsed.recommendationKey || recommendationKey,
+      reason: parsed.reason || "",
+    };
+  } catch {
+    return {
+      metadataKey,
+      lines: [],
+      recommendationKey,
+      reason: "",
+    };
+  }
+}
+
+function saveActiveRecommendationGuidance(db, userId, form, guidanceLines) {
+  const metadataKey = activeRecommendationGuidanceKey(userId, form.recommendation_key);
+  if (!metadataKey || !guidanceLines.length) {
+    return;
+  }
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(
+    metadataKey,
+    JSON.stringify({
+      recommendationKey: form.recommendation_key || "",
+      reason: form.reason || "",
+      lines: sanitizedGuidanceLines(guidanceLines),
+      updatedAt: now,
+    }),
+    now,
+  );
+}
+
+function deleteActiveRecommendationGuidance(db, userId, recommendationKey) {
+  const metadataKey = activeRecommendationGuidanceKey(userId, recommendationKey);
+  if (!metadataKey) {
+    return;
+  }
+  db.prepare("DELETE FROM app_metadata WHERE key = ?").run(metadataKey);
+}
+
+function buildRecommendationGuidanceLines(cells, form, { moveIndex = "all" } = {}) {
+  const index = String(moveIndex || "all").trim();
+  const moves = parseRecommendedActionMoves(form);
+  const selectedMoves =
+    index && index !== "all" ? moves.filter((move) => String(move.index) === index) : moves;
+
+  return uniqueGuidanceLines(
+    selectedMoves.flatMap((move) =>
+      recommendationGuidanceLines(cells, {
+        sourceCellId: move.sourceCellId || form.source_cell_id,
+        targetCellId: move.targetCellId,
+        quantity: move.quantity,
+      }),
+    ),
+  );
 }
 
 function createAutomaticBackup(source) {
   const { backupService } = getAppState();
 
   try {
+    const result = backupService.createAutomaticBackupIfDue({
+      source,
+    });
     return {
       ok: true,
-      backup: backupService.createBackup({
-        kind: "auto",
+      ...result,
+    };
+  } catch (error) {
+    logger.error("backup.auto.failed", {
+      source,
+      error: error.message,
+    });
+    return {
+      ok: false,
+      error: error.message,
+    };
+  }
+}
+
+function createRequiredSafetyBackup(source) {
+  const { backupService } = getAppState();
+  return backupService.createBackup({
+    kind: "manual",
+    source,
+  });
+}
+
+function createRequiredCriticalBackup(source) {
+  const { backupService } = getAppState();
+  return backupService.createCriticalBackup({
+    source,
+  }).backup;
+}
+
+function createCriticalBackup(source) {
+  const { backupService } = getAppState();
+
+  try {
+    return {
+      ok: true,
+      ...backupService.createCriticalBackup({
         source,
       }),
     };
   } catch (error) {
-    logger.error("backup.auto.failed", {
+    logger.error("backup.critical.failed", {
       source,
       error: error.message,
     });
@@ -110,7 +389,7 @@ function backupAwareFlash(message, tone, backupResult) {
   }
 
   return {
-    message: `${message} Automatic backup failed: ${backupResult?.error || "Unknown error"}`,
+    message: `${message} Backup failed: ${backupResult?.error || "Unknown error"}`,
     tone: tone === "error" ? "error" : "warning",
   };
 }
@@ -127,6 +406,7 @@ export const requestHandler = async (request, response) => {
     hardwareService,
     locationService,
     pages,
+    systemService,
     taskService,
   } = getAppState();
   const user = getSessionUser(request, db);
@@ -137,6 +417,26 @@ export const requestHandler = async (request, response) => {
   }
 
   try {
+    if (user) {
+      updateUserLastActive(db, user.id);
+    }
+
+    systemService.cancelStalePendingReviewTasks();
+
+    if (request.method === "GET" && url.pathname === "/api/system/health") {
+      if (!ensureApiAuth(response, user)) {
+        return;
+      }
+      const health = systemService.healthSummary(getAppState().startup);
+      sendJson(response, {
+        degraded: health.degraded,
+        message: health.message,
+        warnings: health.warnings,
+        overallStatus: health.overallStatus,
+      });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/fragments/catalog-products") {
       if (!ensureAuth(response, user)) {
         return;
@@ -150,6 +450,18 @@ export const requestHandler = async (request, response) => {
           q,
         ),
       );
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/fragments/movement-stock-locations") {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const productId = Number(url.searchParams.get("product_id") || 0);
+      const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
+      const limit = Math.min(25, Math.max(1, Number(url.searchParams.get("limit") || 5)));
+      const product = getProductMovementStockSummary(db, productId, { limit, offset });
+      sendText(response, product ? pages.renderMovementStockRows(product) : "");
       return;
     }
 
@@ -229,6 +541,14 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/profile") {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      sendHtml(response, pages.renderProfile(user, flash));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/") {
       if (!ensureAuth(response, user)) {
         return;
@@ -259,7 +579,93 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const product = getProductDetail(db, Number(productMatch[1]));
-      sendHtml(response, pages.renderProductDetail(user, flash, product));
+      sendHtml(response, pages.renderProductDetail(user, flash, product, url));
+      return;
+    }
+
+    const productFindClearMatch = url.pathname.match(/^\/products\/(\d+)\/find\/clear$/);
+    if (request.method === "POST" && productFindClearMatch) {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const productId = Number(productFindClearMatch[1]);
+      const product = getProductDetail(db, productId);
+      const activeGuidance = readActiveProductFindGuidance(db, user.id, productId);
+      const guidanceLines = activeGuidance?.lines?.length
+        ? activeGuidance.lines
+        : productFindGuidanceLines(product || {});
+      if (guidanceLines.length) {
+        hardwareService.clearGuidance(productFindGuidanceTask(product || { id: productId }), guidanceLines, {
+          source: "product_find_leave",
+          productId,
+        });
+      }
+      deleteActiveProductFindGuidance(db, user.id, productId);
+      sendText(response, "", 204, { "Cache-Control": "no-store" });
+      return;
+    }
+
+    const productFindMatch = url.pathname.match(/^\/products\/(\d+)\/find$/);
+    if (request.method === "POST" && productFindMatch) {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const productId = Number(productFindMatch[1]);
+      const returnTo = productFindMovementReturnPath(
+        safeLocalPath(form.return_to, `/products/${productId}`),
+        form,
+        productId,
+      );
+      const product = getProductDetail(db, productId);
+      if (!product) {
+        sendRedirect(response, appendFlash(returnTo, "Product not found.", "error"));
+        return;
+      }
+      const guidanceLines = productFindGuidanceLines(product);
+      if (!guidanceLines.length) {
+        sendRedirect(
+          response,
+          appendFlash(
+            returnTo,
+            "This product is not stored in any location yet.",
+            "error",
+          ),
+        );
+        return;
+      }
+      const activeGuidance = readActiveProductFindGuidance(db, user.id, productId);
+      if (activeGuidance?.lines?.length) {
+        hardwareService.clearGuidance(productFindGuidanceTask(product), activeGuidance.lines, {
+          source: "product_find_relight",
+          productId,
+        });
+        deleteActiveProductFindGuidance(db, user.id, productId);
+      }
+      const guidance = hardwareService.activateGuidance(productFindGuidanceTask(product), guidanceLines, {
+        source: "product_find",
+        productId,
+      });
+      if (guidance.ok !== false) {
+        saveActiveProductFindGuidance(db, user.id, product, guidanceLines);
+      }
+      const mappedCount = guidanceLines.filter(
+        (line) => line.hardware_channel && (line.controller_address || line.controller_id),
+      ).length;
+      const baseMessage = mappedCount > 0
+        ? `Showing ${product.sku} quantities on ${mappedCount} mapped LED module(s) in yellow.`
+        : `${product.sku} is stored in ${guidanceLines.length} location(s), but none have mapped LED modules.`;
+      const message = guidance.degraded && guidance.message
+        ? `${baseMessage} ${guidance.message}`
+        : baseMessage;
+      sendRedirect(
+        response,
+        appendFlash(
+          productFindActivePath(returnTo),
+          message,
+          guidance.degraded ? "warning" : "success",
+        ),
+      );
       return;
     }
 
@@ -269,17 +675,92 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
+      const productId = Number(productCapacityMatch[1]);
+      const previousRecommendationKeys = new Set(
+        anomalyService
+          .getRecommendedActions()
+          .filter((action) => Number(action.productId) === productId)
+          .map((action) => action.key),
+      );
       catalogService.updateProductItemsPerCell({
-        productId: Number(productCapacityMatch[1]),
+        productId,
         itemsPerCell: form.items_per_cell,
       });
       const backupResult = createAutomaticBackup("product-capacity-update");
+      const returnTo = safeLocalPath(form.return_to, `/products/${productId}`);
+      const newRecommendation = anomalyService
+        .getRecommendedActions()
+        .find(
+          (action) =>
+            Number(action.productId) === productId &&
+            !previousRecommendationKeys.has(action.key),
+        );
+      if (newRecommendation) {
+        const nextFlash = backupAwareFlash(
+          "Capacity updated. A recommended inventory action was created; review it now or skip for later.",
+          "warning",
+          backupResult,
+        );
+        sendRedirect(
+          response,
+          appendFlash(
+            capacityRecommendationPromptPath(returnTo, newRecommendation.key),
+            nextFlash.message,
+            nextFlash.tone,
+          ),
+        );
+        return;
+      }
       const nextFlash = backupAwareFlash("Items per cell updated.", "success", backupResult);
-      const returnTo = safeLocalPath(form.return_to, `/products/${productCapacityMatch[1]}`);
       sendRedirect(
         response,
         appendFlash(returnTo, nextFlash.message, nextFlash.tone),
       );
+      return;
+    }
+
+    const productDetailsMatch = url.pathname.match(/^\/products\/(\d+)\/details$/);
+    if (request.method === "POST" && productDetailsMatch) {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const productId = Number(productDetailsMatch[1]);
+      const form = await parseForm(request);
+      try {
+        catalogService.updateProductDetails({
+          productId,
+          name: form.name,
+          brand: form.brand,
+          category: form.category,
+          variant: form.variant,
+          unit_of_measure: form.unit_of_measure,
+          description: form.description,
+        });
+      } catch (error) {
+        sendRedirect(response, appendFlash(`/products/${productId}`, error.message, "error"));
+        return;
+      }
+      const backupResult = createAutomaticBackup("product-details-update");
+      const nextFlash = backupAwareFlash("Product details updated.", "success", backupResult);
+      sendRedirect(response, appendFlash(`/products/${productId}`, nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    const productDeleteMatch = url.pathname.match(/^\/products\/(\d+)\/delete$/);
+    if (request.method === "POST" && productDeleteMatch) {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const productId = Number(productDeleteMatch[1]);
+      try {
+        catalogService.removeProduct(productId);
+      } catch (error) {
+        sendRedirect(response, appendFlash(`/products/${productId}`, error.message, "error"));
+        return;
+      }
+      const backupResult = createAutomaticBackup("product-remove");
+      const nextFlash = backupAwareFlash("Product removed from the active catalog.", "success", backupResult);
+      sendRedirect(response, appendFlash("/products", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -320,6 +801,7 @@ export const requestHandler = async (request, response) => {
           productId: form.product_id,
           quantity: form.quantity,
           preferredCellId: form.preferred_cell_id || null,
+          preferredCellIds: preferredCellIdsFromForm(form),
         }));
       } catch (error) {
         sendRedirect(
@@ -379,7 +861,7 @@ export const requestHandler = async (request, response) => {
         .map((value) => Number(value.trim()))
         .filter((value) => Number.isInteger(value) && value > 0);
       const selectedCells = cellIds.length
-        ? locationService.listCells().filter((cell) => cellIds.includes(cell.id))
+        ? locationService.listCellCatalog().filter((cell) => cellIds.includes(cell.id))
         : [];
       const result = hardwareService.clearAllCellLocates(selectedCells);
       sendJson(response, {
@@ -398,7 +880,7 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const cell = locationService
-        .listCells()
+        .listCellCatalog()
         .find((entry) => entry.id === Number(apiCellLocateMatch[1]));
       if (!cell) {
         sendJson(response, { error: "Cell not found." }, 404);
@@ -435,6 +917,7 @@ export const requestHandler = async (request, response) => {
           productId: form.product_id,
           quantity: form.quantity,
           preferredCellId: form.preferred_cell_id || null,
+          preferredCellIds: preferredCellIdsFromForm(form),
         }));
       } catch (error) {
         if (error.message === PUT_CAPACITY_ERROR_MESSAGE) {
@@ -495,6 +978,8 @@ export const requestHandler = async (request, response) => {
             task && task.status === "completed"
               ? taskService.issueActionToken("task-correct", task.id, user.id)
               : null,
+        }, {
+          showCompletionDialog: url.searchParams.get("completed") === "1",
         }),
       );
       return;
@@ -558,7 +1043,7 @@ export const requestHandler = async (request, response) => {
       );
       sendRedirect(
         response,
-        appendFlash(`/tasks/${completion.task.id}`, nextFlash.message, nextFlash.tone),
+        appendFlash(`/tasks/${completion.task.id}?completed=1`, nextFlash.message, nextFlash.tone),
       );
       return;
     }
@@ -665,6 +1150,32 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/reports/format") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      updateReportFormatSettings(db, reportFormatFromForm(form));
+      const backupResult = createAutomaticBackup("report-format-update");
+      const nextFlash = backupAwareFlash("Report format saved.", "success", backupResult);
+      const returnTo = safeLocalPath(form.return_to, "/reports?format=1");
+      sendRedirect(response, appendFlash(returnTo, nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/reports/format/reset") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      resetReportFormatSettings(db);
+      const backupResult = createAutomaticBackup("report-format-reset");
+      const nextFlash = backupAwareFlash("Report format reset.", "success", backupResult);
+      const returnTo = safeLocalPath(form.return_to, "/reports?format=1");
+      sendRedirect(response, appendFlash(returnTo, nextFlash.message, nextFlash.tone));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/backups") {
       if (!ensureAdmin(response, user)) {
         return;
@@ -686,6 +1197,47 @@ export const requestHandler = async (request, response) => {
         appendFlash(
           "/backups",
           `Manual backup created: ${backup.filename}.`,
+          "success",
+        ),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/backups/schedule") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const schedule = backupService.updateAutomaticBackupSchedule({
+        cadence: form.cadence,
+        startTime: form.start_time,
+      });
+      const returnTo = safeLocalPath(form.return_to, "/backups");
+      sendRedirect(
+        response,
+        appendFlash(
+          returnTo,
+          `Automatic backup schedule saved: ${schedule.label} at ${schedule.startTime}.`,
+          "success",
+        ),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/backups/retention") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const result = backupService.updateBackupRetention({
+        retentionDays: form.retention_days,
+      });
+      const returnTo = safeLocalPath(form.return_to, "/backups");
+      sendRedirect(
+        response,
+        appendFlash(
+          returnTo,
+          `Backup retention saved: ${result.retentionDays} day(s).`,
           "success",
         ),
       );
@@ -722,7 +1274,12 @@ export const requestHandler = async (request, response) => {
       }
       sendHtml(
         response,
-        pages.renderRecommendedActions(user, flash, url.searchParams.get("key") || ""),
+        pages.renderRecommendedActions(user, flash, url.searchParams.get("key") || "", {
+          returnTo: url.searchParams.get("return_to") || "",
+          source: url.searchParams.get("source") || "",
+          ledReady: url.searchParams.get("led_ready") === "1",
+          ledMoveIndex: url.searchParams.get("led_move_index") || "",
+        }),
       );
       return;
     }
@@ -732,17 +1289,26 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
+      const action = anomalyService
+        .getRecommendedActions()
+        .find((entry) => entry.key === form.recommendation_key);
+      if (action?.optimizationPlan && form.led_ready !== "1") {
+        const returnTo = safeLocalPath(form.return_to, "");
+        const sourceParam = form.recommendation_source === "capacity" ? "&source=capacity" : "";
+        const recommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
+        sendRedirect(
+          response,
+          appendFlash(
+            recommendationPath,
+            "Show full optimization LEDs before applying this recommendation.",
+            "error",
+          ),
+        );
+        return;
+      }
       const moves = parseRecommendedActionMoves(form);
       const guidanceCells = listCells(db);
-      const guidanceLines = uniqueGuidanceLines(
-        moves.flatMap((move) =>
-          recommendationGuidanceLines(guidanceCells, {
-            sourceCellId: form.source_cell_id,
-            targetCellId: move.targetCellId,
-            quantity: move.quantity,
-          }),
-        ),
-      );
+      const guidanceLines = buildRecommendationGuidanceLines(guidanceCells, form);
       anomalyService.applyRecommendedAction({
         sourceCellId: form.source_cell_id,
         productId: form.product_id,
@@ -750,15 +1316,54 @@ export const requestHandler = async (request, response) => {
         userId: user.id,
         reason: form.reason,
       });
-      hardwareService.clearGuidance(recommendationGuidanceTask(form), guidanceLines, {
+      const activeGuidance = readActiveRecommendationGuidance(
+        db,
+        user.id,
+        form.recommendation_key,
+      );
+      const clearGuidanceLines = activeGuidance?.lines?.length ? activeGuidance.lines : guidanceLines;
+      hardwareService.clearGuidance(recommendationGuidanceTask(form), clearGuidanceLines, {
         source: "recommended_action_apply",
       });
+      deleteActiveRecommendationGuidance(db, user.id, form.recommendation_key);
       const backupResult = createAutomaticBackup("recommended-action-apply");
       const nextFlash = backupAwareFlash("Recommended action applied.", "success", backupResult);
+      const returnTo = safeLocalPath(form.return_to, "/recommended-actions");
       sendRedirect(
         response,
-        appendFlash("/recommended-actions", nextFlash.message, nextFlash.tone),
+        appendFlash(returnTo, nextFlash.message, nextFlash.tone),
       );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/recommended-actions/clear-leds") {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const activeGuidance = readActiveRecommendationGuidance(
+        db,
+        user.id,
+        form.recommendation_key,
+      );
+      let guidanceLines = activeGuidance?.lines || [];
+      if (!guidanceLines.length) {
+        try {
+          guidanceLines = buildRecommendationGuidanceLines(listCells(db), form, {
+            moveIndex: form.active_light_move_index || "all",
+          });
+        } catch {
+          guidanceLines = [];
+        }
+      }
+      if (guidanceLines.length) {
+        hardwareService.clearGuidance(recommendationGuidanceTask(form), guidanceLines, {
+          source: "recommended_action_leave",
+          recommendationKey: form.recommendation_key || "",
+        });
+      }
+      deleteActiveRecommendationGuidance(db, user.id, form.recommendation_key);
+      sendText(response, "", 204, { "Cache-Control": "no-store" });
       return;
     }
 
@@ -768,40 +1373,74 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const moveIndex = String(form.light_move_index || "").trim();
-      const moveQuantity = Number(form[`move_qty_${moveIndex}`]);
-      const targetCellId = Number(form[`move_cell_${moveIndex}`]);
       const cells = listCells(db);
+      const returnTo = safeLocalPath(form.return_to, "");
+      const sourceParam = form.recommendation_source === "capacity" ? "&source=capacity" : "";
+      const ledReadyParam = moveIndex === "all" ? "&led_ready=1" : "";
+      const ledMoveParam = moveIndex ? `&led_move_index=${encodeURIComponent(moveIndex)}` : "";
+      const recommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
+      const activeRecommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${ledReadyParam}${ledMoveParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
       let guidanceLines;
       try {
-        guidanceLines = recommendationGuidanceLines(cells, {
-          sourceCellId: form.source_cell_id,
-          targetCellId,
-          quantity: moveQuantity,
-        });
+        guidanceLines =
+          moveIndex === "all"
+            ? buildRecommendationGuidanceLines(cells, form)
+            : buildRecommendationGuidanceLines(cells, form, { moveIndex });
       } catch (error) {
         sendRedirect(
           response,
           appendFlash(
-            `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}`,
+            recommendationPath,
             error.message,
             "error",
           ),
         );
         return;
       }
+      if (!guidanceLines.length) {
+        sendRedirect(
+          response,
+          appendFlash(
+            recommendationPath,
+            "At least one move is required before sending LEDs.",
+            "error",
+          ),
+        );
+        return;
+      }
+      const activeGuidance = readActiveRecommendationGuidance(
+        db,
+        user.id,
+        form.recommendation_key,
+      );
+      if (activeGuidance?.lines?.length) {
+        hardwareService.clearGuidance(recommendationGuidanceTask(form), activeGuidance.lines, {
+          source: "recommended_action_relight",
+          recommendationKey: form.recommendation_key || "",
+        });
+        deleteActiveRecommendationGuidance(db, user.id, form.recommendation_key);
+      }
       const guidance = hardwareService.activateGuidance(recommendationGuidanceTask(form), guidanceLines, {
         source: "recommended_action_light",
         recommendationKey: form.recommendation_key || "",
       });
-      const sourceCell = guidanceLines[0];
-      const targetCell = guidanceLines[1];
+      if (guidance.ok !== false) {
+        saveActiveRecommendationGuidance(db, user.id, form, guidanceLines);
+      }
+      const pickLines = guidanceLines.filter((line) => line.guidance_color === "green");
+      const putLines = guidanceLines.filter((line) => line.guidance_color === "red");
+      const ledSummary = `GREEN LED pick cells: ${pickLines
+        .map((line) => `${line.logical_code} (${line.planned_quantity})`)
+        .join(", ")}. RED LED put cells: ${putLines
+        .map((line) => `${line.logical_code} (${line.planned_quantity})`)
+        .join(", ")}.`;
       const guidanceMessage = guidance.degraded
-        ? `GREEN LED: pick ${moveQuantity} from cell ${sourceCell.logical_code}. RED LED: put ${moveQuantity} into cell ${targetCell.logical_code}. ${guidance.message || "Some cells need manual guidance."}`
-        : `GREEN LED: pick ${moveQuantity} from cell ${sourceCell.logical_code}. RED LED: put ${moveQuantity} into cell ${targetCell.logical_code}.`;
+        ? `${ledSummary} ${guidance.message || "Some cells need manual guidance."}`
+        : ledSummary;
       sendRedirect(
         response,
         appendFlash(
-          `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}`,
+          activeRecommendationPath,
           guidanceMessage,
           guidance.degraded ? "warning" : "success",
         ),
@@ -811,7 +1450,7 @@ export const requestHandler = async (request, response) => {
 
     const deviceSectionMatch = url.pathname.match(/^\/devices\/sections\/([a-z-]+)$/);
     if (request.method === "GET" && deviceSectionMatch) {
-      if (!ensureAuth(response, user)) {
+      if (!ensureAdmin(response, user)) {
         return;
       }
       const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1]);
@@ -824,7 +1463,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/devices") {
-      if (!ensureAuth(response, user)) {
+      if (!ensureAdmin(response, user)) {
         return;
       }
       sendHtml(response, pages.renderDevices(user, flash));
@@ -874,12 +1513,8 @@ export const requestHandler = async (request, response) => {
       if (!controller) {
         throw new Error("Controller not found.");
       }
-      const result = hardwareService.checkControllerHealth(controller);
-      const healthStatus = result.status || (result.ok && !result.degraded ? "online" : "unknown");
-      locationService.updateControllerHealth({
-        controllerId: controller.id,
-        status: healthStatus,
-      });
+      const result = systemService.refreshControllerHealth(controller);
+      const healthStatus = result.status;
       const returnTo = safeLocalPath(form.return_to, "/devices#controller-health");
       sendRedirect(
         response,
@@ -984,36 +1619,62 @@ export const requestHandler = async (request, response) => {
       if (controllerCells.length) {
         hardwareService.clearAllCellLocates(controllerCells);
       }
+      createRequiredCriticalBackup("pre-controller-delete");
       const deleted = locationService.deleteController({ controllerId: controller.id });
+      const backupResult = createCriticalBackup("controller-deleted");
+      const nextFlash = backupAwareFlash(
+        `${controller.controller_code} was deleted. ${deleted.detachedCellCount} cell(s) remain active for manual pick/put until remapped.`,
+        "success",
+        backupResult,
+      );
       sendRedirect(
         response,
         appendFlash(
           "/devices",
-          `${controller.controller_code} was deleted. ${deleted.detachedCellCount} cell(s) remain active for manual pick/put until remapped.`,
-          "success",
+          nextFlash.message,
+          nextFlash.tone,
         ),
       );
       return;
     }
 
     if (request.method === "POST" && url.pathname === "/devices/cell-test") {
-      if (!ensureAdmin(response, user)) {
+      const wantsJson = requestWantsJson(request);
+      if (wantsJson ? !ensureApiAdmin(response, user) : !ensureAdmin(response, user)) {
         return;
       }
       const form = await parseForm(request);
-      const cell = locationService.listCells().find((entry) => entry.id === Number(form.cell_id));
+      const cell = locationService.listCellCatalog().find((entry) => entry.id === Number(form.cell_id));
       if (!cell) {
+        if (wantsJson) {
+          sendJson(response, { error: "Cell not found." }, 404);
+          return;
+        }
         throw new Error("Cell not found.");
       }
       const result = hardwareService.sendCellTest(cell, form.color || "green");
+      const message = result.degraded
+        ? `Light test skipped for ${cell.logical_code}. Manual mode is active.`
+        : `Light test sent for ${cell.logical_code}.`;
+      if (wantsJson) {
+        sendJson(response, {
+          ok: result.ok,
+          degraded: result.degraded,
+          message,
+          cell: {
+            id: cell.id,
+            logicalCode: cell.logical_code,
+            hardwareChannel: cell.hardware_channel,
+          },
+        });
+        return;
+      }
       const returnTo = safeLocalPath(form.return_to, "/devices#cell-mapping");
       sendRedirect(
         response,
         appendFlash(
           returnTo,
-          result.degraded
-            ? `Light test skipped for ${cell.logical_code}. Manual mode is active.`
-            : `Light test sent for ${cell.logical_code}.`,
+          message,
           result.degraded ? "warning" : "success",
         ),
       );
@@ -1031,9 +1692,9 @@ export const requestHandler = async (request, response) => {
         targetCellId: form.target_cell_id,
         mappedBy: user.id,
       });
-      const backupResult = createAutomaticBackup("cell-mapping-update");
+      const backupResult = createCriticalBackup("cell-mapping-update");
       const nextFlash = backupAwareFlash("Cell mapping updated.", "success", backupResult);
-      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash("/devices#cell-mapping", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -1058,7 +1719,7 @@ export const requestHandler = async (request, response) => {
           mappedBy: user.id,
         });
       }
-      const backupResult = createAutomaticBackup("cell-mapping-bulk-update");
+      const backupResult = createCriticalBackup("cell-mapping-bulk-update");
       const nextFlash = backupAwareFlash(
         `${mappings.length} cell mapping${mappings.length === 1 ? "" : "s"} updated.`,
         "success",
@@ -1075,12 +1736,27 @@ export const requestHandler = async (request, response) => {
       const form = await parseForm(request);
       const cell = locationService.createCell({
         logicalCode: form.logical_code,
-        capacity: form.capacity || 12,
         createdBy: user.id,
       });
-      const backupResult = createAutomaticBackup("cell-created");
+      const backupResult = createCriticalBackup("cell-created");
       const nextFlash = backupAwareFlash(`Cell ${cell.logical_code} added.`, "success", backupResult);
-      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/devices/cells/rename") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const cell = locationService.renameCell({
+        cellId: form.cell_id,
+        logicalCode: form.logical_code,
+        renamedBy: user.id,
+      });
+      const backupResult = createCriticalBackup("cell-renamed");
+      const nextFlash = backupAwareFlash(`Cell renamed to ${cell.logical_code}.`, "success", backupResult);
+      sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -1089,32 +1765,32 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const deleteDataConfirmed = ["1", "true", "yes"].includes(
-        String(form.delete_data_confirmed || "").toLowerCase(),
-      );
       const impact = locationService.getCellDeletionImpact(form.cell_id);
-      if (impact.hasData && !deleteDataConfirmed) {
-        throw new Error("This cell has stock, task history, or hardware events. Confirm deleting associated data first.");
+      if (impact.hasStock) {
+        throw new Error("Move all stock out of this cell before deleting it.");
       }
       if (impact.cell.controller_id && impact.cell.hardware_channel) {
         hardwareService.setCellLocate(impact.cell, false);
       }
-      const backupResult = createAutomaticBackup(
-        impact.hasData ? "cell-delete-with-data-before" : "cell-delete-before",
+      const safetyBackup = createRequiredCriticalBackup(
+        impact.hasData ? "cell-delete-with-history-before" : "cell-delete-before",
       );
       const deleted = locationService.deleteCell({
         cellId: form.cell_id,
-        deleteDataConfirmed,
+        deletedBy: user.id,
       });
-      const dataSummary = deleted.hasData
-        ? ` Deleted ${deleted.balanceRows} balance row(s), ${deleted.taskLines} task line(s), ${deleted.transactions} transaction(s), and ${deleted.deviceEvents} hardware event(s).`
+      const moduleSummary = deleted.modulePlaceholder
+        ? ` LED module ${deleted.modulePlaceholder.hardware_channel} remains available in Cell Mapping.`
+        : "";
+      const dataSummary = deleted.preservedHistory
+        ? " Historical task and hardware records were preserved."
         : "";
       const nextFlash = backupAwareFlash(
-        `Cell ${deleted.cell.logical_code} deleted.${dataSummary}`,
+        `Cell ${deleted.cell.logical_code} deleted.${moduleSummary}${dataSummary} Safety backup: ${safetyBackup.filename}.`,
         "success",
-        backupResult,
+        createCriticalBackup(deleted.hasData ? "cell-delete-with-history" : "cell-delete"),
       );
-      sendRedirect(response, appendFlash("/devices", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -1126,6 +1802,15 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    const adminUserMatch = url.pathname.match(/^\/admin\/users\/(\d+)$/);
+    if (request.method === "GET" && adminUserMatch) {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      sendHtml(response, pages.renderAdminUserProfile(user, flash, Number(adminUserMatch[1])));
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/admin/registration-keys") {
       if (!ensureAdmin(response, user)) {
         return;
@@ -1134,11 +1819,13 @@ export const requestHandler = async (request, response) => {
       const key = adminService.issueRegistrationKey({
         keyValue: form.key_value,
         role: form.role,
+        usagePolicy: form.usage_policy,
         userId: user.id,
       });
       const backupResult = createAutomaticBackup("registration-key-issue");
       const roleLabel = key.role === "admin" ? "Admin" : "Operator";
-      const nextFlash = backupAwareFlash(`${roleLabel} registration key issued.`, "success", backupResult);
+      const keyLabel = key.usage_policy === "global" ? "global registration key" : "registration key";
+      const nextFlash = backupAwareFlash(`${roleLabel} ${keyLabel} issued.`, "success", backupResult);
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
       return;
     }
@@ -1152,7 +1839,7 @@ export const requestHandler = async (request, response) => {
         keyId: form.key_id,
       });
       const backupResult = createAutomaticBackup("registration-key-revoke");
-      const nextFlash = backupAwareFlash("Registration key deleted.", "success", backupResult);
+      const nextFlash = backupAwareFlash("Registration key suspended.", "success", backupResult);
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
       return;
     }
@@ -1175,6 +1862,69 @@ export const requestHandler = async (request, response) => {
         backupResult,
       );
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/task-timeout") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const settings = systemService.updatePendingReviewTimeout({
+        timeoutMinutes: form.timeout_minutes,
+        updatedBy: user.id,
+      });
+      systemService.cancelStalePendingReviewTasks();
+      const backupResult = createAutomaticBackup("task-timeout-update");
+      const nextFlash = backupAwareFlash(
+        `Task completion timeout saved: ${settings.timeoutMinutes} minute(s).`,
+        "success",
+        backupResult,
+      );
+      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/adjustments/cell-products") {
+      if (!ensureApiAdmin(response, user)) {
+        return;
+      }
+
+      const cellId = Number(url.searchParams.get("cell_id"));
+      const cell = getCellDetail(db, cellId);
+      if (!cell) {
+        sendJson(response, { error: "Cell not found." }, 404);
+        return;
+      }
+
+      const products = listProducts(db);
+      const linesHtml = cell.products
+        .map((product, index) =>
+          renderAdjustmentLine(products, index, {
+            productId: product.product_id,
+            absoluteQuantity: product.available_quantity,
+            savedProductId: product.product_id,
+            savedQuantity: product.available_quantity,
+          }),
+        )
+        .join("");
+
+      sendJson(response, {
+        cell: {
+          id: cell.id,
+          logicalCode: cell.logical_code,
+        },
+        products: cell.products.map((product) => ({
+          productId: product.product_id,
+          sku: product.sku,
+          name: product.name,
+          brand: product.brand,
+          unitOfMeasure: product.unit_of_measure,
+          availableQuantity: product.available_quantity,
+        })),
+        linesHtml,
+        nextIndex: cell.products.length,
+      });
       return;
     }
 
@@ -1237,7 +1987,7 @@ export const requestHandler = async (request, response) => {
 
     sendHtml(response, pages.renderNotFound(user), 404);
   } catch (error) {
-    if (url.pathname.startsWith("/api/")) {
+    if (url.pathname.startsWith("/api/") || requestWantsJson(request)) {
       sendJson(response, { error: error.message }, 400);
       return;
     }
@@ -1258,6 +2008,9 @@ export const requestHandler = async (request, response) => {
     }
     if (url.pathname === "/mapping" || url.pathname === "/mapping/bulk") {
       target = "/devices#cell-mapping";
+    }
+    if (url.pathname.startsWith("/devices/cells")) {
+      target = "/devices#cell-management";
     }
     if (url.pathname === "/admin/adjustments") {
       target = "/admin";

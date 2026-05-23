@@ -9,7 +9,6 @@ import {
   normalizeItemsPerCell,
   normalizeNonNegativeQuantity,
   normalizePositiveQuantity,
-  quantitiesMatch,
 } from "../domain/inventory/quantities.js";
 import {
   planPickLines,
@@ -54,6 +53,64 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
     destinations: plan.destinations,
     unresolvedQuantity: plan.unresolvedQuantity,
   };
+}
+
+function getActiveCell(db, cellId, message = "Selected cell is not active.") {
+  const cell = db
+    .prepare("SELECT * FROM cells WHERE id = ? AND active = 1")
+    .get(Number(cellId));
+  if (!cell) {
+    throw new Error(message);
+  }
+  return cell;
+}
+
+function assertPutCellEligible(db, { productId, cellId }) {
+  const cell = getActiveCell(db, cellId, "Selected put cell is not active.");
+  const otherProduct = db
+    .prepare(
+      `
+        SELECT p.sku
+        FROM inventory_balances b
+        JOIN products p ON p.id = b.product_id
+        WHERE b.cell_id = ?
+          AND b.product_id != ?
+          AND b.available_quantity > 0
+        LIMIT 1
+      `,
+    )
+    .get(Number(cellId), Number(productId));
+
+  if (otherProduct) {
+    throw new Error(
+      `Cell ${cell.logical_code} already contains ${otherProduct.sku}. Choose an empty cell or a cell with the same product.`,
+    );
+  }
+
+  return cell;
+}
+
+function getPickCellAvailability(db, { productId, cellId }) {
+  const cell = db
+    .prepare(
+      `
+        SELECT
+          c.*,
+          b.id AS balance_id,
+          COALESCE(b.available_quantity, 0) AS available_quantity
+        FROM cells c
+        LEFT JOIN inventory_balances b
+          ON b.cell_id = c.id AND b.product_id = ?
+        WHERE c.id = ? AND c.active = 1
+      `,
+    )
+    .get(Number(productId), Number(cellId));
+
+  if (!cell) {
+    throw new Error("Selected pick cell is not active.");
+  }
+
+  return cell;
 }
 
 function buildCellAnomalies(db) {
@@ -154,12 +211,238 @@ function buildCellAnomalies(db) {
   return anomalies;
 }
 
+function buildWarehouseOptimizationRecommendations(db) {
+  const rows = db
+    .prepare(
+      `
+        SELECT
+          p.id AS product_id,
+          p.sku,
+          p.name,
+          p.items_per_cell,
+          c.id AS cell_id,
+          c.logical_code,
+          c.row_number,
+          c.column_number,
+          c.controller_id,
+          c.hardware_channel,
+          COALESCE(b.available_quantity, 0) AS available_quantity,
+          COALESCE(b.reserved_quantity, 0) AS reserved_quantity,
+          COALESCE((
+            SELECT SUM(other_balance.available_quantity)
+            FROM inventory_balances other_balance
+            WHERE other_balance.cell_id = c.id
+              AND other_balance.product_id != p.id
+          ), 0) AS other_quantity
+        FROM products p
+        JOIN inventory_balances b ON b.product_id = p.id
+        JOIN cells c ON c.id = b.cell_id
+        WHERE p.active = 1
+          AND c.active = 1
+          AND b.available_quantity > 0
+        ORDER BY p.id, c.row_number, c.column_number, c.logical_code
+      `,
+    )
+    .all();
+
+  const byProduct = new Map();
+  for (const row of rows) {
+    const entry = byProduct.get(Number(row.product_id)) || {
+      productId: Number(row.product_id),
+      productSku: row.sku,
+      productName: row.name,
+      itemsPerCell: Number(row.items_per_cell),
+      cells: [],
+    };
+    entry.cells.push({
+      cellId: Number(row.cell_id),
+      logicalCode: row.logical_code,
+      rowNumber: Number(row.row_number || 0),
+      columnNumber: Number(row.column_number || 0),
+      controllerId: row.controller_id,
+      hardwareChannel: row.hardware_channel,
+      currentQuantity: Number(row.available_quantity || 0),
+      reservedQuantity: Number(row.reserved_quantity || 0),
+      otherQuantity: Number(row.other_quantity || 0),
+    });
+    byProduct.set(entry.productId, entry);
+  }
+
+  const recommendations = [];
+  for (const product of byProduct.values()) {
+    const itemsPerCell = Number(product.itemsPerCell || 0);
+    if (!Number.isFinite(itemsPerCell) || itemsPerCell <= 0) {
+      continue;
+    }
+    if (product.cells.length <= 1) {
+      continue;
+    }
+    if (product.cells.some((cell) => cell.reservedQuantity > 0)) {
+      continue;
+    }
+
+    const totalQuantity = product.cells.reduce(
+      (sum, cell) => sum + cell.currentQuantity,
+      0,
+    );
+    const idealCellCount = Math.ceil(totalQuantity / itemsPerCell);
+    if (idealCellCount <= 0 || idealCellCount >= product.cells.length) {
+      continue;
+    }
+
+    const sortedCells = [...product.cells].sort((left, right) => {
+      if (left.rowNumber !== right.rowNumber) {
+        return left.rowNumber - right.rowNumber;
+      }
+      if (left.columnNumber !== right.columnNumber) {
+        return left.columnNumber - right.columnNumber;
+      }
+      return left.logicalCode.localeCompare(right.logicalCode, undefined, { numeric: true });
+    });
+    const targetCells = sortedCells
+      .filter((cell) => cell.otherQuantity <= 0)
+      .slice(0, idealCellCount);
+    if (targetCells.length < idealCellCount) {
+      continue;
+    }
+
+    const targetIds = new Set(targetCells.map((cell) => cell.cellId));
+    let remainingDesiredQuantity = totalQuantity;
+    const deficits = [];
+    const sources = [];
+    const targetSummaries = [];
+
+    for (const target of targetCells) {
+      const finalQuantity = Math.min(itemsPerCell, remainingDesiredQuantity);
+      remainingDesiredQuantity -= finalQuantity;
+      const delta = finalQuantity - target.currentQuantity;
+      targetSummaries.push({
+        cellId: target.cellId,
+        logicalCode: target.logicalCode,
+        currentQuantity: target.currentQuantity,
+        finalQuantity,
+        putQuantity: Math.max(0, delta),
+      });
+      if (delta > 0) {
+        deficits.push({
+          cellId: target.cellId,
+          logicalCode: target.logicalCode,
+          quantityNeeded: delta,
+        });
+      } else if (delta < 0) {
+        sources.push({
+          cellId: target.cellId,
+          logicalCode: target.logicalCode,
+          pickQuantity: Math.abs(delta),
+        });
+      }
+    }
+
+    for (const source of sortedCells) {
+      if (!targetIds.has(source.cellId)) {
+        sources.push({
+          cellId: source.cellId,
+          logicalCode: source.logicalCode,
+          pickQuantity: source.currentQuantity,
+        });
+      }
+    }
+
+    const moves = [];
+    const sourceQueue = sources
+      .filter((source) => source.pickQuantity > 0)
+      .map((source) => ({ ...source }));
+    for (const target of deficits) {
+      let remainingTargetNeed = target.quantityNeeded;
+      while (remainingTargetNeed > 0 && sourceQueue.length > 0) {
+        const source = sourceQueue[0];
+        const moveQuantity = Math.min(source.pickQuantity, remainingTargetNeed);
+        if (moveQuantity > 0 && source.cellId !== target.cellId) {
+          moves.push({
+            sourceCellId: source.cellId,
+            sourceLogicalCode: source.logicalCode,
+            targetCellId: target.cellId,
+            targetLogicalCode: target.logicalCode,
+            quantity: moveQuantity,
+          });
+        }
+        source.pickQuantity -= moveQuantity;
+        remainingTargetNeed -= moveQuantity;
+        if (source.pickQuantity <= 0) {
+          sourceQueue.shift();
+        }
+      }
+    }
+
+    if (!moves.length) {
+      continue;
+    }
+
+    const sourceTotals = new Map();
+    const targetTotals = new Map();
+    for (const move of moves) {
+      const source = sourceTotals.get(move.sourceCellId) || {
+        cellId: move.sourceCellId,
+        logicalCode: move.sourceLogicalCode,
+        pickQuantity: 0,
+      };
+      source.pickQuantity += move.quantity;
+      sourceTotals.set(move.sourceCellId, source);
+
+      const target = targetTotals.get(move.targetCellId) || {
+        cellId: move.targetCellId,
+        logicalCode: move.targetLogicalCode,
+        putQuantity: 0,
+      };
+      target.putQuantity += move.quantity;
+      targetTotals.set(move.targetCellId, target);
+    }
+
+    recommendations.push({
+      key: `optimize-${product.productId}`,
+      type: "warehouse_optimization",
+      severity: "info",
+      cellId: moves[0].sourceCellId,
+      logicalCode: `${product.cells.length} cells`,
+      title: `Optimize ${product.productSku} storage`,
+      description: `Stored ${displayQuantity(totalQuantity)} across ${product.cells.length} cells; ideal ${displayQuantity(itemsPerCell)} per cell.`,
+      actionSummary: `Move ${displayQuantity(
+        moves.reduce((sum, move) => sum + Number(move.quantity || 0), 0),
+      )} ${product.productSku} item(s) into ${targetCells.map((cell) => cell.logicalCode).join(", ")}.`,
+      productId: product.productId,
+      productSku: product.productSku,
+      productName: product.productName,
+      quantityToMove: moves.reduce((sum, move) => sum + Number(move.quantity || 0), 0),
+      recommendedMoves: moves,
+      unresolvedQuantity: 0,
+      optimizationPlan: {
+        totalQuantity,
+        itemsPerCell,
+        currentCellCount: product.cells.length,
+        idealCellCount,
+        targets: targetSummaries.map((target) => ({
+          ...target,
+          putQuantity: targetTotals.get(target.cellId)?.putQuantity || 0,
+        })),
+        sources: Array.from(sourceTotals.values()),
+        moves,
+      },
+    });
+  }
+
+  return recommendations;
+}
+
 export function listProducts(db, search = "") {
   return createProductRepository(db).list(search);
 }
 
 export function getProductDetail(db, productId) {
   return createProductRepository(db).getDetail(productId);
+}
+
+export function getProductMovementStockSummary(db, productId, options = {}) {
+  return createProductRepository(db).getMovementStockSummary(productId, options);
 }
 
 export function createProduct(db, input) {
@@ -177,15 +460,8 @@ export function createProduct(db, input) {
   }
 
   const itemsPerCell = normalizeItemsPerCell(input.items_per_cell || 12);
-
-  const products = createProductRepository(db);
-  const existing = products.findBySku(input.sku);
-  if (existing) {
-    throw new Error("A product with that SKU already exists.");
-  }
-
-  return products.create({
-    sku: input.sku.trim(),
+  const normalizedProduct = {
+    sku: input.sku.trim().toUpperCase(),
     name: input.name.trim(),
     brand: input.brand.trim(),
     category: input.category?.trim() || null,
@@ -195,6 +471,78 @@ export function createProduct(db, input) {
     preferred_storage_strategy: input.preferred_storage_strategy?.trim() || "closest-cell-first",
     items_per_cell: itemsPerCell,
     active: input.active === "0" ? 0 : 1,
+  };
+
+  const products = createProductRepository(db);
+  const existing = products.findAnyBySku(normalizedProduct.sku);
+  if (existing && Number(existing.active) === 1) {
+    throw new Error("A product with that SKU already exists.");
+  }
+
+  if (existing) {
+    return products.restore(existing.id, normalizedProduct);
+  }
+
+  return products.create(normalizedProduct);
+}
+
+export function removeProduct(db, productId) {
+  return withTransaction(db, () => {
+    const products = createProductRepository(db);
+    const product = products.findById(productId);
+    if (!product) {
+      throw new Error("Product not found.");
+    }
+
+    const totals = products.stockTotals(product.id);
+    const remainingStock =
+      Number(totals?.total_available || 0) + Number(totals?.total_reserved || 0);
+    if (remainingStock > 0) {
+      throw new Error(
+        "Product stock must be 0 before it can be removed. Create a Pick task to remove stock first.",
+      );
+    }
+
+    const result = products.deactivate(product.id);
+    if (result.changes === 0) {
+      throw new Error("Product not found.");
+    }
+
+    return {
+      ...product,
+      active: 0,
+    };
+  });
+}
+
+export function updateProductDetails(db, input) {
+  const productId = Number(input.productId);
+  const required = [
+    ["name", "Product name is required."],
+    ["brand", "Brand is required."],
+    ["unit_of_measure", "Unit of measure is required."],
+  ];
+
+  for (const [field, message] of required) {
+    if (!String(input[field] || "").trim()) {
+      throw new Error(message);
+    }
+  }
+
+  const products = createProductRepository(db);
+  const product = products.findById(productId);
+  if (!product) {
+    throw new Error("Product not found.");
+  }
+
+  return products.updateDetails(product.id, {
+    name: input.name.trim(),
+    brand: input.brand.trim(),
+    category: input.category?.trim() || null,
+    variant: input.variant?.trim() || null,
+    unit_of_measure: input.unit_of_measure.trim(),
+    description: input.description?.trim() || null,
+    preferred_storage_strategy: input.preferred_storage_strategy?.trim() || product.preferred_storage_strategy || "closest-cell-first",
   });
 }
 
@@ -218,14 +566,51 @@ export function listRecentTasksForUser(db, user, limit = 10) {
   return createTaskRepository(db).listRecentForUser(user, limit);
 }
 
-export function allocatePick(db, { userId, productId, quantity, preferredCellId = null }) {
+export function listRecentTasksForProfileUser(db, userId, limit = 10) {
+  return createTaskRepository(db).listRecentForProfileUser(userId, limit);
+}
+
+function normalizePreferredCellIds({ preferredCellId = null, preferredCellIds = [] } = {}) {
+  const values = [
+    ...(Array.isArray(preferredCellIds) ? preferredCellIds : [preferredCellIds]),
+    preferredCellId,
+  ];
+  const seen = new Set();
+  return values
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0)
+    .filter((value) => {
+      if (seen.has(value)) {
+        return false;
+      }
+      seen.add(value);
+      return true;
+    });
+}
+
+function compareCellsByActivity(left, right) {
+  const leftTime = Date.parse(left?.last_activity_at || "");
+  const rightTime = Date.parse(right?.last_activity_at || "");
+  const normalizedLeft = Number.isFinite(leftTime) ? leftTime : Number.POSITIVE_INFINITY;
+  const normalizedRight = Number.isFinite(rightTime) ? rightTime : Number.POSITIVE_INFINITY;
+  if (normalizedLeft !== normalizedRight) {
+    return normalizedLeft - normalizedRight;
+  }
+  return String(left?.logical_code || "").localeCompare(String(right?.logical_code || ""), "en", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+export function allocatePick(db, { userId, productId, quantity, preferredCellId = null, preferredCellIds = [] }) {
   const requestedQuantity = normalizePositiveQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
   const balances = createInventoryBalanceRepository(db);
+  const preferredIds = normalizePreferredCellIds({ preferredCellId, preferredCellIds });
   const lines = planPickLines({
     product,
     requestedQuantity,
-    balances: balances.listPickCandidates(product.id, preferredCellId),
+    balances: balances.listPickCandidates(product.id, preferredIds),
   });
 
   return withTransaction(db, () => {
@@ -244,18 +629,26 @@ export function allocatePick(db, { userId, productId, quantity, preferredCellId 
   });
 }
 
-export function planPut(db, { userId, productId, quantity, preferredCellId = null }) {
+export function planPut(db, { userId, productId, quantity, preferredCellId = null, preferredCellIds = [] }) {
   const requestedQuantity = normalizePositiveQuantity(quantity);
   const product = findProductOrThrow(db, Number(productId));
   const balances = createInventoryBalanceRepository(db);
   const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
+  const preferredIds = normalizePreferredCellIds({ preferredCellId, preferredCellIds });
+  for (const cellId of preferredIds) {
+    assertPutCellEligible(db, { productId: product.id, cellId });
+  }
+  const preferredCells = preferredIds
+    .map((cellId) => balances.getPreferredPutCell(cellId, product.id))
+    .filter(Boolean)
+    .sort(compareCellsByActivity);
   const lines = planPutLines({
     product,
     requestedQuantity,
     itemsPerCell,
-    preferredCell: balances.getPreferredPutCell(preferredCellId, product.id),
-    sameProductCells: balances.listSameProductPutCells(product.id, preferredCellId),
-    emptyCells: balances.listEmptyPutCells(product.id, preferredCellId),
+    preferredCells,
+    sameProductCells: balances.listSameProductPutCells(product.id, preferredIds),
+    emptyCells: balances.listEmptyPutCells(product.id, preferredIds),
   });
 
   return withTransaction(db, () => {
@@ -313,58 +706,37 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
     const balances = createInventoryBalanceRepository(db);
     const tasks = createTaskRepository(db);
     const touchedCellIds = new Set();
-    const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
-
-    if (task.type === "put") {
-      const actualTotal = task.lines.reduce((sum, line) => {
-        const actualValue = actualQuantities[line.id] ?? line.planned_quantity;
-        return sum + normalizeNonNegativeQuantity(actualValue, "Put quantities must be zero or greater.");
-      }, 0);
-      if (!quantitiesMatch(actualTotal, plannedTotal)) {
-        throw new Error(
-          `Put quantities must total ${plannedTotal}. Current total is ${actualTotal}. Adjust the cells or cancel the task.`,
-        );
-      }
-    }
 
     for (const line of task.lines) {
       const actualValue = actualQuantities[line.id] ?? line.planned_quantity;
       const actualQuantity = normalizeNonNegativeQuantity(actualValue, "Actual quantity values must be zero or greater.");
-
-      if (task.type === "pick" && actualQuantity > Number(line.planned_quantity)) {
-        throw new Error("Actual quantities cannot exceed planned quantities in this MVP.");
-      }
-
       const exceptionQuantity = Math.max(0, Number(line.planned_quantity) - actualQuantity);
-      const targetCellId =
-        task.type === "put"
-          ? Number(actualCellIds?.[line.id] || line.cell_id)
-          : Number(line.cell_id);
-
-      const targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(targetCellId);
-      if (!targetCell) {
-        throw new Error("Selected cell not found.");
-      }
-
-      tasks.updateLineActual({
-        lineId: line.id,
-        actualQuantity,
-        exceptionQuantity,
-        note: note || null,
-        cellId: targetCellId,
-      });
-
-      const plannedBalance = balances.getOrCreate(line.product_id, line.cell_id);
+      const targetCellId = Number(actualCellIds?.[line.id] || line.cell_id);
 
       if (task.type === "pick") {
-        if (actualQuantity > Number(plannedBalance.available_quantity)) {
+        const pickCell = getPickCellAvailability(db, {
+          productId: line.product_id,
+          cellId: targetCellId,
+        });
+
+        if (actualQuantity > Number(pickCell.available_quantity)) {
           throw new Error(
-            `Cell ${line.logical_code} only has ${Number(plannedBalance.available_quantity)} item(s) left for ${line.sku}. Start a new pick task with the current stock.`,
+            `Cell ${pickCell.logical_code} only has ${Number(pickCell.available_quantity)} item(s) left for ${line.sku}. Choose another eligible cell or reduce the quantity.`,
           );
         }
 
-        balances.decrease(plannedBalance.id, actualQuantity);
-        touchedCellIds.add(Number(line.cell_id));
+        tasks.updateLineActual({
+          lineId: line.id,
+          actualQuantity,
+          exceptionQuantity,
+          note: note || null,
+          cellId: targetCellId,
+        });
+
+        if (actualQuantity > 0) {
+          balances.decrease(pickCell.balance_id, actualQuantity);
+        }
+        touchedCellIds.add(targetCellId);
 
         if (actualQuantity > 0) {
           db.prepare(
@@ -376,7 +748,7 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
             `,
           ).run(
             line.product_id,
-            line.cell_id,
+            targetCellId,
             -actualQuantity,
             userId,
             task.id,
@@ -385,6 +757,19 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
           );
         }
       } else if (task.type === "put") {
+        assertPutCellEligible(db, {
+          productId: line.product_id,
+          cellId: targetCellId,
+        });
+
+        tasks.updateLineActual({
+          lineId: line.id,
+          actualQuantity,
+          exceptionQuantity,
+          note: note || null,
+          cellId: targetCellId,
+        });
+
         const targetBalance = balances.getOrCreate(line.product_id, targetCellId);
         balances.increase(targetBalance.id, actualQuantity);
         touchedCellIds.add(targetCellId);
@@ -442,7 +827,6 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
     throw new Error("Task has no product lines to adjust.");
   }
 
-  const expectedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
   const nextAllocations = [];
   const seenCells = new Set();
 
@@ -461,23 +845,13 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
     if (seenCells.has(cellId)) {
       throw new Error("Each adjusted put cell can appear only once.");
     }
-    const cell = db.prepare("SELECT id FROM cells WHERE id = ? AND active = 1").get(cellId);
-    if (!cell) {
-      throw new Error("Selected put cell is not active.");
-    }
+    assertPutCellEligible(db, { productId, cellId });
     seenCells.add(cellId);
     nextAllocations.push({ cellId, quantity });
   }
 
   if (!nextAllocations.length) {
     throw new Error("Add at least one cell with a quantity greater than zero.");
-  }
-
-  const nextTotal = nextAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0);
-  if (!quantitiesMatch(nextTotal, expectedTotal)) {
-    throw new Error(
-      `Adjusted put quantities must total ${expectedTotal}. Current total is ${nextTotal}.`,
-    );
   }
 
   return withTransaction(db, () => {
@@ -491,6 +865,7 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
         note: note || null,
       });
     }
+    tasks.touchTask(task.id);
     return tasks.get(task.id);
   });
 }
@@ -516,32 +891,26 @@ export function correctCompletedTask(
     for (const line of task.lines) {
       const previousQuantity = Number(line.actual_quantity);
       const nextQuantity = Number(actualQuantities[line.id] ?? previousQuantity);
-      const nextCellId =
-        task.type === "put"
-          ? Number(actualCellIds?.[line.id] || line.cell_id)
-          : Number(line.cell_id);
+      const nextCellId = Number(actualCellIds?.[line.id] || line.cell_id);
 
       if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
         throw new Error("Corrected quantities must be zero or greater.");
       }
 
-      if (task.type === "pick" && nextQuantity > Number(line.planned_quantity)) {
-        throw new Error("Corrected pick quantity cannot exceed planned quantity.");
-      }
-
-      const nextCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(nextCellId);
-      if (!nextCell) {
-        throw new Error("Selected correction cell not found.");
-      }
-
       const oldBalance = balances.getOrCreate(line.product_id, line.cell_id);
-      const newBalance = balances.getOrCreate(line.product_id, nextCellId);
 
       if (task.type === "pick") {
-        const reversibleAvailable = Number(oldBalance.available_quantity) + previousQuantity;
-        if (reversibleAvailable < nextQuantity) {
+        const nextPickCell = getPickCellAvailability(db, {
+          productId: line.product_id,
+          cellId: nextCellId,
+        });
+        const nextAvailable =
+          Number(nextPickCell.available_quantity) +
+          (Number(nextCellId) === Number(line.cell_id) ? previousQuantity : 0);
+
+        if (nextAvailable < nextQuantity) {
           throw new Error(
-            `Cell ${line.logical_code} no longer has enough stock to apply this correction safely.`,
+            `Cell ${nextPickCell.logical_code} no longer has enough stock to apply this correction safely.`,
           );
         }
 
@@ -564,7 +933,8 @@ export function correctCompletedTask(
           nowIso(),
         );
 
-        balances.decrease(oldBalance.id, nextQuantity);
+        const nextBalance = balances.getOrCreate(line.product_id, nextCellId);
+        balances.decrease(nextBalance.id, nextQuantity);
 
         db.prepare(
           `
@@ -575,7 +945,7 @@ export function correctCompletedTask(
           `,
         ).run(
           line.product_id,
-          line.cell_id,
+          nextCellId,
           -nextQuantity,
           userId,
           task.id,
@@ -584,7 +954,13 @@ export function correctCompletedTask(
         );
 
         touchedCellIds.add(Number(line.cell_id));
+        touchedCellIds.add(nextCellId);
       } else if (task.type === "put") {
+        assertPutCellEligible(db, {
+          productId: line.product_id,
+          cellId: nextCellId,
+        });
+
         assertSufficientBalance(
           oldBalance,
           previousQuantity,
@@ -610,6 +986,7 @@ export function correctCompletedTask(
           nowIso(),
         );
 
+        const newBalance = balances.getOrCreate(line.product_id, nextCellId);
         balances.increase(newBalance.id, nextQuantity);
 
         db.prepare(
@@ -775,25 +1152,91 @@ export function detectAnomalies(db) {
 }
 
 export function getRecommendedActions(db) {
-  return detectAnomalies(db).map((anomaly) => {
+  const anomalyActions = detectAnomalies(db).map((anomaly) => {
     const cell = db.prepare("SELECT id, logical_code FROM cells WHERE id = ?").get(anomaly.cellId);
     return {
       ...anomaly,
       sourceCell: cell,
     };
   });
+  return [
+    ...anomalyActions,
+    ...buildWarehouseOptimizationRecommendations(db),
+  ];
 }
 
 export function listUsers(db) {
   return db
     .prepare(
       `
-        SELECT id, name, username, role, status, created_at
+        SELECT id, name, username, role, status, created_at, last_active_at
         FROM users
         ORDER BY role DESC, username
       `,
     )
     .all();
+}
+
+export function updateUserLastActive(db, userId, activeAt = nowIso()) {
+  const cutoff = new Date(new Date(activeAt).getTime() - 60 * 1000).toISOString();
+  db.prepare(
+    `
+      UPDATE users
+      SET last_active_at = ?
+      WHERE id = ?
+        AND (
+          last_active_at IS NULL
+          OR last_active_at < ?
+        )
+    `,
+  ).run(activeAt, Number(userId), cutoff);
+}
+
+export function getUserProfile(db, userId) {
+  const profile = db
+    .prepare(
+      `
+        SELECT id, name, username, role, status, created_at, last_active_at
+        FROM users
+        WHERE id = ?
+      `,
+    )
+    .get(Number(userId));
+  if (!profile) {
+    return null;
+  }
+
+  const activity = db
+    .prepare(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM tasks WHERE created_by = ?) AS tasks_created,
+          (SELECT COUNT(*) FROM tasks WHERE created_by = ? AND status = 'completed') AS tasks_completed,
+          (SELECT COUNT(*) FROM transactions WHERE user_id = ?) AS transactions_recorded,
+          (
+            SELECT MAX(COALESCE(completed_at, started_at))
+            FROM tasks
+            WHERE created_by = ?
+          ) AS last_task_at,
+          (
+            SELECT MAX(created_at)
+            FROM transactions
+            WHERE user_id = ?
+          ) AS last_transaction_at
+      `,
+    )
+    .get(profile.id, profile.id, profile.id, profile.id, profile.id);
+
+  return {
+    ...profile,
+    activity: {
+      tasksCreated: Number(activity.tasks_created || 0),
+      tasksCompleted: Number(activity.tasks_completed || 0),
+      transactionsRecorded: Number(activity.transactions_recorded || 0),
+      lastTaskAt: activity.last_task_at || null,
+      lastTransactionAt: activity.last_transaction_at || null,
+    },
+  };
 }
 
 export function listRegistrationKeys(db) {
@@ -809,19 +1252,26 @@ export function listRegistrationKeys(db) {
     .all();
 }
 
-export function issueRegistrationKey(db, { keyValue, role, userId }) {
+export function issueRegistrationKey(db, { keyValue, role, userId, usagePolicy = "single_use" }) {
   const normalizedRole = role === "admin" ? "admin" : "operator";
   const normalized = String(keyValue || "").trim() || generateRegistrationKeyValue(normalizedRole);
+  const normalizedUsagePolicy =
+    normalizedRole === "operator" && usagePolicy === "global" ? "global" : "single_use";
+  const expiresAt =
+    normalizedUsagePolicy === "global"
+      ? null
+      : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
   const result = db.prepare(
     `
-      INSERT INTO registration_keys (key_value, role, status, expires_at, created_by, created_at)
-      VALUES (?, ?, 'active', ?, ?, ?)
+      INSERT INTO registration_keys (key_value, role, status, usage_policy, usage_count, expires_at, created_by, created_at)
+      VALUES (?, ?, 'active', ?, 0, ?, ?, ?)
     `,
   ).run(
     normalized,
     normalizedRole,
-    new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+    normalizedUsagePolicy,
+    expiresAt,
     userId,
     nowIso(),
   );
@@ -900,13 +1350,23 @@ export function registerUser(db, { registrationKey, name, username, password, ha
         nowIso(),
       );
 
-    db.prepare(
-      `
-        UPDATE registration_keys
-        SET status = 'used', used_by = ?, used_at = ?
-        WHERE id = ?
-      `,
-    ).run(Number(result.lastInsertRowid), nowIso(), key.id);
+    if (key.usage_policy === "global") {
+      db.prepare(
+        `
+          UPDATE registration_keys
+          SET usage_count = usage_count + 1, used_by = ?, used_at = ?
+          WHERE id = ?
+        `,
+      ).run(Number(result.lastInsertRowid), nowIso(), key.id);
+    } else {
+      db.prepare(
+        `
+          UPDATE registration_keys
+          SET status = 'used', usage_count = 1, used_by = ?, used_at = ?
+          WHERE id = ?
+        `,
+      ).run(Number(result.lastInsertRowid), nowIso(), key.id);
+    }
 
     return db
       .prepare(
@@ -986,6 +1446,9 @@ export function listCells(db) {
           z.code AS zone_code,
           ctrl.controller_code,
           ctrl.address AS controller_address,
+          ctrl.active AS controller_active,
+          ctrl.heartbeat_status AS controller_health,
+          ctrl.module_count AS controller_module_count,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
           COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
           (
@@ -1020,7 +1483,50 @@ export function listCells(db) {
     .all();
 }
 
+function ensureOnlineControllerModuleRows(db) {
+  const controllers = db
+    .prepare(
+      `
+        SELECT *
+        FROM controllers
+        WHERE active = 1
+          AND heartbeat_status = 'online'
+          AND COALESCE(module_count, 0) > 0
+        ORDER BY id
+      `,
+    )
+    .all();
+
+  for (const controller of controllers) {
+    const moduleCount = Number(controller.module_count || 0);
+    for (let channel = 1; channel <= moduleCount; channel += 1) {
+      const existing = db
+        .prepare("SELECT id FROM cells WHERE controller_id = ? AND hardware_channel = ?")
+        .get(controller.id, channel);
+      if (existing) {
+        continue;
+      }
+
+      createModulePlaceholder(
+        db,
+        {
+          controller_id: controller.id,
+          controller_code: controller.controller_code,
+          hardware_channel: channel,
+          zone_id: controller.zone_id,
+          row_number: 1,
+          column_number: channel,
+          capacity: 12,
+        },
+        controller.configured_by || null,
+      );
+    }
+  }
+}
+
 export function listCellCatalog(db) {
+  ensureOnlineControllerModuleRows(db);
+
   return db
     .prepare(
       `
@@ -1029,6 +1535,9 @@ export function listCellCatalog(db) {
           z.code AS zone_code,
           ctrl.controller_code,
           ctrl.address AS controller_address,
+          ctrl.active AS controller_active,
+          ctrl.heartbeat_status AS controller_health,
+          ctrl.module_count AS controller_module_count,
           COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
           COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
           (
@@ -1134,7 +1643,14 @@ export function listControllers(db) {
         SELECT
           ctrl.*,
           z.code AS zone_code,
-          COUNT(CASE WHEN c.active = 1 THEN c.id END) AS mapped_cells
+          COUNT(
+            CASE
+              WHEN c.active = 1
+                AND c.mapping_status = 'mapped'
+                AND c.hardware_channel IS NOT NULL
+              THEN c.id
+            END
+          ) AS mapped_cells
         FROM controllers ctrl
         JOIN zones z ON z.id = ctrl.zone_id
         LEFT JOIN cells c ON c.controller_id = ctrl.id
@@ -1188,20 +1704,10 @@ export function deleteController(db, { controllerId }) {
     const cells = db.prepare("SELECT * FROM cells WHERE controller_id = ?").all(controller.id);
     db.prepare("UPDATE device_events SET controller_id = NULL WHERE controller_id = ?").run(controller.id);
 
-    if (cells.length > 0) {
-      const placeholders = cells.map(() => "?").join(", ");
-      db.prepare(
-        `
-          UPDATE cells
-          SET
-            controller_id = NULL,
-            hardware_channel = NULL,
-            mapping_status = 'unmapped',
-            active = 1
-          WHERE id IN (${placeholders})
-        `,
-      ).run(...cells.map((cell) => Number(cell.id)));
-    }
+    const detachedModules = detachCellsForManualOperation(
+      db,
+      cells.map((cell) => Number(cell.id)),
+    );
 
     db.prepare(
       `
@@ -1213,7 +1719,8 @@ export function deleteController(db, { controllerId }) {
     return {
       ...controller,
       deleted: true,
-      detachedCellCount: cells.length,
+      detachedCellCount: detachedModules.detached,
+      removedModuleCount: detachedModules.removed,
     };
   });
 }
@@ -1254,6 +1761,67 @@ function cellHasHistory(db, cellId) {
     )
     .get(Number(cellId), Number(cellId));
   return Number(row?.task_lines || 0) > 0 || Number(row?.transactions || 0) > 0;
+}
+
+function cellHasOperationalHistory(db, cellId) {
+  const row = db
+    .prepare(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM task_lines WHERE cell_id = ?) AS taskLines,
+          (SELECT COUNT(*) FROM transactions WHERE cell_id = ?) AS transactions,
+          (SELECT COUNT(*) FROM device_events WHERE cell_id = ?) AS deviceEvents
+      `,
+    )
+    .get(Number(cellId), Number(cellId), Number(cellId));
+  return (
+    Number(row?.taskLines || 0) > 0 ||
+    Number(row?.transactions || 0) > 0 ||
+    Number(row?.deviceEvents || 0) > 0
+  );
+}
+
+function availableModulePlaceholderCode(db, controllerCode, hardwareChannel) {
+  const normalizedControllerCode = String(controllerCode || "CONTROLLER")
+    .toUpperCase()
+    .replace(/[^A-Z0-9._:-]+/g, "-");
+  const base = `UNASSIGNED-${normalizedControllerCode}-M${String(hardwareChannel).padStart(2, "0")}`;
+  let candidate = base;
+  let suffix = 2;
+  while (db.prepare("SELECT id FROM cells WHERE logical_code = ?").get(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function createModulePlaceholder(db, cell, deletedBy = null) {
+  if (!cell.controller_id || !cell.hardware_channel) {
+    return null;
+  }
+
+  const result = db
+    .prepare(
+      `
+        INSERT INTO cells (
+          logical_code, zone_id, row_number, column_number, controller_id,
+          hardware_channel, mapping_status, active, capacity, last_mapped_at, mapped_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'unmapped', 0, ?, NULL, ?)
+      `,
+    )
+    .run(
+      availableModulePlaceholderCode(db, cell.controller_code, cell.hardware_channel),
+      cell.zone_id,
+      cell.row_number,
+      cell.column_number,
+      cell.controller_id,
+      cell.hardware_channel,
+      cell.capacity || 12,
+      deletedBy,
+    );
+
+  return db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(result.lastInsertRowid));
 }
 
 export function getCellDeletionImpact(db, cellId) {
@@ -1302,6 +1870,8 @@ export function getCellDeletionImpact(db, cellId) {
   return {
     cell,
     hasData,
+    hasStock:
+      Number(cell.occupied_quantity || 0) !== 0 || Number(cell.reserved_quantity || 0) !== 0,
     occupiedQuantity: Number(cell.occupied_quantity || 0),
     reservedQuantity: Number(cell.reserved_quantity || 0),
     balanceRows: Number(counts.balanceRows || 0),
@@ -1311,44 +1881,61 @@ export function getCellDeletionImpact(db, cellId) {
   };
 }
 
-export function deleteCell(db, { cellId, deleteDataConfirmed = false } = {}) {
+export function deleteCell(db, { cellId, deletedBy = null } = {}) {
   return withTransaction(db, () => {
     const impact = getCellDeletionImpact(db, cellId);
-    if (impact.hasData && !deleteDataConfirmed) {
-      throw new Error("This cell has stock, task history, or hardware events. Confirm deleting associated data first.");
+    if (impact.hasStock) {
+      throw new Error("Move all stock out of this cell before deleting it.");
     }
 
     const id = Number(cellId);
-    db.prepare("DELETE FROM device_events WHERE cell_id = ?").run(id);
-    db.prepare("DELETE FROM transactions WHERE cell_id = ?").run(id);
-    db.prepare("DELETE FROM task_lines WHERE cell_id = ?").run(id);
     db.prepare("DELETE FROM inventory_balances WHERE cell_id = ?").run(id);
-    db.prepare("DELETE FROM cells WHERE id = ?").run(id);
+    const placeholder = createModulePlaceholder(db, impact.cell, deletedBy);
+    const hasHistory = cellHasOperationalHistory(db, id);
+
+    if (hasHistory) {
+      db.prepare(
+        `
+          UPDATE cells
+          SET
+            active = 0,
+            controller_id = NULL,
+            hardware_channel = NULL,
+            mapping_status = 'unmapped'
+          WHERE id = ?
+        `,
+      ).run(id);
+    } else {
+      db.prepare("DELETE FROM cells WHERE id = ?").run(id);
+    }
 
     return {
       ...impact,
       deleted: true,
+      preservedHistory: hasHistory,
+      modulePlaceholder: placeholder,
     };
   });
 }
 
 function retireEmptyMappingCell(db, cellId) {
-  if (cellHasStock(db, cellId)) {
-    throw new Error("Move stock out of the current mapped cell before replacing it.");
+  const cell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
+  if (!cell) {
+    return "missing";
   }
 
-  if (cellHasHistory(db, cellId)) {
+  if (Number(cell.active) === 1 || cellHasHistory(db, cellId)) {
     db.prepare(
       `
         UPDATE cells
         SET
-          controller_id = NULL,
-          hardware_channel = NULL,
-          mapping_status = 'unmapped',
-          active = 1
-        WHERE id = ?
-      `,
-    ).run(Number(cellId));
+            controller_id = NULL,
+            hardware_channel = NULL,
+            mapping_status = 'unmapped',
+            active = ?
+          WHERE id = ?
+        `,
+    ).run(Number(cell.active) === 0 ? 0 : 1, Number(cellId));
     return "detached";
   }
 
@@ -1361,22 +1948,38 @@ function retireEmptyMappingCell(db, cellId) {
 function detachCellsForManualOperation(db, cellIds) {
   const ids = cellIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0);
   if (!ids.length) {
-    return 0;
+    return { detached: 0, removed: 0 };
   }
 
   const placeholders = ids.map(() => "?").join(", ");
-  db.prepare(
-    `
-      UPDATE cells
-      SET
-        controller_id = NULL,
-        hardware_channel = NULL,
-        mapping_status = 'unmapped',
-        active = 1
-      WHERE id IN (${placeholders})
-    `,
-  ).run(...ids);
-  return ids.length;
+  const cells = db.prepare(`SELECT * FROM cells WHERE id IN (${placeholders})`).all(...ids);
+  let detached = 0;
+  let removed = 0;
+
+  for (const cell of cells) {
+    if (Number(cell.active) === 1) {
+      db.prepare(
+        `
+          UPDATE cells
+          SET
+            controller_id = NULL,
+            hardware_channel = NULL,
+            mapping_status = 'unmapped',
+            active = 1
+          WHERE id = ?
+        `,
+      ).run(Number(cell.id));
+      detached += 1;
+      continue;
+    }
+
+    db.prepare("UPDATE device_events SET cell_id = NULL WHERE cell_id = ?").run(Number(cell.id));
+    db.prepare("DELETE FROM inventory_balances WHERE cell_id = ?").run(Number(cell.id));
+    db.prepare("DELETE FROM cells WHERE id = ?").run(Number(cell.id));
+    removed += 1;
+  }
+
+  return { detached, removed };
 }
 
 export function createCell(db, { logicalCode, capacity = 12, createdBy = null } = {}) {
@@ -1421,6 +2024,39 @@ export function createCell(db, { logicalCode, capacity = 12, createdBy = null } 
   return db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(result.lastInsertRowid));
 }
 
+export function renameCell(db, { cellId, logicalCode, renamedBy = null } = {}) {
+  const id = Number(cellId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("Choose a location to rename.");
+  }
+  const code = normalizeLogicalCode(logicalCode);
+
+  return withTransaction(db, () => {
+    const cell = db.prepare("SELECT * FROM cells WHERE id = ? AND active = 1").get(id);
+    if (!cell) {
+      throw new Error("Location not found.");
+    }
+    if (cell.logical_code === code) {
+      return cell;
+    }
+
+    const existing = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(code);
+    if (existing && Number(existing.id) !== id) {
+      throw new Error("A cell with this name already exists.");
+    }
+
+    db.prepare(
+      `
+        UPDATE cells
+        SET logical_code = ?, mapped_by = COALESCE(mapped_by, ?)
+        WHERE id = ?
+      `,
+    ).run(code, renamedBy, id);
+
+    return db.prepare("SELECT * FROM cells WHERE id = ?").get(id);
+  });
+}
+
 export function updateCellMapping(
   db,
   { cellId, hardwareChannel, logicalCode = null, targetCellId = null, mappedBy },
@@ -1446,27 +2082,20 @@ export function updateCellMapping(
       if (!targetCell) {
         throw new Error("Selected cell was not found.");
       }
+      if (Number(targetCell.active) !== 1) {
+        throw new Error("Selected cell is not active. Choose an active cell from the list.");
+      }
     } else if (logicalCode != null) {
       const nextLogicalCode = normalizeLogicalCode(logicalCode);
       targetCell = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(nextLogicalCode) || null;
       if (!targetCell) {
-        db.prepare(
-          `
-            UPDATE cells
-            SET
-              logical_code = ?,
-              hardware_channel = ?,
-              mapping_status = 'mapped',
-              active = 1,
-              last_mapped_at = ?,
-              mapped_by = ?
-            WHERE id = ?
-          `,
-        ).run(nextLogicalCode, channel, nowIso(), mappedBy, sourceCell.id);
-        return db.prepare("SELECT * FROM cells WHERE id = ?").get(sourceCell.id);
+        throw new Error("Add this location before assigning it to an LED module.");
+      }
+      if (Number(targetCell.active) !== 1) {
+        throw new Error("Selected cell is not active. Add this location before assigning it to an LED module.");
       }
     } else {
-      targetCell = sourceCell;
+      throw new Error("Choose a location to assign this LED module.");
     }
 
     const now = nowIso();
@@ -1484,6 +2113,25 @@ export function updateCellMapping(
         `,
       ).run(channel, now, mappedBy, sourceCell.id);
       return db.prepare("SELECT * FROM cells WHERE id = ?").get(sourceCell.id);
+    }
+
+    const targetHasDifferentModule =
+      targetCell.controller_id &&
+      targetCell.hardware_channel &&
+      (Number(targetCell.controller_id) !== Number(sourceCell.controller_id) ||
+        Number(targetCell.hardware_channel) !== channel);
+    if (targetHasDifferentModule) {
+      const displacedModule = db
+        .prepare(
+          `
+            SELECT c.*, ctrl.controller_code
+            FROM cells c
+            LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
+            WHERE c.id = ?
+          `,
+        )
+        .get(targetCell.id);
+      createModulePlaceholder(db, displacedModule, mappedBy);
     }
 
     db.prepare(
@@ -1633,54 +2281,47 @@ export function configureControllerModules(
       controllerId = Number(result.lastInsertRowid);
     }
 
-    db.prepare("UPDATE controllers SET active = 0 WHERE firmware_version = ? AND id != ?").run(
-      "sim-0.1",
-      controllerId,
-    );
-    db.prepare(
-      `
-        UPDATE cells
-        SET active = 0
-        WHERE controller_id IN (SELECT id FROM controllers WHERE active = 0)
-      `,
-    ).run();
-
     const mappingSummary = {
       preserved: 0,
       created: 0,
       detached: 0,
+      removed: 0,
       moduleCount: count,
       needsVerification: true,
     };
 
+    db.prepare("UPDATE controllers SET active = 0 WHERE firmware_version = ? AND id != ?").run(
+      "sim-0.1",
+      controllerId,
+    );
+    const inactiveControllerCells = db
+      .prepare("SELECT id FROM cells WHERE controller_id IN (SELECT id FROM controllers WHERE active = 0)")
+      .all();
+    const inactiveDetached = detachCellsForManualOperation(
+      db,
+      inactiveControllerCells.map((cell) => cell.id),
+    );
+    mappingSummary.detached += inactiveDetached.detached;
+    mappingSummary.removed += inactiveDetached.removed;
+
     const overflowCells = db
       .prepare("SELECT id FROM cells WHERE controller_id = ? AND hardware_channel > ?")
       .all(controllerId, count);
-    mappingSummary.detached += detachCellsForManualOperation(
+    const overflowDetached = detachCellsForManualOperation(
       db,
       overflowCells.map((cell) => cell.id),
     );
+    mappingSummary.detached += overflowDetached.detached;
+    mappingSummary.removed += overflowDetached.removed;
 
-    const activeCellIds = [];
+    const moduleCellIds = [];
     for (let channel = 1; channel <= count; channel += 1) {
-      const defaultLogicalCode = `Z1-R1-C${String(channel).padStart(2, "0")}`;
       const existingControllerCell = db
         .prepare("SELECT * FROM cells WHERE controller_id = ? AND hardware_channel = ?")
         .get(controllerId, channel);
-      const reusableDefaultCell = db
-        .prepare(
-        `
-          SELECT c.*
-          FROM cells c
-          LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
-          WHERE c.logical_code = ?
-            AND (c.controller_id = ? OR ctrl.active = 0 OR c.controller_id IS NULL)
-        `,
-        )
-        .get(defaultLogicalCode, controllerId);
-      const existingCell = existingControllerCell || reusableDefaultCell;
 
-      if (existingCell) {
+      if (existingControllerCell) {
+        const isAssignedLocation = Number(existingControllerCell.active) === 1;
         db.prepare(
           `
             UPDATE cells
@@ -1690,34 +2331,48 @@ export function configureControllerModules(
               column_number = ?,
               controller_id = ?,
               hardware_channel = ?,
-              mapping_status = 'mapped',
-              active = 1,
-              last_mapped_at = COALESCE(last_mapped_at, ?),
+              mapping_status = ?,
+              last_mapped_at = CASE WHEN ? = 1 THEN COALESCE(last_mapped_at, ?) ELSE last_mapped_at END,
               mapped_by = COALESCE(mapped_by, ?)
             WHERE id = ?
           `,
-        ).run(zoneId, channel, controllerId, channel, now, configuredBy, existingCell.id);
-        activeCellIds.push(Number(existingCell.id));
-        mappingSummary.preserved += 1;
+        ).run(
+          zoneId,
+          channel,
+          controllerId,
+          channel,
+          isAssignedLocation ? "mapped" : "unmapped",
+          isAssignedLocation ? 1 : 0,
+          now,
+          configuredBy,
+          existingControllerCell.id,
+        );
+        moduleCellIds.push(Number(existingControllerCell.id));
+        if (isAssignedLocation) {
+          mappingSummary.preserved += 1;
+        }
         continue;
       }
 
-      const logicalCode = availableLogicalCode(db, defaultLogicalCode, code, channel);
-      const inserted = db.prepare(
-        `
-          INSERT INTO cells (
-            logical_code, zone_id, row_number, column_number, controller_id,
-            hardware_channel, mapping_status, active, capacity, last_mapped_at, mapped_by
-          )
-          VALUES (?, ?, 1, ?, ?, ?, 'mapped', 1, 12, ?, ?)
-        `,
-      ).run(logicalCode, zoneId, channel, controllerId, channel, now, configuredBy);
-      activeCellIds.push(Number(inserted.lastInsertRowid));
+      const placeholder = createModulePlaceholder(
+        db,
+        {
+          controller_id: controllerId,
+          controller_code: code,
+          hardware_channel: channel,
+          zone_id: zoneId,
+          row_number: 1,
+          column_number: channel,
+          capacity: 12,
+        },
+        configuredBy,
+      );
+      moduleCellIds.push(Number(placeholder.id));
       mappingSummary.created += 1;
     }
 
-    if (activeCellIds.length > 0) {
-      const placeholders = activeCellIds.map(() => "?").join(", ");
+    if (moduleCellIds.length > 0) {
+      const placeholders = moduleCellIds.map(() => "?").join(", ");
       const staleCells = db
         .prepare(
         `
@@ -1727,11 +2382,13 @@ export function configureControllerModules(
             AND id NOT IN (${placeholders})
         `,
         )
-        .all(controllerId, ...activeCellIds);
-      mappingSummary.detached += detachCellsForManualOperation(
+        .all(controllerId, ...moduleCellIds);
+      const staleDetached = detachCellsForManualOperation(
         db,
         staleCells.map((cell) => cell.id),
       );
+      mappingSummary.detached += staleDetached.detached;
+      mappingSummary.removed += staleDetached.removed;
     }
 
     const controller = db.prepare("SELECT * FROM controllers WHERE id = ?").get(controllerId);
@@ -1758,13 +2415,9 @@ export function applyRecommendedAction(
   { sourceCellId, productId, moves, userId, reason },
 ) {
   const product = findProductOrThrow(db, Number(productId));
-  const sourceCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(sourceCellId));
-  if (!sourceCell) {
-    throw new Error("Source cell not found.");
-  }
-
   const normalizedMoves = moves
     .map((move) => ({
+      sourceCellId: Number(move.sourceCellId || sourceCellId),
       targetCellId: Number(move.targetCellId),
       quantity: Number(move.quantity),
     }))
@@ -1774,37 +2427,73 @@ export function applyRecommendedAction(
     throw new Error("At least one move is required.");
   }
 
-  const totalQuantity = normalizedMoves.reduce((sum, move) => sum + move.quantity, 0);
   const balances = createInventoryBalanceRepository(db);
-  const sourceBalance = balances.getOrCreate(product.id, sourceCell.id);
-  if (Number(sourceBalance.available_quantity) < totalQuantity) {
-    throw new Error("Source cell does not have enough quantity for this adjustment.");
+  const sourceQuantities = new Map();
+  for (const move of normalizedMoves) {
+    if (!move.sourceCellId) {
+      throw new Error("Source cell not found.");
+    }
+    if (!move.targetCellId) {
+      throw new Error("Target cell not found.");
+    }
+    if (move.sourceCellId === move.targetCellId) {
+      throw new Error("Source and target cells must be different.");
+    }
+    sourceQuantities.set(
+      move.sourceCellId,
+      (sourceQuantities.get(move.sourceCellId) || 0) + move.quantity,
+    );
+  }
+
+  const sourceCells = new Map();
+  for (const [moveSourceCellId, totalQuantity] of sourceQuantities) {
+    const sourceCell = db
+      .prepare("SELECT * FROM cells WHERE id = ?")
+      .get(Number(moveSourceCellId));
+    if (!sourceCell) {
+      throw new Error("Source cell not found.");
+    }
+    const sourceBalance = balances.getOrCreate(product.id, sourceCell.id);
+    if (Number(sourceBalance.available_quantity) < totalQuantity) {
+      throw new Error(`Source cell ${sourceCell.logical_code} does not have enough quantity for this adjustment.`);
+    }
+    sourceCells.set(moveSourceCellId, {
+      cell: sourceCell,
+      balance: sourceBalance,
+      totalQuantity,
+    });
   }
 
   return withTransaction(db, () => {
-    balances.decrease(sourceBalance.id, totalQuantity);
+    for (const source of sourceCells.values()) {
+      balances.decrease(source.balance.id, source.totalQuantity);
 
-    db.prepare(
-      `
-        INSERT INTO transactions (
-          type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-        )
-        VALUES ('adjustment', ?, ?, ?, ?, NULL, ?, ?)
-      `,
-    ).run(
-      product.id,
-      sourceCell.id,
-      -totalQuantity,
-      userId,
-      reason || "Recommended action adjustment",
-      nowIso(),
-    );
+      db.prepare(
+        `
+          INSERT INTO transactions (
+            type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
+          )
+          VALUES ('adjustment', ?, ?, ?, ?, NULL, ?, ?)
+        `,
+      ).run(
+        product.id,
+        source.cell.id,
+        -source.totalQuantity,
+        userId,
+        reason || "Recommended action adjustment",
+        nowIso(),
+      );
+    }
 
     for (const move of normalizedMoves) {
       const targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(move.targetCellId);
       if (!targetCell) {
         throw new Error("Target cell not found.");
       }
+      assertPutCellEligible(db, {
+        productId: product.id,
+        cellId: targetCell.id,
+      });
 
       const targetBalance = balances.getOrCreate(product.id, targetCell.id);
       balances.increase(targetBalance.id, move.quantity);
@@ -1821,7 +2510,7 @@ export function applyRecommendedAction(
         targetCell.id,
         move.quantity,
         userId,
-        reason || `Recommended action move from ${sourceCell.logical_code}`,
+        reason || `Recommended action move into ${targetCell.logical_code}`,
         nowIso(),
       );
     }

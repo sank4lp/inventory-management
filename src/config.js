@@ -19,6 +19,14 @@ export function resolveConfig(env = process.env) {
   const esp32Fqbn = env.ESP32_FQBN || "esp32:esp32:esp32";
   const esp32SketchPath = env.ESP32_SKETCH_PATH || "firmware/esp32-simple-matrix";
   const rs485SerialPort = env.RS485_SERIAL_PORT || "";
+  const rs485GuidanceBurstRepeats = numberSetting(env.RS485_GUIDANCE_BURST_REPEATS, 3, {
+    min: 1,
+    max: 5,
+  });
+  const rs485GuidanceBurstDelayMs = numberSetting(env.RS485_GUIDANCE_BURST_DELAY_MS, 0, {
+    min: 0,
+    max: 500,
+  });
   const ledDayBrightnessPercent = numberSetting(env.LED_DAY_BRIGHTNESS_PERCENT, 20, {
     min: 1,
     max: 100,
@@ -35,6 +43,27 @@ export function resolveConfig(env = process.env) {
     min: 0,
     max: 23,
   });
+  const automaticBackupIntervalHours = numberSetting(env.AUTO_BACKUP_INTERVAL_HOURS, 24, {
+    min: 1,
+    max: 24 * 30,
+  });
+  const reportDefaultDays = numberSetting(env.REPORT_DEFAULT_DAYS, 30, {
+    min: 1,
+    max: 365,
+  });
+  const deviceEventRetentionDays = numberSetting(env.DEVICE_EVENT_RETENTION_DAYS, 90, {
+    min: 1,
+    max: 3650,
+  });
+  const systemEventRetentionDays = numberSetting(env.SYSTEM_EVENT_RETENTION_DAYS, 90, {
+    min: 1,
+    max: 3650,
+  });
+  const businessArchiveAfterDays = numberSetting(env.BUSINESS_ARCHIVE_AFTER_DAYS, 730, {
+    min: 30,
+    max: 3650,
+  });
+  const allowDemoInventorySeed = env.DEMO_INVENTORY_SEED === "1";
   const bootstrapAdmin =
     env.BOOTSTRAP_ADMIN_USERNAME && env.BOOTSTRAP_ADMIN_PASSWORD
       ? {
@@ -75,12 +104,20 @@ export function resolveConfig(env = process.env) {
     esp32Fqbn,
     esp32SketchPath,
     rs485SerialPort,
+    rs485GuidanceBurstRepeats,
+    rs485GuidanceBurstDelayMs,
     ledDayBrightnessPercent,
     ledNightBrightnessPercent,
     ledDayStartHour,
     ledNightStartHour,
+    automaticBackupIntervalHours,
+    reportDefaultDays,
+    deviceEventRetentionDays,
+    systemEventRetentionDays,
+    businessArchiveAfterDays,
     bootstrapAdmin,
     allowDevAuthSeeds: nodeEnv !== "production",
+    allowDemoInventorySeed,
   };
 }
 

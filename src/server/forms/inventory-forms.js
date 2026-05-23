@@ -93,6 +93,7 @@ export function parseRecommendedActionMoves(form) {
         index: suffix,
         quantity: value,
         targetCellId: form[`move_cell_${suffix}`],
+        sourceCellId: form[`move_source_${suffix}`],
       };
     });
 }

@@ -2,6 +2,8 @@ import {
   createProduct,
   getProductDetail,
   listProducts,
+  removeProduct,
+  updateProductDetails,
   updateProductItemsPerCell,
 } from "./inventory.js";
 
@@ -15,6 +17,12 @@ export function createCatalogService({ db }) {
     },
     createProduct(input) {
       return createProduct(db, input);
+    },
+    removeProduct(productId) {
+      return removeProduct(db, productId);
+    },
+    updateProductDetails(input) {
+      return updateProductDetails(db, input);
     },
     updateProductItemsPerCell(input) {
       return updateProductItemsPerCell(db, input);

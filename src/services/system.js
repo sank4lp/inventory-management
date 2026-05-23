@@ -1,6 +1,14 @@
 import { randomBytes } from "node:crypto";
 
 import { updateControllerHealth } from "./inventory.js";
+import {
+  readPendingReviewTimeoutSettings,
+  savePendingReviewTimeoutSettings,
+} from "./task-timeout-settings.js";
+
+const CONTROLLER_QUICK_RETRY_MS = 30 * 1000;
+const CONTROLLER_QUICK_RETRY_LIMIT = 3;
+const CONTROLLER_SLOW_RETRY_MS = 5 * 60 * 1000;
 
 function nowIso() {
   return new Date().toISOString();
@@ -11,7 +19,27 @@ function firstColumnValue(row) {
   return values[0];
 }
 
+function finiteIds(ids = []) {
+  return ids.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+}
+
+function addMs(date, ms) {
+  return new Date(date.getTime() + ms).toISOString();
+}
+
+function retryDelayLabel(delayMs) {
+  if (delayMs === CONTROLLER_QUICK_RETRY_MS) {
+    return "30 seconds";
+  }
+  if (delayMs === CONTROLLER_SLOW_RETRY_MS) {
+    return "5 minutes";
+  }
+  return `${Math.max(1, Math.round(delayMs / 1000))} seconds`;
+}
+
 export function createSystemService({ db, config, logger, hardwareService, getTask }) {
+  const controllerHealthSchedule = new Map();
+
   function normalizeControllerHealthStatus(result = {}) {
     const status = String(result.status || "").trim().toLowerCase();
     if (["online", "offline", "unknown"].includes(status)) {
@@ -23,7 +51,155 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     return "unknown";
   }
 
-  function refreshControllerHealths() {
+  function controllerHealthSummary(previousChecks = []) {
+    const controllers = db
+      .prepare(
+        `
+          SELECT id, controller_code, heartbeat_status
+          FROM controllers
+          WHERE active = 1
+          ORDER BY id
+        `,
+      )
+      .all();
+    const previousById = new Map(previousChecks.map((check) => [Number(check.controllerId), check]));
+    const total = controllers.length;
+    const online = controllers.filter((controller) => controller.heartbeat_status === "online").length;
+    const offlineControllers = controllers.filter((controller) => controller.heartbeat_status !== "online");
+    const retryNotices = offlineControllers.map((controller) => {
+      const schedule = controllerHealthSchedule.get(Number(controller.id));
+      const delayMs = schedule?.retryDelayMs || CONTROLLER_QUICK_RETRY_MS;
+      return `Controller ${controller.controller_code} offline. Retrying after ${retryDelayLabel(delayMs)}.`;
+    });
+
+    return {
+      status: total === online ? "healthy" : "warning",
+      message:
+        total === 0
+          ? "No active controllers configured."
+          : [
+              `${online} of ${total} controllers online.`,
+              ...retryNotices,
+            ].join(" "),
+      checked: controllers.map((controller) => {
+        const previous = previousById.get(Number(controller.id)) || {};
+        const schedule = controllerHealthSchedule.get(Number(controller.id));
+        return {
+          ...previous,
+          controllerId: controller.id,
+          controllerCode: controller.controller_code,
+          status: normalizeControllerHealthStatus({ status: controller.heartbeat_status }),
+          nextCheckAt: schedule?.nextCheckAt || null,
+          retryDelayMs: schedule?.retryDelayMs || null,
+        };
+      }),
+    };
+  }
+
+  function startupRecoverySummary(baseRecovery = {}) {
+    const startupPendingIds = finiteIds(baseRecovery.pendingTaskIds || []);
+    if (!startupPendingIds.length) {
+      return {
+        ...baseRecovery,
+        status: "healthy",
+        message: "No unfinished tasks found during startup recovery scan.",
+        pendingTaskIds: [],
+      };
+    }
+
+    const unresolvedRows = db
+      .prepare(
+        `
+          SELECT id
+          FROM tasks
+          WHERE status = 'pending_review'
+            AND id IN (${startupPendingIds.map(() => "?").join(", ")})
+          ORDER BY id
+        `,
+      )
+      .all(...startupPendingIds);
+    const unresolvedIds = unresolvedRows.map((row) => row.id);
+
+    return {
+      ...baseRecovery,
+      status: unresolvedIds.length ? "warning" : "healthy",
+      message: unresolvedIds.length
+        ? `${unresolvedIds.length} startup recovery task(s) still require operator review.`
+        : "Startup recovery tasks have been resolved.",
+      pendingTaskIds: unresolvedIds,
+    };
+  }
+
+  function warningMessages(startup) {
+    return [
+      ["Database", startup.db],
+      ["Configuration", startup.config],
+      ["Hardware", startup.hardware],
+      ["Controllers", startup.controllers],
+      ["Recovery", startup.recovery],
+    ]
+      .filter(([, part]) => part?.status !== "healthy")
+      .map(([label, part]) => `${label}: ${part?.message || "Warning active."}`);
+  }
+
+  function updateControllerHealthSchedule(controller, status, checkedAt) {
+    const controllerId = Number(controller.id);
+    const checkedAtIso = checkedAt.toISOString();
+
+    if (status === "online") {
+      controllerHealthSchedule.set(controllerId, {
+        status,
+        quickRetriesUsed: 0,
+        lastCheckedAt: checkedAtIso,
+        nextCheckAt: addMs(checkedAt, CONTROLLER_QUICK_RETRY_MS),
+        retryDelayMs: CONTROLLER_QUICK_RETRY_MS,
+      });
+      return;
+    }
+
+    const previous = controllerHealthSchedule.get(controllerId);
+    const continuingOffline = previous && previous.status !== "online";
+    const quickRetriesUsed = continuingOffline ? Number(previous.quickRetriesUsed || 0) + 1 : 0;
+    const retryDelayMs =
+      quickRetriesUsed < CONTROLLER_QUICK_RETRY_LIMIT
+        ? CONTROLLER_QUICK_RETRY_MS
+        : CONTROLLER_SLOW_RETRY_MS;
+
+    controllerHealthSchedule.set(controllerId, {
+      status,
+      quickRetriesUsed,
+      lastCheckedAt: checkedAtIso,
+      nextCheckAt: addMs(checkedAt, retryDelayMs),
+      retryDelayMs,
+    });
+  }
+
+  function pruneControllerHealthSchedule(activeControllerIds) {
+    for (const controllerId of controllerHealthSchedule.keys()) {
+      if (!activeControllerIds.has(controllerId)) {
+        controllerHealthSchedule.delete(controllerId);
+      }
+    }
+  }
+
+  function refreshControllerHealth(controller, { now = new Date() } = {}) {
+    const checkedAt = now instanceof Date ? now : new Date(now);
+    const result = hardwareService.checkControllerHealth(controller);
+    const status = normalizeControllerHealthStatus(result);
+    updateControllerHealth(db, {
+      controllerId: controller.id,
+      status,
+    });
+    updateControllerHealthSchedule(controller, status, checkedAt);
+    return {
+      controllerId: controller.id,
+      controllerCode: controller.controller_code,
+      status,
+      message: result.message || null,
+    };
+  }
+
+  function activeControllers() {
     const controllers = db
       .prepare(
         `
@@ -34,21 +210,27 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         `,
       )
       .all();
+    pruneControllerHealthSchedule(new Set(controllers.map((controller) => Number(controller.id))));
+    return controllers;
+  }
 
-    return controllers.map((controller) => {
-      const result = hardwareService.checkControllerHealth(controller);
-      const status = normalizeControllerHealthStatus(result);
-      updateControllerHealth(db, {
-        controllerId: controller.id,
-        status,
-      });
-      return {
-        controllerId: controller.id,
-        controllerCode: controller.controller_code,
-        status,
-        message: result.message || null,
-      };
-    });
+  function refreshControllerHealths({ now = new Date() } = {}) {
+    const checkedAt = now instanceof Date ? now : new Date(now);
+    return activeControllers().map((controller) => refreshControllerHealth(controller, { now: checkedAt }));
+  }
+
+  function refreshDueControllerHealths({ now = new Date() } = {}) {
+    const checkedAt = now instanceof Date ? now : new Date(now);
+    return activeControllers()
+      .filter((controller) => {
+        const schedule = controllerHealthSchedule.get(Number(controller.id));
+        if (!schedule?.nextCheckAt) {
+          return true;
+        }
+        const nextCheckAt = new Date(schedule.nextCheckAt);
+        return Number.isNaN(nextCheckAt.getTime()) || nextCheckAt.getTime() <= checkedAt.getTime();
+      })
+      .map((controller) => refreshControllerHealth(controller, { now: checkedAt }));
   }
 
   function recordSystemEvent({ eventType, status = "info", message, payload = null }) {
@@ -87,7 +269,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
       .all(limit);
   }
 
-  function runStartupChecks() {
+  function runStartupChecks({ now = new Date() } = {}) {
     const integrityRow = db.prepare("PRAGMA integrity_check").get();
     const integrityValue = String(firstColumnValue(integrityRow) || "");
     if (integrityValue.toLowerCase() !== "ok") {
@@ -103,18 +285,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         .count,
     );
     const hardwareHealth = hardwareService.healthCheck();
-    const controllerHealthResults = refreshControllerHealths();
-    const controllerSummary = db
-      .prepare(
-        `
-          SELECT
-            COUNT(*) AS total,
-            SUM(CASE WHEN heartbeat_status = 'online' THEN 1 ELSE 0 END) AS online
-          FROM controllers
-          WHERE active = 1
-        `,
-      )
-      .get();
+    const controllerHealthResults = refreshControllerHealths({ now });
     const pendingTasks = db
       .prepare(
         `
@@ -137,19 +308,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         message: adminCount > 0 ? "Configuration is valid." : "No active admin users found.",
       },
       hardware: hardwareHealth,
-      controllers: {
-        status:
-          Number(controllerSummary.total || 0) === Number(controllerSummary.online || 0)
-            ? "healthy"
-            : "warning",
-        message:
-          Number(controllerSummary.total || 0) === 0
-            ? "No active controllers configured."
-            : `${Number(controllerSummary.online || 0)} of ${Number(
-                controllerSummary.total || 0,
-              )} controllers online.`,
-        checked: controllerHealthResults,
-      },
+      controllers: controllerHealthSummary(controllerHealthResults),
       recovery: {
         status: pendingTasks.length ? "warning" : "healthy",
         message: pendingTasks.length
@@ -162,7 +321,12 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
 
     recordSystemEvent({
       eventType: "startup_check",
-      status: startup.hardware.status === "healthy" ? "info" : "warning",
+      status:
+        [startup.db, startup.config, startup.hardware, startup.controllers, startup.recovery].every(
+          (part) => part.status === "healthy",
+        )
+          ? "info"
+          : "warning",
       message: "Startup checks completed.",
       payload: startup,
     });
@@ -211,6 +375,93 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     return recoveredTaskIds;
   }
 
+  function cancelStalePendingReviewTasks({
+    now = new Date(),
+    timeoutMs = null,
+  } = {}) {
+    const currentTime = now instanceof Date ? now : new Date(now);
+    const configuredTimeoutMs = timeoutMs ?? readPendingReviewTimeoutSettings(db).timeoutMs;
+    const cutoff = new Date(currentTime.getTime() - configuredTimeoutMs).toISOString();
+    const cancelledTaskIds = [];
+    const rows = db
+      .prepare(
+        `
+          SELECT id
+          FROM tasks
+          WHERE status = 'pending_review'
+            AND COALESCE(last_touched_at, started_at) <= ?
+          ORDER BY id
+        `,
+      )
+      .all(cutoff);
+
+    for (const row of rows) {
+      const task = getTask(db, row.id);
+      if (!task || task.status !== "pending_review") {
+        continue;
+      }
+
+      const cancelledAt = currentTime.toISOString();
+      const clearResult = hardwareService.clearGuidance(task, task.lines, {
+        source: "pending_review_timeout",
+      });
+      db.prepare(
+        `
+          UPDATE tasks
+          SET status = 'cancelled', completed_at = ?, last_touched_at = ?
+          WHERE id = ? AND status = 'pending_review'
+        `,
+      ).run(cancelledAt, cancelledAt, task.id);
+      cancelledTaskIds.push(task.id);
+      recordSystemEvent({
+        eventType: "pending_review_timeout",
+        status: clearResult.degraded ? "warning" : "info",
+        message: `Cancelled stale pending review task #${task.id}.`,
+        payload: {
+          taskId: task.id,
+          timeoutMs: configuredTimeoutMs,
+          lastTouchedAt: task.last_touched_at || task.started_at,
+          degraded: clearResult.degraded,
+          adapter: hardwareService.adapterName,
+        },
+      });
+    }
+
+    if (cancelledTaskIds.length) {
+      logger.info("task.pending_review.timeout_cancelled", {
+        cancelledTaskIds,
+        timeoutMs: configuredTimeoutMs,
+      });
+    }
+
+    return cancelledTaskIds;
+  }
+
+  function getPendingReviewTimeoutSettings() {
+    return readPendingReviewTimeoutSettings(db);
+  }
+
+  function updatePendingReviewTimeout({ timeoutMinutes, updatedBy = null, now = new Date() } = {}) {
+    const settings = savePendingReviewTimeoutSettings(db, {
+      timeoutMinutes,
+      now,
+    });
+    recordSystemEvent({
+      eventType: "pending_review_timeout_setting_updated",
+      status: "info",
+      message: `Task completion timeout set to ${settings.timeoutMinutes} minute(s).`,
+      payload: {
+        timeoutMinutes: settings.timeoutMinutes,
+        updatedBy,
+      },
+    });
+    logger.info("task.pending_review.timeout_updated", {
+      timeoutMinutes: settings.timeoutMinutes,
+      updatedBy,
+    });
+    return settings;
+  }
+
   function issueSubmissionToken({ scope, taskId = null, userId = null }) {
     const token = randomBytes(18).toString("base64url");
     db.prepare(
@@ -255,16 +506,21 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   }
 
   function healthSummary(startupState = null) {
-    const startup = startupState || runStartupChecks();
+    const baseStartup = startupState || runStartupChecks();
+    const startup = {
+      ...baseStartup,
+      controllers: controllerHealthSummary(baseStartup.controllers?.checked || []),
+      recovery: startupRecoverySummary(baseStartup.recovery),
+    };
     const parts = [startup.db, startup.config, startup.hardware, startup.controllers, startup.recovery];
     const degraded = parts.some((part) => part.status !== "healthy");
+    const warnings = warningMessages(startup);
     return {
       overallStatus: degraded ? "warning" : "healthy",
       degraded,
-      message: degraded
-        ? "System is running with warnings. Operators can continue with manual guidance if needed."
-        : "System is healthy.",
+      message: degraded ? warnings.join(" ") : "System is healthy.",
       startup,
+      warnings,
     };
   }
 
@@ -294,9 +550,14 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   return {
     recordSystemEvent,
     listRecentSystemEvents,
+    refreshControllerHealth,
     refreshControllerHealths,
+    refreshDueControllerHealths,
     runStartupChecks,
     recoverPendingGuidance,
+    cancelStalePendingReviewTasks,
+    getPendingReviewTimeoutSettings,
+    updatePendingReviewTimeout,
     issueSubmissionToken,
     consumeSubmissionToken,
     healthSummary,

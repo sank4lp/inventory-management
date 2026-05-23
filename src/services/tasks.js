@@ -5,6 +5,7 @@ import {
   correctCompletedTask,
   getTask,
   listRecentTasks,
+  listRecentTasksForProfileUser,
   listRecentTasksForUser,
   markPhysicalConfirmation,
   planPut,
@@ -22,11 +23,14 @@ export function createTaskService({ db, hardwareService, logger, systemService }
     listRecentTasksForUser(user, limit = 10) {
       return listRecentTasksForUser(db, user, limit);
     },
+    listRecentTasksForProfileUser(userId, limit = 10) {
+      return listRecentTasksForProfileUser(db, userId, limit);
+    },
     issueActionToken(scope, taskId, userId) {
       return systemService.issueSubmissionToken({ scope, taskId, userId });
     },
-    createPickTask({ userId, productId, quantity, preferredCellId = null }) {
-      const task = allocatePick(db, { userId, productId, quantity, preferredCellId });
+    createPickTask({ userId, productId, quantity, preferredCellId = null, preferredCellIds = [] }) {
+      const task = allocatePick(db, { userId, productId, quantity, preferredCellId, preferredCellIds });
       const guidance = hardwareService.activateGuidance(task, task.lines, {
         source: "task_create",
         taskType: task.type,
@@ -41,8 +45,8 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       });
       return { task, guidance };
     },
-    createPutTask({ userId, productId, quantity, preferredCellId = null }) {
-      const task = planPut(db, { userId, productId, quantity, preferredCellId });
+    createPutTask({ userId, productId, quantity, preferredCellId = null, preferredCellIds = [] }) {
+      const task = planPut(db, { userId, productId, quantity, preferredCellId, preferredCellIds });
       const guidance = hardwareService.activateGuidance(task, task.lines, {
         source: "task_create",
         taskType: task.type,

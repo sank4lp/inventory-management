@@ -4,6 +4,7 @@ import { createBackupPages } from "./backups.js";
 import { createHomePages } from "./home.js";
 import { createLocationPages } from "./locations.js";
 import { createProductPages } from "./products.js";
+import { createProfilePages } from "./profile.js";
 import { createReportsPages } from "./reports.js";
 import { page } from "./shared.js";
 import { createTaskPages } from "./tasks.js";
@@ -14,14 +15,15 @@ export function createPageRenderer({ db, backupService }) {
   const taskPages = createTaskPages({ db });
   const reportPages = createReportsPages({ db });
   const locationPages = createLocationPages({ db });
+  const profilePages = createProfilePages({ db });
   const adminPages = createAdminPages({ db });
   const backupPages = createBackupPages({ backupService });
 
   function renderNotFound(user) {
     return page({
-      title: "Not found",
+      title: "Not Found",
       user,
-      content: `<p>The requested page does not exist.</p><p><a href="/">Back to dashboard</a></p>`,
+      content: `<p>The requested page does not exist.</p><p><a href="/">Back To Dashboard</a></p>`,
     });
   }
 
@@ -31,6 +33,7 @@ export function createPageRenderer({ db, backupService }) {
     ...homePages,
     ...locationPages,
     ...productPages,
+    ...profilePages,
     ...reportPages,
     ...taskPages,
     renderLogin,

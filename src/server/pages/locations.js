@@ -66,15 +66,6 @@ function renderPortOptions(ports = []) {
     .join("");
 }
 
-function nextControllerName(controllers = []) {
-  const used = new Set(controllers.map((controller) => String(controller.controller_code || "").toUpperCase()));
-  let index = controllers.length + 1;
-  while (used.has(`ESP32-${String(index).padStart(2, "0")}`)) {
-    index += 1;
-  }
-  return `ESP32-${String(index).padStart(2, "0")}`;
-}
-
 function flashRecordSummary(port) {
   if (port.flashRecordAmbiguous || port.flashRecords?.length > 1) {
     const names = (port.flashRecords || [])
@@ -127,22 +118,28 @@ function renderPortChoices(ports = [], selectedPort = "") {
 
 function cellMappingOptionLabel(cell) {
   const stock = Number(cell.occupied_quantity || 0) > 0 ? ` · stock ${formatQuantity(cell.occupied_quantity)}` : "";
-  const controller = cell.controller_code
-    ? ` · ${cell.controller_code}${cell.hardware_channel ? ` module ${cell.hardware_channel}` : ""}`
-    : " · unmapped";
+  const controller = cellIsMapped(cell)
+    ? ` · mapped to ${cell.controller_code}${cell.hardware_channel ? ` module ${cell.hardware_channel}` : ""}`
+    : " · recommended · unmapped";
   const state = Number(cell.active) === 1 ? "" : " · inactive";
   return `${cell.logical_code}${stock}${controller}${state}`;
 }
 
-function cellHasDeletionData(cell) {
+function cellHasStock(cell) {
+  return Number(cell.occupied_quantity || 0) !== 0 || Number(cell.reserved_quantity || 0) !== 0;
+}
+
+function cellIsMapped(cell) {
   return (
-    Number(cell.occupied_quantity || 0) !== 0 ||
-    Number(cell.reserved_quantity || 0) !== 0 ||
-    Number(cell.balance_record_count || 0) > 0 ||
-    Number(cell.task_line_count || 0) > 0 ||
-    Number(cell.transaction_count || 0) > 0 ||
-    Number(cell.device_event_count || 0) > 0
+    Number(cell.active) === 1 &&
+    cell.mapping_status === "mapped" &&
+    Boolean(cell.controller_id) &&
+    Boolean(cell.hardware_channel)
   );
+}
+
+function cellMappingDisplayName(cell) {
+  return Number(cell.active) === 1 ? cell.logical_code : "Empty";
 }
 
 function renderCellMappingOptions(cellCatalog, selectedCellId) {
@@ -161,6 +158,20 @@ function renderLocationWorkflowActions(cell) {
   return `
     <a class="mini-link" href="/pick?cell_id=${cell.id}">Pick</a>
     <a class="mini-link" href="/put?cell_id=${cell.id}">Put</a>
+  `;
+}
+
+function renderLocationLocateButton(cell) {
+  const mapped = cellIsMapped(cell);
+  return `
+    <button
+      type="button"
+      class="ghost-button locate-button"
+      data-cell-id="${cell.id}"
+      data-cell-name="${escapeHtml(cell.logical_code)}"
+      aria-pressed="false"
+      ${mapped ? "data-locate-cell" : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
+    >Locate</button>
   `;
 }
 
@@ -193,7 +204,7 @@ export function createLocationPages({ db }) {
 
   function renderAllLocations(cells) {
     return table(
-      ["Location", "Light controller", "LED module", "Stock", "Products", "Actions"],
+        ["Location", "Light Controller", "LED Module", "Stock", "Products", "Actions"],
       cells.map((cell) => [
         `<a href="/cells/${cell.id}">${escapeHtml(cell.logical_code)}</a>`,
         cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
@@ -203,14 +214,7 @@ export function createLocationPages({ db }) {
         `
           <div class="mini-actions">
             ${renderLocationWorkflowActions(cell)}
-            <button
-              type="button"
-              class="ghost-button locate-button"
-              data-locate-cell
-              data-cell-id="${cell.id}"
-              data-cell-name="${escapeHtml(cell.logical_code)}"
-              aria-pressed="false"
-            >Locate</button>
+            ${renderLocationLocateButton(cell)}
           </div>
         `,
       ]),
@@ -232,12 +236,12 @@ export function createLocationPages({ db }) {
         <div data-location-page>
           ${statsGrid([
             { label: "Locations", value: formatQuantity(allCells.length) },
-            { label: "With stock", value: formatQuantity(occupiedCount) },
+            { label: "With Stock", value: formatQuantity(occupiedCount) },
             { label: "Empty", value: formatQuantity(emptyCount) },
-            { label: "LED mapped", value: formatQuantity(mappedCount) },
+            { label: "LED Mapped", value: formatQuantity(mappedCount) },
           ])}
           ${card(
-            "Find a location",
+            "Find A Location",
             `
               <form
                 method="get"
@@ -248,7 +252,7 @@ export function createLocationPages({ db }) {
                 data-target="#cell-search-results"
                 data-empty-html="<p class=&quot;muted&quot;>Search a location to see what products are inside it.</p>"
               >
-                <label class="inline-form-wrap">Search locations
+                <label class="inline-form-wrap">Search Locations
                   <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Type a location code, for example Z1-R1-C01" />
                 </label>
                 <button type="submit">Search</button>
@@ -263,7 +267,7 @@ export function createLocationPages({ db }) {
             `,
           )}
           ${card(
-            "All locations",
+            "All Locations",
             allCells.length
               ? renderAllLocations(allCells)
               : `<p class="muted">No active locations are configured. Ask an admin to add cells in Configuration.</p>`,
@@ -278,10 +282,10 @@ export function createLocationPages({ db }) {
   function renderCellDetail(user, flash, cell) {
     if (!cell) {
       return page({
-        title: "Cell not found",
+        title: "Cell Not Found",
         user,
         flash: flash || { message: "Cell not found.", tone: "error" },
-        content: `<p><a href="/cells">Back to cells</a></p>`,
+        content: `<p><a href="/cells">Back To Cells</a></p>`,
       });
     }
 
@@ -291,7 +295,7 @@ export function createLocationPages({ db }) {
       flash,
       content: `
         ${card(
-          "Location summary",
+          "Location Summary",
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
             <p>${
@@ -305,7 +309,7 @@ export function createLocationPages({ db }) {
           `,
         )}
         ${card(
-          "Products in this location",
+          "Products In This Location",
           table(
             ["Product", "Available", "Action"],
             cell.products.map((product) => [
@@ -326,41 +330,26 @@ export function createLocationPages({ db }) {
     const runtime = getRuntimeContext();
     const firmwareOptions = runtime.firmwareService?.getFlashOptions();
     const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
-    const moduleCount = lastFirmwareConfig?.moduleCount || firmwareOptions?.moduleCount?.value || 4;
     const port = "";
-    const controllerName = nextControllerName(controllers);
     const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
     const hasPorts = false;
 
     if (!firmwareOptions) {
       return `
         <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
-          <div class="panel-heading">
-            <div>
-              <h2>Add Controller</h2>
-              <p class="muted">Firmware flashing is not available in this runtime.</p>
-            </div>
-          </div>
+          <p class="muted">Firmware flashing is not available in this runtime.</p>
         </section>
       `;
     }
 
     return `
       <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
-        <div class="panel-heading">
-          <div>
-            <h2>Add Controller</h2>
-            <p class="muted">Follow the same connection order every time so the app can identify the newly attached ESP32.</p>
-          </div>
-          ${statusBadge(firmwareOptions.arduinoCli.available ? "available" : "missing")}
-        </div>
         <div class="firmware-panel" data-firmware-panel>
-          <div class="meta-grid compact-meta-grid">
-            <div><strong>Arduino CLI</strong><br />${statusBadge(
-              firmwareOptions.arduinoCli.available ? "available" : "missing",
-            )}</div>
-            <div><strong>Sketch</strong><br /><code>${escapeHtml(firmwareOptions.sketchPath)}</code></div>
-          </div>
+          ${
+            firmwareOptions.arduinoCli.available
+              ? ""
+              : `<div class="firmware-port-status firmware-port-status-missing">Arduino CLI is missing.</div>`
+          }
           <form class="stack-form firmware-wizard" data-firmware-flash-form data-firmware-wizard data-current-step="0">
             <ol class="wizard-steps" aria-label="Controller setup progress">
               <li class="wizard-step-indicator wizard-step-indicator-active" data-firmware-step-indicator="0" aria-current="step">
@@ -406,16 +395,12 @@ export function createLocationPages({ db }) {
             </ol>
 
             <section class="firmware-step" data-firmware-step="0">
-              <h3>Disconnect ESP32 controllers</h3>
-              <p class="muted">Keep RS485, keyboard, and mouse connected. Unplug only the ESP32 controller that you want to add or replace.</p>
               <div class="mini-actions">
                 <button type="button" class="blue-button" data-firmware-scan-baseline data-firmware-next-on-success>Next</button>
               </div>
             </section>
 
             <section class="firmware-step" data-firmware-step="1" hidden>
-              <h3>Attach one ESP32 controller</h3>
-              <p class="muted">Connect the ESP32 over USB. If the app does not find a newly added serial device, go back and repeat the disconnect step.</p>
               <div class="mini-actions">
                 <button type="button" class="ghost-button" data-firmware-prev>Back</button>
                 <button type="button" class="blue-button" data-firmware-refresh-ports data-firmware-next-on-success>Next</button>
@@ -424,29 +409,27 @@ export function createLocationPages({ db }) {
             </section>
 
             <section class="firmware-step" data-firmware-step="2" hidden>
-              <h3>Select and configure the controller</h3>
               <div class="firmware-grid">
-                <label>Controller name
+                <label>Controller Name
                   <input
                     name="controller_name"
                     list="firmware-controller-names"
-                    value="${escapeHtml(controllerName)}"
                     placeholder="ESP32-Z1-A"
                     required
                   />
                 </label>
-                <label>LED modules
+                <label>LED Modules
                   <input
                     type="number"
                     name="module_count"
                     min="${firmwareOptions.moduleCount.min}"
                     max="${firmwareOptions.moduleCount.max}"
                     step="1"
-                    value="${escapeHtml(moduleCount)}"
+                    placeholder="4"
                     required
                   />
                 </label>
-                <label>Serial port
+                <label>Serial Port
                   <div class="firmware-port-input-row">
                     <input
                       name="port"
@@ -484,7 +467,7 @@ export function createLocationPages({ db }) {
                 ${renderPortChoices([], port)}
               </div>
               <details class="firmware-other-devices" data-firmware-other-devices>
-                <summary>Other serial devices / manual reflash</summary>
+                <summary>Other Serial Devices / Manual Reflash</summary>
                 <div class="firmware-other-device-list" data-firmware-other-device-list></div>
               </details>
               <div class="mini-actions">
@@ -494,11 +477,9 @@ export function createLocationPages({ db }) {
             </section>
 
             <section class="firmware-step" data-firmware-step="3" hidden>
-              <h3>Flash firmware</h3>
-              <p class="muted">If upload cannot connect, hold BOOT, start flashing, tap EN/RESET once while Connecting is shown, then release BOOT after upload starts.</p>
               <div class="mini-actions">
                 <button type="button" class="ghost-button" data-firmware-prev>Back</button>
-                <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Flash controller</button>
+                <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Flash Controller</button>
               </div>
               <div class="firmware-progress" data-firmware-progress hidden>
                 <div class="firmware-progress-head">
@@ -522,17 +503,17 @@ export function createLocationPages({ db }) {
     `;
   }
 
-  function renderCellCreateSection() {
+  function renderCellManagementSection(cells) {
     return `
-      <section id="cell-create" class="app-panel" data-config-section="cell-create">
+      <section id="cell-management" class="configuration-table-section" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
         <div class="panel-heading">
           <div>
-            <h2>Add locations</h2>
-            <p class="muted">Create the logical storage locations that operators will pick from and put into.</p>
+            <h2>Manage Locations</h2>
+            <p class="muted">Add logical locations, rename location names, or remove empty locations.</p>
           </div>
         </div>
         <form method="post" action="/devices/cells" class="inline-form">
-          <label>Location name
+          <label>Location Name
             <input
               name="logical_code"
               placeholder="Z1-R1-C01"
@@ -540,28 +521,35 @@ export function createLocationPages({ db }) {
               required
             />
           </label>
-          <label>Capacity
-            <input name="capacity" type="number" min="1" step="1" value="12" required />
-          </label>
-          <button type="submit" class="ghost-button">Add location</button>
+          <button type="submit" class="ghost-button">Add Location</button>
         </form>
-      </section>
-    `;
-  }
-
-  function renderCellManagementSection(cells) {
-    return `
-      <section id="cell-management" class="configuration-table-section" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
         ${
           cells.length
             ? table(
-                ["Cell", "Controller", "LED module", "Stock", "Products", "Actions"],
+                ["Location Name", "Mapped Controller", "Mapped LED Module", "Stock", "Products", "Actions"],
                 cells.map((cell) => {
-                  const hasData = cellHasDeletionData(cell);
+                  const hasStock = cellHasStock(cell);
+                  const deleteTitle = hasStock
+                    ? `Move all stock out of ${cell.logical_code} before deleting it`
+                    : `Delete ${cell.logical_code}`;
                   return [
-                    escapeHtml(cell.logical_code),
-                    cell.controller_code ? escapeHtml(cell.controller_code) : `<span class="muted">Manual</span>`,
-                    cell.hardware_channel ? escapeHtml(cell.hardware_channel) : `<span class="muted">Manual</span>`,
+                    `
+                      <form method="post" action="/devices/cells/rename" class="inline-form">
+                        <input type="hidden" name="cell_id" value="${cell.id}" />
+                        <label class="sr-only" for="rename-cell-${cell.id}">Location Name</label>
+                        <input
+                          id="rename-cell-${cell.id}"
+                          class="compact-input"
+                          name="logical_code"
+                          value="${escapeHtml(cell.logical_code)}"
+                          pattern="[A-Za-z0-9._:-]+"
+                          required
+                        />
+                        <button type="submit" class="ghost-button">Rename</button>
+                      </form>
+                    `,
+                    cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Unmapped</span>`,
+                    cellIsMapped(cell) ? escapeHtml(cell.hardware_channel) : `<span class="muted">Unmapped</span>`,
                     escapeHtml(formatQuantity(cell.occupied_quantity)),
                     cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
                     `
@@ -571,15 +559,15 @@ export function createLocationPages({ db }) {
                         class="inline-form"
                         data-delete-cell-form
                         data-cell-name="${escapeHtml(cell.logical_code)}"
-                        data-cell-has-data="${hasData ? "true" : "false"}"
+                        data-cell-has-stock="${hasStock ? "true" : "false"}"
                       >
                         <input type="hidden" name="cell_id" value="${cell.id}" />
-                        <input type="hidden" name="delete_data_confirmed" value="0" data-delete-data-confirmed />
                         <button
                           type="submit"
                           class="icon-button danger-button"
                           aria-label="Delete ${escapeHtml(cell.logical_code)}"
-                          title="Delete ${escapeHtml(cell.logical_code)}"
+                          title="${escapeHtml(deleteTitle)}"
+                          ${hasStock ? "disabled" : ""}
                         >${trashIcon()}</button>
                       </form>
                     `,
@@ -593,8 +581,43 @@ export function createLocationPages({ db }) {
   }
 
   function renderCellMappingSection(cells) {
-    const cellCatalog = listCellCatalog(db);
-    const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
+    const cellCatalog = listCellCatalog(db)
+      .filter((cell) => Number(cell.active) === 1)
+      .sort((left, right) => {
+        const leftMapped = cellIsMapped(left) ? 1 : 0;
+        const rightMapped = cellIsMapped(right) ? 1 : 0;
+        if (leftMapped !== rightMapped) {
+          return leftMapped - rightMapped;
+        }
+        return String(left.logical_code || "").localeCompare(String(right.logical_code || ""), undefined, {
+          numeric: true,
+        });
+      });
+    const firstRecommendedCell = cellCatalog.find((cell) => !cellIsMapped(cell));
+    const mappedCells = cells
+      .filter(
+        (cell) => {
+          const moduleCount = Number(cell.controller_module_count || 0);
+          return (
+            cell.controller_id &&
+            cell.hardware_channel &&
+            Number(cell.controller_active) === 1 &&
+            String(cell.controller_health || "").toLowerCase() === "online" &&
+            (moduleCount <= 0 || Number(cell.hardware_channel) <= moduleCount)
+          );
+        },
+      )
+      .sort((left, right) => {
+        const controllerCompare = String(left.controller_code || "").localeCompare(
+          String(right.controller_code || ""),
+          undefined,
+          { numeric: true },
+        );
+        if (controllerCompare !== 0) {
+          return controllerCompare;
+        }
+        return Number(left.hardware_channel || 0) - Number(right.hardware_channel || 0);
+      });
 
     return `
       <section id="cell-mapping" class="app-panel" data-config-section="cell-mapping" data-row-collapser data-row-limit="4" data-row-label="mappings">
@@ -604,8 +627,8 @@ export function createLocationPages({ db }) {
             <p class="muted">Ping a module, then assign it to the physical cell it controls.</p>
           </div>
           <div class="mini-actions mapping-toolbar">
-            <span class="mapping-toolbar-status" data-mapping-dirty-count>All mappings saved</span>
-            <button type="submit" form="cell-mapping-form" class="blue-button" data-mapping-save disabled>Save all</button>
+            <span class="mapping-toolbar-status" data-mapping-dirty-count>All Mappings Saved</span>
+            <button type="submit" form="cell-mapping-form" class="blue-button" data-mapping-save disabled>Save All</button>
           </div>
         </div>
         <form id="cell-mapping-form" method="post" action="/mapping/bulk" data-cell-mapping-form>
@@ -625,55 +648,80 @@ export function createLocationPages({ db }) {
               .join("")}
           </datalist>
           ${table(
-            ["Controller", "LED module", "Location name", "Stock", "Ping"],
-            mappedCells.map((cell) => [
-              escapeHtml(cell.controller_code || "No controller"),
-              escapeHtml(cell.hardware_channel),
-              `
-                <input type="hidden" name="hardware_channel_${cell.id}" value="${escapeHtml(cell.hardware_channel)}" />
-                <input type="hidden" name="original_target_cell_id_${cell.id}" value="${cell.id}" />
+            ["Controller", "LED Module", "Assigned Location", "Stock", "Actions"],
+            mappedCells.map((cell) => {
+              const assigned = Number(cell.active) === 1;
+              const displayName = cellMappingDisplayName(cell);
+              const originalValue = assigned ? String(cell.id) : "";
+              const inputValue = assigned ? cell.logical_code : "";
+              const stockLabel = assigned
+                ? escapeHtml(formatQuantity(cell.occupied_quantity))
+                : `<span class="muted">Empty</span>`;
+              const inputPlaceholder = assigned
+                ? ""
+                : firstRecommendedCell
+                  ? `Suggested: ${firstRecommendedCell.logical_code}`
+                  : "Choose a location";
+              return [
+                escapeHtml(cell.controller_code || "No controller"),
+                escapeHtml(cell.hardware_channel),
+                `
+                  <input type="hidden" name="hardware_channel_${cell.id}" value="${escapeHtml(cell.hardware_channel)}" />
+                  <input type="hidden" name="original_target_cell_id_${cell.id}" value="${escapeHtml(originalValue)}" />
                 <div class="mapping-cell-control">
                   <span
                     class="mapping-cell-name mapping-cell-name-saved"
                     data-mapping-cell-name
-                    data-original-label="${escapeHtml(cell.logical_code)}"
-                  >${escapeHtml(cell.logical_code)}</span>
+                    data-original-label="${escapeHtml(displayName)}"
+                  >${escapeHtml(displayName)}</span>
                   <input
                     type="hidden"
                     name="target_cell_id_${cell.id}"
-                    value="${cell.id}"
+                    value="${escapeHtml(originalValue)}"
                     data-mapping-control
                     data-mapping-key="${cell.id}"
-                    data-original-value="${cell.id}"
-                    data-original-label="${escapeHtml(cell.logical_code)}"
-                    data-current-label="${escapeHtml(cell.logical_code)}"
+                    data-original-value="${escapeHtml(originalValue)}"
+                    data-original-label="${escapeHtml(displayName)}"
+                    data-current-label="${escapeHtml(displayName)}"
                     data-controller-name="${escapeHtml(cell.controller_code || "No controller")}"
                     data-module-name="${escapeHtml(cell.hardware_channel)}"
                   />
                   <input
                     class="compact-input cell-mapping-select"
                     list="cell-mapping-options"
-                    value="${escapeHtml(cell.logical_code)}"
-                    required
+                    value="${escapeHtml(inputValue)}"
+                    ${assigned ? "required" : ""}
                     autocomplete="off"
                     data-mapping-input
                     data-mapping-input-for="${cell.id}"
+                    placeholder="${escapeHtml(inputPlaceholder)}"
                   />
                 </div>
               `,
-              escapeHtml(formatQuantity(cell.occupied_quantity)),
-              `
-                <button
-                  type="submit"
-                  form="cell-ping-${cell.id}"
-                  class="green-button ping-button"
-                  data-led-command-submit
-                  data-led-loading-label="Pinging"
-                  data-led-loading-title="Sending ping to ${escapeHtml(cell.logical_code)}"
-                  title="Ping ${escapeHtml(cell.logical_code)}"
-                >Ping</button>
+                stockLabel,
+                `
+                <div class="mini-actions">
+                  <button
+                    type="button"
+                    class="ghost-button locate-button"
+                    data-locate-cell
+                    data-cell-id="${cell.id}"
+                    aria-pressed="false"
+                    title="Locate ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
+                  >Locate</button>
+                  <button
+                    type="submit"
+                    form="cell-ping-${cell.id}"
+                    class="green-button ping-button"
+                    data-led-command-submit
+                    data-led-loading-label="Pinging"
+                    data-led-loading-title="Pinging ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
+                    title="Ping ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
+                  >Ping</button>
+                </div>
               `,
-            ]),
+              ];
+            }),
           )}
         </form>
         ${mappedCells
@@ -684,6 +732,7 @@ export function createLocationPages({ db }) {
                 method="post"
                 action="/devices/cell-test"
                 data-led-command-form
+                data-led-command-async
                 data-led-loading-label="Pinging"
                 data-led-return-hash="#cell-mapping"
                 hidden
@@ -699,13 +748,13 @@ export function createLocationPages({ db }) {
           <div class="modal-panel mapping-unsaved-panel">
             <div class="modal-header">
               <div>
-                <h2 id="mapping-unsaved-title">Unsaved cell mapping changes</h2>
+                <h2 id="mapping-unsaved-title">Unsaved Cell Mapping Changes</h2>
                 <p class="muted">Save or discard the pending mapping changes before leaving this section.</p>
               </div>
             </div>
             <ul class="mapping-unsaved-list" data-mapping-unsaved-list></ul>
             <div class="modal-actions">
-              <button type="button" class="blue-button" data-mapping-modal-save>Save all</button>
+              <button type="button" class="blue-button" data-mapping-modal-save>Save All</button>
               <button type="button" class="ghost-button danger-button" data-mapping-modal-discard>Discard</button>
               <button type="button" class="ghost-button" data-mapping-modal-review>Review</button>
             </div>
@@ -723,11 +772,11 @@ export function createLocationPages({ db }) {
       case "controller-setup":
         return renderControllerSetupSection(controllers);
       case "cell-create":
-        return renderCellCreateSection();
+        return renderCellManagementSection(cells);
       case "cell-management":
         return renderCellManagementSection(cells);
       case "cell-mapping":
-        return renderCellMappingSection(cells);
+        return renderCellMappingSection(listCellCatalog(db));
       default:
         return "";
     }
@@ -736,11 +785,11 @@ export function createLocationPages({ db }) {
   function renderDevices(user, flash) {
     const controllers = listControllers(db);
     const cells = listCells(db);
-    const mappedCells = cells.filter((cell) => cell.controller_id && cell.hardware_channel);
+    const mappedCells = cells.filter(cellIsMapped);
+    const manualCells = cells.filter((cell) => !cellIsMapped(cell));
     const onlineControllers = controllers.filter(
       (controller) => String(controller.heartbeat_status || "").toLowerCase() === "online",
     ).length;
-    const manualCells = cells.length - mappedCells.length;
     const moduleTotal = controllers.reduce(
       (sum, controller) => sum + Number(controller.module_count || controller.mapped_cells || 0),
       0,
@@ -810,31 +859,24 @@ export function createLocationPages({ db }) {
           <section class="operation-grid" aria-label="Configuration actions">
             <a class="operation-tile" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
               <span>
-                <strong>Add controller</strong>
+                <strong>Add Controller</strong>
                 Flash a new ESP32 through a guided setup.
               </span>
               <span class="operation-kbd">01</span>
             </a>
-            <a class="operation-tile" href="#cell-create" data-config-section-link="cell-create" aria-controls="cell-create">
+            <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
               <span>
-                <strong>Add locations</strong>
-                Create a storage location with capacity.
+                <strong>Manage Locations</strong>
+                Add, rename, or remove active storage locations.
               </span>
               <span class="operation-kbd">02</span>
             </a>
-            <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
-              <span>
-                <strong>Manage locations</strong>
-                Review or remove active storage locations.
-              </span>
-              <span class="operation-kbd">03</span>
-            </a>
             <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
               <span>
-                <strong>Cell mapping</strong>
+                <strong>Cell Mapping</strong>
                 Ping modules and assign them to storage locations.
               </span>
-              <span class="operation-kbd">04</span>
+              <span class="operation-kbd">03</span>
             </a>
           </section>
 
@@ -847,20 +889,20 @@ export function createLocationPages({ db }) {
             </div>
             <div class="status-strip">
               <div class="status-metric">
-                <span class="muted">Controllers online</span>
+                <span class="muted">Controllers Online</span>
                 <strong>${escapeHtml(`${onlineControllers}/${controllers.length}`)}</strong>
               </div>
               <div class="status-metric">
-                <span class="muted">LED modules</span>
+                <span class="muted">LED Modules</span>
                 <strong>${escapeHtml(formatQuantity(moduleTotal))}</strong>
               </div>
               <div class="status-metric">
-                <span class="muted">Mapped cells</span>
+                <span class="muted">Mapped Cells</span>
                 <strong>${escapeHtml(formatQuantity(mappedCells.length))}</strong>
               </div>
               <div class="status-metric">
-                <span class="muted">Manual cells</span>
-                <strong>${escapeHtml(formatQuantity(manualCells))}</strong>
+                <span class="muted">Manual Cells</span>
+                <strong>${escapeHtml(formatQuantity(manualCells.length))}</strong>
               </div>
             </div>
           </section>
@@ -873,7 +915,7 @@ export function createLocationPages({ db }) {
               </div>
             </div>
             ${table(
-              ["Controller", "RS485 id", "Health", "Last seen", "LED modules", "Cells", "Actions"],
+              ["Controller", "RS485 ID", "Health", "Last Seen", "LED Modules", "Cells", "Actions"],
               controllerRows,
             )}
           </section>

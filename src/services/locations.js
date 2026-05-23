@@ -7,6 +7,7 @@ import {
   listCellCatalog,
   listCells,
   listControllers,
+  renameCell,
   searchCells,
   updateControllerHealth,
   updateCellMapping,
@@ -43,6 +44,9 @@ export function createLocationService({ db }) {
     },
     createCell(input) {
       return createCell(db, input);
+    },
+    renameCell(input) {
+      return renameCell(db, input);
     },
     updateCellMapping(input) {
       return updateCellMapping(db, input);

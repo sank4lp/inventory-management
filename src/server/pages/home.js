@@ -1,4 +1,5 @@
 import {
+  getRecommendedActions,
   listRecentTasksForUser,
 } from "../../services/inventory.js";
 import {
@@ -36,6 +37,17 @@ function overviewActionIcon(type) {
       <path d="M12 15V8" />
       <path d="M16 15v-6" />
     `,
+    optimize: `
+      <path d="M4 7h6" />
+      <path d="M14 7h6" />
+      <path d="M4 12h10" />
+      <path d="M18 12h2" />
+      <path d="M4 17h3" />
+      <path d="M11 17h9" />
+      <circle cx="12" cy="7" r="2" />
+      <circle cx="16" cy="12" r="2" />
+      <circle cx="9" cy="17" r="2" />
+    `,
   };
 
   return `
@@ -48,8 +60,19 @@ function overviewActionIcon(type) {
 }
 
 export function createHomePages({ db }) {
+  function recommendedActionLink(action) {
+    return `/recommended-actions?key=${encodeURIComponent(action.key)}`;
+  }
+
+  function taskOwnerLink(user, task) {
+    const label = task.created_by_name || task.created_by_username || `User #${task.created_by}`;
+    const href = user.role === "admin" ? `/admin/users/${task.created_by}` : "/profile";
+    return `<a class="mini-link" href="${href}">${escapeHtml(label)}</a>`;
+  }
+
   function renderHome(user, flash, url) {
     const tasks = listRecentTasksForUser(db, user);
+    const recommendedActions = getRecommendedActions(db);
 
     return page({
       title: "Overview",
@@ -73,6 +96,10 @@ export function createHomePages({ db }) {
             ${overviewActionIcon("reports")}
             <span class="overview-action-label">Reports</span>
           </a>
+          <a class="overview-action-tile overview-action-optimize" href="/recommended-actions" aria-label="Optimize Warehouse">
+            ${overviewActionIcon("optimize")}
+            <span class="overview-action-label">Optimize Warehouse</span>
+          </a>
         </section>
         <section class="overview-secondary-grid overview-recent-grid">
           <section class="secondary-panel recent-tasks-panel" data-row-collapser data-row-limit="3" data-row-label="tasks">
@@ -82,9 +109,10 @@ export function createHomePages({ db }) {
             ${
               tasks.length
                 ? table(
-                    ["Task", "Product", "Type", "Status", "Started", "Correction"],
+                    ["Task", "User", "Product", "Type", "Status", "Started", "Correction"],
                     tasks.map((task) => [
                       `<a href="/tasks/${task.id}">#${task.id}</a>`,
+                      taskOwnerLink(user, task),
                       `${escapeHtml(task.first_product_name || "—")}<br /><small>${escapeHtml(task.first_sku || "—")}</small>`,
                       statusBadge(task.type),
                       statusBadge(task.status),
@@ -97,6 +125,28 @@ export function createHomePages({ db }) {
                 : `<p class="muted">No recent tasks yet.</p>`
             }
           </section>
+          ${
+            recommendedActions.length
+              ? `
+                <section class="secondary-panel overview-recommendations-panel">
+                  <div class="secondary-panel-header">
+                    <h2>Recommended Actions</h2>
+                    <a class="mini-link" href="/recommended-actions">View All</a>
+                  </div>
+                  ${table(
+                    ["Issue", "Location", "Product", "Next Step", "Action"],
+                    recommendedActions.map((action) => [
+                      `<strong>${escapeHtml(action.title)}</strong>`,
+                      escapeHtml(action.logicalCode),
+                      `${escapeHtml(action.productName || "—")}<br /><small>${escapeHtml(action.productSku || "—")}</small>`,
+                      escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`),
+                      `<a class="mini-link" href="${recommendedActionLink(action)}">Review</a>`,
+                    ]),
+                  )}
+                </section>
+              `
+              : ""
+          }
         </section>
       `,
     });

@@ -59,6 +59,32 @@ test("put planning fills preferred cell, same-product cells, then empty cells", 
   );
 });
 
+test("put planning can prioritize multiple preferred cells before fallback cells", () => {
+  const product = { id: 42 };
+
+  assert.deepEqual(
+    planPutLines({
+      product,
+      requestedQuantity: 7,
+      itemsPerCell: 5,
+      preferredCells: [
+        { cell_id: 4, same_product_quantity: 3, occupied_quantity: 3 },
+        { cell_id: 1, same_product_quantity: 4, occupied_quantity: 4 },
+      ],
+      sameProductCells: [
+        { cell_id: 4, available_quantity: 3 },
+        { cell_id: 2, available_quantity: 1 },
+      ],
+      emptyCells: [{ cell_id: 3 }],
+    }),
+    [
+      { product_id: 42, cell_id: 4, planned_quantity: 2, guidance_color: "red" },
+      { product_id: 42, cell_id: 1, planned_quantity: 1, guidance_color: "red" },
+      { product_id: 42, cell_id: 2, planned_quantity: 4, guidance_color: "red" },
+    ],
+  );
+});
+
 test("recommended move planning reports unresolved quantity when no destination has room", () => {
   const plan = planRecommendedMoveDestinations({
     sourceCellId: 5,

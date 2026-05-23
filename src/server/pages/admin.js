@@ -4,28 +4,102 @@ import {
   listRegistrationKeys,
   listUsers,
 } from "../../services/inventory.js";
+import { readPendingReviewTimeoutSettings } from "../../services/task-timeout-settings.js";
 import {
   card,
   cellPickerField,
   copyIcon,
   escapeHtml,
+  formatBytes,
+  formatDate,
+  formatQuantity,
   page,
   renderAdjustmentLine,
   rolePickerField,
   statusBadge,
+  suspendIcon,
   table,
   trashIcon,
 } from "./shared.js";
 import { getRuntimeContext } from "../runtime-context.js";
 
 export function createAdminPages({ db }) {
+  function renderDatabaseHealth(health) {
+    const lastMaintenance = health.lastMaintenance;
+    const archive = health.archiveSummary;
+    const backupSummary = health.backupSummary;
+
+    return card(
+      "Database Health",
+      `
+        <div class="meta-grid compact-meta-grid">
+          <div><strong>Database</strong><br />${escapeHtml(formatBytes(health.databaseBytes))}</div>
+          <div><strong>WAL File</strong><br />${escapeHtml(formatBytes(health.walBytes))}</div>
+          <div><strong>Backups</strong><br />${escapeHtml(formatBytes(health.backupBytes))}</div>
+          <div><strong>Archives</strong><br />${escapeHtml(formatBytes(archive.totalBytes))}</div>
+          <div><strong>Free Pages</strong><br />${escapeHtml(formatBytes(health.freeBytes))}</div>
+          <div><strong>Auto Backup</strong><br />${escapeHtml(
+            health.settings.automaticBackupSchedule?.label ||
+              `Every ${String(health.settings.automaticBackupIntervalHours)} hour(s)`,
+          )}</div>
+        </div>
+        <h3>Maintenance Policy</h3>
+        <div class="meta-grid compact-meta-grid">
+          <div><strong>Reports Default</strong><br />Last ${escapeHtml(
+            String(health.settings.reportDefaultDays),
+          )} day(s)</div>
+          <div><strong>Device Logs</strong><br />${escapeHtml(
+            String(health.settings.deviceEventRetentionDays),
+          )} day(s)</div>
+          <div><strong>System Logs</strong><br />${escapeHtml(
+            String(health.settings.systemEventRetentionDays),
+          )} day(s)</div>
+          <div><strong>Business Archive</strong><br />After ${escapeHtml(
+            String(health.settings.businessArchiveAfterDays),
+          )} day(s)</div>
+        </div>
+        <h3>Storage Paths</h3>
+        <div class="meta-grid compact-meta-grid">
+          <div><strong>Database File</strong><br /><code class="path-code">${escapeHtml(health.databasePath)}</code></div>
+          <div><strong>Archive Folder</strong><br /><code class="path-code">${escapeHtml(health.archiveDirectory)}</code></div>
+          <div><strong>Latest Auto Backup</strong><br />${
+            backupSummary?.latestAutomaticBackup
+              ? escapeHtml(formatDate(backupSummary.latestAutomaticBackup.createdAt))
+              : "No automatic backup yet"
+          }</div>
+          <div><strong>Latest Archive</strong><br />${
+            archive.latestFile ? escapeHtml(formatDate(archive.latestFile.createdAt)) : "No archive files yet"
+          }</div>
+          <div><strong>Last Maintenance</strong><br />${
+            lastMaintenance?.completedAt ? escapeHtml(formatDate(lastMaintenance.completedAt)) : "Not recorded yet"
+          }</div>
+          <div><strong>Maintenance Errors</strong><br />${escapeHtml(
+            formatQuantity(lastMaintenance?.errors?.length || 0),
+          )}</div>
+        </div>
+        <h3>Rows By Table</h3>
+        ${table(
+          ["Table", "Rows"],
+          health.rowCounts.map((row) => [
+            escapeHtml(row.tableName),
+            escapeHtml(formatQuantity(row.count)),
+          ]),
+        )}
+      `,
+    );
+  }
+
   function renderRegistrationKeyActions(key) {
     if (key.status !== "active") {
-      return `<span class="muted">No action</span>`;
+      return `<span class="muted">No Action</span>`;
     }
 
-    const confirmText = "Delete this registration key? New users will no longer be able to register with it.";
-    const label = `Delete registration key ${key.key_value}`;
+    const reusable = key.usage_policy === "global";
+    const confirmText = reusable
+      ? "Suspend this reusable operator registration key? New users will no longer be able to register with it."
+      : "Delete this registration key? New users will no longer be able to register with it.";
+    const label = `${reusable ? "Suspend" : "Delete"} registration key ${key.key_value}`;
+    const actionIcon = reusable ? suspendIcon() : trashIcon();
 
     return `
       <div class="mini-actions">
@@ -44,15 +118,29 @@ export function createAdminPages({ db }) {
             aria-label="${escapeHtml(label)}"
             title="${escapeHtml(label)}"
             onclick="return confirm(${escapeHtml(JSON.stringify(confirmText))});"
-          >${trashIcon()}</button>
+          >${actionIcon}</button>
         </form>
       </div>
     `;
   }
 
+  function registrationKeyTypeLabel(key) {
+    return key.usage_policy === "global"
+      ? `<span class="badge badge-active">Global Operator</span>`
+      : `<span class="badge">One-Time</span>`;
+  }
+
+  function registrationKeyUsageLabel(key) {
+    const count = Number(key.usage_count || 0);
+    if (key.usage_policy === "global") {
+      return `${formatQuantity(count)} Registered`;
+    }
+    return key.status === "used" ? "1 Of 1 Used" : `${formatQuantity(count)} Of 1 Used`;
+  }
+
   function renderUserActions(currentUser, entry) {
     if (Number(entry.id) === Number(currentUser.id)) {
-      return `<span class="muted">Signed in</span>`;
+      return `<span class="muted">Signed In</span>`;
     }
 
     const nextStatus = entry.status === "active" ? "inactive" : "active";
@@ -76,6 +164,38 @@ export function createAdminPages({ db }) {
     `;
   }
 
+  function renderTaskTimeoutSettings() {
+    const settings = readPendingReviewTimeoutSettings(db);
+    return card(
+      "Task Completion Timeout",
+      `
+        <form method="post" action="/admin/task-timeout" class="stack-form">
+          <div class="meta-grid compact-meta-grid">
+            <div><strong>Current Wait</strong><br />${escapeHtml(String(settings.timeoutMinutes))} Minute(s)</div>
+            <div><strong>Default</strong><br />${escapeHtml(String(settings.defaultMinutes))} Minute(s)</div>
+            <div><strong>Range</strong><br />${escapeHtml(String(settings.minMinutes))}-${escapeHtml(String(settings.maxMinutes))} Minute(s)</div>
+            <div><strong>Last Updated</strong><br />${
+              settings.updatedAt ? escapeHtml(formatDate(settings.updatedAt)) : "Default Setting"
+            }</div>
+          </div>
+          <label>Complete Task Wait Time
+            <input
+              type="number"
+              name="timeout_minutes"
+              min="${escapeHtml(String(settings.minMinutes))}"
+              max="${escapeHtml(String(settings.maxMinutes))}"
+              step="1"
+              value="${escapeHtml(String(settings.timeoutMinutes))}"
+              required
+            />
+          </label>
+          <p class="muted">Pick and Put tasks waiting for Complete Task are cancelled after this many minutes from the last operator action.</p>
+          <button type="submit" class="blue-button">Save Timeout</button>
+        </form>
+      `,
+    );
+  }
+
   function renderAdmin(user, flash) {
     const users = listUsers(db);
     const keys = listRegistrationKeys(db);
@@ -83,12 +203,118 @@ export function createAdminPages({ db }) {
     const cells = listCells(db);
     const runtime = getRuntimeContext();
     const dashboard = runtime.systemService?.getDashboardData(runtime.startup);
+    const databaseHealth = runtime.databaseMaintenanceService?.getDatabaseHealth();
+    const countAdjustmentCard = card(
+      "Count Adjustment",
+      `
+        <form method="post" action="/admin/adjustments" class="stack-form" data-adjustment-form>
+          <div class="adjustment-cell-selector">
+            <label>Cell
+              ${cellPickerField(cells, null, "adjustment-cell")}
+            </label>
+            <button type="button" class="ghost-button" data-adjustment-locate-cell disabled>Locate Cell</button>
+          </div>
+          <div class="adjustment-lines-shell">
+            <div class="adjustment-lines-header">
+              <strong>Products Counted In This Cell</strong>
+              <button type="button" class="ghost-button" data-adjustment-add disabled>Add Product Line</button>
+            </div>
+            <div class="stack-form adjustment-lines" data-adjustment-lines>
+              <div class="adjustment-empty-state" data-adjustment-empty>
+                Select a cell to load saved product counts.
+              </div>
+            </div>
+          </div>
+          <template data-adjustment-template>
+            ${renderAdjustmentLine(products, "__INDEX__")}
+          </template>
+          <label>Reason<textarea name="reason" rows="3" required placeholder="Cycle count, damaged stock, or correction note"></textarea></label>
+          <div class="adjustment-guidance-actions">
+            <button type="button" class="ghost-button" data-adjustment-light-quantity disabled>Preview Quantity LED</button>
+            <button type="submit">Save Count</button>
+          </div>
+          <div class="adjustment-guidance-status" data-adjustment-led-status role="status" aria-live="polite"></div>
+        </form>
+      `,
+    );
+    const accessManagementSection = `
+      <section class="two-column">
+        ${card(
+          "Registration Keys",
+          `
+            <div class="content-stack">
+              <p class="muted">Create one one-time key per person. The key sets the account role during registration and becomes used after that person creates an account.</p>
+              <div class="key-quick-actions">
+                <form method="post" action="/admin/registration-keys" class="inline-form">
+                  <input type="hidden" name="role" value="operator" />
+                  <button type="submit" class="blue-button">Generate Operator Key</button>
+                </form>
+                <form method="post" action="/admin/registration-keys" class="inline-form">
+                  <input type="hidden" name="role" value="operator" />
+                  <input type="hidden" name="usage_policy" value="global" />
+                  <button type="submit" class="green-button">Generate Global Operator Key</button>
+                </form>
+                <form method="post" action="/admin/registration-keys" class="inline-form">
+                  <input type="hidden" name="role" value="admin" />
+                  <button type="submit" class="ghost-button">Generate Admin Key</button>
+                </form>
+              </div>
+              <details class="form-disclosure">
+                <summary>Use A Custom Key Value</summary>
+                <form method="post" action="/admin/registration-keys" class="stack-form">
+                  <label>Key Value<input name="key_value" placeholder="INVITE-AKSHAY-2026" /></label>
+                  <label>Role
+                    ${rolePickerField()}
+                  </label>
+                  <label class="checkbox-line">
+                    <input type="checkbox" name="usage_policy" value="global" />
+                    Global Operator Team Key
+                  </label>
+                  <button type="submit">Issue Custom Key</button>
+                </form>
+              </details>
+              <div class="copy-status" data-copy-status role="status" aria-live="polite"></div>
+              ${table(
+                ["Key", "Role", "Type", "Usage", "Status", "Action"],
+                keys.map((key) => [
+                  `<code>${escapeHtml(key.key_value)}</code>`,
+                  statusBadge(key.role),
+                  registrationKeyTypeLabel(key),
+                  escapeHtml(registrationKeyUsageLabel(key)),
+                  statusBadge(key.status),
+                  renderRegistrationKeyActions(key),
+                ]),
+              )}
+            </div>
+          `,
+          "",
+          `data-row-collapser data-row-limit="4" data-row-label="keys"`,
+        )}
+        ${card(
+          "Users",
+          table(
+            ["Name", "Role", "Status", "Action"],
+            users.map((entry) => [
+              `<a href="/admin/users/${entry.id}">${escapeHtml(entry.name)}</a><br /><small>${escapeHtml(entry.username)}</small>`,
+              statusBadge(entry.role),
+              statusBadge(entry.status),
+              renderUserActions(user, entry),
+            ]),
+          ),
+          "",
+          `data-row-collapser data-row-limit="4" data-row-label="users"`,
+        )}
+      </section>
+    `;
 
     return page({
       title: "Admin",
       user,
       flash,
       content: `
+        ${accessManagementSection}
+        ${countAdjustmentCard}
+        ${renderTaskTimeoutSettings()}
         ${
           dashboard
             ? card(
@@ -104,7 +330,7 @@ export function createAdminPages({ db }) {
                       dashboard.health.startup.recovery.message,
                     )}</div>
                   </div>
-                  <h3>Recent recovery actions</h3>
+                  <h3>Recent Recovery Actions</h3>
                   ${
                     dashboard.recentRecoveryEvents.length
                       ? table(
@@ -117,7 +343,8 @@ export function createAdminPages({ db }) {
                         )
                       : `<p class="muted">No recent recovery actions recorded.</p>`
                   }
-                  <h3>Recent hardware warnings</h3>
+                  <h3>Recent Hardware Warnings</h3>
+                  <p class="muted">Historical warning log from hardware commands; current controller health is shown in Overall/Recovery and Devices.</p>
                   ${
                     dashboard.recentHardwareFailures.length
                       ? table(
@@ -146,95 +373,7 @@ export function createAdminPages({ db }) {
               )
             : ""
         }
-        <section class="two-column">
-          ${card(
-            "Registration keys",
-            `
-              <p class="muted">Create one one-time key per person. The key sets the account role during registration and becomes used after that person creates an account.</p>
-              <div class="key-quick-actions">
-                <form method="post" action="/admin/registration-keys" class="inline-form">
-                  <input type="hidden" name="role" value="operator" />
-                  <button type="submit" class="blue-button">Generate operator key</button>
-                </form>
-                <form method="post" action="/admin/registration-keys" class="inline-form">
-                  <input type="hidden" name="role" value="admin" />
-                  <button type="submit" class="ghost-button">Generate admin key</button>
-                </form>
-              </div>
-              <details class="form-disclosure">
-                <summary>Use a custom key value</summary>
-                <form method="post" action="/admin/registration-keys" class="stack-form">
-                  <label>Key value<input name="key_value" placeholder="INVITE-AKSHAY-2026" /></label>
-                  <label>Role
-                    ${rolePickerField()}
-                  </label>
-                  <button type="submit">Issue custom key</button>
-                </form>
-              </details>
-              <div class="copy-status" data-copy-status role="status" aria-live="polite"></div>
-              ${table(
-                ["Key", "Role", "Status", "Action"],
-                keys.map((key) => [
-                  `<code>${escapeHtml(key.key_value)}</code>`,
-                  statusBadge(key.role),
-                  statusBadge(key.status),
-                  renderRegistrationKeyActions(key),
-                ]),
-              )}
-            `,
-            "",
-            `data-row-collapser data-row-limit="4" data-row-label="keys"`,
-          )}
-          ${card(
-            "Users",
-            table(
-              ["Name", "Role", "Status", "Action"],
-              users.map((entry) => [
-                `${escapeHtml(entry.name)}<br /><small>${escapeHtml(entry.username)}</small>`,
-                statusBadge(entry.role),
-                statusBadge(entry.status),
-                renderUserActions(user, entry),
-              ]),
-            ),
-            "",
-            `data-row-collapser data-row-limit="4" data-row-label="users"`,
-          )}
-        </section>
-        ${card(
-          "Count adjustment",
-          `
-            <form method="post" action="/admin/adjustments" class="stack-form" data-adjustment-form>
-              <section class="guide-strip">
-                <span class="guide-pill active-guide">1. Choose location</span>
-                <span class="guide-pill">2. Enter counted quantity</span>
-                <span class="guide-pill">3. Preview LED, then save</span>
-              </section>
-              <label>Cell
-                ${cellPickerField(cells, null, "adjustment-cell")}
-              </label>
-              <div class="mini-actions">
-                <button type="button" class="ghost-button" data-adjustment-locate-cell disabled>Locate cell</button>
-              </div>
-              <div class="adjustment-lines-header">
-                <strong>Products counted in this cell</strong>
-                <button type="button" class="ghost-button" data-adjustment-add>Add product line</button>
-              </div>
-              <div class="stack-form" data-adjustment-lines>
-                ${renderAdjustmentLine(products, 0)}
-              </div>
-              <template data-adjustment-template>
-                ${renderAdjustmentLine(products, "__INDEX__")}
-              </template>
-              <label>Reason<textarea name="reason" rows="3" required placeholder="Cycle count, damaged stock, or correction note"></textarea></label>
-              <div class="adjustment-guidance-actions">
-                <button type="button" class="ghost-button" data-adjustment-light-quantity disabled>Preview quantity LED</button>
-                <button type="submit">Save count</button>
-              </div>
-              <div class="adjustment-guidance-status" data-adjustment-led-status role="status" aria-live="polite"></div>
-              <p class="muted">Use this after a physical count. Enter the final quantity now in the location; the software records only the difference from the current balance.</p>
-            </form>
-          `,
-        )}
+        ${databaseHealth ? renderDatabaseHealth(databaseHealth) : ""}
       `,
     });
   }

@@ -6,6 +6,10 @@ import {
 } from "./client/dom.js";
 
 const ACTION_SCROLL_KEY = "inventory-management:action-scroll";
+const COMBO_RECENCY_KEY_PREFIX = "inventory-management:combo-recency:";
+const SYSTEM_HEALTH_POLL_MS = 30 * 1000;
+let productFindLedClearWindowBound = false;
+let recommendationLedClearWindowBound = false;
 
 function saveActionScrollPosition() {
   try {
@@ -127,6 +131,38 @@ function wireControllerHealthForms() {
   });
 }
 
+function wireSystemHealthNotice() {
+  const notice = document.querySelector("[data-system-notice]");
+  if (!notice) {
+    return;
+  }
+
+  const refresh = async () => {
+    try {
+      const response = await fetch("/api/system/health", {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json();
+      if (payload.degraded) {
+        notice.textContent = `System warning: ${payload.message || "System is running with warnings."}`;
+        notice.hidden = false;
+      } else {
+        notice.textContent = "";
+        notice.hidden = true;
+      }
+    } catch {
+      // Health polling is only for live notice updates; page navigation still renders the latest state.
+    }
+  };
+
+  window.setInterval(refresh, SYSTEM_HEALTH_POLL_MS);
+}
+
 function wireLedCommandForms() {
   document.querySelectorAll("[data-led-command-form]").forEach((form) => {
     if (form.dataset.ledCommandBound === "true") {
@@ -139,6 +175,7 @@ function wireLedCommandForms() {
         return;
       }
 
+      const asyncCommand = form.hasAttribute("data-led-command-async");
       const returnTo = form.querySelector("[data-led-command-return-to]");
       if (returnTo) {
         returnTo.value = currentReturnPath(form.dataset.ledReturnHash || "");
@@ -146,6 +183,15 @@ function wireLedCommandForms() {
 
       const button = findFormSubmitButton(form, event, "[data-led-command-submit]");
       if (!button) {
+        if (asyncCommand) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (asyncCommand) {
+        event.preventDefault();
+        submitLedCommandFormAsync(form, button);
         return;
       }
 
@@ -157,6 +203,53 @@ function wireLedCommandForms() {
       }, 0);
     });
   });
+}
+
+async function submitLedCommandFormAsync(form, button) {
+  const originalHtml = button.innerHTML;
+  const originalTitle = button.getAttribute("title");
+  const restoreButton = () => {
+    if (button.dataset.loadingActive === "true") {
+      return;
+    }
+    button.innerHTML = originalHtml;
+    if (originalTitle === null) {
+      button.removeAttribute("title");
+    } else {
+      button.setAttribute("title", originalTitle);
+    }
+  };
+
+  setButtonLoading(button, true, {
+    label: button.dataset.ledLoadingLabel || form.dataset.ledLoadingLabel || "Sending",
+    title: button.dataset.ledLoadingTitle || form.dataset.ledLoadingTitle || "Sending command",
+  });
+
+  try {
+    const response = await fetch(form.action, {
+      method: (form.getAttribute("method") || "post").toUpperCase(),
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Requested-With": "fetch",
+      },
+      body: new URLSearchParams(new FormData(form)),
+      credentials: "same-origin",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false || payload.degraded) {
+      throw new Error(payload.error || payload.message || "Command failed.");
+    }
+
+    setButtonLoading(button, false);
+    button.textContent = "Sent";
+    window.setTimeout(restoreButton, 1000);
+  } catch (error) {
+    setButtonLoading(button, false);
+    button.textContent = "Failed";
+    button.setAttribute("title", error.message || "Command failed.");
+    window.setTimeout(restoreButton, 1400);
+  }
 }
 
 function wireToasts() {
@@ -281,6 +374,39 @@ function wireLiveSearch() {
 }
 
 function wireQuantityShortcuts() {
+  const syncQuantityShortcutState = (form) => {
+    const quantityInput = form?.querySelector('input[name="quantity"]');
+    if (!quantityInput) {
+      return;
+    }
+
+    const currentValue = Number(quantityInput.value);
+    form.querySelectorAll("[data-fill-quantity]").forEach((shortcutButton) => {
+      const shortcutValue = Number(shortcutButton.dataset.fillQuantity);
+      const isActive =
+        quantityInput.value !== "" &&
+        Number.isFinite(currentValue) &&
+        Number.isFinite(shortcutValue) &&
+        currentValue === shortcutValue;
+      shortcutButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  };
+
+  document.querySelectorAll("form").forEach((form) => {
+    if (form.dataset.quantityShortcutSyncBound === "true") {
+      return;
+    }
+
+    const quantityInput = form.querySelector('input[name="quantity"]');
+    if (!quantityInput || !form.querySelector("[data-fill-quantity]")) {
+      return;
+    }
+
+    form.dataset.quantityShortcutSyncBound = "true";
+    quantityInput.addEventListener("input", () => syncQuantityShortcutState(form));
+    syncQuantityShortcutState(form);
+  });
+
   document.querySelectorAll("[data-fill-quantity]").forEach((button) => {
     if (button.dataset.quantityShortcutBound === "true") {
       return;
@@ -296,7 +422,232 @@ function wireQuantityShortcuts() {
       quantityInput.value = button.dataset.fillQuantity || "";
       quantityInput.dispatchEvent(new Event("input", { bubbles: true }));
       quantityInput.focus();
+      syncQuantityShortcutState(form);
     });
+  });
+}
+
+function wireCompletionRedirects() {
+  document.querySelectorAll("[data-completion-redirect]").forEach((panel) => {
+    if (panel.dataset.completionRedirectBound === "true") {
+      return;
+    }
+    panel.dataset.completionRedirectBound = "true";
+
+    const target = panel.dataset.redirectTarget || "/";
+    const seconds = Math.max(1, Number(panel.dataset.redirectSeconds || 10));
+    const countdown = panel.querySelector("[data-completion-countdown]");
+    const progress = panel.querySelector("[data-completion-progress]");
+    const overviewLink = panel.querySelector("[data-completion-overview]");
+    const startedAt = window.performance.now();
+    let redirected = false;
+
+    document.body.classList.add("modal-open");
+
+    const redirect = () => {
+      if (redirected) {
+        return;
+      }
+      redirected = true;
+      window.location.replace(target);
+    };
+
+    overviewLink?.addEventListener("click", (event) => {
+      event.preventDefault();
+      redirect();
+    });
+
+    window.setTimeout(redirect, seconds * 1000);
+
+    const render = (now) => {
+      if (redirected) {
+        return;
+      }
+
+      const elapsedSeconds = Math.max(0, (now - startedAt) / 1000);
+      const remainingSeconds = Math.max(0, seconds - elapsedSeconds);
+      const roundedSeconds = Math.ceil(remainingSeconds);
+      const progressScale = seconds > 0 ? remainingSeconds / seconds : 0;
+
+      if (countdown) {
+        countdown.textContent = `Redirecting to Overview in ${roundedSeconds} ${
+          roundedSeconds === 1 ? "second" : "seconds"
+        }`;
+      }
+      if (progress) {
+        progress.style.transform = `scaleX(${progressScale})`;
+      }
+
+      if (remainingSeconds <= 0) {
+        redirect();
+        return;
+      }
+
+      window.requestAnimationFrame(render);
+    };
+
+    window.requestAnimationFrame(render);
+  });
+}
+
+function wireQuantityChangeConfirmations() {
+  document.querySelectorAll("[data-quantity-change-form]").forEach((form) => {
+    if (form.dataset.quantityChangeBound === "true") {
+      return;
+    }
+    form.dataset.quantityChangeBound = "true";
+
+    const formatQuantity = (value) =>
+      Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+    const formInputs = () =>
+      Array.from(document.querySelectorAll("[data-quantity-change-input]")).filter(
+        (input) => input.form === form || form.contains(input),
+      );
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const originalTotal = Number(form.dataset.originalTotal || 0);
+      if (!Number.isFinite(originalTotal)) {
+        return;
+      }
+
+      const nextTotal = formInputs().reduce((sum, input) => {
+        const value = Number(input.value || 0);
+        return Number.isFinite(value) ? sum + value : sum;
+      }, 0);
+
+      if (Math.abs(nextTotal - originalTotal) < 0.000001) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `This changes the task quantity from ${formatQuantity(originalTotal)} to ${formatQuantity(nextTotal)}. Continue?`,
+      );
+      if (!confirmed) {
+        event.preventDefault();
+      }
+    });
+  });
+}
+
+function wireProductSummaryForms() {
+  document.querySelectorAll("[data-product-summary-form]").forEach((form) => {
+    if (form.dataset.productSummaryBound === "true") {
+      return;
+    }
+    form.dataset.productSummaryBound = "true";
+
+    const productInput = form.querySelector('input[name="product_id"]');
+    if (!productInput) {
+      return;
+    }
+
+    productInput.addEventListener("change", () => {
+      const productId = String(productInput.value || "").trim();
+      if (!productId) {
+        return;
+      }
+
+      const summaryPath = form.dataset.productSummaryPath || window.location.pathname;
+      const url = new URL(summaryPath, window.location.origin);
+      url.searchParams.set("product_id", productId);
+
+      const quantity = form.querySelector('input[name="quantity"]')?.value?.trim();
+      if (quantity) {
+        url.searchParams.set("quantity", quantity);
+      }
+
+      const preferredCellId =
+        form.querySelector('input[name="context_cell_id"]')?.value?.trim() ||
+        form.querySelector('input[name="preferred_cell_id"]')?.value?.trim();
+      if (preferredCellId) {
+        url.searchParams.set("cell_id", preferredCellId);
+      }
+
+      window.location.assign(`${url.pathname}${url.search}`);
+    });
+  });
+}
+
+function wireMovementStockSummaries(root = document) {
+  root.querySelectorAll("[data-movement-stock-summary]").forEach((section) => {
+    if (section.dataset.movementStockBound === "true") {
+      return;
+    }
+    section.dataset.movementStockBound = "true";
+
+    const tbody = section.querySelector("[data-movement-stock-rows]");
+    const button = section.querySelector("[data-movement-stock-load-more]");
+    const status = section.querySelector("[data-movement-stock-status]");
+    const footer = section.querySelector("[data-movement-stock-footer]");
+
+    if (!tbody || !button || !footer) {
+      return;
+    }
+
+    const totalCount = Number(section.dataset.movementStockTotal || 0);
+    const pageSize = Math.max(1, Number(section.dataset.movementStockLimit || 5));
+    const rowCount = () => tbody.querySelectorAll("[data-stock-cell-row]").length;
+    const updateStatus = () => {
+      const loadedCount = rowCount();
+      const offset = Math.max(0, Number(section.dataset.movementStockOffset || loadedCount));
+      if (status) {
+        status.textContent = `Showing ${Math.min(loadedCount, totalCount)} Of ${totalCount} Locations`;
+      }
+      if (loadedCount >= totalCount || offset >= totalCount) {
+        footer.hidden = true;
+      }
+    };
+
+    button.addEventListener("click", async () => {
+      const endpoint = section.dataset.movementStockEndpoint;
+      if (!endpoint || button.disabled) {
+        return;
+      }
+
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      try {
+        const offset = Math.max(0, Number(section.dataset.movementStockOffset || rowCount()));
+        const url = new URL(endpoint, window.location.origin);
+        url.searchParams.set("offset", String(offset));
+        url.searchParams.set("limit", String(pageSize));
+
+        const response = await fetch(`${url.pathname}${url.search}`, {
+          headers: { "X-Requested-With": "fetch" },
+        });
+        if (!response.ok) {
+          return;
+        }
+
+        const template = document.createElement("template");
+        template.innerHTML = await response.text();
+        const existingCellIds = new Set(
+          Array.from(tbody.querySelectorAll("[data-stock-cell-row]")).map(
+            (row) => row.dataset.cellId || "",
+          ),
+        );
+        template.content.querySelectorAll("[data-stock-cell-row]").forEach((row) => {
+          const cellId = row.dataset.cellId || "";
+          if (cellId && existingCellIds.has(cellId)) {
+            return;
+          }
+          existingCellIds.add(cellId);
+          tbody.append(row);
+        });
+
+        section.dataset.movementStockOffset = String(offset + pageSize);
+        updateStatus();
+      } finally {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      }
+    });
+
+    updateStatus();
   });
 }
 
@@ -319,6 +670,127 @@ function wireNavState() {
 
     link.classList.toggle("nav-link-active", isActive);
   }
+}
+
+function wireNavOverflow() {
+  const nav = document.querySelector("[data-nav-links]");
+  if (!nav || nav.dataset.navOverflowBound === "true") {
+    return;
+  }
+
+  const links = Array.from(nav.querySelectorAll("[data-nav-link]"));
+  const overflow = nav.querySelector("[data-nav-overflow]");
+  const toggle = nav.querySelector("[data-nav-overflow-toggle]");
+  const menu = nav.querySelector("[data-nav-overflow-menu]");
+  if (!links.length || !overflow || !toggle || !menu) {
+    return;
+  }
+
+  nav.dataset.navOverflowBound = "true";
+  let layoutFrame = null;
+
+  const setOpen = (open) => {
+    const nextOpen = Boolean(open && !overflow.hidden && menu.children.length);
+    menu.hidden = !nextOpen;
+    toggle.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+  };
+
+  const renderOverflowMenu = (hiddenLinks) => {
+    menu.textContent = "";
+    for (const link of hiddenLinks) {
+      const menuLink = link.cloneNode(true);
+      menuLink.hidden = false;
+      menuLink.removeAttribute("data-nav-link");
+      menuLink.classList.add("nav-overflow-link");
+      menu.append(menuLink);
+    }
+
+    overflow.hidden = hiddenLinks.length === 0;
+    toggle.classList.toggle(
+      "nav-overflow-active",
+      hiddenLinks.some((link) => link.classList.contains("nav-link-active")),
+    );
+    if (!hiddenLinks.length) {
+      setOpen(false);
+    }
+  };
+
+  const layout = () => {
+    layoutFrame = null;
+    setOpen(false);
+    links.forEach((link) => {
+      link.hidden = false;
+    });
+    overflow.hidden = true;
+    toggle.classList.remove("nav-overflow-active");
+    menu.textContent = "";
+
+    if (!nav.clientWidth) {
+      return;
+    }
+
+    const styles = window.getComputedStyle(nav);
+    const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
+    const navWidth = nav.getBoundingClientRect().width;
+    const linkWidths = links.map((link) => link.getBoundingClientRect().width);
+    const linksWidth = (count) =>
+      linkWidths.slice(0, count).reduce((sum, width) => sum + width, 0) +
+      Math.max(0, count - 1) * gap;
+    const allLinksWidth = linksWidth(links.length);
+
+    if (allLinksWidth <= navWidth) {
+      return;
+    }
+
+    overflow.hidden = false;
+    const overflowWidth = overflow.getBoundingClientRect().width;
+    let visibleCount = links.length;
+    while (
+      visibleCount > 0 &&
+      linksWidth(visibleCount) + gap + overflowWidth > navWidth
+    ) {
+      visibleCount -= 1;
+    }
+
+    links.forEach((link, index) => {
+      link.hidden = index >= visibleCount;
+    });
+    const hiddenLinks = links.slice(visibleCount);
+    renderOverflowMenu(hiddenLinks);
+  };
+
+  const scheduleLayout = () => {
+    if (layoutFrame !== null) {
+      window.cancelAnimationFrame(layoutFrame);
+    }
+    layoutFrame = window.requestAnimationFrame(layout);
+  };
+
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setOpen(menu.hidden);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!nav.contains(event.target)) {
+      setOpen(false);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setOpen(false);
+    }
+  });
+
+  window.addEventListener("resize", scheduleLayout);
+  if ("ResizeObserver" in window) {
+    const observer = new ResizeObserver(scheduleLayout);
+    observer.observe(nav);
+    observer.observe(nav.closest(".top-nav-shell") || nav);
+  }
+  document.fonts?.ready?.then(scheduleLayout).catch(() => {});
+  scheduleLayout();
 }
 
 function wireReportsWorkspace() {
@@ -523,6 +995,62 @@ function wireReportsWorkspace() {
   }
 }
 
+function wireReportFormatEditors() {
+  document.querySelectorAll("[data-report-format-editor]").forEach((editor) => {
+    if (editor.dataset.reportFormatBound === "true") {
+      return;
+    }
+    editor.dataset.reportFormatBound = "true";
+
+    const form = editor.querySelector("[data-report-format-form]");
+    const preview = editor.querySelector("[data-report-format-preview]");
+    if (!form || !preview) {
+      return;
+    }
+
+    const field = (name) => form.querySelector(`[data-report-format-field="${name}"]`);
+    const companyPreview = preview.querySelector("[data-report-format-preview-company]");
+    const labelPreview = preview.querySelector("[data-report-format-preview-label]");
+    const numberValue = (name, fallback, min, max) => {
+      const value = Number(field(name)?.value || fallback);
+      if (!Number.isInteger(value)) {
+        return fallback;
+      }
+      return Math.min(max, Math.max(min, value));
+    };
+
+    const applyPreview = () => {
+      const companyName = String(field("companyName")?.value || "Inventory Management").trim();
+      const headerLabel = String(field("headerLabel")?.value || "Inventory report").trim();
+      const fontSelect = field("fontFamily");
+      const fontCss = fontSelect?.selectedOptions?.[0]?.dataset.fontCss || "";
+      const bodySize = numberValue("bodyFontSize", 13, 10, 18);
+      const headingSize = numberValue("headingFontSize", 24, 18, 34);
+      const subheadingSize = numberValue("subheadingFontSize", 13, 10, 18);
+      const accentColor = String(field("accentColor")?.value || "#3158e8");
+
+      if (fontCss) {
+        preview.style.setProperty("--report-font-family", fontCss);
+      }
+      preview.style.setProperty("--report-body-size", `${bodySize}px`);
+      preview.style.setProperty("--report-heading-size", `${headingSize}px`);
+      preview.style.setProperty("--report-subheading-size", `${subheadingSize}px`);
+      preview.style.setProperty("--report-accent-color", accentColor);
+
+      if (companyPreview) {
+        companyPreview.textContent = companyName || "Inventory Management";
+      }
+      if (labelPreview) {
+        labelPreview.textContent = headerLabel || "Inventory report";
+      }
+    };
+
+    form.addEventListener("input", applyPreview);
+    form.addEventListener("change", applyPreview);
+    applyPreview();
+  });
+}
+
 function closeAllCombos(except = null) {
   document.querySelectorAll("[data-combo-box]").forEach((combo) => {
     if (combo === except) {
@@ -551,13 +1079,80 @@ function wireComboBoxes(root = document) {
     const toggle = combo.querySelector("[data-combo-toggle]");
     const empty = combo.querySelector("[data-combo-empty]");
     const options = Array.from(combo.querySelectorAll("[data-combo-option]"));
+    const originalOptionOrder = new Map(options.map((option, index) => [option, index]));
     const requiredMessage = combo.dataset.requiredMessage || "Choose an option from the list.";
+    const recencyStorageKey = combo.dataset.comboRecencyKey
+      ? `${COMBO_RECENCY_KEY_PREFIX}${combo.dataset.comboRecencyKey}`
+      : "";
 
     if (!input || !hidden || !panel || !toggle) {
       continue;
     }
 
     let activeIndex = -1;
+
+    const readRecentComboValues = () => {
+      if (!recencyStorageKey) {
+        return [];
+      }
+
+      try {
+        const values = JSON.parse(window.localStorage.getItem(recencyStorageKey) || "[]");
+        return Array.isArray(values)
+          ? values.map((value) => String(value || "").trim()).filter(Boolean)
+          : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const rememberRecentComboValue = (value) => {
+      const normalized = String(value || "").trim();
+      if (!recencyStorageKey || !normalized) {
+        return;
+      }
+
+      try {
+        const nextValues = [
+          normalized,
+          ...readRecentComboValues().filter((recentValue) => recentValue !== normalized),
+        ].slice(0, 12);
+        window.localStorage.setItem(recencyStorageKey, JSON.stringify(nextValues));
+      } catch {
+        // Local storage can be unavailable in strict browser modes.
+      }
+    };
+
+    const applyComboRecencyOrder = () => {
+      const recentRank = new Map(
+        readRecentComboValues().map((value, index) => [value, index]),
+      );
+      if (!recentRank.size) {
+        return;
+      }
+
+      options.sort((left, right) => {
+        const leftRecentRank = recentRank.get(left.dataset.value || "");
+        const rightRecentRank = recentRank.get(right.dataset.value || "");
+        const leftHasRecentRank = leftRecentRank !== undefined;
+        const rightHasRecentRank = rightRecentRank !== undefined;
+
+        if (leftHasRecentRank && rightHasRecentRank) {
+          return leftRecentRank - rightRecentRank;
+        }
+        if (leftHasRecentRank) {
+          return -1;
+        }
+        if (rightHasRecentRank) {
+          return 1;
+        }
+        return originalOptionOrder.get(left) - originalOptionOrder.get(right);
+      });
+
+      for (const option of options) {
+        panel.insertBefore(option, empty || null);
+      }
+    };
 
     const visibleOptions = () => options.filter((option) => !option.hidden);
 
@@ -610,6 +1205,8 @@ function wireComboBoxes(root = document) {
       hidden.value = exactMatch.dataset.value || "";
       input.value = exactMatch.dataset.label || "";
       input.setCustomValidity("");
+      rememberRecentComboValue(hidden.value);
+      applyComboRecencyOrder();
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
       return true;
     };
@@ -636,6 +1233,8 @@ function wireComboBoxes(root = document) {
       input.value = option.dataset.label || "";
       hidden.value = option.dataset.value || "";
       input.setCustomValidity("");
+      rememberRecentComboValue(hidden.value);
+      applyComboRecencyOrder();
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
       closePanel();
       window.requestAnimationFrame(() => {
@@ -729,6 +1328,8 @@ function wireComboBoxes(root = document) {
         }
       }, 120);
     });
+
+    applyComboRecencyOrder();
   }
 
   if (document.body.dataset.comboDocumentBound !== "true") {
@@ -763,11 +1364,20 @@ function wireAdjustmentForms() {
     }
 
     let nextIndex = lines.querySelectorAll("[data-adjustment-line]").length;
+    let cellLoadSequence = 0;
     const selectedCellId = () => form.querySelector('input[name="cell_id"]')?.value || "";
     const enteredQuantities = () =>
       Array.from(form.querySelectorAll('input[name^="absolute_quantity_"]'))
         .map((input) => input.value.trim())
         .filter(Boolean);
+    const normalizeQuantityValue = (value) => {
+      const text = String(value || "").trim();
+      if (!text) {
+        return "";
+      }
+      const number = Number(text);
+      return Number.isFinite(number) ? String(number) : text;
+    };
 
     const setAdjustmentStatus = (message, tone = "info") => {
       if (!status) {
@@ -779,8 +1389,47 @@ function wireAdjustmentForms() {
         : "adjustment-guidance-status";
     };
 
+    const setLinesMessage = (message, tone = "info") => {
+      lines.innerHTML = "";
+      const empty = document.createElement("div");
+      empty.className = `adjustment-empty-state adjustment-empty-state-${tone}`;
+      empty.dataset.adjustmentEmpty = "true";
+      empty.textContent = message;
+      lines.appendChild(empty);
+    };
+
+    const refreshLineState = (line) => {
+      const originalProductId = String(line.dataset.originalProductId || "").trim();
+      const originalQuantity = normalizeQuantityValue(line.dataset.originalQuantity || "");
+      const productId = String(line.querySelector('input[name^="product_id_"]')?.value || "").trim();
+      const quantity = normalizeQuantityValue(
+        line.querySelector('input[name^="absolute_quantity_"]')?.value || "",
+      );
+      const hasLineValue = Boolean(productId || quantity);
+      const matchesSaved =
+        Boolean(originalProductId) &&
+        productId === originalProductId &&
+        quantity === originalQuantity;
+      const isDirty =
+        !matchesSaved && Boolean(originalProductId || originalQuantity || hasLineValue);
+      const state = line.querySelector("[data-adjustment-line-state]");
+
+      line.classList.toggle("adjustment-line-saved", matchesSaved);
+      line.classList.toggle("adjustment-line-dirty", isDirty);
+      line.classList.toggle("adjustment-line-new", !matchesSaved && !isDirty);
+
+      if (state) {
+        state.textContent = matchesSaved ? "Saved" : isDirty ? "Changed" : "New";
+      }
+    };
+
+    const refreshLineStates = () => {
+      lines.querySelectorAll("[data-adjustment-line]").forEach(refreshLineState);
+    };
+
     const refreshActionControls = () => {
       const cellId = selectedCellId();
+      addButton.disabled = !cellId;
       if (locateButton) {
         locateButton.disabled = !cellId;
         setLocateButtonState(locateButton, Boolean(cellId && activeLocates.has(String(cellId))));
@@ -792,24 +1441,34 @@ function wireAdjustmentForms() {
 
     const refreshLineControls = () => {
       const currentLines = Array.from(lines.querySelectorAll("[data-adjustment-line]"));
+      if (currentLines.length) {
+        lines.querySelector("[data-adjustment-empty]")?.remove();
+      }
       currentLines.forEach((line) => {
         const removeButton = line.querySelector("[data-adjustment-remove]");
         if (removeButton) {
-          removeButton.disabled = currentLines.length <= 1;
+          removeButton.disabled = false;
         }
       });
     };
 
     addButton.addEventListener("click", () => {
+      if (!selectedCellId()) {
+        setLinesMessage("Select a cell before adding product counts.", "warning");
+        refreshActionControls();
+        return;
+      }
       const wrapper = document.createElement("div");
       wrapper.innerHTML = template.innerHTML.replaceAll("__INDEX__", String(nextIndex)).trim();
       const line = wrapper.firstElementChild;
       if (!line) {
         return;
       }
+      lines.querySelector("[data-adjustment-empty]")?.remove();
       lines.appendChild(line);
       wireComboBoxes(line);
       nextIndex += 1;
+      refreshLineState(line);
       refreshLineControls();
       refreshActionControls();
       line.querySelector("[data-combo-input]")?.focus();
@@ -820,21 +1479,92 @@ function wireAdjustmentForms() {
       if (!removeButton) {
         return;
       }
-      if (lines.querySelectorAll("[data-adjustment-line]").length <= 1) {
-        return;
-      }
       removeButton.closest("[data-adjustment-line]")?.remove();
+      if (!lines.querySelector("[data-adjustment-line]")) {
+        setLinesMessage(
+          selectedCellId()
+            ? "No product lines selected for this cell."
+            : "Select a cell to load saved product counts.",
+          "info",
+        );
+      }
       refreshLineControls();
       refreshActionControls();
     });
 
-    form.addEventListener("input", refreshActionControls);
-    form.addEventListener("change", refreshActionControls);
+    form.addEventListener("input", () => {
+      refreshLineStates();
+      refreshActionControls();
+    });
+    form.addEventListener("change", () => {
+      refreshLineStates();
+      refreshActionControls();
+    });
     form.addEventListener("click", (event) => {
       if (event.target.closest("[data-adjustment-locate-cell], [data-adjustment-light-quantity]")) {
         return;
       }
       window.requestAnimationFrame(refreshActionControls);
+    });
+
+    form.querySelector('input[name="cell_id"]')?.addEventListener("change", async () => {
+      const cellId = selectedCellId();
+      const requestId = (cellLoadSequence += 1);
+
+      setAdjustmentStatus("");
+      if (!cellId) {
+        nextIndex = 0;
+        setLinesMessage("Select a cell to load saved product counts.", "info");
+        refreshActionControls();
+        return;
+      }
+
+      setLinesMessage("Loading saved product counts...", "info");
+      refreshActionControls();
+
+      try {
+        const response = await fetch(
+          `/api/admin/adjustments/cell-products?cell_id=${encodeURIComponent(cellId)}`,
+          {
+            headers: {
+              "X-Requested-With": "fetch",
+            },
+          },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Saved products could not be loaded.");
+        }
+        if (requestId !== cellLoadSequence) {
+          return;
+        }
+
+        if (payload.linesHtml && payload.linesHtml.trim()) {
+          lines.innerHTML = payload.linesHtml;
+          wireComboBoxes(lines);
+          nextIndex =
+            Number(payload.nextIndex) || lines.querySelectorAll("[data-adjustment-line]").length;
+          refreshLineStates();
+        } else {
+          nextIndex = 0;
+          setLinesMessage(
+            `No saved products in ${payload.cell?.logicalCode || "this cell"}. Add a product line to count into this cell.`,
+            "info",
+          );
+        }
+      } catch (error) {
+        if (requestId !== cellLoadSequence) {
+          return;
+        }
+        nextIndex = 0;
+        setLinesMessage(error.message || "Saved products could not be loaded.", "warning");
+        setAdjustmentStatus(error.message || "Saved products could not be loaded.", "error");
+      } finally {
+        if (requestId === cellLoadSequence) {
+          refreshLineControls();
+          refreshActionControls();
+        }
+      }
     });
 
     locateButton?.addEventListener("click", async () => {
@@ -957,23 +1687,72 @@ function wirePutPlanForms() {
       Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
     const quantityInputs = () => Array.from(section.querySelectorAll("[data-put-plan-qty]"));
 
+    const syncCombinedPutRows = () => {
+      section.querySelectorAll("[data-put-task-cell-control]").forEach((control) => {
+        const hidden = control.querySelector("[data-combo-hidden]");
+        const input = control.querySelector("[data-combo-input]");
+        const confirmHidden = control.querySelector("[data-put-confirm-cell-for]");
+        const label = control.querySelector("[data-put-task-cell-name]");
+        const originalCellId = String(control.dataset.originalCellId || "");
+        const selectedCellId = String(hidden?.value || "");
+        const changed = selectedCellId !== originalCellId;
+        const selectedLabel =
+          (input?.value || "").split("·")[0].trim() ||
+          control.dataset.originalLabel ||
+          "";
+
+        if (confirmHidden && hidden) {
+          confirmHidden.value = hidden.value;
+        }
+        if (label) {
+          label.textContent = selectedLabel || label.dataset.originalLabel || "";
+          label.classList.toggle("mapping-cell-name-dirty", changed);
+          label.classList.toggle("mapping-cell-name-saved", !changed);
+        }
+        input?.classList.toggle("cell-mapping-select-dirty", changed);
+        control.classList.toggle("put-task-cell-control-dirty", changed);
+      });
+
+      section.querySelectorAll("[data-put-actual-qty-for]").forEach((input) => {
+        const lineId = input.dataset.putActualQtyFor;
+        const planQty = lineId ? section.querySelector(`[data-put-plan-qty-for="${lineId}"]`) : null;
+        if (planQty) {
+          planQty.value = input.value;
+        }
+      });
+    };
+
     const refreshTotal = () => {
+      syncCombinedPutRows();
       const currentTotal = quantityInputs().reduce((sum, input) => {
         const value = Number(input.value || 0);
         return Number.isFinite(value) ? sum + value : sum;
       }, 0);
       const matches = Math.abs(currentTotal - expectedTotal) < 0.000001;
       if (totalLabel) {
-        totalLabel.textContent = `Adjusted total: ${formatQuantity(currentTotal)} / ${formatQuantity(expectedTotal)}`;
-        totalLabel.classList.toggle("flash-error", !matches);
+        totalLabel.textContent = `Adjusted total: ${formatQuantity(currentTotal)} · Original: ${formatQuantity(expectedTotal)}`;
+        totalLabel.classList.toggle("flash-warning", !matches);
       }
       if (submitButton) {
-        submitButton.disabled = !matches;
+        submitButton.disabled = false;
       }
     };
 
     section.addEventListener("input", (event) => {
-      if (event.target.closest("[data-put-plan-qty]")) {
+      if (
+        event.target.closest("[data-put-plan-qty]") ||
+        event.target.closest("[data-put-actual-qty-for]")
+      ) {
+        refreshTotal();
+      }
+    });
+
+    section.addEventListener("change", (event) => {
+      if (
+        event.target.closest("[data-put-task-cell-control]") ||
+        event.target.closest("[data-put-actual-qty-for]") ||
+        event.target.closest("[data-put-plan-qty]")
+      ) {
         refreshTotal();
       }
     });
@@ -1117,9 +1896,11 @@ function syncFirmwareSubmitState(panel) {
   const input = panel.querySelector("[data-firmware-port-input]");
   const identity = panel.querySelector("[data-firmware-device-identity]");
   const controller = panel.querySelector('input[name="controller_name"]');
+  const modules = panel.querySelector('input[name="module_count"]');
   const submitButton = panel.querySelector("[data-firmware-flash-form] button[type='submit']");
-  if (submitButton && input && identity && controller) {
-    submitButton.disabled = !input.value.trim() || !identity.value.trim() || !controller.value.trim();
+  if (submitButton && input && identity && controller && modules) {
+    submitButton.disabled =
+      !input.value.trim() || !identity.value.trim() || !controller.value.trim() || !modules.value.trim();
   }
 }
 
@@ -1358,17 +2139,6 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
   if (identityInput) {
     identityInput.value = selectedCandidate ? firmwarePortIdentity(selectedCandidate) : "";
   }
-  const controllerInput = panel.querySelector('input[name="controller_name"]');
-  const selectedControllerName = firmwareControllerName(selectedCandidate);
-  const selectedAmbiguous = selectedCandidate?.flashRecordAmbiguous || (selectedCandidate?.flashRecords || []).length > 1;
-  if (controllerInput) {
-    if (selectedAmbiguous) {
-      controllerInput.value = "";
-    } else if (selectedControllerName) {
-      controllerInput.value = selectedControllerName;
-    }
-  }
-
   if (status) {
     const newCount = primaryPorts.filter((port) => port.newlyConnected).length;
     const flashedCount = primaryPorts.filter((port) => port.flashStatus === "configured").length;
@@ -1600,14 +2370,6 @@ function wireFirmwareFlash() {
         if (identityInput) {
           identityInput.value = portChoice.dataset.deviceIdentity || "";
         }
-        const controllerInput = panel.querySelector('input[name="controller_name"]');
-        if (controllerInput) {
-          if (portChoice.dataset.controllerAmbiguous === "true") {
-            controllerInput.value = "";
-          } else if (portChoice.dataset.controllerName) {
-            controllerInput.value = portChoice.dataset.controllerName;
-          }
-        }
         panel.querySelectorAll("[data-firmware-port-choice]").forEach((choice) => {
           choice.classList.toggle("firmware-port-choice-active", choice === portChoice);
         });
@@ -1624,6 +2386,10 @@ function wireFirmwareFlash() {
       });
       const controllerInput = panel.querySelector('input[name="controller_name"]');
       controllerInput?.addEventListener("input", () => {
+        syncFirmwareSubmitState(panel);
+      });
+      const moduleInput = panel.querySelector('input[name="module_count"]');
+      moduleInput?.addEventListener("input", () => {
         syncFirmwareSubmitState(panel);
       });
       syncFirmwareSubmitState(panel);
@@ -1752,8 +2518,134 @@ function sendLocateClearAll({ beacon = true } = {}) {
   }).catch(() => {});
 }
 
+function formLedClearBody(form) {
+  const body = new URLSearchParams(new FormData(form));
+  body.set("active", "0");
+  return body;
+}
+
+function sendRecommendationLedClear(form, { beacon = true } = {}) {
+  const endpoint = form.dataset.recommendationLedClearEndpoint || "/recommended-actions/clear-leds";
+  const body = formLedClearBody(form);
+
+  if (navigator.sendBeacon) {
+    const blob = new Blob([body.toString()], {
+      type: "application/x-www-form-urlencoded; charset=UTF-8",
+    });
+    if (beacon && navigator.sendBeacon(endpoint, blob)) {
+      return Promise.resolve();
+    }
+  }
+
+  return fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function sendProductFindLedClear(form, { beacon = true } = {}) {
+  const endpoint = form.dataset.productFindLedClearEndpoint;
+  if (!endpoint) {
+    return Promise.resolve();
+  }
+  const body = formLedClearBody(form);
+
+  if (navigator.sendBeacon) {
+    const blob = new Blob([body.toString()], {
+      type: "application/x-www-form-urlencoded; charset=UTF-8",
+    });
+    if (beacon && navigator.sendBeacon(endpoint, blob)) {
+      return Promise.resolve();
+    }
+  }
+
+  return fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function wireProductFindLedCleanup() {
+  document.querySelectorAll("[data-product-find-led-clear-form]").forEach((form) => {
+    if (form.dataset.productFindLedClearBound === "true") {
+      return;
+    }
+    form.dataset.productFindLedClearBound = "true";
+    form.dataset.productFindLedSkipClear = "false";
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (!event.submitter?.matches?.("[data-product-find-submit]")) {
+        return;
+      }
+      form.dataset.productFindLedSkipClear = "true";
+      window.setTimeout(() => {
+        form.dataset.productFindLedSkipClear = "false";
+      }, 5000);
+    });
+  });
+
+  if (productFindLedClearWindowBound) {
+    return;
+  }
+  productFindLedClearWindowBound = true;
+  window.addEventListener("pagehide", () => {
+    document.querySelectorAll("[data-product-find-led-clear-form]").forEach((form) => {
+      if (form.dataset.productFindLedSkipClear === "true") {
+        return;
+      }
+      sendProductFindLedClear(form);
+    });
+  });
+}
+
+function wireRecommendationLedCleanup() {
+  document.querySelectorAll("[data-recommendation-led-clear-form]").forEach((form) => {
+    if (form.dataset.recommendationLedClearBound === "true") {
+      return;
+    }
+    form.dataset.recommendationLedClearBound = "true";
+    form.dataset.recommendationLedSkipClear = "false";
+
+    form.addEventListener("submit", (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      form.dataset.recommendationLedSkipClear = "true";
+      window.setTimeout(() => {
+        form.dataset.recommendationLedSkipClear = "false";
+      }, 5000);
+    });
+  });
+
+  if (recommendationLedClearWindowBound) {
+    return;
+  }
+  recommendationLedClearWindowBound = true;
+  window.addEventListener("pagehide", () => {
+    document.querySelectorAll("[data-recommendation-led-clear-form]").forEach((form) => {
+      if (form.dataset.recommendationLedSkipClear === "true") {
+        return;
+      }
+      sendRecommendationLedClear(form);
+    });
+  });
+}
+
 function wireLocationLocate() {
-  const page = document.querySelector("[data-location-page]");
+  const page = document.querySelector("[data-location-page], [data-config-workspace]");
   if (!page || page.dataset.locateBound === "true") {
     return;
   }
@@ -1853,7 +2745,6 @@ function wireConfigurationWorkspace() {
   const sectionHost = workspace.querySelector("[data-config-section-host]");
   const sectionGroups = {
     "controller-setup": ["controller-setup"],
-    "cell-create": ["cell-create"],
     "cell-management": ["cell-management"],
     "cell-mapping": ["cell-mapping"],
   };
@@ -1862,13 +2753,9 @@ function wireConfigurationWorkspace() {
       title: "Add Controller",
       description: "Follow the guided ESP32 setup without leaving the Configuration console.",
     },
-    "cell-create": {
-      title: "Add Locations",
-      description: "Create storage locations in a focused dialog, then return to the console.",
-    },
     "cell-management": {
       title: "Manage Locations",
-      description: "Delete and review active storage locations in a focused flow.",
+      description: "Add, rename, delete, and review active storage locations in a focused flow.",
     },
     "cell-mapping": {
       title: "Cell Mapping",
@@ -2129,8 +3016,8 @@ function wireCellMappingForm() {
   };
 
   const describeChange = (control) => {
-    const from = control.dataset.originalLabel || "Unassigned";
-    const to = mappingControlLabel(control) || "Unassigned";
+    const from = control.dataset.originalLabel || "Empty";
+    const to = mappingControlLabel(control) || "Empty";
     const controller = control.dataset.controllerName || "Controller";
     const module = control.dataset.moduleName || "?";
     return `${controller} module ${module}: ${from} -> ${to}`;
@@ -2157,8 +3044,8 @@ function wireCellMappingForm() {
     }
     if (dirtyCount) {
       dirtyCount.textContent = changes.length
-        ? `${changes.length} unsaved mapping${changes.length === 1 ? "" : "s"}`
-        : "All mappings saved";
+        ? `${changes.length} Unsaved Mapping${changes.length === 1 ? "" : "s"}`
+        : "All Mappings Saved";
     }
   };
 
@@ -2185,6 +3072,8 @@ function wireCellMappingForm() {
   };
 
   const localPath = (url) => `${url.pathname}${url.search}${url.hash}`;
+  const isPhysicalLedCommand = (target) =>
+    Boolean(target?.closest?.("[data-locate-cell], [data-led-command-submit], [data-led-command-form]"));
 
   document.addEventListener("inventory:mapping-request-navigation", (event) => {
     if (!isDirty() || state.allowNavigation || state.submittingMapping) {
@@ -2230,6 +3119,9 @@ function wireCellMappingForm() {
       if (event.target.closest("[data-mapping-unsaved-modal]")) {
         return;
       }
+      if (isPhysicalLedCommand(event.target)) {
+        return;
+      }
 
       const link = event.target.closest("a[href]");
       if (!link || link.target || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -2255,6 +3147,13 @@ function wireCellMappingForm() {
     "submit",
     (event) => {
       if (!isDirty() || state.allowNavigation || state.submittingMapping || event.target === form) {
+        return;
+      }
+      if (event.target.matches?.("[data-led-command-form]")) {
+        if (event.target.hasAttribute("data-led-command-async")) {
+          return;
+        }
+        state.allowNavigation = true;
         return;
       }
 
@@ -2333,25 +3232,16 @@ function wireCellDeleteForms() {
     form.dataset.deleteCellBound = "true";
     form.addEventListener("submit", (event) => {
       const cellName = form.dataset.cellName || "this cell";
-      const hasData = form.dataset.cellHasData === "true";
-      const deleteDataInput = form.querySelector("[data-delete-data-confirmed]");
+      const hasStock = form.dataset.cellHasStock === "true";
 
-      if (!window.confirm(`Delete ${cellName}? This cannot be undone.`)) {
+      if (hasStock) {
         event.preventDefault();
+        window.alert(`Move all stock out of ${cellName} before deleting it.`);
         return;
       }
 
-      if (hasData) {
-        const confirmed = window.confirm(
-          `${cellName} has stock, task history, or hardware events. Deleting it will delete that associated data too. Continue?`,
-        );
-        if (!confirmed) {
-          event.preventDefault();
-          return;
-        }
-        if (deleteDataInput) {
-          deleteDataInput.value = "1";
-        }
+      if (!window.confirm(`Delete ${cellName}? The location must be empty. Any mapped LED module will remain available in Cell Mapping.`)) {
+        event.preventDefault();
       }
     });
   });
@@ -2417,6 +3307,7 @@ function wireRowCollapsers(root = document) {
     section.dataset.rowCollapserBound = "true";
 
     const label = section.dataset.rowLabel || "rows";
+    const displayLabel = label.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
     const iconToggle = section.dataset.rowToggleStyle !== "plain";
     const footer = document.createElement("div");
     footer.className = "row-collapse-footer";
@@ -2450,14 +3341,14 @@ function wireRowCollapsers(root = document) {
       if (iconToggle) {
         footer.classList.toggle("row-collapse-footer-expanded", expanded);
         button.classList.toggle("row-collapse-icon-button-expanded", expanded);
-        button.setAttribute("aria-label", expanded ? `Show fewer ${label}` : `Show more ${label}`);
+        button.setAttribute("aria-label", expanded ? `Show Fewer ${displayLabel}` : `Show More ${displayLabel}`);
       } else {
-        button.textContent = expanded ? "Show less" : "Show more";
+        button.textContent = expanded ? "Show Less" : "Show More";
       }
       button.setAttribute("aria-expanded", expanded ? "true" : "false");
       status.textContent = expanded
-        ? `Showing all ${rows.length} ${label}`
-        : `Showing ${limit} of ${rows.length} ${label}`;
+        ? `Showing All ${rows.length} ${displayLabel}`
+        : `Showing ${limit} Of ${rows.length} ${displayLabel}`;
     };
 
     button.addEventListener("click", () => {
@@ -2470,12 +3361,19 @@ function wireRowCollapsers(root = document) {
 
 document.addEventListener("DOMContentLoaded", () => {
   wireActionScrollRestore();
+  wireSystemHealthNotice();
   wireToasts();
   wireCopyButtons();
   wireNavState();
+  wireNavOverflow();
   wireLiveSearch();
   wireQuantityShortcuts();
+  wireCompletionRedirects();
+  wireQuantityChangeConfirmations();
+  wireProductSummaryForms();
+  wireMovementStockSummaries();
   wireReportsWorkspace();
+  wireReportFormatEditors();
   wireComboBoxes();
   wireAdjustmentForms();
   wirePutPlanForms();
@@ -2483,6 +3381,8 @@ document.addEventListener("DOMContentLoaded", () => {
   wireLocationLocate();
   wireControllerHealthForms();
   wireLedCommandForms();
+  wireProductFindLedCleanup();
+  wireRecommendationLedCleanup();
   wireConfigurationWorkspace();
   wireCellMappingForm();
   wireCellDeleteForms();

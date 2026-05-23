@@ -1,5 +1,5 @@
 export const PUT_CAPACITY_ERROR_MESSAGE =
-  "Not enough free cells are available for this product capacity.";
+  "System is already full for this product. Eligible empty and same-product cells do not have enough remaining room.";
 
 function inventoryLine(productId, cellId, plannedQuantity, guidanceColor) {
   return {
@@ -47,21 +47,32 @@ export function planPutLines({
   requestedQuantity,
   itemsPerCell,
   preferredCell = null,
+  preferredCells = [],
   sameProductCells,
   emptyCells,
 }) {
   let remaining = requestedQuantity;
   const lines = [];
+  const usedCellIds = new Set();
+  const prioritizedCells = preferredCells.length
+    ? preferredCells
+    : preferredCell
+      ? [preferredCell]
+      : [];
 
-  if (preferredCell && remaining > 0) {
-    const currentQuantity = preferredCell.same_product_quantity !== undefined
-      ? Number(preferredCell.same_product_quantity)
-      : Number(preferredCell.occupied_quantity || 0);
+  for (const cell of prioritizedCells) {
+    if (remaining <= 0) {
+      break;
+    }
+    const currentQuantity = cell.same_product_quantity !== undefined
+      ? Number(cell.same_product_quantity)
+      : Number(cell.occupied_quantity || 0);
     const room = Math.max(0, itemsPerCell - currentQuantity);
 
     if (room > 0) {
       const plannedQuantity = Math.min(remaining, room);
-      lines.push(inventoryLine(product.id, preferredCell.cell_id, plannedQuantity, "red"));
+      lines.push(inventoryLine(product.id, cell.cell_id, plannedQuantity, "red"));
+      usedCellIds.add(Number(cell.cell_id));
       remaining -= plannedQuantity;
     }
   }
@@ -69,6 +80,9 @@ export function planPutLines({
   for (const cell of sameProductCells) {
     if (remaining <= 0) {
       break;
+    }
+    if (usedCellIds.has(Number(cell.cell_id))) {
+      continue;
     }
 
     const currentQuantity = Number(cell.available_quantity);
@@ -79,6 +93,7 @@ export function planPutLines({
 
     const plannedQuantity = Math.min(remaining, room);
     lines.push(inventoryLine(product.id, cell.cell_id, plannedQuantity, "red"));
+    usedCellIds.add(Number(cell.cell_id));
     remaining -= plannedQuantity;
   }
 
@@ -86,9 +101,13 @@ export function planPutLines({
     if (remaining <= 0) {
       break;
     }
+    if (usedCellIds.has(Number(cell.cell_id))) {
+      continue;
+    }
 
     const plannedQuantity = Math.min(remaining, itemsPerCell);
     lines.push(inventoryLine(product.id, cell.cell_id, plannedQuantity, "red"));
+    usedCellIds.add(Number(cell.cell_id));
     remaining -= plannedQuantity;
   }
 

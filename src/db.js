@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 const DATA_DIR = join(process.cwd(), "data");
 const DB_PATH = join(DATA_DIR, "inventory.db");
-export const APP_SCHEMA_VERSION = "2";
+export const APP_SCHEMA_VERSION = "3";
 
 function ensureDirectory(path) {
   mkdirSync(path, { recursive: true });
@@ -502,7 +502,44 @@ function seedProducts(db) {
   }
 }
 
-function seedInventory(db) {
+const LEGACY_DEMO_INVENTORY_CLEANUP_KEY = "legacy_demo_inventory_cleanup_v2_at";
+const DEMO_INVENTORY_SEEDS = [
+  { sku: "SKU-SHOE-001", cell: "Z1-R1-C01", qty: 3 },
+  { sku: "SKU-SHOE-001", cell: "Z1-R1-C02", qty: 3 },
+  { sku: "SKU-SHOE-001", cell: "Z1-R1-C03", qty: 2 },
+  { sku: "SKU-TEE-002", cell: "Z1-R1-C04", qty: 6 },
+  { sku: "SKU-TEE-002", cell: "Z1-R1-C05", qty: 4 },
+  { sku: "ARMY-AMMO-023", cell: "Z1-R1-C06", qty: 5 },
+  { sku: "ARMY-AMMO-024", cell: "Z1-R1-C07", qty: 6 },
+  { sku: "ARMY-HELM-004", cell: "Z1-R1-C08", qty: 4 },
+  { sku: "ARMY-GLOV-005", cell: "Z1-R1-C09", qty: 7 },
+  { sku: "ARMY-MED-006", cell: "Z1-R1-C10", qty: 8 },
+  { sku: "ARMY-RAT-007", cell: "Z1-R1-C11", qty: 10 },
+  { sku: "ARMY-CANT-008", cell: "Z1-R1-C12", qty: 9 },
+  { sku: "ARMY-BATT-009", cell: "Z1-R1-C13", qty: 11 },
+  { sku: "ARMY-LAMP-010", cell: "Z1-R1-C14", qty: 6 },
+  { sku: "ARMY-PON-011", cell: "Z1-R1-C15", qty: 5 },
+  { sku: "ARMY-NET-012", cell: "Z1-R1-C16", qty: 2 },
+  { sku: "ARMY-ROPE-013", cell: "Z1-R1-C17", qty: 7 },
+  { sku: "ARMY-TOOL-014", cell: "Z1-R1-C18", qty: 3 },
+  { sku: "ARMY-BAND-015", cell: "Z1-R1-C19", qty: 12 },
+  { sku: "ARMY-FLAR-016", cell: "Z1-R1-C20", qty: 4 },
+  { sku: "ARMY-PURE-017", cell: "Z1-R1-C21", qty: 10 },
+  { sku: "ARMY-COMP-018", cell: "Z1-R1-C22", qty: 6 },
+  { sku: "ARMY-BINO-019", cell: "Z1-R1-C23", qty: 3 },
+  { sku: "ARMY-CLEAN-020", cell: "Z1-R1-C24", qty: 5 },
+  { sku: "ARMY-COVER-021", cell: "Z1-R1-C25", qty: 8 },
+  { sku: "ARMY-NOTE-022", cell: "Z1-R1-C26", qty: 9 },
+  { sku: "SKU-BOX-003", cell: "Z1-R1-C27", qty: 8 },
+  { sku: "ARMY-SLEEP-025", cell: "Z1-R2-C01", qty: 4 },
+  { sku: "ARMY-RAT-007", cell: "Z1-R2-C02", qty: 9 },
+  { sku: "ARMY-CANT-008", cell: "Z1-R2-C03", qty: 7 },
+  { sku: "ARMY-MED-006", cell: "Z1-R2-C04", qty: 5 },
+  { sku: "ARMY-GLOV-005", cell: "Z1-R2-C05", qty: 6 },
+  { sku: "ARMY-CLEAN-020", cell: "Z1-R2-C06", qty: 4 },
+];
+
+function demoInventorySeedRows(db) {
   const productRows = db
     .prepare("SELECT id, sku FROM products ORDER BY id")
     .all();
@@ -510,48 +547,18 @@ function seedInventory(db) {
     .prepare("SELECT id, logical_code FROM cells ORDER BY row_number, column_number")
     .all();
 
-  const seedPairs = [
-    { sku: "SKU-SHOE-001", cell: "Z1-R1-C01", qty: 3 },
-    { sku: "SKU-SHOE-001", cell: "Z1-R1-C02", qty: 3 },
-    { sku: "SKU-SHOE-001", cell: "Z1-R1-C03", qty: 2 },
-    { sku: "SKU-TEE-002", cell: "Z1-R1-C04", qty: 6 },
-    { sku: "SKU-TEE-002", cell: "Z1-R1-C05", qty: 4 },
-    { sku: "ARMY-AMMO-023", cell: "Z1-R1-C06", qty: 5 },
-    { sku: "ARMY-AMMO-024", cell: "Z1-R1-C07", qty: 6 },
-    { sku: "ARMY-HELM-004", cell: "Z1-R1-C08", qty: 4 },
-    { sku: "ARMY-GLOV-005", cell: "Z1-R1-C09", qty: 7 },
-    { sku: "ARMY-MED-006", cell: "Z1-R1-C10", qty: 8 },
-    { sku: "ARMY-RAT-007", cell: "Z1-R1-C11", qty: 10 },
-    { sku: "ARMY-CANT-008", cell: "Z1-R1-C12", qty: 9 },
-    { sku: "ARMY-BATT-009", cell: "Z1-R1-C13", qty: 11 },
-    { sku: "ARMY-LAMP-010", cell: "Z1-R1-C14", qty: 6 },
-    { sku: "ARMY-PON-011", cell: "Z1-R1-C15", qty: 5 },
-    { sku: "ARMY-NET-012", cell: "Z1-R1-C16", qty: 2 },
-    { sku: "ARMY-ROPE-013", cell: "Z1-R1-C17", qty: 7 },
-    { sku: "ARMY-TOOL-014", cell: "Z1-R1-C18", qty: 3 },
-    { sku: "ARMY-BAND-015", cell: "Z1-R1-C19", qty: 12 },
-    { sku: "ARMY-FLAR-016", cell: "Z1-R1-C20", qty: 4 },
-    { sku: "ARMY-PURE-017", cell: "Z1-R1-C21", qty: 10 },
-    { sku: "ARMY-COMP-018", cell: "Z1-R1-C22", qty: 6 },
-    { sku: "ARMY-BINO-019", cell: "Z1-R1-C23", qty: 3 },
-    { sku: "ARMY-CLEAN-020", cell: "Z1-R1-C24", qty: 5 },
-    { sku: "ARMY-COVER-021", cell: "Z1-R1-C25", qty: 8 },
-    { sku: "ARMY-NOTE-022", cell: "Z1-R1-C26", qty: 9 },
-    { sku: "SKU-BOX-003", cell: "Z1-R1-C27", qty: 8 },
-    { sku: "ARMY-SLEEP-025", cell: "Z1-R2-C01", qty: 4 },
-    { sku: "ARMY-RAT-007", cell: "Z1-R2-C02", qty: 9 },
-    { sku: "ARMY-CANT-008", cell: "Z1-R2-C03", qty: 7 },
-    { sku: "ARMY-MED-006", cell: "Z1-R2-C04", qty: 5 },
-    { sku: "ARMY-GLOV-005", cell: "Z1-R2-C05", qty: 6 },
-    { sku: "ARMY-CLEAN-020", cell: "Z1-R2-C06", qty: 4 },
-  ];
+  return DEMO_INVENTORY_SEEDS.map((seed) => ({
+    ...seed,
+    product: productRows.find((item) => item.sku === seed.sku) || null,
+    cell: cellRows.find((item) => item.logical_code === seed.cell) || null,
+  })).filter((seed) => seed.product && seed.cell);
+}
 
-  for (const seed of seedPairs) {
-    const product = productRows.find((item) => item.sku === seed.sku);
-    const cell = cellRows.find((item) => item.logical_code === seed.cell);
+function seedInventory(db) {
+  for (const seed of demoInventorySeedRows(db)) {
     const existing = db
       .prepare("SELECT id FROM inventory_balances WHERE product_id = ? AND cell_id = ?")
-      .get(product.id, cell.id);
+      .get(seed.product.id, seed.cell.id);
 
     if (!existing) {
       db.prepare(
@@ -559,9 +566,50 @@ function seedInventory(db) {
           INSERT INTO inventory_balances (product_id, cell_id, available_quantity, reserved_quantity)
           VALUES (?, ?, ?, 0)
         `,
-      ).run(product.id, cell.id, seed.qty);
+      ).run(seed.product.id, seed.cell.id, seed.qty);
     }
   }
+}
+
+function cleanupLegacyDemoInventory(db) {
+  const alreadyRan = db
+    .prepare("SELECT value FROM app_metadata WHERE key = ?")
+    .get(LEGACY_DEMO_INVENTORY_CLEANUP_KEY);
+  if (alreadyRan) {
+    return;
+  }
+
+  for (const seed of demoInventorySeedRows(db)) {
+    db.prepare(
+      `
+        DELETE FROM inventory_balances
+        WHERE product_id = ?
+          AND cell_id = ?
+          AND reserved_quantity = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM transactions WHERE product_id = ? AND cell_id = ?
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_lines WHERE product_id = ? AND cell_id = ?
+          )
+      `,
+    ).run(
+      seed.product.id,
+      seed.cell.id,
+      seed.product.id,
+      seed.cell.id,
+      seed.product.id,
+      seed.cell.id,
+    );
+  }
+
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(LEGACY_DEMO_INVENTORY_CLEANUP_KEY, nowIso(), nowIso());
 }
 
 function initializeSchema(db) {
@@ -584,6 +632,8 @@ function initializeSchema(db) {
       key_value TEXT NOT NULL UNIQUE,
       role TEXT NOT NULL CHECK(role IN ('admin', 'operator')),
       status TEXT NOT NULL CHECK(status IN ('active', 'used', 'revoked', 'expired')),
+      usage_policy TEXT NOT NULL DEFAULT 'single_use' CHECK(usage_policy IN ('single_use', 'global')),
+      usage_count INTEGER NOT NULL DEFAULT 0,
       expires_at TEXT,
       created_by INTEGER REFERENCES users(id),
       used_by INTEGER REFERENCES users(id),
@@ -657,6 +707,7 @@ function initializeSchema(db) {
       summary TEXT NOT NULL,
       created_by INTEGER NOT NULL REFERENCES users(id),
       started_at TEXT NOT NULL,
+      last_touched_at TEXT NOT NULL,
       completed_at TEXT
     );
 
@@ -722,11 +773,26 @@ function initializeSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_inventory_balances_product ON inventory_balances(product_id);
+    CREATE INDEX IF NOT EXISTS idx_inventory_balances_cell ON inventory_balances(cell_id);
     CREATE INDEX IF NOT EXISTS idx_task_lines_task ON task_lines(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_lines_product ON task_lines(product_id);
+    CREATE INDEX IF NOT EXISTS idx_task_lines_cell ON task_lines(cell_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status_touched ON tasks(status, last_touched_at);
+    CREATE INDEX IF NOT EXISTS idx_tasks_created_by_id ON tasks(created_by, id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_completed_started ON tasks(completed_at, started_at);
     CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_product_created ON transactions(product_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_user_created ON transactions(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_task ON transactions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_type_created ON transactions(type, created_at);
     CREATE INDEX IF NOT EXISTS idx_device_events_created_at ON device_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_device_events_task ON device_events(task_id);
+    CREATE INDEX IF NOT EXISTS idx_device_events_cell ON device_events(cell_id);
+    CREATE INDEX IF NOT EXISTS idx_device_events_type_created ON device_events(event_type, created_at);
     CREATE INDEX IF NOT EXISTS idx_system_events_created_at ON system_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_system_events_type_created ON system_events(event_type, created_at);
     CREATE INDEX IF NOT EXISTS idx_submission_tokens_scope_task ON submission_tokens(scope, task_id, used_at);
+    CREATE INDEX IF NOT EXISTS idx_products_active_name ON products(active, name);
   `);
 
   ensureColumn(db, "products", "items_per_cell", "REAL NOT NULL DEFAULT 12");
@@ -734,6 +800,26 @@ function initializeSchema(db) {
   ensureColumn(db, "controllers", "module_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "controllers", "configured_at", "TEXT");
   ensureColumn(db, "controllers", "configured_by", "INTEGER REFERENCES users(id)");
+  ensureColumn(db, "users", "last_active_at", "TEXT");
+  ensureColumn(db, "registration_keys", "usage_policy", "TEXT NOT NULL DEFAULT 'single_use'");
+  ensureColumn(db, "registration_keys", "usage_count", "INTEGER NOT NULL DEFAULT 0");
+  db.prepare(
+    `
+      UPDATE registration_keys
+      SET usage_count = 1
+      WHERE status = 'used'
+        AND used_by IS NOT NULL
+        AND usage_count = 0
+    `,
+  ).run();
+  ensureColumn(db, "tasks", "last_touched_at", "TEXT");
+  db.prepare(
+    `
+      UPDATE tasks
+      SET last_touched_at = COALESCE(last_touched_at, completed_at, started_at)
+      WHERE last_touched_at IS NULL
+    `,
+  ).run();
   db.prepare(
     `
       INSERT INTO app_metadata (key, value, updated_at)
@@ -777,6 +863,10 @@ export function createDatabase(authHelpers) {
   }
   seedWarehouse(db);
   seedProducts(db);
-  seedInventory(db);
+  if (authHelpers.allowDemoInventorySeed === false) {
+    cleanupLegacyDemoInventory(db);
+  } else {
+    seedInventory(db);
+  }
   return db;
 }

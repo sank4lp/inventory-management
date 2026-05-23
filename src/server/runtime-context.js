@@ -1,5 +1,6 @@
 let runtimeContext = {
   config: null,
+  databaseMaintenanceService: null,
   firmwareService: null,
   logger: null,
   systemService: null,
