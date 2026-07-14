@@ -45,6 +45,22 @@ test("static asset server exposes browser modules and rejects traversal", async 
   assert.equal(moduleResult.response.statusCode, 200);
   assert.match(moduleResult.response.headers["Content-Type"], /javascript/);
   assert.match(moduleResult.response.body, /setButtonLoading/);
+  assert.match(moduleResult.response.body, /lockButtonSize/);
+  assert.match(moduleResult.response.body, /unlockButtonSize/);
+
+  const stylesResult = await serve("/styles.css");
+  assert.equal(stylesResult.response.statusCode, 200);
+  assert.match(stylesResult.response.body, /\.button-loading-compact/);
+  assert.match(stylesResult.response.body, /\.button-loading-label/);
+  assert.match(stylesResult.response.body, /--text-button-height:\s*42px/);
+  assert.match(
+    stylesResult.response.body,
+    /\.mini-link\s*\{[^}]*height:\s*var\(--text-button-height\)/s,
+  );
+  assert.match(
+    stylesResult.response.body,
+    /\.report-toolbar-control > button\s*\{[^}]*height:\s*var\(--text-button-height\)/s,
+  );
 
   const traversalResult = await serve("/client/../app.js");
   assert.equal(traversalResult.handled, false);

@@ -32,6 +32,7 @@
   --radius-sm: 4px;
   --radius: 8px;
   --top-nav-height: 64px;
+  --text-button-height: 42px;
   --font-size-xs: 12px;
   --font-size-sm: 14px;
   --font-size-md: 16px;
@@ -1526,7 +1527,7 @@ textarea::placeholder {
 }
 
 button {
-  min-height: 42px;
+  min-height: var(--text-button-height);
   cursor: pointer;
   border: 1px solid var(--primary);
   padding: 9px 13px;
@@ -1621,6 +1622,19 @@ button[disabled] {
   gap: 8px;
   position: relative;
   opacity: 1;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.button-loading-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.button-loading-compact {
+  gap: 0;
 }
 
 .button-spinner {
@@ -1709,8 +1723,9 @@ button[disabled] {
 .ping-button,
 .locate-button,
 .led-action-button {
-  min-height: 40px;
-  padding: 8px 12px;
+  height: var(--text-button-height);
+  min-height: var(--text-button-height);
+  padding: 0 13px;
   border-radius: var(--radius);
   font-size: var(--font-size-sm);
   font-weight: 760;
@@ -1728,20 +1743,6 @@ button[disabled] {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.location-count-value {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 5px 9px;
-  border: 1px solid rgba(107, 183, 255, 0.3);
-  border-radius: var(--radius);
-  background: var(--primary-soft);
-  color: var(--primary-hover);
-  font-size: var(--font-size-sm);
-  font-weight: 760;
-  white-space: nowrap;
 }
 
 .product-management-actions {
@@ -1954,8 +1955,9 @@ button[disabled] {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  min-height: 32px;
-  padding: 5px 9px;
+  height: var(--text-button-height);
+  min-height: var(--text-button-height);
+  padding: 0 13px;
   border-radius: var(--radius);
   border: 1px solid rgba(148, 163, 184, 0.72);
   background: rgba(255, 255, 255, 0.06);
@@ -2263,6 +2265,12 @@ button[disabled] {
   min-width: 0;
 }
 
+.report-stage-actions > button {
+  height: var(--text-button-height);
+  min-height: var(--text-button-height);
+  white-space: nowrap;
+}
+
 .report-stage-context-actions {
   display: flex;
   align-items: center;
@@ -2277,8 +2285,9 @@ button[disabled] {
 
 .report-toolbar-control > button {
   max-width: 190px;
-  min-height: 31px;
-  padding: 4px 9px;
+  height: var(--text-button-height);
+  min-height: var(--text-button-height);
+  padding: 0 13px;
   overflow: hidden;
   font-size: 11px;
   line-height: 1.2;

@@ -784,13 +784,13 @@ export function createProductPages({ db, productFieldService = null }) {
                     type="button"
                     class="ghost-button"
                     data-show-location-count
-                    data-location-count="${escapeHtml(`${formatQuantity(location.available_quantity)} ${product.unit_of_measure}`)}"
-                    data-location-count-label="Quantity"
+                    data-cell-id="${escapeHtml(location.cell_id)}"
+                    data-product-id="${escapeHtml(product.id)}"
                     data-show-label="Show Quantity"
-                    data-hide-label="Hide Quantity"
-                    aria-expanded="false"
+                    data-led-loading-label="Showing"
+                    data-led-loading-title="Showing ${escapeHtml(product.sku)} quantity at ${escapeHtml(location.logical_code)} in yellow"
+                    ${location.controller_id && location.hardware_channel ? `title="Show ${escapeHtml(product.sku)} quantity at ${escapeHtml(location.logical_code)} on its LED module"` : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
                   >Show Quantity</button>
-                  <span class="location-count-value" data-location-count-value aria-live="polite" hidden></span>
                 </div>
               `,
             ]),

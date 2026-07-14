@@ -191,15 +191,18 @@ function renderLocationPingButton(cell) {
 }
 
 function renderLocationCountButton(cell) {
+  const mapped = cellIsMapped(cell);
   return `
     <button
       type="button"
       class="ghost-button"
       data-show-location-count
-      data-location-count="${escapeHtml(formatQuantity(cell.occupied_quantity))}"
-      aria-expanded="false"
+      data-cell-id="${cell.id}"
+      data-show-label="Show Count"
+      data-led-loading-label="Showing"
+      data-led-loading-title="Showing stock count for ${escapeHtml(cell.logical_code)} in yellow"
+      ${mapped ? `title="Show stock count for ${escapeHtml(cell.logical_code)} on its LED module"` : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
     >Show Count</button>
-    <span class="location-count-value" data-location-count-value aria-live="polite" hidden></span>
   `;
 }
 

@@ -436,7 +436,8 @@ test("product detail shows the latest activity time for each holding cell", asyn
   assert.match(html, /Last Activity/);
   assert.match(html, new RegExp(`data-ping-cell[\\s\\S]*data-cell-id="${batteryCell.id}"`));
   assert.match(html, /data-show-label="Show Quantity"/);
-  assert.match(html, new RegExp(`data-location-count="4 ${battery.unit_of_measure}"`));
+  assert.match(html, new RegExp(`data-product-id="${battery.id}"`));
+  assert.doesNotMatch(html, /data-location-count-value/);
   assert.match(html, />Show Quantity<\/button>/);
   assert.match(html, new RegExp(formatDate(lastActivityAt).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
@@ -1204,8 +1205,9 @@ test("locations expose direct pick and put actions", async () => {
   );
   assert.match(
     locationsHtml,
-    new RegExp(`data-show-location-count[\\s\\S]*data-location-count="${stockedCell.occupied_quantity}"`),
+    new RegExp(`data-show-location-count[\\s\\S]*data-cell-id="${stockedCell.id}"`),
   );
+  assert.doesNotMatch(locationsHtml, /data-location-count-value/);
   assert.match(locationsHtml, />Show Count<\/button>/);
   assert.match(
     locationsHtml,
@@ -3807,6 +3809,64 @@ test("location ping is available to authenticated operators", async () => {
   assert.equal(payload.degraded, false);
   assert.equal(payload.cell.id, 1);
   assert.match(payload.message, /Ping sent/);
+});
+
+test("show count sends the current server-side quantity to the LED in yellow", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-location-count-http-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const { reloadAppState, getAppState } = await import("../src/server/app-state.js");
+  reloadAppState();
+  const auth = await freshImport("../src/services/auth.js");
+  const expectedQuantity = Number(
+    getAppState().db
+      .prepare("SELECT available_quantity FROM inventory_balances WHERE cell_id = 1 AND product_id = 1")
+      .get()?.available_quantity || 0,
+  );
+  const { requestHandler } = await freshImport("../src/server.js");
+  const response = new MockResponse();
+  const cookie = auth
+    .createSessionCookie({ id: 2, role: "operator" })
+    .split(";")[0];
+
+  await requestHandler(
+    formRequest({
+      url: "/api/cells/1/count",
+      body: new URLSearchParams({ product_id: "1" }).toString(),
+      cookie,
+      headers: {
+        accept: "application/json",
+        "x-requested-with": "fetch",
+      },
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.degraded, false);
+  assert.equal(payload.color, "yellow");
+  assert.equal(payload.displayQuantity, expectedQuantity);
+  assert.deepEqual(payload.product, { id: 1, sku: "SKU-SHOE-001" });
+
+  const storedEvent = getAppState().db
+    .prepare(
+      `
+        SELECT payload
+        FROM device_events
+        WHERE event_type = 'guidance_activated' AND cell_id = 1
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+    )
+    .get();
+  assert.ok(storedEvent);
+  const ledPayload = JSON.parse(storedEvent.payload);
+  assert.equal(ledPayload.color, "yellow");
+  assert.equal(Number(ledPayload.quantity), expectedQuantity);
+  assert.equal(ledPayload.taskType, "stock_count");
 });
 
 test("cell mapping shows every online controller module and hides offline modules", async () => {

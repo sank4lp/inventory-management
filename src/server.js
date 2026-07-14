@@ -971,6 +971,85 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    const apiCellCountMatch = url.pathname.match(/^\/api\/cells\/(\d+)\/count$/);
+    if (request.method === "POST" && apiCellCountMatch) {
+      if (!ensureApiAuth(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const cell = locationService
+        .listCells()
+        .find((entry) => entry.id === Number(apiCellCountMatch[1]));
+      if (!cell) {
+        sendJson(response, { error: "Cell not found." }, 404);
+        return;
+      }
+
+      const productId = Number(form.product_id || 0);
+      let quantity = Number(cell.occupied_quantity || 0);
+      let product = null;
+      if (productId > 0) {
+        product = getProductDetail(db, productId);
+        if (!product) {
+          sendJson(response, { error: "Product not found." }, 404);
+          return;
+        }
+        const productLocation = product.locations.find(
+          (location) => Number(location.cell_id) === Number(cell.id),
+        );
+        quantity = Number(productLocation?.available_quantity || 0);
+      }
+      if (!Number.isFinite(quantity) || quantity < 0) {
+        sendJson(response, { error: "A valid stock quantity could not be determined." }, 422);
+        return;
+      }
+
+      const guidance = hardwareService.activateGuidance(
+        {
+          id: null,
+          type: "stock_count",
+          summary: product
+            ? `Show ${product.sku} quantity at ${cell.logical_code}`
+            : `Show stock count at ${cell.logical_code}`,
+        },
+        [
+          {
+            cell_id: cell.id,
+            logical_code: cell.logical_code,
+            controller_id: cell.controller_id,
+            controller_code: cell.controller_code,
+            controller_address: cell.controller_address,
+            hardware_channel: cell.hardware_channel,
+            planned_quantity: quantity,
+            guidance_color: "yellow",
+            guidance_role: product ? "product_quantity" : "location_stock_count",
+          },
+        ],
+        {
+          source: product ? "product_location_quantity" : "location_stock_count",
+          productId: product?.id || null,
+          displayQuantity: quantity,
+        },
+      );
+
+      sendJson(response, {
+        ok: guidance.ok,
+        degraded: guidance.degraded,
+        message:
+          guidance.message ||
+          `Showing ${quantity} on ${cell.logical_code} in yellow.`,
+        displayQuantity: quantity,
+        color: "yellow",
+        cell: {
+          id: cell.id,
+          logicalCode: cell.logical_code,
+          hardwareChannel: cell.hardware_channel,
+        },
+        product: product ? { id: product.id, sku: product.sku } : null,
+      });
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/put") {
       if (!ensureAuth(response, user)) {
         return;

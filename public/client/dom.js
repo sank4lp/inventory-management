@@ -11,6 +11,47 @@ export function currentReturnPath(fallbackHash = "") {
   return `${window.location.pathname}${window.location.search}${hash}`;
 }
 
+const loadingButtonStyles = new WeakMap();
+
+function lockButtonSize(button) {
+  loadingButtonStyles.set(button, {
+    width: button.style.width,
+    minWidth: button.style.minWidth,
+    maxWidth: button.style.maxWidth,
+    height: button.style.height,
+    minHeight: button.style.minHeight,
+    maxHeight: button.style.maxHeight,
+  });
+
+  const bounds = button.getBoundingClientRect();
+  if (bounds.width > 0) {
+    const width = `${bounds.width}px`;
+    button.style.width = width;
+    button.style.minWidth = width;
+    button.style.maxWidth = width;
+  }
+  if (bounds.height > 0) {
+    const height = `${bounds.height}px`;
+    button.style.height = height;
+    button.style.minHeight = height;
+    button.style.maxHeight = height;
+  }
+}
+
+function unlockButtonSize(button) {
+  const styles = loadingButtonStyles.get(button);
+  if (!styles) {
+    return;
+  }
+  button.style.width = styles.width;
+  button.style.minWidth = styles.minWidth;
+  button.style.maxWidth = styles.maxWidth;
+  button.style.height = styles.height;
+  button.style.minHeight = styles.minHeight;
+  button.style.maxHeight = styles.maxHeight;
+  loadingButtonStyles.delete(button);
+}
+
 function restoreAttribute(element, name, value) {
   if (value === undefined || value === "__unset__") {
     element.removeAttribute(name);
@@ -40,6 +81,7 @@ export function setButtonLoading(button, loading, options = {}) {
       "Working";
     const title = options.title || button.dataset.loadingTitle || label;
 
+    lockButtonSize(button);
     button.dataset.loadingActive = "true";
     button.dataset.loadingOriginalHtml = button.innerHTML;
     button.dataset.loadingOriginalDisabled = button.disabled ? "true" : "false";
@@ -61,8 +103,13 @@ export function setButtonLoading(button, loading, options = {}) {
     spinner.className = "button-spinner";
     spinner.setAttribute("aria-hidden", "true");
     const text = document.createElement("span");
+    text.className = "button-loading-label";
     text.textContent = label;
     button.append(spinner, text);
+    if (text.scrollWidth > text.clientWidth + 1) {
+      text.classList.add("sr-only");
+      button.classList.add("button-loading-compact");
+    }
     return;
   }
 
@@ -77,7 +124,8 @@ export function setButtonLoading(button, loading, options = {}) {
   button.removeAttribute("aria-busy");
   restoreAttribute(button, "title", button.dataset.loadingOriginalTitle);
   restoreAttribute(button, "aria-label", button.dataset.loadingOriginalAriaLabel);
-  button.classList.remove("button-loading", "icon-button-loading");
+  button.classList.remove("button-loading", "button-loading-compact", "icon-button-loading");
+  unlockButtonSize(button);
   delete button.dataset.loadingActive;
   delete button.dataset.loadingOriginalHtml;
   delete button.dataset.loadingOriginalDisabled;

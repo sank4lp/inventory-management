@@ -3835,6 +3835,27 @@ async function sendLocationPingCommand(cellId) {
   return payload;
 }
 
+async function sendLocationCountCommand(cellId, productId = "") {
+  const body = new URLSearchParams();
+  if (productId) {
+    body.set("product_id", productId);
+  }
+  const response = await fetch(`/api/cells/${encodeURIComponent(cellId)}/count`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false || payload.degraded) {
+    throw new Error(payload.error || payload.message || "Count display command failed.");
+  }
+  return payload;
+}
+
 function wireLocationUtilityActions() {
   const bindingTarget = document.documentElement;
   if (bindingTarget.dataset.locationUtilityActionsBound === "true") {
@@ -3845,18 +3866,39 @@ function wireLocationUtilityActions() {
   document.addEventListener("click", async (event) => {
     const countButton = event.target.closest("[data-show-location-count]");
     if (countButton) {
-      const countValue = countButton.parentElement?.querySelector("[data-location-count-value]");
-      if (!countValue) {
+      const cellId = countButton.dataset.cellId;
+      if (!cellId || countButton.disabled) {
         return;
       }
-      const expanded = countButton.getAttribute("aria-expanded") === "true";
-      const showLabel = countButton.dataset.showLabel || "Show Count";
-      const hideLabel = countButton.dataset.hideLabel || "Hide Count";
-      const countLabel = countButton.dataset.locationCountLabel || "Stock";
-      countButton.setAttribute("aria-expanded", expanded ? "false" : "true");
-      countButton.textContent = expanded ? showLabel : hideLabel;
-      countValue.textContent = expanded ? "" : `${countLabel}: ${countButton.dataset.locationCount || "0"}`;
-      countValue.hidden = expanded;
+      const originalLabel = countButton.dataset.showLabel || "Show Count";
+      const originalTitle = countButton.getAttribute("title");
+      const restoreCountButton = () => {
+        countButton.textContent = originalLabel;
+        countButton.disabled = false;
+        if (originalTitle === null) {
+          countButton.removeAttribute("title");
+        } else {
+          countButton.setAttribute("title", originalTitle);
+        }
+      };
+
+      setButtonLoading(countButton, true, {
+        label: countButton.dataset.ledLoadingLabel || "Showing",
+        title: countButton.dataset.ledLoadingTitle || "Showing quantity on LED",
+      });
+      try {
+        await sendLocationCountCommand(cellId, countButton.dataset.productId || "");
+        setButtonLoading(countButton, false);
+        countButton.textContent = "Shown";
+        countButton.disabled = true;
+        window.setTimeout(restoreCountButton, 1000);
+      } catch (error) {
+        setButtonLoading(countButton, false);
+        countButton.textContent = "Failed";
+        countButton.disabled = true;
+        countButton.setAttribute("title", error.message || "Count display command failed.");
+        window.setTimeout(restoreCountButton, 1400);
+      }
       return;
     }
 
