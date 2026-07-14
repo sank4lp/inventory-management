@@ -2097,8 +2097,8 @@ test("warehouse optimization recommendations consolidate product into closer cel
       source.pickQuantity,
     ]),
     [
-      ["OPT-R1-C03", 1],
       ["OPT-R1-C04", 2],
+      ["OPT-R1-C03", 1],
       ["OPT-R1-C05", 1],
     ],
   );
@@ -2160,6 +2160,75 @@ test("warehouse optimization recommendations consolidate product into closer cel
     );
   });
   assert.deepEqual(finalQuantities, [5, 4, 0, 0, 0]);
+});
+
+test("warehouse optimization minimizes the quantity operators must move", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-minimum-movement-optimize-"));
+  process.chdir(sandbox);
+
+  const { createDatabase } = await freshImport("../src/db.js");
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+
+  const db = createDatabase({ hashPassword: auth.hashPassword });
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const product = inventory.createProduct(db, {
+    sku: "MIN-MOVE-A",
+    name: "Minimum Movement Product",
+    brand: "Warehouse",
+    unit_of_measure: "items",
+    items_per_cell: 45,
+  });
+  const lowQuantityCell = inventory.createCell(db, {
+    logicalCode: "MIN-R1-C01",
+    createdBy: user.id,
+  });
+  const highQuantityCell = inventory.createCell(db, {
+    logicalCode: "MIN-R1-C02",
+    createdBy: user.id,
+  });
+  inventory.createAdjustment(db, {
+    cellId: lowQuantityCell.id,
+    userId: user.id,
+    reason: "Seed low quantity location",
+    lines: [{ productId: product.id, absoluteQuantity: 3 }],
+  });
+  inventory.createAdjustment(db, {
+    cellId: highQuantityCell.id,
+    userId: user.id,
+    reason: "Seed high quantity location",
+    lines: [{ productId: product.id, absoluteQuantity: 40 }],
+  });
+
+  const action = inventory
+    .getRecommendedActions(db)
+    .find((entry) => entry.type === "warehouse_optimization" && entry.productId === product.id);
+
+  assert.ok(action);
+  assert.equal(action.quantityToMove, 3);
+  assert.deepEqual(action.recommendedMoves, [
+    {
+      sourceCellId: lowQuantityCell.id,
+      sourceLogicalCode: "MIN-R1-C01",
+      targetCellId: highQuantityCell.id,
+      targetLogicalCode: "MIN-R1-C02",
+      quantity: 3,
+    },
+  ]);
+  assert.deepEqual(
+    action.optimizationPlan.targets.map((target) => [
+      target.logicalCode,
+      target.currentQuantity,
+      target.finalQuantity,
+      target.putQuantity,
+    ]),
+    [["MIN-R1-C02", 40, 43, 3]],
+  );
+  assert.deepEqual(
+    action.optimizationPlan.sources.map((source) => [source.logicalCode, source.pickQuantity]),
+    [["MIN-R1-C01", 3]],
+  );
+  assert.deepEqual(action.freedLocations.map((location) => location.logicalCode), ["MIN-R1-C01"]);
 });
 
 test("recommended action LEDs clear when the operator leaves without applying", async () => {

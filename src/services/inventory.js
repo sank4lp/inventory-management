@@ -290,7 +290,7 @@ function buildWarehouseOptimizationRecommendations(db) {
       continue;
     }
 
-    const sortedCells = [...product.cells].sort((left, right) => {
+    const compareByLocation = (left, right) => {
       if (left.rowNumber !== right.rowNumber) {
         return left.rowNumber - right.rowNumber;
       }
@@ -298,42 +298,49 @@ function buildWarehouseOptimizationRecommendations(db) {
         return left.columnNumber - right.columnNumber;
       }
       return left.logicalCode.localeCompare(right.logicalCode, undefined, { numeric: true });
-    });
+    };
+    const sortedCells = [...product.cells].sort(compareByLocation);
     const targetCells = sortedCells
       .filter((cell) => cell.otherQuantity <= 0)
-      .slice(0, idealCellCount);
+      .sort((left, right) => {
+        const retainedDifference =
+          Math.min(itemsPerCell, right.currentQuantity) -
+          Math.min(itemsPerCell, left.currentQuantity);
+        return retainedDifference || compareByLocation(left, right);
+      })
+      .slice(0, idealCellCount)
+      .sort(compareByLocation);
     if (targetCells.length < idealCellCount) {
       continue;
     }
 
     const targetIds = new Set(targetCells.map((cell) => cell.cellId));
-    let remainingDesiredQuantity = totalQuantity;
     const deficits = [];
     const sources = [];
     const targetSummaries = [];
 
     for (const target of targetCells) {
-      const finalQuantity = Math.min(itemsPerCell, remainingDesiredQuantity);
-      remainingDesiredQuantity -= finalQuantity;
-      const delta = finalQuantity - target.currentQuantity;
+      const retainedQuantity = Math.min(itemsPerCell, target.currentQuantity);
+      const availableCapacity = itemsPerCell - retainedQuantity;
       targetSummaries.push({
         cellId: target.cellId,
         logicalCode: target.logicalCode,
         currentQuantity: target.currentQuantity,
-        finalQuantity,
-        putQuantity: Math.max(0, delta),
+        finalQuantity: retainedQuantity,
+        putQuantity: 0,
       });
-      if (delta > 0) {
+      if (availableCapacity > 0) {
         deficits.push({
           cellId: target.cellId,
           logicalCode: target.logicalCode,
-          quantityNeeded: delta,
+          quantityNeeded: availableCapacity,
         });
-      } else if (delta < 0) {
+      }
+      if (target.currentQuantity > itemsPerCell) {
         sources.push({
           cellId: target.cellId,
           logicalCode: target.logicalCode,
-          pickQuantity: Math.abs(delta),
+          pickQuantity: target.currentQuantity - itemsPerCell,
         });
       }
     }
@@ -351,8 +358,12 @@ function buildWarehouseOptimizationRecommendations(db) {
     const moves = [];
     const sourceQueue = sources
       .filter((source) => source.pickQuantity > 0)
-      .map((source) => ({ ...source }));
-    for (const target of deficits) {
+      .map((source) => ({ ...source }))
+      .sort((left, right) => right.pickQuantity - left.pickQuantity || compareByLocation(left, right));
+    const targetQueue = deficits
+      .map((target) => ({ ...target }))
+      .sort((left, right) => right.quantityNeeded - left.quantityNeeded || compareByLocation(left, right));
+    for (const target of targetQueue) {
       let remainingTargetNeed = target.quantityNeeded;
       while (remainingTargetNeed > 0 && sourceQueue.length > 0) {
         const source = sourceQueue[0];
@@ -371,6 +382,14 @@ function buildWarehouseOptimizationRecommendations(db) {
         if (source.pickQuantity <= 0) {
           sourceQueue.shift();
         }
+      }
+    }
+
+    const targetSummaryById = new Map(targetSummaries.map((target) => [target.cellId, target]));
+    for (const move of moves) {
+      const target = targetSummaryById.get(move.targetCellId);
+      if (target) {
+        target.finalQuantity += move.quantity;
       }
     }
 
