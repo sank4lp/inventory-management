@@ -346,6 +346,7 @@ async function updateLiveResults(form) {
   }
 
   target.innerHTML = await response.text();
+  syncCatalogProductQuantityButtons();
   const rowCollapser = target.closest("[data-row-collapser]");
   if (rowCollapser) {
     resetRowCollapser(rowCollapser);
@@ -3530,6 +3531,7 @@ function wireFirmwareFlash() {
 const LOCATION_LOCATE_TIMEOUT_MS = 120000;
 const activeLocates = new Map();
 const activeCounts = new Map();
+let activeCatalogProductQuantity = null;
 
 function setLocateButtonState(button, active) {
   if (!button) {
@@ -3640,10 +3642,13 @@ function sendRecommendationLedClear(form, { beacon = true } = {}) {
 
 function sendProductFindLedClear(form, { beacon = true } = {}) {
   const endpoint = form.dataset.productFindLedClearEndpoint;
+  return sendProductFindLedClearEndpoint(endpoint, { beacon, body: formLedClearBody(form) });
+}
+
+function sendProductFindLedClearEndpoint(endpoint, { beacon = true, body = new URLSearchParams() } = {}) {
   if (!endpoint) {
     return Promise.resolve();
   }
-  const body = formLedClearBody(form);
 
   if (navigator.sendBeacon) {
     const blob = new Blob([body.toString()], {
@@ -3663,6 +3668,133 @@ function sendProductFindLedClear(form, { beacon = true } = {}) {
     body,
     keepalive: true,
   }).catch(() => {});
+}
+
+function setCatalogProductQuantityButtonState(button, active) {
+  if (!button) {
+    return;
+  }
+  if (!("quantityOriginalTitle" in button.dataset)) {
+    button.dataset.quantityOriginalTitle = button.getAttribute("title") || "";
+  }
+  const label = active
+    ? button.dataset.activeLabel || "Showing Quantity"
+    : button.dataset.showLabel || "Show Quantity";
+  button.classList.toggle("count-button-active", active);
+  button.setAttribute("aria-pressed", active ? "true" : "false");
+  button.textContent = label;
+  if (active) {
+    button.setAttribute("title", "Showing this product's quantity on every mapped LED. Click to clear.");
+  } else if (button.dataset.quantityOriginalTitle) {
+    button.setAttribute("title", button.dataset.quantityOriginalTitle);
+  }
+}
+
+function syncCatalogProductQuantityButtons() {
+  document.querySelectorAll("[data-show-product-quantity]").forEach((button) => {
+    const active =
+      activeCatalogProductQuantity &&
+      String(activeCatalogProductQuantity.productId) === String(button.dataset.productId || "");
+    setCatalogProductQuantityButtonState(button, Boolean(active));
+  });
+}
+
+async function activateCatalogProductQuantity(button) {
+  const endpoint = button.dataset.activateEndpoint;
+  if (!endpoint) {
+    throw new Error("Quantity display endpoint is unavailable.");
+  }
+  const body = new URLSearchParams();
+  body.set("return_to", `${window.location.pathname}${window.location.search}`);
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.message || payload.error || "Product quantity display failed.");
+  }
+  return payload;
+}
+
+function wireCatalogProductQuantity() {
+  if (document.documentElement.dataset.catalogProductQuantityBound === "true") {
+    return;
+  }
+  document.documentElement.dataset.catalogProductQuantityBound = "true";
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-show-product-quantity]");
+    if (!button || button.disabled) {
+      return;
+    }
+    const productId = String(button.dataset.productId || "");
+    if (!productId) {
+      return;
+    }
+    const togglingActive =
+      activeCatalogProductQuantity &&
+      String(activeCatalogProductQuantity.productId) === productId;
+    setButtonLoading(button, true, {
+      label: togglingActive ? "Clearing" : button.dataset.ledLoadingLabel || "Showing",
+      title: togglingActive ? "Clearing product quantities from the LEDs" : "Showing product quantities on the LEDs",
+    });
+
+    try {
+      if (activeCatalogProductQuantity) {
+        await sendProductFindLedClearEndpoint(activeCatalogProductQuantity.clearEndpoint, {
+          beacon: false,
+        });
+        activeCatalogProductQuantity = null;
+        setButtonLoading(button, false);
+        syncCatalogProductQuantityButtons();
+        if (togglingActive) {
+          return;
+        }
+        setButtonLoading(button, true, {
+          label: button.dataset.ledLoadingLabel || "Showing",
+          title: "Showing product quantities on the LEDs",
+        });
+      }
+
+      const payload = await activateCatalogProductQuantity(button);
+      activeCatalogProductQuantity = {
+        productId,
+        clearEndpoint: button.dataset.clearEndpoint,
+      };
+      setButtonLoading(button, false);
+      syncCatalogProductQuantityButtons();
+      if (payload.message) {
+        button.setAttribute("title", `${payload.message} Click to clear.`);
+      }
+    } catch (error) {
+      setButtonLoading(button, false);
+      button.textContent = "Failed";
+      button.disabled = true;
+      button.setAttribute("title", error.message || "Product quantity display failed.");
+      window.setTimeout(() => {
+        button.disabled = false;
+        syncCatalogProductQuantityButtons();
+      }, 1400);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  });
+
+  window.addEventListener("pagehide", () => {
+    if (!activeCatalogProductQuantity) {
+      return;
+    }
+    sendProductFindLedClearEndpoint(activeCatalogProductQuantity.clearEndpoint, {
+      beacon: true,
+    });
+    activeCatalogProductQuantity = null;
+  });
 }
 
 function wireProductFindLedCleanup() {
@@ -4661,6 +4793,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireFirmwareFlash();
   wireLocationLocate();
   wireLocationUtilityActions();
+  wireCatalogProductQuantity();
   wireControllerHealthForms();
   wireLedCommandForms();
   wireProductFindLedCleanup();

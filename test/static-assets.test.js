@@ -52,6 +52,8 @@ test("static asset server exposes browser modules and rejects traversal", async 
   assert.equal(appResult.response.statusCode, 200);
   assert.match(appResult.response.body, /const activeCounts = new Map\(\)/);
   assert.match(appResult.response.body, /sendLocationCountClearCommand/);
+  assert.match(appResult.response.body, /wireCatalogProductQuantity/);
+  assert.match(appResult.response.body, /sendProductFindLedClearEndpoint/);
   assert.match(appResult.response.body, /window\.addEventListener\("pagehide"/);
 
   const stylesResult = await serve("/styles.css");
@@ -90,6 +92,11 @@ test("static asset server exposes browser modules and rejects traversal", async 
     stylesResult.response.body,
     /\.count-button\s*\{[^}]*min-inline-size:\s*var\(--count-button-min-width\)/s,
   );
+  assert.match(stylesResult.response.body, /\.product-summary-layout\s*\{/);
+  assert.match(stylesResult.response.body, /\.product-summary-facts\s*\{/);
+  assert.match(stylesResult.response.body, /\.catalog-capacity-editor\s*\{/);
+  assert.match(stylesResult.response.body, /\.put-capacity-recovery-grid\s*\{/);
+  assert.match(stylesResult.response.body, /\.recommendation-space-badge-positive\s*\{/);
 
   const traversalResult = await serve("/client/../app.js");
   assert.equal(traversalResult.handled, false);

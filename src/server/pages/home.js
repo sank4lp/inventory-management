@@ -5,6 +5,7 @@ import {
 import {
   escapeHtml,
   formatDate,
+  formatQuantity,
   statusBadge,
   table,
   page,
@@ -60,6 +61,13 @@ function overviewActionIcon(type) {
 }
 
 export function createHomePages({ db }) {
+  function recommendationSpaceLabel(action) {
+    const count = Math.max(0, Number(action?.freedLocationCount || 0));
+    return count > 0
+      ? `Frees ${formatQuantity(count)} ${count === 1 ? "location" : "locations"}`
+      : "No locations freed";
+  }
+
   function recommendedActionLink(action) {
     return `/recommended-actions?key=${encodeURIComponent(action.key)}`;
   }
@@ -134,12 +142,13 @@ export function createHomePages({ db }) {
                     <a class="mini-link" href="/recommended-actions">View All</a>
                   </div>
                   ${table(
-                    ["Issue", "Location", "Product", "Next Step", "Action"],
+                    ["Issue", "Location", "Product", "Next Step", "Space Created", "Action"],
                     recommendedActions.map((action) => [
                       `<strong>${escapeHtml(action.title)}</strong>`,
                       escapeHtml(action.logicalCode),
                       `${escapeHtml(action.productName || "—")}<br /><small>${escapeHtml(action.productSku || "—")}</small>`,
                       escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`),
+                      `<span class="recommendation-space-badge ${Number(action.freedLocationCount || 0) > 0 ? "recommendation-space-badge-positive" : ""}">${escapeHtml(recommendationSpaceLabel(action))}</span>`,
                       `<a class="mini-link" href="${recommendedActionLink(action)}">Review</a>`,
                     ]),
                   )}

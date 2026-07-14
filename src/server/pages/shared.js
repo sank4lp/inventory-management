@@ -59,12 +59,13 @@ export function suspendIcon() {
   `;
 }
 
-export function quickActionLinks(productId, cellId = "") {
+export function quickActionLinks(productId, cellId = "", additionalActions = "") {
   return `
     <div class="mini-actions">
       <a class="mini-link" href="/products/${productId}">Open</a>
       <a class="mini-link" href="/pick?product_id=${productId}${cellId ? `&cell_id=${cellId}` : ""}">Pick</a>
       <a class="mini-link" href="/put?product_id=${productId}${cellId ? `&cell_id=${cellId}` : ""}">Put</a>
+      ${additionalActions}
     </div>
   `;
 }

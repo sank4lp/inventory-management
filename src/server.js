@@ -472,6 +472,7 @@ export const requestHandler = async (request, response) => {
           listProducts(db, q),
           q ? "No products match that search." : "No products have been added yet.",
           q,
+          { canEditCapacity: user.role === "admin" },
         ),
       );
       return;
@@ -592,6 +593,7 @@ export const requestHandler = async (request, response) => {
           flash,
           url.searchParams.get("q") || "",
           url.searchParams.get("show_add") === "1",
+          url,
         ),
       );
       return;
@@ -670,18 +672,33 @@ export const requestHandler = async (request, response) => {
         source: "product_find",
         productId,
       });
-      if (guidance.ok !== false) {
-        saveActiveProductFindGuidance(db, user.id, product, guidanceLines);
-      }
       const mappedCount = guidanceLines.filter(
         (line) => line.hardware_channel && (line.controller_address || line.controller_id),
       ).length;
+      if (guidance.ok !== false && mappedCount > 0) {
+        saveActiveProductFindGuidance(db, user.id, product, guidanceLines);
+      }
       const baseMessage = mappedCount > 0
         ? `Showing ${product.sku} quantities on ${mappedCount} mapped LED module(s) in yellow.`
         : `${product.sku} is stored in ${guidanceLines.length} location(s), but none have mapped LED modules.`;
       const message = guidance.degraded && guidance.message
         ? `${baseMessage} ${guidance.message}`
         : baseMessage;
+      if (requestWantsJson(request)) {
+        const ok = guidance.ok !== false && mappedCount > 0;
+        sendJson(
+          response,
+          {
+            ok,
+            degraded: Boolean(guidance.degraded),
+            message,
+            productId,
+            mappedCount,
+          },
+          ok ? 200 : 409,
+        );
+        return;
+      }
       sendRedirect(
         response,
         appendFlash(
@@ -700,42 +717,49 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const productId = Number(productCapacityMatch[1]);
-      const previousRecommendationKeys = new Set(
-        anomalyService
-          .getRecommendedActions()
-          .filter((action) => Number(action.productId) === productId)
-          .map((action) => action.key),
-      );
       catalogService.updateProductItemsPerCell({
         productId,
         itemsPerCell: form.items_per_cell,
       });
       const backupResult = createAutomaticBackup("product-capacity-update");
       const returnTo = safeLocalPath(form.return_to, `/products/${productId}`);
-      const newRecommendation = anomalyService
+      const recommendation = anomalyService
         .getRecommendedActions()
-        .find(
-          (action) =>
-            Number(action.productId) === productId &&
-            !previousRecommendationKeys.has(action.key),
-        );
-      if (newRecommendation) {
+        .filter((action) => Number(action.productId) === productId)
+        .sort((left, right) => {
+          const freedDifference =
+            Number(right.freedLocationCount || 0) - Number(left.freedLocationCount || 0);
+          if (freedDifference !== 0) {
+            return freedDifference;
+          }
+          return Number(right.type === "warehouse_optimization") -
+            Number(left.type === "warehouse_optimization");
+        })[0];
+      if (recommendation) {
+        const freedLocationCount = Math.max(0, Number(recommendation.freedLocationCount || 0));
+        const recommendationOutcome = freedLocationCount > 0
+          ? ` It can free ${freedLocationCount} ${freedLocationCount === 1 ? "location" : "locations"}.`
+          : " It improves stock placement but will not completely empty a location.";
         const nextFlash = backupAwareFlash(
-          "Capacity updated. A recommended inventory action was created; review it now or skip for later.",
+          `Capacity updated and recommendations recalculated.${recommendationOutcome}`,
           "warning",
           backupResult,
         );
         sendRedirect(
           response,
           appendFlash(
-            capacityRecommendationPromptPath(returnTo, newRecommendation.key),
+            capacityRecommendationPromptPath(returnTo, recommendation.key),
             nextFlash.message,
             nextFlash.tone,
           ),
         );
         return;
       }
-      const nextFlash = backupAwareFlash("Items per cell updated.", "success", backupResult);
+      const nextFlash = backupAwareFlash(
+        "Capacity updated. No consolidation recommendation is needed because this stock already uses the minimum locations for the new capacity.",
+        "success",
+        backupResult,
+      );
       sendRedirect(
         response,
         appendFlash(returnTo, nextFlash.message, nextFlash.tone),
@@ -1448,7 +1472,12 @@ export const requestHandler = async (request, response) => {
         .find((entry) => entry.key === form.recommendation_key);
       if (action?.optimizationPlan && form.led_ready !== "1") {
         const returnTo = safeLocalPath(form.return_to, "");
-        const sourceParam = form.recommendation_source === "capacity" ? "&source=capacity" : "";
+        const recommendationSource = ["capacity", "put-capacity"].includes(form.recommendation_source)
+          ? form.recommendation_source
+          : "";
+        const sourceParam = recommendationSource
+          ? `&source=${encodeURIComponent(recommendationSource)}`
+          : "";
         const recommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;
         sendRedirect(
           response,
@@ -1529,7 +1558,12 @@ export const requestHandler = async (request, response) => {
       const moveIndex = String(form.light_move_index || "").trim();
       const cells = listCells(db);
       const returnTo = safeLocalPath(form.return_to, "");
-      const sourceParam = form.recommendation_source === "capacity" ? "&source=capacity" : "";
+      const recommendationSource = ["capacity", "put-capacity"].includes(form.recommendation_source)
+        ? form.recommendation_source
+        : "";
+      const sourceParam = recommendationSource
+        ? `&source=${encodeURIComponent(recommendationSource)}`
+        : "";
       const ledReadyParam = moveIndex === "all" ? "&led_ready=1" : "";
       const ledMoveParam = moveIndex ? `&led_move_index=${encodeURIComponent(moveIndex)}` : "";
       const recommendationPath = `/recommended-actions?key=${encodeURIComponent(form.recommendation_key || "")}${sourceParam}${returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""}`;

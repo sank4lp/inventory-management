@@ -140,12 +140,55 @@ export function createProductPages({ db, productFieldService = null }) {
     products,
     emptyMessage = "No products match the current search.",
     search = "",
+    options = {},
   ) {
     const labels = fieldLabels();
     const identifierLabel = fieldLabel(labels, "product.sku", "SKU");
     const nameLabel = fieldLabel(labels, "product.name", "Name");
     const unitLabel = fieldLabel(labels, "product.unit_of_measure", "Unit");
     const searchLabel = String(search || "").trim();
+    const canEditCapacity = options.canEditCapacity === true;
+    const returnParams = new URLSearchParams();
+    if (searchLabel) {
+      returnParams.set("q", searchLabel);
+    }
+    const catalogReturnPath = `/products${returnParams.toString() ? `?${returnParams.toString()}` : ""}`;
+    const catalogQuantityButton = (product) => {
+      const hasStock = Number(product.total_available || 0) > 0;
+      const title = hasStock
+        ? `Show ${product.sku} quantity on every mapped LED cell holding this product.`
+        : "Put this product into a mapped location before showing its quantity.";
+      return `
+        <button
+          type="button"
+          class="ghost-button count-button"
+          data-show-product-quantity
+          data-product-id="${escapeHtml(product.id)}"
+          data-activate-endpoint="/products/${escapeHtml(product.id)}/find"
+          data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear"
+          data-show-label="Show Quantity"
+          data-active-label="Showing Quantity"
+          data-led-loading-label="Showing"
+          aria-pressed="false"
+          title="${escapeHtml(title)}"
+          ${hasStock ? "" : "disabled aria-disabled=\"true\""}
+        >Show Quantity</button>
+      `;
+    };
+    const catalogCapacityEditor = (product) => canEditCapacity
+      ? `
+        <details class="catalog-capacity-editor">
+          <summary>Edit Capacity</summary>
+          <form method="post" action="/products/${escapeHtml(product.id)}/items-per-cell" class="stack-form">
+            <input type="hidden" name="return_to" value="${escapeHtml(catalogReturnPath)}" />
+            <label>Items Per Location
+              <input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
+            </label>
+            <button type="submit">Save Capacity</button>
+          </form>
+        </details>
+      `
+      : "";
     return `
       <p class="muted">${escapeHtml(
         searchLabel
@@ -153,13 +196,18 @@ export function createProductPages({ db, productFieldService = null }) {
           : `Browse all products, or search by ${identifierLabel}/${nameLabel.toLowerCase()} when an operator has an item in hand.`,
       )}</p>
       ${table(
-        [identifierLabel, nameLabel, "Available", unitLabel, "Action"],
+        [identifierLabel, nameLabel, "Available", unitLabel, "Items Per Location", "Action"],
         products.map((product) => [
           `<a href="/products/${product.id}">${escapeHtml(product.sku)}</a>`,
           `<a href="/products/${product.id}">${escapeHtml(product.name)}</a><br /><small>${escapeHtml(product.brand)}</small>`,
           escapeHtml(formatQuantity(product.total_available)),
           escapeHtml(product.unit_of_measure),
-          quickActionLinks(product.id),
+          escapeHtml(formatQuantity(product.items_per_cell)),
+          quickActionLinks(
+            product.id,
+            "",
+            `${catalogQuantityButton(product)}${catalogCapacityEditor(product)}`,
+          ),
         ]),
         emptyMessage,
       )}
@@ -240,6 +288,10 @@ export function createProductPages({ db, productFieldService = null }) {
 
     const skipPath = capacityRecommendationDismissPath(url);
     const reviewPath = `/recommended-actions?key=${encodeURIComponent(action.key)}&source=capacity&return_to=${encodeURIComponent(skipPath)}`;
+    const freedLocationCount = Math.max(0, Number(action.freedLocationCount || 0));
+    const spaceOutcome = freedLocationCount > 0
+      ? `Applying this recommendation will free ${formatQuantity(freedLocationCount)} ${freedLocationCount === 1 ? "location" : "locations"}.`
+      : "This recommendation improves stock placement but will not completely empty a location.";
 
     return `
       <section class="modal-backdrop app-alert-modal" role="dialog" aria-modal="true" aria-labelledby="capacity-recommendation-title">
@@ -253,6 +305,7 @@ export function createProductPages({ db, productFieldService = null }) {
           </div>
           <p><strong>${escapeHtml(action.title)}</strong></p>
           <p class="muted">${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
+          <p class="recommendation-space-outcome ${freedLocationCount > 0 ? "recommendation-space-outcome-positive" : ""}"><strong>${escapeHtml(spaceOutcome)}</strong></p>
           <div class="modal-actions">
             <a class="action-cta-button" href="${escapeHtml(reviewPath)}">Review Recommendation</a>
             <a class="action-cta-button secondary-cta" href="${escapeHtml(skipPath)}">Skip For Now</a>
@@ -294,8 +347,8 @@ export function createProductPages({ db, productFieldService = null }) {
   function renderProductFindForm(product, active = false) {
     const disabled = !product.locations.length;
     const title = disabled
-      ? "Put stock into a mapped location before finding this product."
-      : "Show this product's available quantity on each mapped LED module.";
+      ? "Put stock into a mapped location before showing this product's quantities."
+      : "Show this product's available quantity on every mapped LED cell holding it.";
     const clearAttrs = active
       ? ` data-product-find-led-clear-form data-product-find-led-clear-endpoint="/products/${product.id}/find/clear"`
       : "";
@@ -304,21 +357,22 @@ export function createProductPages({ db, productFieldService = null }) {
       <form
         method="post"
         action="/products/${product.id}/find"
-        class="inline-form top-gap"
+        class="inline-form"
         data-led-command-form
-        data-led-loading-label="Finding"
+        data-led-loading-label="Showing"
         ${clearAttrs}
       >
         <span title="${escapeHtml(title)}">
           <button
             type="submit"
-            class="ghost-button led-action-button"
+            class="ghost-button count-button led-action-button ${active ? "count-button-active" : ""}"
             data-led-command-submit
             data-product-find-submit
-            data-led-loading-label="Finding"
+            data-led-loading-label="Showing"
             title="${escapeHtml(title)}"
+            aria-pressed="${active ? "true" : "false"}"
             ${disabled ? "disabled" : ""}
-          >Find Products</button>
+          >${active ? "Showing All Quantities" : "Show All Quantities"}</button>
         </span>
       </form>
     `;
@@ -560,7 +614,13 @@ export function createProductPages({ db, productFieldService = null }) {
     });
   }
 
-  function renderProducts(user, flash, search, showAddProduct) {
+  function renderProducts(
+    user,
+    flash,
+    search,
+    showAddProduct,
+    url = new URL("http://localhost/products"),
+  ) {
     const labels = fieldLabels();
     const customFields = visibleCustomFields();
     const allProducts = enrichProductsWithStockTrends(listProducts(db));
@@ -644,6 +704,7 @@ export function createProductPages({ db, productFieldService = null }) {
                     products,
                     search ? "No products match that search." : "No products have been added yet.",
                     search,
+                    { canEditCapacity: user.role === "admin" },
                   )}
                 </div>
               `,
@@ -693,6 +754,7 @@ export function createProductPages({ db, productFieldService = null }) {
             `
             : ""
         }
+        ${renderCapacityRecommendationPrompt(url)}
       `,
     });
   }
@@ -721,39 +783,74 @@ export function createProductPages({ db, productFieldService = null }) {
         ${card(
           "Product Summary",
           `
-            <p><strong>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}:</strong> ${escapeHtml(product.sku)}</p>
-            <p><strong>${escapeHtml(fieldLabel(labels, "product.brand", "Brand"))}:</strong> ${escapeHtml(product.brand)} · <strong>${escapeHtml(fieldLabel(labels, "product.unit_of_measure", "Unit"))}:</strong> ${escapeHtml(product.unit_of_measure)}</p>
-            <p class="muted">Available: ${escapeHtml(formatQuantity(product.total_available))} ${escapeHtml(product.unit_of_measure)}</p>
-            <p class="muted">${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items per location"))}: ${escapeHtml(formatQuantity(product.items_per_cell))}</p>
-            ${
-              customAttributes.length
-                ? `<dl class="product-custom-attribute-list">${customAttributes
-                    .map(
-                      (field) => `<div><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.data_type === "boolean" ? (field.value ? "Yes" : "No") : field.value)}</dd></div>`,
-                    )
-                    .join("")}</dl>`
-                : ""
-            }
-            <div class="mini-actions">
-              <a class="mini-link" href="/pick?product_id=${product.id}">Pick</a>
-              <a class="mini-link" href="/put?product_id=${product.id}">Put</a>
+            <div class="product-summary-layout">
+              <section class="product-summary-overview" aria-label="Product details">
+                <dl class="product-summary-facts">
+                  <div>
+                    <dt>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}</dt>
+                    <dd>${escapeHtml(product.sku)}</dd>
+                  </div>
+                  <div class="product-summary-fact-primary">
+                    <dt>Available</dt>
+                    <dd>${escapeHtml(formatQuantity(product.total_available))} <span>${escapeHtml(product.unit_of_measure)}</span></dd>
+                  </div>
+                  <div>
+                    <dt>${escapeHtml(fieldLabel(labels, "product.brand", "Brand"))}</dt>
+                    <dd>${escapeHtml(product.brand)}</dd>
+                  </div>
+                  <div>
+                    <dt>${escapeHtml(fieldLabel(labels, "product.unit_of_measure", "Unit"))}</dt>
+                    <dd>${escapeHtml(product.unit_of_measure)}</dd>
+                  </div>
+                  <div>
+                    <dt>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items Per Location"))}</dt>
+                    <dd>${escapeHtml(formatQuantity(product.items_per_cell))}</dd>
+                  </div>
+                </dl>
+                ${
+                  customAttributes.length
+                    ? `<dl class="product-custom-attribute-list">${customAttributes
+                        .map(
+                          (field) => `<div><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.data_type === "boolean" ? (field.value ? "Yes" : "No") : field.value)}</dd></div>`,
+                        )
+                        .join("")}</dl>`
+                    : ""
+                }
+              </section>
+              <aside class="product-primary-actions" aria-label="Product actions">
+                <h3>Actions</h3>
+                <p class="muted">Move stock or show this product across every mapped location.</p>
+                <div class="mini-actions">
+                  <a class="mini-link" href="/pick?product_id=${product.id}">Pick</a>
+                  <a class="mini-link" href="/put?product_id=${product.id}">Put</a>
+                  ${renderProductFindForm(product, productFindLedActive)}
+                </div>
+              </aside>
             </div>
-            ${user.role === "admin" ? "" : renderProductFindForm(product, productFindLedActive)}
             ${
               user.role === "admin"
                 ? `
-                  <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form top-gap">
-                    <label>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items Per Location"))}
-                      <input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
-                    </label>
-                    <button type="submit">Update Capacity</button>
-                  </form>
-                  <p class="muted">The next put task will use this value to fill existing cells first and minimize new cells.</p>
-                  ${renderAdminProductDetailsForm(product)}
-                  <div class="mini-actions product-management-actions">
-                    ${renderProductFindForm(product, productFindLedActive)}
-                    ${renderAdminProductRemoval(product)}
-                  </div>
+                  <details class="form-disclosure product-settings-disclosure top-gap">
+                    <summary>Product Settings</summary>
+                    <div class="product-settings-grid">
+                      <section class="product-capacity-settings" aria-labelledby="product-capacity-title">
+                        <h3 id="product-capacity-title">Location Capacity</h3>
+                        <p class="muted">Used by Put to fill existing locations before opening new ones.</p>
+                        <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form">
+                          <label>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items Per Location"))}
+                            <input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
+                          </label>
+                          <button type="submit">Update Capacity</button>
+                        </form>
+                      </section>
+                      <section class="product-record-settings" aria-labelledby="product-record-title">
+                        <h3 id="product-record-title">Catalog Record</h3>
+                        <p class="muted">Edit descriptive fields or remove an empty product from the catalog.</p>
+                        ${renderAdminProductDetailsForm(product)}
+                        ${renderAdminProductRemoval(product)}
+                      </section>
+                    </div>
+                  </details>
                 `
                 : ""
             }
@@ -949,48 +1046,64 @@ export function createProductPages({ db, productFieldService = null }) {
       return "";
     }
 
-    const message = `
-      <p><strong>System Is Already Full For This Product.</strong> The planner can split larger put quantities across eligible empty locations and locations already holding ${escapeHtml(product.sku)}, but there is not enough eligible room for this request.</p>
-      <p class="muted">Current planning batch for ${escapeHtml(product.sku)} is ${escapeHtml(formatQuantity(product.items_per_cell))} ${escapeHtml(product.unit_of_measure)} per location.</p>
-    `;
-
-    if (user.role !== "admin") {
-      return `
-        <section class="modal-backdrop app-alert-modal" role="dialog" aria-modal="true" aria-labelledby="put-capacity-title">
-          <div class="modal-panel">
-            <div class="modal-header">
-              <div>
-                <h2 id="put-capacity-title">System Already Full</h2>
-                <p class="muted">${escapeHtml(flash?.message || "No eligible location has enough room for this put quantity.")}</p>
-              </div>
-              <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
-            </div>
-            ${message}
-            <p class="flash flash-warning">Ask an admin to add or map more locations, or adjust this product's items-per-location setting if each location can physically hold more.</p>
-          </div>
-        </section>
-      `;
-    }
-
-    return `
-      <section class="modal-backdrop app-alert-modal" role="dialog" aria-modal="true" aria-labelledby="put-capacity-title">
-        <div class="modal-panel">
-          <div class="modal-header">
-            <div>
-              <h2 id="put-capacity-title">System Already Full</h2>
-              <p class="muted">${escapeHtml(flash?.message || "No eligible location has enough room for this put quantity.")}</p>
-            </div>
-            <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
-          </div>
-          ${message}
+    const recommendations = getRecommendedActions(db);
+    const totalFreedLocations = recommendations.reduce(
+      (sum, action) => sum + Math.max(0, Number(action.freedLocationCount || 0)),
+      0,
+    );
+    const reviewPath = `/recommended-actions?source=put-capacity&return_to=${encodeURIComponent(returnTo)}`;
+    const recommendationSummary = recommendations.length
+      ? `${formatQuantity(recommendations.length)} recommendation(s) are available and can free ${formatQuantity(totalFreedLocations)} ${totalFreedLocations === 1 ? "location" : "locations"} in total.`
+      : "No consolidation recommendations are currently available, but capacity can still be reviewed before retrying.";
+    const capacityOption = user.role === "admin"
+      ? `
+        <section class="put-capacity-option">
+          <span class="put-capacity-option-step">2</span>
+          <h3>Adjust Product Capacity</h3>
           <p class="muted">Only increase this value if each location can physically hold more of this product.</p>
           <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form">
             <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
             <label>Items Per Location
               <input type="number" min="1" step="1" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
             </label>
-            <button type="submit">Update Items Per Location</button>
+            <button type="submit">Update Capacity</button>
           </form>
+        </section>
+      `
+      : `
+        <section class="put-capacity-option">
+          <span class="put-capacity-option-step">2</span>
+          <h3>Ask An Admin To Review Capacity</h3>
+          <p class="muted">The current setting is ${escapeHtml(formatQuantity(product.items_per_cell))} ${escapeHtml(product.unit_of_measure)} per location.</p>
+        </section>
+      `;
+
+    return `
+      <section class="modal-backdrop app-alert-modal" role="dialog" aria-modal="true" aria-labelledby="put-capacity-title">
+        <div class="modal-panel put-capacity-recovery-panel">
+          <div class="modal-header">
+            <div>
+              <h2 id="put-capacity-title">No Space Available</h2>
+              <p class="muted">${escapeHtml(flash?.message || "No eligible location has enough room for this put quantity.")}</p>
+            </div>
+            <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
+          </div>
+          <p><strong>The Put planner could not find enough eligible room for ${escapeHtml(product.sku)}.</strong> Use one or more of these options, then retry the same request.</p>
+          <div class="put-capacity-recovery-grid">
+            <section class="put-capacity-option put-capacity-option-primary">
+              <span class="put-capacity-option-step">1</span>
+              <h3>Free Locations</h3>
+              <p class="muted">${escapeHtml(recommendationSummary)}</p>
+              <a class="action-cta-button" href="${escapeHtml(reviewPath)}">Review Recommended Actions</a>
+            </section>
+            ${capacityOption}
+            <section class="put-capacity-option">
+              <span class="put-capacity-option-step">3</span>
+              <h3>Retry Put</h3>
+              <p class="muted">Your selected product and quantity are preserved.</p>
+              <a class="action-cta-button secondary-cta" href="${escapeHtml(returnTo)}">Retry Put Request</a>
+            </section>
+          </div>
         </div>
       </section>
     `;
@@ -1152,8 +1265,8 @@ export function createProductPages({ db, productFieldService = null }) {
     const loadedCount = locations.length;
     const totalCount = Number(product.stock_location_count ?? loadedCount);
     const findTitle = locations.length
-      ? "Show this product's available quantity on each mapped LED module."
-      : "Put stock into a mapped location before finding this product.";
+      ? "Show this product's available quantity on every mapped LED cell holding it."
+      : "Put stock into a mapped location before showing this product's quantities.";
     return `
       <section
         class="put-stock-summary put-stock-summary-${escapeHtml(tone)}"
@@ -1178,10 +1291,10 @@ export function createProductPages({ db, productFieldService = null }) {
               formnovalidate
               data-led-command-submit
               data-product-find-submit
-              data-led-loading-label="Finding"
+              data-led-loading-label="Showing"
               title="${escapeHtml(findTitle)}"
               ${locations.length ? "" : "disabled"}
-            >Find Products</button>
+            >Show All Quantities</button>
             <div class="put-stock-total">
               ${escapeHtml(formatQuantity(totalAvailable))}
               <span>${escapeHtml(product.unit_of_measure)}</span>

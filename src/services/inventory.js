@@ -398,6 +398,13 @@ function buildWarehouseOptimizationRecommendations(db) {
       targetTotals.set(move.targetCellId, target);
     }
 
+    const freedLocations = sortedCells
+      .filter((cell) => !targetIds.has(cell.cellId) && cell.otherQuantity <= 0)
+      .map((cell) => ({
+        cellId: cell.cellId,
+        logicalCode: cell.logicalCode,
+      }));
+
     recommendations.push({
       key: `optimize-${product.productId}`,
       type: "warehouse_optimization",
@@ -415,11 +422,15 @@ function buildWarehouseOptimizationRecommendations(db) {
       quantityToMove: moves.reduce((sum, move) => sum + Number(move.quantity || 0), 0),
       recommendedMoves: moves,
       unresolvedQuantity: 0,
+      freedLocationCount: freedLocations.length,
+      freedLocations,
       optimizationPlan: {
         totalQuantity,
         itemsPerCell,
         currentCellCount: product.cells.length,
         idealCellCount,
+        freedLocationCount: freedLocations.length,
+        freedLocations,
         targets: targetSummaries.map((target) => ({
           ...target,
           putQuantity: targetTotals.get(target.cellId)?.putQuantity || 0,
@@ -1165,6 +1176,8 @@ export function getRecommendedActions(db) {
     return {
       ...anomaly,
       sourceCell: cell,
+      freedLocationCount: 0,
+      freedLocations: [],
     };
   });
   return [

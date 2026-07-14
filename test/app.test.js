@@ -465,6 +465,15 @@ test("product find shows yellow quantity guidance on every mapped holding cell",
   );
   assert.ok(mappedLocations.length > 0);
 
+  const catalogHtml = createProductPages({ db }).renderCatalogProductResults(
+    inventory.listProducts(db).filter((product) => product.id === shoe.id),
+  );
+  assert.match(catalogHtml, /data-show-product-quantity/);
+  assert.match(catalogHtml, new RegExp(`data-product-id="${shoe.id}"`));
+  assert.match(catalogHtml, new RegExp(`data-activate-endpoint="/products/${shoe.id}/find"`));
+  assert.match(catalogHtml, new RegExp(`data-clear-endpoint="/products/${shoe.id}/find/clear"`));
+  assert.match(catalogHtml, />Show Quantity<\/button>/);
+
   const activeHtml = createProductPages({ db }).renderProductDetail(
     user,
     null,
@@ -523,6 +532,44 @@ test("product find shows yellow quantity guidance on every mapped holding cell",
     .prepare("SELECT COUNT(*) AS count FROM device_events WHERE event_type = 'guidance_cleared'")
     .get().count;
   assert.equal(clearedAfterLeave - clearedBeforeLeave, mappedLocations.length);
+  assert.equal(
+    db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey),
+    undefined,
+  );
+
+  const catalogFindResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: `/products/${shoe.id}/find`,
+      body: new URLSearchParams({ return_to: "/products" }).toString(),
+      cookie,
+      headers: {
+        accept: "application/json",
+        "x-requested-with": "fetch",
+      },
+    }),
+    catalogFindResponse,
+  );
+  assert.equal(catalogFindResponse.statusCode, 200);
+  const catalogFindPayload = JSON.parse(catalogFindResponse.body);
+  assert.equal(catalogFindPayload.ok, true);
+  assert.equal(catalogFindPayload.productId, shoe.id);
+  assert.equal(catalogFindPayload.mappedCount, mappedLocations.length);
+  assert.match(catalogFindPayload.message, /in yellow/);
+
+  const catalogClearResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: `/products/${shoe.id}/find/clear`,
+      body: "",
+      cookie,
+      headers: {
+        "x-requested-with": "fetch",
+      },
+    }),
+    catalogClearResponse,
+  );
+  assert.equal(catalogClearResponse.statusCode, 204);
   assert.equal(
     db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey),
     undefined,
@@ -882,7 +929,10 @@ test("product removal is admin-safe and SKU re-add restores the same product ide
     new URL(`http://localhost/products/${shoe.id}`),
   );
   assert.match(stockedProductHtml, /Remove Product/);
-  assert.match(stockedProductHtml, /Find Products/);
+  assert.match(stockedProductHtml, /Show All Quantities/);
+  assert.match(stockedProductHtml, /product-summary-layout/);
+  assert.match(stockedProductHtml, /product-summary-facts/);
+  assert.match(stockedProductHtml, /Product Settings/);
   assert.match(stockedProductHtml, /Edit Product Details/);
   assert.match(stockedProductHtml, /SKU is the product identity and cannot be changed\./);
   assert.match(stockedProductHtml, /Create a Pick task to reduce this product&#39;s stock to 0 before removing it\./);
@@ -896,7 +946,7 @@ test("product removal is admin-safe and SKU re-add restores the same product ide
     new URL(`http://localhost/products/${product.id}`),
   );
   assert.doesNotMatch(operatorHtml, /Remove Product/);
-  assert.match(operatorHtml, /Find Products/);
+  assert.match(operatorHtml, /Show All Quantities/);
   assert.match(operatorHtml, /href="\/products"[\s\S]*?<span>Products<\/span>/);
 
   const removed = inventory.removeProduct(db, product.id);
@@ -960,8 +1010,11 @@ test("put capacity error page offers an inline items-per-cell update", async () 
     new URL(`http://localhost/put?product_id=${shoe.id}&quantity=99&capacity_help=1`),
   );
 
-  assert.match(html, /System Already Full/);
-  assert.match(html, /planner can split larger put quantities/);
+  assert.match(html, /No Space Available/);
+  assert.match(html, /Review Recommended Actions/);
+  assert.match(html, /source=put-capacity&amp;return_to=/);
+  assert.match(html, /Retry Put Request/);
+  assert.match(html, /Update Capacity/);
   assert.match(html, new RegExp(`action="/products/${shoe.id}/items-per-cell"`));
   assert.match(html, /name="items_per_cell"/);
   assert.match(html, /name="quantity" value="99"/);
@@ -997,7 +1050,7 @@ test("capacity updates show newly-created recommended actions in a same-page pro
   assert.match(redirectUrl.searchParams.get("capacity_recommendation_key"), /^overflow-\d+-1$/);
   assert.equal(
     redirectUrl.searchParams.get("flash"),
-    "Capacity updated. A recommended inventory action was created; review it now or skip for later.",
+    "Capacity updated and recommendations recalculated. It improves stock placement but will not completely empty a location.",
   );
   assert.equal(redirectUrl.searchParams.get("tone"), "warning");
 
@@ -1015,9 +1068,61 @@ test("capacity updates show newly-created recommended actions in a same-page pro
   assert.equal(detailResponse.statusCode, 200);
   assert.match(detailResponse.body, /Recommended Action Created/);
   assert.match(detailResponse.body, /Review Recommendation/);
+  assert.match(detailResponse.body, /will not completely empty a location/);
   assert.match(detailResponse.body, /Skip For Now/);
   assert.match(detailResponse.body, /href="\/recommended-actions\?key=overflow-\d+-1&amp;source=capacity&amp;return_to=%2Fproducts%2F1"/);
   assert.match(detailResponse.body, /href="\/products\/1">Skip For Now/);
+
+  const repeatedResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/products/1/items-per-cell",
+      body: new URLSearchParams({
+        items_per_cell: "2",
+        return_to: "/products",
+      }).toString(),
+      cookie,
+    }),
+    repeatedResponse,
+  );
+  assert.equal(repeatedResponse.statusCode, 302);
+  assert.match(repeatedResponse.headers.Location, /^\/products\?/);
+  assert.match(repeatedResponse.headers.Location, /capacity_recommendation_key=overflow-/);
+
+  const consolidationResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/products/1/items-per-cell",
+      body: new URLSearchParams({
+        items_per_cell: "20",
+        return_to: "/products",
+      }).toString(),
+      cookie,
+    }),
+    consolidationResponse,
+  );
+  assert.equal(consolidationResponse.statusCode, 302);
+  assert.match(consolidationResponse.headers.Location, /^\/products\?/);
+  assert.match(consolidationResponse.headers.Location, /capacity_recommendation_key=optimize-1/);
+  assert.match(
+    new URL(consolidationResponse.headers.Location, "http://localhost").searchParams.get("flash"),
+    /can free 2 locations/,
+  );
+
+  const catalogResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      method: "GET",
+      url: consolidationResponse.headers.Location,
+      body: "",
+      cookie,
+    }),
+    catalogResponse,
+  );
+  assert.equal(catalogResponse.statusCode, 200);
+  assert.match(catalogResponse.body, /catalog-capacity-editor/);
+  assert.match(catalogResponse.body, /Recommended Action Created/);
+  assert.match(catalogResponse.body, /will free 2 locations/);
 });
 
 test("active pick and put tasks allow changed quantities on eligible cells", async () => {
@@ -1381,6 +1486,10 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(addProductHtml, /Open Printable List/);
   assert.match(addProductHtml, /Out Of Stock Products/);
   assert.match(addProductHtml, /data-report-print-current/);
+  assert.match(addProductHtml, /Items Per Location/);
+  assert.match(addProductHtml, /catalog-capacity-editor/);
+  assert.match(addProductHtml, /Edit Capacity/);
+  assert.match(addProductHtml, /Save Capacity/);
   const productSearchHtml = productPages.renderCatalogProductResults(
     inventory.listProducts(db, "shoe"),
     "No products match that search.",
@@ -1407,7 +1516,7 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(pickHtml, /data-movement-stock-load-more/);
   assert.match(pickHtml, /data-movement-stock-offset="5"/);
   assert.match(pickHtml, /name="return_to" value="" data-led-command-return-to/);
-  assert.match(pickHtml, /Find Products/);
+  assert.match(pickHtml, /Show All Quantities/);
   assert.match(pickHtml, new RegExp(`formaction="/products/${shoe.id}/find"`));
   assert.match(pickHtml, /formnovalidate/);
   assert.match(pickHtml, /data-product-find-submit/);
@@ -1483,7 +1592,7 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(putHtml, /data-movement-stock-load-more/);
   assert.match(putHtml, /data-movement-stock-offset="5"/);
   assert.match(putHtml, /name="return_to" value="" data-led-command-return-to/);
-  assert.match(putHtml, /Find Products/);
+  assert.match(putHtml, /Show All Quantities/);
   assert.match(putHtml, new RegExp(`formaction="/products/${shoe.id}/find"`));
   assert.match(putHtml, /formnovalidate/);
   assert.match(putHtml, /data-product-find-submit/);
@@ -1896,6 +2005,8 @@ test("recommended actions open as a scan-friendly list before detailed cleanup",
   const listHtml = taskPages.renderRecommendedActions(user, null, "");
   assert.match(listHtml, /Recommended Cleanup/);
   assert.match(listHtml, /Review/);
+  assert.match(listHtml, /Space Created/);
+  assert.match(listHtml, /No locations freed/);
   assert.doesNotMatch(listHtml, /Apply Recommendation/);
 
   const detailHtml = taskPages.renderRecommendedActions(user, null, actions[0].key, {
@@ -1907,6 +2018,15 @@ test("recommended actions open as a scan-friendly list before detailed cleanup",
   assert.match(detailHtml, /Skip For Now/);
   assert.match(detailHtml, /The capacity update created this recommended action/);
   assert.match(detailHtml, /name="return_to" value="\/products\/1"/);
+
+  const recoveryListHtml = taskPages.renderRecommendedActions(user, null, "", {
+    source: "put-capacity",
+    returnTo: "/put?product_id=1&quantity=99",
+  });
+  assert.match(recoveryListHtml, /Review space-saving actions/);
+  assert.match(recoveryListHtml, /Return To Put/);
+  assert.match(recoveryListHtml, /source=put-capacity/);
+  assert.match(recoveryListHtml, /return_to=%2Fput%3Fproduct_id%3D1%26quantity%3D99/);
 
   const homePages = createHomePages({ db });
   const overviewHtml = homePages.renderHome(user, null, new URL("http://localhost/"));
@@ -1955,6 +2075,11 @@ test("warehouse optimization recommendations consolidate product into closer cel
   assert.ok(action);
   assert.equal(action.optimizationPlan.currentCellCount, 5);
   assert.equal(action.optimizationPlan.idealCellCount, 2);
+  assert.equal(action.freedLocationCount, 3);
+  assert.deepEqual(
+    action.freedLocations.map((location) => location.logicalCode),
+    ["OPT-R1-C03", "OPT-R1-C04", "OPT-R1-C05"],
+  );
   assert.deepEqual(
     action.optimizationPlan.targets.map((target) => [
       target.logicalCode,
@@ -1983,6 +2108,7 @@ test("warehouse optimization recommendations consolidate product into closer cel
   assert.match(overviewHtml, /href="\/recommended-actions"/);
 
   const detailHtml = createTaskPages({ db }).renderRecommendedActions(user, null, action.key);
+  assert.match(detailHtml, /Frees 3 locations/);
   assert.match(detailHtml, /Show Full Optimization LEDs/);
   assert.match(detailHtml, /Put Into cell OPT-R1-C01[\s\S]*Quantity: 3/);
   assert.match(detailHtml, /Pick From cell OPT-R1-C04[\s\S]*Quantity: 2/);

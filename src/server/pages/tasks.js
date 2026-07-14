@@ -33,6 +33,18 @@ export function createTaskPages({ db }) {
     }
   }
 
+  function freedLocationCount(action) {
+    return Math.max(0, Number(action?.freedLocationCount || 0));
+  }
+
+  function freedLocationLabel(action) {
+    const count = freedLocationCount(action);
+    if (count <= 0) {
+      return "No locations freed";
+    }
+    return `Frees ${formatQuantity(count)} ${count === 1 ? "location" : "locations"}`;
+  }
+
   function ledColorLabel(color) {
     return String(color || "").trim().toUpperCase() || "LED";
   }
@@ -509,31 +521,57 @@ export function createTaskPages({ db }) {
     const allActions = getRecommendedActions(db);
     const returnTo = safeRecommendedReturnPath(options.returnTo);
     const openedFromCapacityUpdate = options.source === "capacity" && Boolean(selectedKey);
+    const openedFromPutCapacity = options.source === "put-capacity";
     const fullOptimizationLedReady = options.ledReady === true;
     const activeLedMoveIndex = String(options.ledMoveIndex || "").trim();
     const returnToInput = returnTo
       ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />`
       : "";
-    const recommendationSourceInput = openedFromCapacityUpdate
-      ? `<input type="hidden" name="recommendation_source" value="capacity" />`
+    const recommendationSourceInput = ["capacity", "put-capacity"].includes(options.source)
+      ? `<input type="hidden" name="recommendation_source" value="${escapeHtml(options.source)}" />`
       : "";
+    const recommendationLink = (action) => {
+      const params = new URLSearchParams({ key: action.key });
+      if (["capacity", "put-capacity"].includes(options.source)) {
+        params.set("source", options.source);
+      }
+      if (returnTo) {
+        params.set("return_to", returnTo);
+      }
+      return `/recommended-actions?${params.toString()}`;
+    };
     if (!selectedKey) {
+      const totalFreedLocations = allActions.reduce(
+        (sum, action) => sum + freedLocationCount(action),
+        0,
+      );
       return page({
         title: "Recommended Actions",
         user,
         flash,
         content: `
+          ${
+            openedFromPutCapacity
+              ? `<p class="flash flash-warning">Review space-saving actions, apply the useful ones, then return to retry the Put request.</p>`
+              : ""
+          }
+          <section class="recommendation-space-summary" aria-label="Potential space created">
+            <strong>${escapeHtml(formatQuantity(totalFreedLocations))}</strong>
+            <span>${totalFreedLocations === 1 ? "location can" : "locations can"} be freed by the current recommendations.</span>
+          </section>
+          ${returnTo ? `<section class="page-actions page-actions-left"><a class="action-cta-button secondary-cta" href="${escapeHtml(returnTo)}">Return To Put</a></section>` : ""}
           ${card(
             "Recommended Cleanup",
             allActions.length
               ? table(
-                  ["Issue", "Location", "Product", "Suggested Next Step", "Action"],
+                  ["Issue", "Location", "Product", "Suggested Next Step", "Space Created", "Action"],
                   allActions.map((action) => [
                     `<strong>${escapeHtml(action.title)}</strong>`,
                     escapeHtml(action.logicalCode),
                     escapeHtml(action.productSku),
                     escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`),
-                    `<a class="mini-link" href="/recommended-actions?key=${encodeURIComponent(action.key)}">Review</a>`,
+                    `<span class="recommendation-space-badge ${freedLocationCount(action) > 0 ? "recommendation-space-badge-positive" : ""}">${escapeHtml(freedLocationLabel(action))}</span>`,
+                    `<a class="mini-link" href="${escapeHtml(recommendationLink(action))}">Review</a>`,
                   ]),
                 )
               : `<p class="muted">No recommended actions right now.</p>`,
@@ -572,6 +610,8 @@ export function createTaskPages({ db }) {
         ${
           openedFromCapacityUpdate
             ? `<p class="flash flash-warning">The capacity update created this recommended action. Apply it now to update inventory, or skip it for later.</p>`
+            : openedFromPutCapacity
+              ? `<p class="flash flash-warning">This action may create space for the interrupted Put request. Apply it, then return and retry the Put.</p>`
             : ""
         }
         ${actions.length
@@ -589,6 +629,10 @@ export function createTaskPages({ db }) {
                   action.title,
                   `
                     ${action.optimizationPlan && fullOptimizationLedReady ? `<p class="flash flash-success">Full optimization LEDs are active. Review the move plan, then apply the recommendation.</p>` : ""}
+                    <p class="recommendation-space-outcome ${freedLocationCount(action) > 0 ? "recommendation-space-outcome-positive" : ""}">
+                      <strong>${escapeHtml(freedLocationLabel(action))}</strong>
+                      ${freedLocationCount(action) > 0 ? ` when the recommended moves are applied.` : ` by this action; it improves stock placement without creating an empty location.`}
+                    </p>
                     ${renderRecommendedActionIntro(action, cellHasMappedLed)}
                     ${
                       action.unresolvedQuantity > 0
