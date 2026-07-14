@@ -434,6 +434,10 @@ test("product detail shows the latest activity time for each holding cell", asyn
   const html = createProductPages({ db }).renderProductDetail(user, null, detail);
   assert.match(html, /Locations Holding This Product/);
   assert.match(html, /Last Activity/);
+  assert.match(html, new RegExp(`data-ping-cell[\\s\\S]*data-cell-id="${batteryCell.id}"`));
+  assert.match(html, /data-show-label="Show Quantity"/);
+  assert.match(html, new RegExp(`data-location-count="4 ${battery.unit_of_measure}"`));
+  assert.match(html, />Show Quantity<\/button>/);
   assert.match(html, new RegExp(formatDate(lastActivityAt).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
@@ -1196,6 +1200,15 @@ test("locations expose direct pick and put actions", async () => {
   assert.match(locationsHtml, new RegExp(`href="/put\\?cell_id=${stockedCell.id}"`));
   assert.match(
     locationsHtml,
+    new RegExp(`data-ping-cell[\\s\\S]*data-cell-id="${stockedCell.id}"`),
+  );
+  assert.match(
+    locationsHtml,
+    new RegExp(`data-show-location-count[\\s\\S]*data-location-count="${stockedCell.occupied_quantity}"`),
+  );
+  assert.match(locationsHtml, />Show Count<\/button>/);
+  assert.match(
+    locationsHtml,
     new RegExp(`data-cell-id="${manualLocation.id}"[\\s\\S]*disabled[\\s\\S]*>Locate<\\/button>`),
   );
   assert.doesNotMatch(locationsHtml, /Put item here|Put any item here/);
@@ -1205,6 +1218,10 @@ test("locations expose direct pick and put actions", async () => {
   assert.match(searchHtml, /location\(s\) match/);
   assert.match(searchHtml, new RegExp(`href="/pick\\?cell_id=${stockedCell.id}"`));
   assert.match(searchHtml, new RegExp(`href="/put\\?cell_id=${stockedCell.id}"`));
+  assert.match(searchHtml, new RegExp(`data-ping-cell[\\s\\S]*data-cell-id="${stockedCell.id}"`));
+  assert.match(searchHtml, new RegExp(`data-cell-id="${stockedCell.id}"[\\s\\S]*data-locate-cell`));
+  assert.match(searchHtml, /data-show-location-count/);
+  assert.match(searchHtml, new RegExp(stockedCell.inventory_summary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
   setRuntimeContext({
     firmwareService: {
@@ -3758,6 +3775,40 @@ test("cell mapping ping supports async JSON without redirecting", async () => {
   assert.match(payload.message, /Light test sent/);
 });
 
+test("location ping is available to authenticated operators", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-location-ping-http-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const auth = await freshImport("../src/services/auth.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+  const response = new MockResponse();
+  const cookie = auth
+    .createSessionCookie({ id: 2, role: "operator" })
+    .split(";")[0];
+
+  await requestHandler(
+    formRequest({
+      url: "/api/cells/1/ping",
+      body: "",
+      cookie,
+      headers: {
+        accept: "application/json",
+        "x-requested-with": "fetch",
+      },
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.headers["Content-Type"], /application\/json/);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.degraded, false);
+  assert.equal(payload.cell.id, 1);
+  assert.match(payload.message, /Ping sent/);
+});
+
 test("cell mapping shows every online controller module and hides offline modules", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-module-backfill-"));
   process.chdir(sandbox);
@@ -3797,6 +3848,8 @@ test("cell mapping shows every online controller module and hides offline module
   assert.match(onlineHtml, /data-module-name="2"/);
   assert.match(onlineHtml, /data-module-name="3"/);
   assert.match(onlineHtml, /data-led-command-async/);
+  assert.match(onlineHtml, /data-show-location-count/);
+  assert.match(onlineHtml, />Show Count<\/button>/);
 
   inventory.updateControllerHealth(db, {
     controllerId: controller.id,
@@ -3941,6 +3994,13 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
   assert.match(managementHtml, /action="\/devices\/cells\/rename"/);
   assert.match(managementHtml, /Z9-R9-REMAP/);
   assert.match(managementHtml, /<span class="muted">Unmapped<\/span>/);
+  assert.match(managementHtml, /data-ping-cell/);
+  assert.match(managementHtml, /data-show-location-count/);
+  assert.match(managementHtml, />Show Count<\/button>/);
+  assert.match(
+    managementHtml,
+    new RegExp(`data-cell-id="${remapTarget.id}"[\\s\\S]*disabled[\\s\\S]*>Ping<\\/button>`),
+  );
   const renamedCell = inventory.renameCell(db, {
     cellId: remapTarget.id,
     logicalCode: "Z9-R9-RENAMED",

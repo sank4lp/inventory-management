@@ -175,6 +175,42 @@ function renderLocationLocateButton(cell) {
   `;
 }
 
+function renderLocationPingButton(cell) {
+  const mapped = cellIsMapped(cell);
+  return `
+    <button
+      type="button"
+      class="green-button ping-button"
+      data-ping-cell
+      data-cell-id="${cell.id}"
+      data-led-loading-label="Pinging"
+      data-led-loading-title="Pinging ${escapeHtml(cell.logical_code)}"
+      ${mapped ? `title="Ping ${escapeHtml(cell.logical_code)} LED module"` : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
+    >Ping</button>
+  `;
+}
+
+function renderLocationCountButton(cell) {
+  return `
+    <button
+      type="button"
+      class="ghost-button"
+      data-show-location-count
+      data-location-count="${escapeHtml(formatQuantity(cell.occupied_quantity))}"
+      aria-expanded="false"
+    >Show Count</button>
+    <span class="location-count-value" data-location-count-value aria-live="polite" hidden></span>
+  `;
+}
+
+function renderLocationUtilityActions(cell) {
+  return `
+    ${renderLocationPingButton(cell)}
+    ${renderLocationLocateButton(cell)}
+    ${renderLocationCountButton(cell)}
+  `;
+}
+
 export function createLocationPages({ db }) {
   function renderCellSearchResults(cells, search = "") {
     const searchLabel = String(search || "").trim();
@@ -194,6 +230,7 @@ export function createLocationPages({ db }) {
             <div class="mini-actions">
               <a class="mini-link" href="/cells/${cell.id}">View</a>
               ${renderLocationWorkflowActions(cell)}
+              ${renderLocationUtilityActions(cell)}
             </div>
           `,
         ]),
@@ -214,7 +251,7 @@ export function createLocationPages({ db }) {
         `
           <div class="mini-actions">
             ${renderLocationWorkflowActions(cell)}
-            ${renderLocationLocateButton(cell)}
+            ${renderLocationUtilityActions(cell)}
           </div>
         `,
       ]),
@@ -555,23 +592,27 @@ export function createLocationPages({ db }) {
                     escapeHtml(formatQuantity(cell.occupied_quantity)),
                     cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
                     `
-                      <form
-                        method="post"
-                        action="/devices/cells/delete"
-                        class="inline-form"
-                        data-delete-cell-form
-                        data-cell-name="${escapeHtml(cell.logical_code)}"
-                        data-cell-has-stock="${hasStock ? "true" : "false"}"
-                      >
-                        <input type="hidden" name="cell_id" value="${cell.id}" />
-                        <button
-                          type="submit"
-                          class="icon-button danger-button"
-                          aria-label="Delete ${escapeHtml(cell.logical_code)}"
-                          title="${escapeHtml(deleteTitle)}"
-                          ${hasStock ? "disabled" : ""}
-                        >${trashIcon()}</button>
-                      </form>
+                      <div class="mini-actions">
+                        ${renderLocationPingButton(cell)}
+                        ${renderLocationCountButton(cell)}
+                        <form
+                          method="post"
+                          action="/devices/cells/delete"
+                          class="inline-form"
+                          data-delete-cell-form
+                          data-cell-name="${escapeHtml(cell.logical_code)}"
+                          data-cell-has-stock="${hasStock ? "true" : "false"}"
+                        >
+                          <input type="hidden" name="cell_id" value="${cell.id}" />
+                          <button
+                            type="submit"
+                            class="icon-button danger-button"
+                            aria-label="Delete ${escapeHtml(cell.logical_code)}"
+                            title="${escapeHtml(deleteTitle)}"
+                            ${hasStock ? "disabled" : ""}
+                          >${trashIcon()}</button>
+                        </form>
+                      </div>
                     `,
                   ];
                 }),
@@ -720,6 +761,7 @@ export function createLocationPages({ db }) {
                     data-led-loading-title="Pinging ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
                     title="Ping ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
                   >Ping</button>
+                  ${renderLocationCountButton(cell)}
                 </div>
               `,
               ];

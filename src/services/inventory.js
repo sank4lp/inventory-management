@@ -1585,12 +1585,28 @@ export function searchCells(db, search = "") {
     .prepare(
       `
         SELECT
-          c.id,
-          c.logical_code,
-          c.hardware_channel,
-          COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity
+          c.*,
+          ctrl.controller_code,
+          ctrl.address AS controller_address,
+          ctrl.active AS controller_active,
+          ctrl.heartbeat_status AS controller_health,
+          ctrl.module_count AS controller_module_count,
+          COALESCE(SUM(b.available_quantity), 0) AS occupied_quantity,
+          COALESCE(SUM(b.reserved_quantity), 0) AS reserved_quantity,
+          COALESCE(
+            GROUP_CONCAT(
+              CASE
+                WHEN b.available_quantity > 0 AND p.sku IS NOT NULL
+                THEN p.sku || ' (' || CAST(b.available_quantity AS TEXT) || ')'
+              END,
+              ', '
+            ),
+            ''
+          ) AS inventory_summary
         FROM cells c
+        LEFT JOIN controllers ctrl ON ctrl.id = c.controller_id
         LEFT JOIN inventory_balances b ON b.cell_id = c.id
+        LEFT JOIN products p ON p.id = b.product_id
         WHERE c.active = 1 AND c.logical_code LIKE ?
         GROUP BY c.id
         ORDER BY c.row_number, c.column_number

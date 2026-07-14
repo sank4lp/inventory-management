@@ -3820,6 +3820,85 @@ function wireLocationLocate() {
   });
 }
 
+async function sendLocationPingCommand(cellId) {
+  const response = await fetch(`/api/cells/${encodeURIComponent(cellId)}/ping`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "X-Requested-With": "fetch",
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false || payload.degraded) {
+    throw new Error(payload.error || payload.message || "Ping command failed.");
+  }
+  return payload;
+}
+
+function wireLocationUtilityActions() {
+  const bindingTarget = document.documentElement;
+  if (bindingTarget.dataset.locationUtilityActionsBound === "true") {
+    return;
+  }
+  bindingTarget.dataset.locationUtilityActionsBound = "true";
+
+  document.addEventListener("click", async (event) => {
+    const countButton = event.target.closest("[data-show-location-count]");
+    if (countButton) {
+      const countValue = countButton.parentElement?.querySelector("[data-location-count-value]");
+      if (!countValue) {
+        return;
+      }
+      const expanded = countButton.getAttribute("aria-expanded") === "true";
+      const showLabel = countButton.dataset.showLabel || "Show Count";
+      const hideLabel = countButton.dataset.hideLabel || "Hide Count";
+      const countLabel = countButton.dataset.locationCountLabel || "Stock";
+      countButton.setAttribute("aria-expanded", expanded ? "false" : "true");
+      countButton.textContent = expanded ? showLabel : hideLabel;
+      countValue.textContent = expanded ? "" : `${countLabel}: ${countButton.dataset.locationCount || "0"}`;
+      countValue.hidden = expanded;
+      return;
+    }
+
+    const pingButton = event.target.closest("[data-ping-cell]");
+    if (!pingButton || pingButton.disabled) {
+      return;
+    }
+    const cellId = pingButton.dataset.cellId;
+    if (!cellId) {
+      return;
+    }
+
+    const originalTitle = pingButton.getAttribute("title");
+    const restorePingButton = () => {
+      pingButton.textContent = "Ping";
+      pingButton.disabled = false;
+      if (originalTitle === null) {
+        pingButton.removeAttribute("title");
+      } else {
+        pingButton.setAttribute("title", originalTitle);
+      }
+    };
+    setButtonLoading(pingButton, true, {
+      label: pingButton.dataset.ledLoadingLabel || "Pinging",
+      title: pingButton.dataset.ledLoadingTitle || "Pinging location",
+    });
+    try {
+      await sendLocationPingCommand(cellId);
+      setButtonLoading(pingButton, false);
+      pingButton.textContent = "Sent";
+      pingButton.disabled = true;
+      window.setTimeout(restorePingButton, 1000);
+    } catch (error) {
+      setButtonLoading(pingButton, false);
+      pingButton.textContent = "Failed";
+      pingButton.disabled = true;
+      pingButton.setAttribute("title", error.message || "Ping command failed.");
+      window.setTimeout(restorePingButton, 1400);
+    }
+  });
+}
+
 function wireConfigurationWorkspace() {
   const workspace = document.querySelector("[data-config-workspace]");
   if (!workspace || workspace.dataset.configWorkspaceBound === "true") {
@@ -4424,6 +4503,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wirePutPlanForms();
   wireFirmwareFlash();
   wireLocationLocate();
+  wireLocationUtilityActions();
   wireControllerHealthForms();
   wireLedCommandForms();
   wireProductFindLedCleanup();

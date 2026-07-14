@@ -1730,6 +1730,20 @@ button[disabled] {
   gap: 6px;
 }
 
+.location-count-value {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid rgba(107, 183, 255, 0.3);
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+  font-size: var(--font-size-sm);
+  font-weight: 760;
+  white-space: nowrap;
+}
+
 .product-management-actions {
   margin-top: 12px;
 }

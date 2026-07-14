@@ -771,6 +771,26 @@ export function createProductPages({ db, productFieldService = null }) {
                 <div class="mini-actions">
                   <a class="mini-link" href="/pick?product_id=${product.id}&cell_id=${location.cell_id}">Pick</a>
                   <a class="mini-link" href="/put?product_id=${product.id}&cell_id=${location.cell_id}">Put</a>
+                  <button
+                    type="button"
+                    class="green-button ping-button"
+                    data-ping-cell
+                    data-cell-id="${escapeHtml(location.cell_id)}"
+                    data-led-loading-label="Pinging"
+                    data-led-loading-title="Pinging ${escapeHtml(location.logical_code)}"
+                    ${location.controller_id && location.hardware_channel ? `title="Ping ${escapeHtml(location.logical_code)} LED module"` : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
+                  >Ping</button>
+                  <button
+                    type="button"
+                    class="ghost-button"
+                    data-show-location-count
+                    data-location-count="${escapeHtml(`${formatQuantity(location.available_quantity)} ${product.unit_of_measure}`)}"
+                    data-location-count-label="Quantity"
+                    data-show-label="Show Quantity"
+                    data-hide-label="Hide Quantity"
+                    aria-expanded="false"
+                  >Show Quantity</button>
+                  <span class="location-count-value" data-location-count-value aria-live="polite" hidden></span>
                 </div>
               `,
             ]),

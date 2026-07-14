@@ -943,6 +943,34 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    const apiCellPingMatch = url.pathname.match(/^\/api\/cells\/(\d+)\/ping$/);
+    if (request.method === "POST" && apiCellPingMatch) {
+      if (!ensureApiAuth(response, user)) {
+        return;
+      }
+      const cell = locationService
+        .listCellCatalog()
+        .find((entry) => entry.id === Number(apiCellPingMatch[1]));
+      if (!cell) {
+        sendJson(response, { error: "Cell not found." }, 404);
+        return;
+      }
+      const result = hardwareService.sendCellTest(cell, "green");
+      sendJson(response, {
+        ok: result.ok,
+        degraded: result.degraded,
+        message: result.degraded
+          ? `Ping skipped for ${cell.logical_code}. This location has no LED mapped.`
+          : `Ping sent for ${cell.logical_code}.`,
+        cell: {
+          id: cell.id,
+          logicalCode: cell.logical_code,
+          hardwareChannel: cell.hardware_channel,
+        },
+      });
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/put") {
       if (!ensureAuth(response, user)) {
         return;
