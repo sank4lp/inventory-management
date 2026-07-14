@@ -112,6 +112,8 @@ export function createProfilePages({ db }) {
                 </div>
               </div>
             `,
+            "",
+            `id="account-details"`,
           )}
 
           ${card(
@@ -128,6 +130,8 @@ export function createProfilePages({ db }) {
                 </div>
               </div>
             `,
+            "",
+            `id="recent-activity"`,
           )}
 
           ${card(
@@ -146,6 +150,8 @@ export function createProfilePages({ db }) {
                   ]),
                 )
               : `<p class="muted">No recent tasks for this user.</p>`,
+            "",
+            `id="profile-recent-tasks"`,
           )}
         </section>
       `,

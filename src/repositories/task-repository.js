@@ -9,7 +9,7 @@ function taskLinesWithCells(db, taskId) {
           p.sku,
           p.name AS product_name,
           p.brand,
-          p.unit_of_measure,
+          COALESCE(tl.unit_of_measure, p.unit_of_measure) AS unit_of_measure,
           c.logical_code,
           c.hardware_channel,
           c.controller_id,

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">LytGuide IMS icon</title>
+  <desc id="desc">A rounded rack grid with illuminated cells.</desc>
+  <defs>
+    <radialGradient id="greenGlow" cx="50%" cy="48%" r="62%">
+      <stop offset="0%" stop-color="#64e39d" stop-opacity="0.95"/>
+      <stop offset="32%" stop-color="#28d17c" stop-opacity="0.72"/>
+      <stop offset="70%" stop-color="#22312f" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#1d2a2d"/>
+    </radialGradient>
+    <radialGradient id="softGreen" cx="52%" cy="50%" r="54%">
+      <stop offset="0%" stop-color="#74efa7"/>
+      <stop offset="100%" stop-color="#28d17c"/>
+    </radialGradient>
+    <filter id="softShadow" x="-16%" y="-16%" width="132%" height="132%">
+      <feDropShadow dx="0" dy="2" stdDeviation="1.2" flood-color="#0b100f" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <rect x="4.5" y="4.5" width="55" height="55" rx="10.5" fill="#fff4d6"/>
+  <rect x="4.5" y="4.5" width="55" height="55" rx="10.5" fill="none" stroke="#2a3532" stroke-width="3.2"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="10.5" y="10.5" width="13.5" height="13.5" rx="3.7" fill="url(#greenGlow)"/>
+    <rect x="25.25" y="10.5" width="13.5" height="13.5" rx="3.7" fill="#202b2f"/>
+    <rect x="40" y="10.5" width="13.5" height="13.5" rx="3.7" fill="#58d69b"/>
+
+    <rect x="10.5" y="25.25" width="13.5" height="13.5" rx="3.7" fill="#202b2f"/>
+    <rect x="25.25" y="25.25" width="13.5" height="13.5" rx="3.7" fill="url(#greenGlow)"/>
+    <rect x="40" y="25.25" width="13.5" height="13.5" rx="3.7" fill="#202b2f"/>
+
+    <rect x="10.5" y="40" width="13.5" height="13.5" rx="3.7" fill="#202b2f"/>
+    <rect x="25.25" y="40" width="13.5" height="13.5" rx="3.7" fill="#202b2f"/>
+    <rect x="40" y="40" width="13.5" height="13.5" rx="3.7" fill="#202b2f"/>
+  </g>
+
+  <circle cx="17.25" cy="17.25" r="2.25" fill="url(#softGreen)"/>
+  <circle cx="32" cy="32" r="2.1" fill="url(#softGreen)"/>
+  <circle cx="46.75" cy="17.25" r="2.05" fill="#f5a623"/>
+</svg>

@@ -8,7 +8,7 @@ const PUBLIC_FILES = new Map([
 ]);
 
 export function serveStatic(response, publicDir, pathname) {
-  const filename = PUBLIC_FILES.get(pathname) || clientModulePath(pathname);
+  const filename = PUBLIC_FILES.get(pathname) || clientModulePath(pathname) || brandAssetPath(pathname);
   if (!filename) {
     return false;
   }
@@ -24,13 +24,31 @@ export function serveStatic(response, publicDir, pathname) {
       ? "text/css; charset=utf-8"
       : extension === ".js"
         ? "application/javascript; charset=utf-8"
-        : "application/octet-stream";
+        : extension === ".svg"
+          ? "image/svg+xml; charset=utf-8"
+          : "application/octet-stream";
   response.writeHead(200, {
     "Content-Type": contentType,
     "Cache-Control": "no-store",
   });
   createReadStream(filePath).pipe(response);
   return true;
+}
+
+function brandAssetPath(pathname) {
+  if (!pathname.startsWith("/brand/") || !pathname.endsWith(".svg")) {
+    return null;
+  }
+
+  if (pathname.split("/").includes("..")) {
+    return null;
+  }
+
+  const normalized = normalize(pathname.slice(1));
+  if (normalized.startsWith(`..${sep}`) || normalized.includes(`${sep}..${sep}`)) {
+    return null;
+  }
+  return normalized;
 }
 
 function clientModulePath(pathname) {

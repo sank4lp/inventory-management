@@ -12,8 +12,10 @@ import { createDatabaseMaintenanceService } from "../services/database-maintenan
 import { createFirmwareService } from "../services/firmware.js";
 import { createHardwareService } from "../services/hardware.js";
 import { createLocationService } from "../services/locations.js";
+import { createProductFieldService } from "../services/product-fields.js";
 import { createSystemService } from "../services/system.js";
 import { createTaskService } from "../services/tasks.js";
+import { createUnitConversionService } from "../services/unit-conversions.js";
 import { getTask } from "../services/inventory.js";
 
 export const logger = createLogger({
@@ -135,7 +137,14 @@ function buildAppState() {
   });
   databaseMaintenanceService.runStartupMaintenance();
   startDatabaseMaintenance(databaseMaintenanceService);
-  const pages = createPageRenderer({ db, backupService });
+  const productFieldService = createProductFieldService({ db });
+  const unitConversionService = createUnitConversionService({ db });
+  const pages = createPageRenderer({
+    db,
+    backupService,
+    productFieldService,
+    unitConversionService,
+  });
 
   setRuntimeContext({
     config: appConfig,
@@ -157,6 +166,7 @@ function buildAppState() {
     hardwareService,
     locationService: createLocationService({ db }),
     pages,
+    productFieldService,
     startup,
     systemService,
     taskService: createTaskService({
@@ -165,6 +175,7 @@ function buildAppState() {
       logger,
       systemService,
     }),
+    unitConversionService,
   };
 }
 

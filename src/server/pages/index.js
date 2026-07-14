@@ -4,19 +4,30 @@ import { createBackupPages } from "./backups.js";
 import { createHomePages } from "./home.js";
 import { createLocationPages } from "./locations.js";
 import { createProductPages } from "./products.js";
+import { createProductFieldPages } from "./product-fields.js";
 import { createProfilePages } from "./profile.js";
 import { createReportsPages } from "./reports.js";
 import { page } from "./shared.js";
 import { createTaskPages } from "./tasks.js";
 
-export function createPageRenderer({ db, backupService }) {
+export function createPageRenderer({
+  db,
+  backupService,
+  productFieldService,
+  unitConversionService,
+}) {
   const homePages = createHomePages({ db });
-  const productPages = createProductPages({ db });
+  const productPages = createProductPages({ db, productFieldService });
+  const productFieldPages = createProductFieldPages({
+    db,
+    productFieldService,
+    unitConversionService,
+  });
   const taskPages = createTaskPages({ db });
   const reportPages = createReportsPages({ db });
   const locationPages = createLocationPages({ db });
   const profilePages = createProfilePages({ db });
-  const adminPages = createAdminPages({ db });
+  const adminPages = createAdminPages({ db, backupService, productFieldService });
   const backupPages = createBackupPages({ backupService });
 
   function renderNotFound(user) {
@@ -33,6 +44,7 @@ export function createPageRenderer({ db, backupService }) {
     ...homePages,
     ...locationPages,
     ...productPages,
+    ...productFieldPages,
     ...profilePages,
     ...reportPages,
     ...taskPages,

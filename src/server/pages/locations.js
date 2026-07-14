@@ -265,6 +265,8 @@ export function createLocationPages({ db }) {
                 }
               </div>
             `,
+            "",
+            `id="find-location"`,
           )}
           ${card(
             "All Locations",
@@ -272,7 +274,7 @@ export function createLocationPages({ db }) {
               ? renderAllLocations(allCells)
               : `<p class="muted">No active locations are configured. Ask an admin to add cells in Configuration.</p>`,
             "",
-            `data-row-collapser data-row-limit="6" data-row-label="locations"`,
+            `id="all-locations" data-row-collapser data-row-limit="6" data-row-label="locations"`,
           )}
         </div>
       `,
@@ -505,7 +507,7 @@ export function createLocationPages({ db }) {
 
   function renderCellManagementSection(cells) {
     return `
-      <section id="cell-management" class="configuration-table-section" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
+      <section id="cell-management" class="configuration-table-section app-panel" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
         <div class="panel-heading">
           <div>
             <h2>Manage Locations</h2>
@@ -856,7 +858,7 @@ export function createLocationPages({ db }) {
       flash,
       content: `
         <div class="app-console" data-config-workspace>
-          <section class="operation-grid" aria-label="Configuration actions">
+          <section class="operation-grid" aria-label="Configuration actions" data-config-overview>
             <a class="operation-tile" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
               <span>
                 <strong>Add Controller</strong>
@@ -880,7 +882,7 @@ export function createLocationPages({ db }) {
             </a>
           </section>
 
-          <section class="app-panel" aria-labelledby="configuration-status-heading">
+          <section id="configuration-status" class="app-panel" aria-labelledby="configuration-status-heading" data-config-overview>
             <div class="panel-heading">
               <div>
                 <h2 id="configuration-status-heading">System Status</h2>
@@ -907,7 +909,7 @@ export function createLocationPages({ db }) {
             </div>
           </section>
 
-          <section id="controller-health" class="app-panel">
+          <section id="controller-health" class="app-panel" data-config-overview>
             <div class="panel-heading">
               <div>
                 <h2>Controller Health</h2>
@@ -920,26 +922,8 @@ export function createLocationPages({ db }) {
             )}
           </section>
 
-          <div
-            class="modal-backdrop app-alert-modal configuration-flow-modal"
-            data-config-modal
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="configuration-flow-title"
-            hidden
-          >
-            <div class="modal-panel configuration-flow-panel">
-              <div class="modal-header">
-                <div>
-                  <h2 id="configuration-flow-title" data-config-modal-title>Configuration</h2>
-                  <p class="muted" data-config-modal-description>Select a configuration flow to continue.</p>
-                </div>
-                <button type="button" class="icon-button ghost-button" data-config-modal-close aria-label="Close configuration flow" title="Close">x</button>
-              </div>
-              <div class="configuration-flow-content" data-config-section-host>
-                <div class="configuration-flow-loading">Select a configuration flow to continue.</div>
-              </div>
-            </div>
+          <div class="configuration-section-host" data-config-section-host hidden>
+            <div class="configuration-flow-loading">Select a configuration flow to continue.</div>
           </div>
         </div>
       `,
