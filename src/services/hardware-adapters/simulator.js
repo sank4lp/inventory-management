@@ -269,6 +269,33 @@ export function createSimulatorAdapter({ config = {}, logger }) {
         ],
       };
     },
+    clearCellQuantity(cell) {
+      const payload = {
+        ts: stamp(),
+        type: hasModuleTarget(cell) ? "cell-quantity-clear" : "manual-guidance-clear",
+        controllerId: cell.controller_id,
+        cell: cell.logical_code,
+        hardwareChannel: cell.hardware_channel,
+        ...(hasModuleTarget(cell) ? {} : { reason: "cell-not-mapped-to-controller" }),
+      };
+      emit(payload);
+      return {
+        ok: true,
+        degraded: !hasModuleTarget(cell),
+        message: hasModuleTarget(cell) ? null : `${cell.logical_code} is not mapped to a controller.`,
+        events: [
+          {
+            controllerId: cell.controller_id,
+            cellId: cell.id,
+            eventType: hasModuleTarget(cell)
+              ? "cell_quantity_cleared"
+              : "cell_quantity_clear_manual",
+            payload,
+            status: hasModuleTarget(cell) ? "ok" : "degraded",
+          },
+        ],
+      };
+    },
     setCellLocate(cell, active = true) {
       const brightness = brightnessPayload();
       if (!hasModuleTarget(cell)) {

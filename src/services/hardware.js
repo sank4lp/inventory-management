@@ -141,6 +141,18 @@ export function createHardwareService({ db, config, logger }) {
         },
       );
     },
+    clearCellQuantity(cell, context = {}) {
+      return run(
+        "cell_quantity_clear",
+        adapter.clearCellQuantity.bind(adapter),
+        [cell],
+        {
+          cellId: cell.id,
+          controllerId: cell.controller_id,
+          ...context,
+        },
+      );
+    },
     setCellLocate(cell, active = true) {
       return run("cell_locate", adapter.setCellLocate.bind(adapter), [cell, active], {
         cellId: cell.id,

@@ -194,4 +194,15 @@ test("RS485 stock count uses yellow text display for multi-digit and decimal qua
   assert.equal(result.events[0].eventType, "cell_quantity_displayed");
   assert.equal(result.events[0].payload.quantity, "12.5");
   assert.equal(result.events[0].payload.color, "yellow");
+
+  const clearResult = adapter.clearCellQuantity({
+    id: 1,
+    logical_code: "Z1-R1-C01",
+    controller_id: 7,
+    controller_address: "CTRL-A",
+    hardware_channel: 1,
+  });
+  assert.deepEqual(writes.slice(1), Array(5).fill("to CTRL-A clear 1"));
+  assert.equal(clearResult.degraded, false);
+  assert.equal(clearResult.events[0].eventType, "cell_quantity_cleared");
 });

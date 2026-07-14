@@ -32,7 +32,9 @@
   --radius-sm: 4px;
   --radius: 8px;
   --top-nav-height: 64px;
-  --text-button-height: 42px;
+  --text-button-height: clamp(2.5rem, 2.2vw, 2.75rem);
+  --locate-button-min-width: clamp(7em, 5.75vw, 8.5em);
+  --count-button-min-width: clamp(10.5em, 9vw, 12.5em);
   --font-size-xs: 12px;
   --font-size-sm: 14px;
   --font-size-md: 16px;
@@ -1717,22 +1719,29 @@ button[disabled] {
 }
 
 .locate-button {
-  min-width: 72px;
+  min-inline-size: var(--locate-button-min-width);
+}
+
+.count-button {
+  min-inline-size: var(--count-button-min-width);
 }
 
 .ping-button,
 .locate-button,
+.count-button,
 .led-action-button {
   height: var(--text-button-height);
   min-height: var(--text-button-height);
-  padding: 0 13px;
+  padding: 0 0.9em;
   border-radius: var(--radius);
   font-size: var(--font-size-sm);
   font-weight: 760;
 }
 
 .locate-button-active,
-.locate-button[aria-pressed="true"] {
+.locate-button[aria-pressed="true"],
+.count-button-active,
+.count-button[aria-pressed="true"] {
   background: var(--primary-soft);
   color: var(--primary-hover);
   border-color: #d8b4fe;

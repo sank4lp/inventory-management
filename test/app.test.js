@@ -897,6 +897,7 @@ test("product removal is admin-safe and SKU re-add restores the same product ide
   );
   assert.doesNotMatch(operatorHtml, /Remove Product/);
   assert.match(operatorHtml, /Find Products/);
+  assert.match(operatorHtml, /href="\/products"[\s\S]*?<span>Products<\/span>/);
 
   const removed = inventory.removeProduct(db, product.id);
   assert.equal(removed.id, originalId);
@@ -1369,6 +1370,10 @@ test("operator movement screens keep context and use plain task actions", async 
     }
   };
   const addProductHtml = productPages.renderProducts(user, null, "", true);
+  assert.match(
+    addProductHtml,
+    /class="side-nav-direct nav-link-active" href="\/products"[\s\S]*?<span>Products<\/span>/,
+  );
   assert.match(addProductHtml, /Save And Put Stock/);
   assert.match(addProductHtml, /Optional Catalog Details/);
   assert.match(addProductHtml, /data-report-open="out-of-stock"/);
@@ -3867,6 +3872,39 @@ test("show count sends the current server-side quantity to the LED in yellow", a
   assert.equal(ledPayload.type, "cell-quantity-display");
   assert.equal(ledPayload.color, "yellow");
   assert.equal(Number(ledPayload.quantity), expectedQuantity);
+
+  const clearResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/api/cells/1/count/clear",
+      body: "active=0",
+      cookie,
+      headers: {
+        accept: "application/json",
+        "x-requested-with": "fetch",
+      },
+    }),
+    clearResponse,
+  );
+
+  assert.equal(clearResponse.statusCode, 200);
+  const clearPayload = JSON.parse(clearResponse.body);
+  assert.equal(clearPayload.ok, true);
+  assert.equal(clearPayload.degraded, false);
+  assert.equal(clearPayload.cell.id, 1);
+  const clearedEvent = getAppState().db
+    .prepare(
+      `
+        SELECT payload
+        FROM device_events
+        WHERE event_type = 'cell_quantity_cleared' AND cell_id = 1
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+    )
+    .get();
+  assert.ok(clearedEvent);
+  assert.equal(JSON.parse(clearedEvent.payload).type, "cell-quantity-clear");
 });
 
 test("cell mapping shows every online controller module and hides offline modules", async () => {

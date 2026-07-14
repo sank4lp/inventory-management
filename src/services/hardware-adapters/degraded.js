@@ -87,6 +87,13 @@ export function createDegradedAdapter({ config = {} } = {}) {
         payload: { quantity, color, ...brightnessPayload() },
       });
     },
+    clearCellQuantity(cell) {
+      return skipped("cell_quantity_clear_skipped", {
+        controllerId: cell.controller_id,
+        cellId: cell.id,
+        payload: {},
+      });
+    },
     setCellLocate(cell, active = true) {
       return skipped("cell_locate_skipped", {
         controllerId: cell.controller_id,

@@ -147,6 +147,12 @@ function nav(user, currentTitle = "") {
       active: ["put"],
     },
     {
+      label: "Products",
+      icon: "products",
+      href: "/products",
+      active: ["products"],
+    },
+    {
       label: "Locations",
       icon: "locations",
       href: "/cells",

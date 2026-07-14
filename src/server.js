@@ -971,6 +971,34 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    const apiCellCountClearMatch = url.pathname.match(/^\/api\/cells\/(\d+)\/count\/clear$/);
+    if (request.method === "POST" && apiCellCountClearMatch) {
+      if (!ensureApiAuth(response, user)) {
+        return;
+      }
+      const cell = locationService
+        .listCellCatalog()
+        .find((entry) => entry.id === Number(apiCellCountClearMatch[1]));
+      if (!cell) {
+        sendJson(response, { error: "Cell not found." }, 404);
+        return;
+      }
+      const result = hardwareService.clearCellQuantity(cell, {
+        source: "location_count_leave",
+      });
+      sendJson(response, {
+        ok: result.ok,
+        degraded: result.degraded,
+        message: result.message || `Quantity display cleared for ${cell.logical_code}.`,
+        cell: {
+          id: cell.id,
+          logicalCode: cell.logical_code,
+          hardwareChannel: cell.hardware_channel,
+        },
+      });
+      return;
+    }
+
     const apiCellCountMatch = url.pathname.match(/^\/api\/cells\/(\d+)\/count$/);
     if (request.method === "POST" && apiCellCountMatch) {
       if (!ensureApiAuth(response, user)) {

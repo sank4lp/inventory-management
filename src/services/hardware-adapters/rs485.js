@@ -691,6 +691,49 @@ export function createRs485Adapter({ config = {}, logger }) {
         ],
       };
     },
+    clearCellQuantity(cell) {
+      if (!hasModuleTarget(cell)) {
+        return {
+          ok: true,
+          degraded: true,
+          message: `${cell.logical_code} is not mapped to a controller.`,
+          events: [
+            event({
+              controllerId: cell.controller_id,
+              cellId: cell.id,
+              eventType: "cell_quantity_clear_manual",
+              status: "degraded",
+              payload: {
+                type: "manual-guidance-clear",
+                cell: cell.logical_code,
+                reason: "cell-not-mapped-to-controller",
+              },
+            }),
+          ],
+        };
+      }
+      const controllerAddress = controllerAddressFor(cell);
+      const command = addressedCommand(controllerAddress, `clear ${cell.hardware_channel}`);
+      clearLocateTimer(cell.hardware_channel, controllerAddress);
+      sendClear(cell.hardware_channel, controllerAddress);
+      return {
+        ok: true,
+        degraded: false,
+        events: [
+          event({
+            controllerId: cell.controller_id,
+            cellId: cell.id,
+            eventType: "cell_quantity_cleared",
+            payload: {
+              type: "cell-quantity-clear",
+              command,
+              hardwareChannel: cell.hardware_channel,
+              controllerAddress,
+            },
+          }),
+        ],
+      };
+    },
     setCellLocate(cell, active = true) {
       const brightness = currentBrightness();
       if (!hasModuleTarget(cell)) {

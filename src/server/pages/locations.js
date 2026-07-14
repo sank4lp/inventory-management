@@ -195,12 +195,14 @@ function renderLocationCountButton(cell) {
   return `
     <button
       type="button"
-      class="ghost-button"
+      class="ghost-button count-button"
       data-show-location-count
       data-cell-id="${cell.id}"
       data-show-label="Show Count"
+      data-active-label="Showing Count"
       data-led-loading-label="Showing"
       data-led-loading-title="Showing stock count for ${escapeHtml(cell.logical_code)} in yellow"
+      aria-pressed="false"
       ${mapped ? `title="Show stock count for ${escapeHtml(cell.logical_code)} on its LED module"` : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
     >Show Count</button>
   `;

@@ -3529,6 +3529,7 @@ function wireFirmwareFlash() {
 
 const LOCATION_LOCATE_TIMEOUT_MS = 120000;
 const activeLocates = new Map();
+const activeCounts = new Map();
 
 function setLocateButtonState(button, active) {
   if (!button) {
@@ -3765,6 +3766,11 @@ function wireLocationLocate() {
         return;
       }
 
+      if (activeCounts.has(String(cellId))) {
+        await sendLocationCountClearCommand(cellId, { beacon: false });
+        clearCountUi(cellId);
+      }
+
       await sendLocateCommand(cellId, true);
       setButtonLoading(button, false);
       setLocateButtonState(button, true);
@@ -3856,6 +3862,91 @@ async function sendLocationCountCommand(cellId, productId = "") {
   return payload;
 }
 
+async function sendLocationCountClearCommand(cellId, { beacon = false } = {}) {
+  const endpoint = `/api/cells/${encodeURIComponent(cellId)}/count/clear`;
+  const body = new URLSearchParams();
+  body.set("active", "0");
+
+  if (beacon && navigator.sendBeacon) {
+    const blob = new Blob([body.toString()], {
+      type: "application/x-www-form-urlencoded; charset=UTF-8",
+    });
+    if (navigator.sendBeacon(endpoint, blob)) {
+      return;
+    }
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "fetch",
+    },
+    body,
+    keepalive: true,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false || payload.degraded) {
+    throw new Error(payload.error || payload.message || "Count display clear failed.");
+  }
+  return payload;
+}
+
+function matchingCountButtons(cellId, productId = "") {
+  return Array.from(document.querySelectorAll("[data-show-location-count]")).filter(
+    (button) =>
+      String(button.dataset.cellId || "") === String(cellId) &&
+      String(button.dataset.productId || "") === String(productId || ""),
+  );
+}
+
+function setCountButtonState(button, active) {
+  if (!button) {
+    return;
+  }
+  if (!("countOriginalTitle" in button.dataset)) {
+    button.dataset.countOriginalTitle = button.getAttribute("title") || "";
+  }
+  const inactiveLabel = button.dataset.showLabel || "Show Count";
+  const activeLabel = button.dataset.activeLabel ||
+    (inactiveLabel.includes("Quantity") ? "Showing Quantity" : "Showing Count");
+  button.classList.toggle("count-button-active", active);
+  button.setAttribute("aria-pressed", active ? "true" : "false");
+  button.textContent = active ? activeLabel : inactiveLabel;
+  if (active) {
+    button.setAttribute("title", `${activeLabel} on the LED. Click to clear it.`);
+  } else if (button.dataset.countOriginalTitle) {
+    button.setAttribute("title", button.dataset.countOriginalTitle);
+  } else {
+    button.removeAttribute("title");
+  }
+}
+
+function setCountUi(cellId, productId = "") {
+  const buttons = matchingCountButtons(cellId, productId);
+  buttons.forEach((button) => setCountButtonState(button, true));
+  activeCounts.set(String(cellId), {
+    productId: String(productId || ""),
+    buttons,
+  });
+}
+
+function clearCountUi(cellId) {
+  const activeCount = activeCounts.get(String(cellId));
+  if (!activeCount) {
+    return;
+  }
+  activeCount.buttons.forEach((button) => setCountButtonState(button, false));
+  activeCounts.delete(String(cellId));
+}
+
+function clearAllCountUi() {
+  for (const cellId of Array.from(activeCounts.keys())) {
+    clearCountUi(cellId);
+  }
+}
+
 function wireLocationUtilityActions() {
   const bindingTarget = document.documentElement;
   if (bindingTarget.dataset.locationUtilityActionsBound === "true") {
@@ -3870,34 +3961,51 @@ function wireLocationUtilityActions() {
       if (!cellId || countButton.disabled) {
         return;
       }
-      const originalLabel = countButton.dataset.showLabel || "Show Count";
-      const originalTitle = countButton.getAttribute("title");
-      const restoreCountButton = () => {
-        countButton.textContent = originalLabel;
-        countButton.disabled = false;
-        if (originalTitle === null) {
-          countButton.removeAttribute("title");
-        } else {
-          countButton.setAttribute("title", originalTitle);
-        }
-      };
+      const productId = countButton.dataset.productId || "";
+      const activeEntry = activeCounts.get(String(cellId));
+      const togglingCurrentDisplay =
+        activeEntry && activeEntry.productId === String(productId);
 
       setButtonLoading(countButton, true, {
-        label: countButton.dataset.ledLoadingLabel || "Showing",
-        title: countButton.dataset.ledLoadingTitle || "Showing quantity on LED",
+        label: activeEntry ? "Clearing" : countButton.dataset.ledLoadingLabel || "Showing",
+        title: activeEntry
+          ? "Clearing quantity from the LED"
+          : countButton.dataset.ledLoadingTitle || "Showing quantity on LED",
       });
       try {
-        await sendLocationCountCommand(cellId, countButton.dataset.productId || "");
+        if (activeEntry) {
+          await sendLocationCountClearCommand(cellId, { beacon: false });
+          setButtonLoading(countButton, false);
+          clearCountUi(cellId);
+          if (togglingCurrentDisplay) {
+            return;
+          }
+          setButtonLoading(countButton, true, {
+            label: countButton.dataset.ledLoadingLabel || "Showing",
+            title: countButton.dataset.ledLoadingTitle || "Showing quantity on LED",
+          });
+        }
+
+        if (activeLocates.has(String(cellId))) {
+          await sendLocateCommand(cellId, false);
+          clearLocateUi(cellId);
+        }
+
+        await sendLocationCountCommand(cellId, productId);
         setButtonLoading(countButton, false);
-        countButton.textContent = "Shown";
-        countButton.disabled = true;
-        window.setTimeout(restoreCountButton, 1000);
+        setCountUi(cellId, productId);
       } catch (error) {
         setButtonLoading(countButton, false);
         countButton.textContent = "Failed";
         countButton.disabled = true;
         countButton.setAttribute("title", error.message || "Count display command failed.");
-        window.setTimeout(restoreCountButton, 1400);
+        window.setTimeout(() => {
+          countButton.disabled = false;
+          const stillActive = activeCounts.get(String(cellId));
+          setCountButtonState(countButton, Boolean(stillActive));
+        }, 1400);
+      } finally {
+        setButtonLoading(countButton, false);
       }
       return;
     }
@@ -3938,6 +4046,13 @@ function wireLocationUtilityActions() {
       pingButton.setAttribute("title", error.message || "Ping command failed.");
       window.setTimeout(restorePingButton, 1400);
     }
+  });
+
+  window.addEventListener("pagehide", () => {
+    for (const cellId of Array.from(activeCounts.keys())) {
+      sendLocationCountClearCommand(cellId, { beacon: true }).catch(() => {});
+    }
+    clearAllCountUi();
   });
 }
 
