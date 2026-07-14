@@ -1857,6 +1857,22 @@ button[disabled] {
   margin-top: 0.875rem;
 }
 
+.catalog-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.catalog-controls .inline-form {
+  flex: 1 1 28rem;
+}
+
+.catalog-audit-button {
+  flex: 0 0 auto;
+}
+
 .catalog-capacity-editor {
   min-width: 0;
 }

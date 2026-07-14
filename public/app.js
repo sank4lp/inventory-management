@@ -3670,6 +3670,15 @@ function sendProductFindLedClearEndpoint(endpoint, { beacon = true, body = new U
   }).catch(() => {});
 }
 
+function catalogProductQuantityKey(button) {
+  const explicitKey = String(button?.dataset.quantityKey || "").trim();
+  if (explicitKey) {
+    return explicitKey;
+  }
+  const productId = String(button?.dataset.productId || "").trim();
+  return productId ? `product:${productId}` : "";
+}
+
 function setCatalogProductQuantityButtonState(button, active) {
   if (!button) {
     return;
@@ -3684,7 +3693,10 @@ function setCatalogProductQuantityButtonState(button, active) {
   button.setAttribute("aria-pressed", active ? "true" : "false");
   button.textContent = label;
   if (active) {
-    button.setAttribute("title", "Showing this product's quantity on every mapped LED. Click to clear.");
+    button.setAttribute(
+      "title",
+      button.dataset.activeTitle || "Showing this product's quantity on every mapped LED. Click to clear.",
+    );
   } else if (button.dataset.quantityOriginalTitle) {
     button.setAttribute("title", button.dataset.quantityOriginalTitle);
   }
@@ -3694,7 +3706,7 @@ function syncCatalogProductQuantityButtons() {
   document.querySelectorAll("[data-show-product-quantity]").forEach((button) => {
     const active =
       activeCatalogProductQuantity &&
-      String(activeCatalogProductQuantity.productId) === String(button.dataset.productId || "");
+      activeCatalogProductQuantity.key === catalogProductQuantityKey(button);
     setCatalogProductQuantityButtonState(button, Boolean(active));
   });
 }
@@ -3733,13 +3745,13 @@ function wireCatalogProductQuantity() {
     if (!button || button.disabled) {
       return;
     }
-    const productId = String(button.dataset.productId || "");
-    if (!productId) {
+    const quantityKey = catalogProductQuantityKey(button);
+    if (!quantityKey) {
       return;
     }
     const togglingActive =
       activeCatalogProductQuantity &&
-      String(activeCatalogProductQuantity.productId) === productId;
+      activeCatalogProductQuantity.key === quantityKey;
     setButtonLoading(button, true, {
       label: togglingActive ? "Clearing" : button.dataset.ledLoadingLabel || "Showing",
       title: togglingActive ? "Clearing product quantities from the LEDs" : "Showing product quantities on the LEDs",
@@ -3764,7 +3776,7 @@ function wireCatalogProductQuantity() {
 
       const payload = await activateCatalogProductQuantity(button);
       activeCatalogProductQuantity = {
-        productId,
+        key: quantityKey,
         clearEndpoint: button.dataset.clearEndpoint,
       };
       setButtonLoading(button, false);

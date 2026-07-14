@@ -684,21 +684,38 @@ export function createProductPages({ db, productFieldService = null }) {
             ${card(
               "Catalog",
               `
-                <form
-                  method="get"
-                  action="/products"
-                  class="inline-form"
-                  data-live-search-form
-                  data-endpoint="/fragments/catalog-products"
-                  data-target="#catalog-product-results"
-                  data-show-results-when-empty="true"
-                >
-                  <label class="inline-form-wrap">Search products
-                    <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by ${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}, ${escapeHtml(fieldLabel(labels, "product.name", "name").toLowerCase())}, or ${escapeHtml(fieldLabel(labels, "product.brand", "brand").toLowerCase())}" />
-                  </label>
-                  ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
-                  <button type="submit">Search</button>
-                </form>
+                <div class="catalog-controls">
+                  <form
+                    method="get"
+                    action="/products"
+                    class="inline-form"
+                    data-live-search-form
+                    data-endpoint="/fragments/catalog-products"
+                    data-target="#catalog-product-results"
+                    data-show-results-when-empty="true"
+                  >
+                    <label class="inline-form-wrap">Search products
+                      <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by ${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}, ${escapeHtml(fieldLabel(labels, "product.name", "name").toLowerCase())}, or ${escapeHtml(fieldLabel(labels, "product.brand", "brand").toLowerCase())}" />
+                    </label>
+                    ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
+                    <button type="submit">Search</button>
+                  </form>
+                  <button
+                    type="button"
+                    class="ghost-button count-button catalog-audit-button"
+                    data-show-product-quantity
+                    data-quantity-key="catalog-audit"
+                    data-activate-endpoint="/products/quantities"
+                    data-clear-endpoint="/products/quantities/clear"
+                    data-show-label="Show All Quantities"
+                    data-active-label="Showing All Quantities"
+                    data-led-loading-label="Showing All"
+                    data-active-title="Showing total available stock on every mapped stocked cell. Click to clear."
+                    aria-pressed="false"
+                    title="Show total available stock on every mapped stocked cell in yellow."
+                    ${stockedProducts.length ? "" : "disabled aria-disabled=\"true\""}
+                  >Show All Quantities</button>
+                </div>
                 <div id="catalog-product-results">
                   ${renderCatalogProductResults(
                     products,

@@ -620,6 +620,143 @@ test("product find shows yellow quantity guidance on every mapped holding cell",
   assert.equal(movementClearResponse.statusCode, 204);
 });
 
+test("product catalog audit shows total available quantity on every mapped stocked cell", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-catalog-quantity-audit-"));
+  process.chdir(sandbox);
+  process.env.NO_SERVER_LISTEN = "1";
+
+  const { reloadAppState, getAppState } = await import("../src/server/app-state.js");
+  reloadAppState();
+  const auth = await freshImport("../src/services/auth.js");
+  const inventory = await freshImport("../src/services/inventory.js");
+  const { createProductPages } = await freshImport("../src/server/pages/products.js");
+  const { requestHandler } = await freshImport("../src/server.js");
+
+  const { db } = getAppState();
+  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
+  const cookie = auth.createSessionCookie(user).split(";")[0];
+  let mappedStockedCells = inventory.listCells(db).filter(
+    (cell) =>
+      Number(cell.occupied_quantity || 0) > 0 &&
+      cell.hardware_channel &&
+      (cell.controller_address || cell.controller_id),
+  );
+  let seededAuditStock = null;
+  if (!mappedStockedCells.length) {
+    const products = inventory.listProducts(db).slice(0, 2);
+    const mappedCells = inventory.listCells(db).filter(
+      (cell) => cell.hardware_channel && (cell.controller_address || cell.controller_id),
+    );
+    assert.equal(products.length, 2);
+    assert.ok(mappedCells.length >= 2);
+    inventory.createAdjustment(db, {
+      cellId: mappedCells[0].id,
+      userId: user.id,
+      reason: "Seed mixed catalog audit location",
+      lines: [
+        { productId: products[0].id, absoluteQuantity: 2 },
+        { productId: products[1].id, absoluteQuantity: 3 },
+      ],
+    });
+    inventory.createAdjustment(db, {
+      cellId: mappedCells[1].id,
+      userId: user.id,
+      reason: "Seed catalog audit location",
+      lines: [{ productId: products[0].id, absoluteQuantity: 4 }],
+    });
+    seededAuditStock = { products, mappedCells: mappedCells.slice(0, 2) };
+    mappedStockedCells = inventory.listCells(db).filter(
+      (cell) =>
+        Number(cell.occupied_quantity || 0) > 0 &&
+        cell.hardware_channel &&
+        (cell.controller_address || cell.controller_id),
+    );
+  }
+  assert.ok(mappedStockedCells.length > 0);
+
+  const catalogHtml = createProductPages({ db }).renderProducts(
+    user,
+    null,
+    "",
+    false,
+    new URL("http://localhost/products"),
+  );
+  assert.match(catalogHtml, /data-quantity-key="catalog-audit"/);
+  assert.match(catalogHtml, /data-activate-endpoint="\/products\/quantities"/);
+  assert.match(catalogHtml, /data-clear-endpoint="\/products\/quantities\/clear"/);
+  assert.match(catalogHtml, />Show All Quantities<\/button>/);
+
+  const response = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/products/quantities",
+      body: "",
+      cookie,
+      headers: {
+        accept: "application/json",
+        "x-requested-with": "fetch",
+      },
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  const responsePayload = JSON.parse(response.body);
+  assert.equal(responsePayload.ok, true);
+  assert.equal(responsePayload.mappedCount, mappedStockedCells.length);
+  assert.match(responsePayload.message, /total available quantities/);
+  assert.match(responsePayload.message, /in yellow/);
+
+  const displayPayloads = db
+    .prepare("SELECT payload FROM device_events WHERE event_type = 'guidance_activated' ORDER BY id")
+    .all()
+    .map((row) => JSON.parse(row.payload))
+    .filter((payload) => payload.taskType === "catalog_quantity_audit");
+  assert.equal(displayPayloads.length, mappedStockedCells.length);
+  for (const cell of mappedStockedCells) {
+    const payload = displayPayloads.find((entry) => entry.cell === cell.logical_code);
+    assert.ok(payload);
+    assert.equal(payload.color, "yellow");
+    assert.equal(Number(payload.quantity), Number(cell.occupied_quantity));
+  }
+
+  const activeMetadataKey = `active_catalog_quantity_guidance:${user.id}`;
+  assert.ok(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey));
+
+  const clearResponse = new MockResponse();
+  await requestHandler(
+    formRequest({
+      url: "/products/quantities/clear",
+      body: "",
+      cookie,
+      headers: {
+        "x-requested-with": "fetch",
+      },
+    }),
+    clearResponse,
+  );
+  assert.equal(clearResponse.statusCode, 204);
+  assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey), undefined);
+
+  if (seededAuditStock) {
+    inventory.createAdjustment(db, {
+      cellId: seededAuditStock.mappedCells[0].id,
+      userId: user.id,
+      reason: "Clear catalog audit test stock",
+      lines: seededAuditStock.products.map((product) => ({
+        productId: product.id,
+        absoluteQuantity: 0,
+      })),
+    });
+    inventory.createAdjustment(db, {
+      cellId: seededAuditStock.mappedCells[1].id,
+      userId: user.id,
+      reason: "Clear catalog audit test stock",
+      lines: [{ productId: seededAuditStock.products[0].id, absoluteQuantity: 0 }],
+    });
+  }
+});
+
 test("product low stock uses significant drop below thirty-day average", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-low-stock-average-"));
   process.chdir(sandbox);

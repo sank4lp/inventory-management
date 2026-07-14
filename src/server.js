@@ -32,6 +32,8 @@ import {
   adjustmentQuantityGuidance,
 } from "./server/guidance/adjustments.js";
 import {
+  catalogQuantityGuidanceLines,
+  catalogQuantityGuidanceTask,
   productFindGuidanceLines,
   productFindGuidanceTask,
 } from "./server/guidance/product-find.js";
@@ -70,6 +72,7 @@ import { renderAdjustmentLine } from "./server/pages/shared.js";
 const PORT = Number(process.env.PORT || 3000);
 const publicDir = join(process.cwd(), "public");
 const CAPACITY_RECOMMENDATION_KEY_PARAM = "capacity_recommendation_key";
+const ACTIVE_CATALOG_QUANTITY_GUIDANCE_PREFIX = "active_catalog_quantity_guidance";
 const ACTIVE_PRODUCT_FIND_GUIDANCE_PREFIX = "active_product_find_guidance";
 const ACTIVE_RECOMMENDATION_GUIDANCE_PREFIX = "active_recommendation_guidance";
 
@@ -255,6 +258,81 @@ function deleteActiveProductFindGuidance(db, userId, productId) {
     return;
   }
   db.prepare("DELETE FROM app_metadata WHERE key = ?").run(metadataKey);
+}
+
+function listActiveProductFindGuidance(db, userId) {
+  if (!userId) {
+    return [];
+  }
+  return db
+    .prepare("SELECT key, value FROM app_metadata WHERE key GLOB ?")
+    .all(`${ACTIVE_PRODUCT_FIND_GUIDANCE_PREFIX}:${userId}:*`)
+    .map((row) => {
+      try {
+        const parsed = JSON.parse(row.value || "{}");
+        return {
+          metadataKey: row.key,
+          lines: Array.isArray(parsed.lines) ? parsed.lines : [],
+          productId: Number(parsed.productId || row.key.split(":").at(-1) || 0),
+          sku: parsed.sku || "",
+        };
+      } catch {
+        return { metadataKey: row.key, lines: [], productId: 0, sku: "" };
+      }
+    });
+}
+
+function activeCatalogQuantityGuidanceKey(userId) {
+  return userId ? `${ACTIVE_CATALOG_QUANTITY_GUIDANCE_PREFIX}:${userId}` : "";
+}
+
+function readActiveCatalogQuantityGuidance(db, userId) {
+  const metadataKey = activeCatalogQuantityGuidanceKey(userId);
+  if (!metadataKey) {
+    return null;
+  }
+  const row = db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(metadataKey);
+  if (!row?.value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(row.value);
+    return {
+      metadataKey,
+      lines: Array.isArray(parsed.lines) ? parsed.lines : [],
+    };
+  } catch {
+    return { metadataKey, lines: [] };
+  }
+}
+
+function saveActiveCatalogQuantityGuidance(db, userId, guidanceLines) {
+  const metadataKey = activeCatalogQuantityGuidanceKey(userId);
+  if (!metadataKey || !guidanceLines.length) {
+    return;
+  }
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+      INSERT INTO app_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+  ).run(
+    metadataKey,
+    JSON.stringify({
+      lines: sanitizedGuidanceLines(guidanceLines),
+      updatedAt: now,
+    }),
+    now,
+  );
+}
+
+function deleteActiveCatalogQuantityGuidance(db, userId) {
+  const metadataKey = activeCatalogQuantityGuidanceKey(userId);
+  if (metadataKey) {
+    db.prepare("DELETE FROM app_metadata WHERE key = ?").run(metadataKey);
+  }
 }
 
 function activeRecommendationGuidanceKey(userId, recommendationKey) {
@@ -609,6 +687,95 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/products/quantities/clear") {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const activeGuidance = readActiveCatalogQuantityGuidance(db, user.id);
+      const guidanceLines = activeGuidance?.lines?.length
+        ? activeGuidance.lines
+        : catalogQuantityGuidanceLines(listCells(db));
+      if (guidanceLines.length) {
+        hardwareService.clearGuidance(catalogQuantityGuidanceTask(), guidanceLines, {
+          source: "catalog_quantity_audit_leave",
+        });
+      }
+      deleteActiveCatalogQuantityGuidance(db, user.id);
+      sendText(response, "", 204, { "Cache-Control": "no-store" });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/products/quantities") {
+      if (!ensureAuth(response, user)) {
+        return;
+      }
+      const guidanceLines = catalogQuantityGuidanceLines(listCells(db));
+      const mappedCount = guidanceLines.filter(
+        (line) => line.hardware_channel && (line.controller_address || line.controller_id),
+      ).length;
+      if (!guidanceLines.length || mappedCount <= 0) {
+        sendJson(
+          response,
+          {
+            ok: false,
+            message: guidanceLines.length
+              ? "Stock is available, but none of its locations have mapped LED modules."
+              : "There is no available stock to display.",
+            mappedCount: 0,
+          },
+          409,
+        );
+        return;
+      }
+
+      const activeAuditGuidance = readActiveCatalogQuantityGuidance(db, user.id);
+      if (activeAuditGuidance?.lines?.length) {
+        hardwareService.clearGuidance(catalogQuantityGuidanceTask(), activeAuditGuidance.lines, {
+          source: "catalog_quantity_audit_relight",
+        });
+        deleteActiveCatalogQuantityGuidance(db, user.id);
+      }
+      for (const activeProductGuidance of listActiveProductFindGuidance(db, user.id)) {
+        if (activeProductGuidance.lines.length) {
+          hardwareService.clearGuidance(
+            productFindGuidanceTask({
+              id: activeProductGuidance.productId,
+              sku: activeProductGuidance.sku,
+            }),
+            activeProductGuidance.lines,
+            {
+              source: "catalog_quantity_audit_replace_product",
+              productId: activeProductGuidance.productId,
+            },
+          );
+        }
+        db.prepare("DELETE FROM app_metadata WHERE key = ?").run(activeProductGuidance.metadataKey);
+      }
+
+      const guidance = hardwareService.activateGuidance(catalogQuantityGuidanceTask(), guidanceLines, {
+        source: "catalog_quantity_audit",
+      });
+      if (guidance.ok !== false) {
+        saveActiveCatalogQuantityGuidance(db, user.id, guidanceLines);
+      }
+      const baseMessage = `Showing total available quantities on ${mappedCount} mapped LED module(s) in yellow.`;
+      const message = guidance.degraded && guidance.message
+        ? `${baseMessage} ${guidance.message}`
+        : baseMessage;
+      const ok = guidance.ok !== false;
+      sendJson(
+        response,
+        {
+          ok,
+          degraded: Boolean(guidance.degraded),
+          message,
+          mappedCount,
+        },
+        ok ? 200 : 409,
+      );
+      return;
+    }
+
     const productFindClearMatch = url.pathname.match(/^\/products\/(\d+)\/find\/clear$/);
     if (request.method === "POST" && productFindClearMatch) {
       if (!ensureAuth(response, user)) {
@@ -659,6 +826,14 @@ export const requestHandler = async (request, response) => {
           ),
         );
         return;
+      }
+      const activeAuditGuidance = readActiveCatalogQuantityGuidance(db, user.id);
+      if (activeAuditGuidance?.lines?.length) {
+        hardwareService.clearGuidance(catalogQuantityGuidanceTask(), activeAuditGuidance.lines, {
+          source: "product_find_replace_catalog_audit",
+          productId,
+        });
+        deleteActiveCatalogQuantityGuidance(db, user.id);
       }
       const activeGuidance = readActiveProductFindGuidance(db, user.id, productId);
       if (activeGuidance?.lines?.length) {
