@@ -97,6 +97,10 @@ test("static asset server exposes browser modules and rejects traversal", async 
   assert.match(stylesResult.response.body, /\.catalog-capacity-editor\s*\{/);
   assert.match(stylesResult.response.body, /\.put-capacity-recovery-grid\s*\{/);
   assert.match(stylesResult.response.body, /\.recommendation-space-badge-positive\s*\{/);
+  assert.match(
+    stylesResult.response.body,
+    /\.recommendation-card,\s*\.recommendation-row,\s*\.adjustment-lines-shell,\s*\.combo-options\s*\{[^}]*background:\s*var\(--panel-raised\)/s,
+  );
 
   const traversalResult = await serve("/client/../app.js");
   assert.equal(traversalResult.handled, false);

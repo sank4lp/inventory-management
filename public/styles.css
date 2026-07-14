@@ -5787,6 +5787,7 @@ tbody tr:last-child td {
 .report-command-panel,
 .report-format-editor,
 .recommendation-card,
+.recommendation-row,
 .adjustment-lines-shell,
 .combo-options {
   background: var(--panel-raised);
