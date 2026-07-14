@@ -4,6 +4,7 @@ import {
   listRegistrationKeys,
   listUsers,
 } from "../../services/inventory.js";
+import { getReportFormatSettings } from "../../services/report-format.js";
 import { readPendingReviewTimeoutSettings } from "../../services/task-timeout-settings.js";
 import {
   card,
@@ -22,8 +23,10 @@ import {
   trashIcon,
 } from "./shared.js";
 import { getRuntimeContext } from "../runtime-context.js";
+import { renderRetentionCard } from "./backups.js";
+import { renderReportFormatEditor } from "./report-format-editor.js";
 
-export function createAdminPages({ db }) {
+export function createAdminPages({ db, backupService = null }) {
   function renderDatabaseHealth(health) {
     const lastMaintenance = health.lastMaintenance;
     const archive = health.archiveSummary;
@@ -86,6 +89,8 @@ export function createAdminPages({ db }) {
           ]),
         )}
       `,
+      "",
+      `id="database-health"`,
     );
   }
 
@@ -193,6 +198,8 @@ export function createAdminPages({ db }) {
           <button type="submit" class="blue-button">Save Timeout</button>
         </form>
       `,
+      "",
+      `id="task-completion-timeout"`,
     );
   }
 
@@ -204,6 +211,8 @@ export function createAdminPages({ db }) {
     const runtime = getRuntimeContext();
     const dashboard = runtime.systemService?.getDashboardData(runtime.startup);
     const databaseHealth = runtime.databaseMaintenanceService?.getDatabaseHealth();
+    const backupSummary = backupService?.getSummary();
+    const reportFormat = getReportFormatSettings(db);
     const countAdjustmentCard = card(
       "Count Adjustment",
       `
@@ -236,6 +245,8 @@ export function createAdminPages({ db }) {
           <div class="adjustment-guidance-status" data-adjustment-led-status role="status" aria-live="polite"></div>
         </form>
       `,
+      "",
+      `id="count-adjustment"`,
     );
     const accessManagementSection = `
       <section class="two-column">
@@ -288,7 +299,7 @@ export function createAdminPages({ db }) {
             </div>
           `,
           "",
-          `data-row-collapser data-row-limit="4" data-row-label="keys"`,
+          `id="registration-keys" data-row-collapser data-row-limit="4" data-row-label="keys"`,
         )}
         ${card(
           "Users",
@@ -302,10 +313,29 @@ export function createAdminPages({ db }) {
             ]),
           ),
           "",
-          `data-row-collapser data-row-limit="4" data-row-label="users"`,
+          `id="users" data-row-collapser data-row-limit="4" data-row-label="users"`,
         )}
       </section>
     `;
+    const settingsSection = `
+      <section id="settings" class="two-column admin-settings-grid">
+        ${renderTaskTimeoutSettings()}
+        ${
+          backupSummary
+            ? renderRetentionCard(backupSummary, {
+                returnTo: "/admin#settings",
+                attributes: `id="retention-compaction"`,
+              })
+            : ""
+        }
+      </section>
+    `;
+    const reportFormatSection = renderReportFormatEditor(reportFormat, {
+      user,
+      returnTo: "/admin#report-format",
+      collapsible: false,
+      attributes: `id="report-format"`,
+    });
 
     return page({
       title: "Admin",
@@ -314,7 +344,8 @@ export function createAdminPages({ db }) {
       content: `
         ${accessManagementSection}
         ${countAdjustmentCard}
-        ${renderTaskTimeoutSettings()}
+        ${settingsSection}
+        ${reportFormatSection}
         ${
           dashboard
             ? card(

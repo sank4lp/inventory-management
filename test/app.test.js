@@ -251,9 +251,9 @@ test("core inventory flows work against a fresh seeded database", async () => {
   assert.doesNotMatch(reportHtml, /Open one report at a time/);
   assert.match(reportHtml, /data-report-print-open/);
   assert.match(reportHtml, /data-report-print-option="stock-snapshot"/);
-  assert.match(reportHtml, /data-report-template="movement"/);
+  assert.match(reportHtml, /data-report-inline="movement"/);
   assert.match(reportHtml, /data-report-format-editor/);
-  assert.match(reportHtml, /Edit Report Format/);
+  assert.match(reportHtml, /Format Reports/);
   assert.match(reportHtml, /Last 30 Days/);
 
   const operatorReportHtml = createReportsPages({ db }).renderReports(

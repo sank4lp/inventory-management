@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { URL } from "node:url";
 
+import { withTransaction } from "./db.js";
 import { getAppState, logger } from "./server/app-state.js";
 import {
   ensureAdmin,
@@ -104,6 +105,27 @@ function preferredCellIdsFromForm(form) {
     .filter(([key, value]) => /^preferred_cell_\d+$/.test(key) && String(value || "").trim())
     .map(([key, value]) => Number(value || key.replace("preferred_cell_", "")))
     .filter((value) => Number.isInteger(value) && value > 0);
+}
+
+function saveCustomProductFields(productFieldService, { productId, form, actor }) {
+  const fields = productFieldService
+    .list()
+    .filter((field) => field.field_kind === "custom" && field.visible);
+  for (const field of fields) {
+    const key = `custom_field_${field.id}`;
+    if (!Object.prototype.hasOwnProperty.call(form, key)) {
+      if (field.required) {
+        throw new Error(`${field.label} is required.`);
+      }
+      continue;
+    }
+    productFieldService.setProductValue({
+      actor,
+      productId,
+      fieldId: field.id,
+      value: form[key],
+    });
+  }
 }
 
 function capacityRecommendationPromptPath(returnTo, recommendationKey) {
@@ -406,8 +428,10 @@ export const requestHandler = async (request, response) => {
     hardwareService,
     locationService,
     pages,
+    productFieldService,
     systemService,
     taskService,
+    unitConversionService,
   } = getAppState();
   const user = getSessionUser(request, db);
   const flash = getFlash(url);
@@ -727,14 +751,21 @@ export const requestHandler = async (request, response) => {
       const productId = Number(productDetailsMatch[1]);
       const form = await parseForm(request);
       try {
-        catalogService.updateProductDetails({
-          productId,
-          name: form.name,
-          brand: form.brand,
-          category: form.category,
-          variant: form.variant,
-          unit_of_measure: form.unit_of_measure,
-          description: form.description,
+        withTransaction(db, () => {
+          catalogService.updateProductDetails({
+            productId,
+            name: form.name,
+            brand: form.brand,
+            category: form.category,
+            variant: form.variant,
+            unit_of_measure: form.unit_of_measure,
+            description: form.description,
+          });
+          saveCustomProductFields(productFieldService, {
+            productId,
+            form,
+            actor: user,
+          });
         });
       } catch (error) {
         sendRedirect(response, appendFlash(`/products/${productId}`, error.message, "error"));
@@ -769,7 +800,15 @@ export const requestHandler = async (request, response) => {
         return;
       }
       const form = await parseForm(request);
-      const product = catalogService.createProduct(form);
+      const product = withTransaction(db, () => {
+        const created = catalogService.createProduct(form);
+        saveCustomProductFields(productFieldService, {
+          productId: created.id,
+          form,
+          actor: user,
+        });
+        return created;
+      });
       const backupResult = createAutomaticBackup("product-create");
       const nextFlash = backupAwareFlash("Product saved.", "success", backupResult);
       const nextPath =
@@ -1794,6 +1833,114 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/admin/product-fields") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      sendHtml(response, pages.renderProductFields(user, flash));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/product-unit-conversions/preview") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      const preview = unitConversionService.preview({
+        actor: user,
+        productId: form.product_id,
+        targetUnit: form.target_unit,
+        factor: form.factor,
+        precision: form.precision,
+      });
+      sendHtml(response, pages.renderProductFields(user, null, preview));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/product-unit-conversions/apply") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      if (form.confirmed !== "1") {
+        throw new Error("Review and confirm the unit migration before applying it.");
+      }
+      const safetyBackup = createRequiredCriticalBackup("product-unit-conversion-before");
+      const result = unitConversionService.apply({
+        actor: user,
+        productId: form.product_id,
+        targetUnit: form.target_unit,
+        factor: form.factor,
+        precision: form.precision,
+        previewToken: form.preview_token,
+      });
+      sendRedirect(
+        response,
+        appendFlash(
+          "/admin/product-fields",
+          `${result.product.sku} migrated from ${result.sourceUnit} to ${result.targetUnit}. Safety backup: ${safetyBackup.filename}.`,
+          "success",
+        ),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/product-fields") {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      productFieldService.create({
+        actor: user,
+        label: form.label,
+        dataType: form.data_type,
+        sortOrder: form.sort_order,
+        options: String(form.options || "")
+          .split(/\r?\n|,/)
+          .map((option) => option.trim())
+          .filter(Boolean),
+        searchable: form.searchable ? 1 : 0,
+        filterable: form.filterable ? 1 : 0,
+        reportable: form.reportable ? 1 : 0,
+        visible: form.visible ? 1 : 0,
+        active: 1,
+      });
+      const backupResult = createAutomaticBackup("product-field-create");
+      const nextFlash = backupAwareFlash("Product field added.", "success", backupResult);
+      sendRedirect(response, appendFlash("/admin/product-fields", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
+    const productFieldMatch = url.pathname.match(/^\/admin\/product-fields\/(\d+)$/);
+    if (request.method === "POST" && productFieldMatch) {
+      if (!ensureAdmin(response, user)) {
+        return;
+      }
+      const form = await parseForm(request);
+      productFieldService.update({
+        actor: user,
+        fieldId: Number(productFieldMatch[1]),
+        label: form.label,
+        sortOrder: form.sort_order,
+        options: form.options === undefined
+          ? undefined
+          : String(form.options)
+              .split(/\r?\n|,/)
+              .map((option) => option.trim())
+              .filter(Boolean),
+        required: form.required ? 1 : 0,
+        searchable: form.searchable ? 1 : 0,
+        filterable: form.filterable ? 1 : 0,
+        reportable: form.reportable ? 1 : 0,
+        visible: form.visible ? 1 : 0,
+        active: form.active ? 1 : 0,
+      });
+      const backupResult = createAutomaticBackup("product-field-update");
+      const nextFlash = backupAwareFlash("Product field updated.", "success", backupResult);
+      sendRedirect(response, appendFlash("/admin/product-fields", nextFlash.message, nextFlash.tone));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/admin") {
       if (!ensureAdmin(response, user)) {
         return;
@@ -2014,6 +2161,12 @@ export const requestHandler = async (request, response) => {
     }
     if (url.pathname === "/admin/adjustments") {
       target = "/admin";
+    }
+    if (url.pathname.startsWith("/admin/product-fields")) {
+      target = "/admin/product-fields";
+    }
+    if (url.pathname.startsWith("/admin/product-unit-conversions")) {
+      target = "/admin/product-fields";
     }
     sendRedirect(response, appendFlash(target, error.message, "error"));
   }

@@ -1,23 +1,23 @@
 ---
-name: Application
+name: Dashboard
 colors:
-  primary: "#9333ea"
-  secondary: "#a855f7"
+  primary: "#0C5CAB"
+  secondary: "#0a4a8a"
   success: "#10b981"
   warning: "#f59e0b"
   danger: "#ef4444"
-  surface: "#FFFFFF"
-  text: "#09090b"
-  neutral: "#FFFFFF"
+  surface: "#09090b"
+  text: "#fafafa"
+  neutral: "#09090b"
 typography:
   h1:
-    fontFamily: "Inter"
+    fontFamily: "IBM Plex Sans"
     fontSize: 2rem
   body-md:
-    fontFamily: "Inter"
+    fontFamily: "IBM Plex Sans"
     fontSize: 1rem
   label-caps:
-    fontFamily: "JetBrains Mono"
+    fontFamily: "IBM Plex Sans"
     fontSize: 0.75rem
   sourceScale: "12/14/16/20/24/32"
   weights: "100, 200, 300, 400, 500, 600, 700, 800, 900"
@@ -25,31 +25,31 @@ rounded:
   sm: 4px
   md: 8px
 spacing:
-  sm: 4px
-  md: 8px
-  sourceScale: "4/8/12/16/24/32"
+  sm: 8px
+  md: 16px
+  sourceScale: "8pt baseline grid"
 ---
 
 ## Overview
 
-App dashboard with purple-themed aesthetic, top-bar navigation, card-based layouts, and developer-first workflows.
+Dark-themed cloud-platform aesthetic with modular grids, glass-like panels, and strong data hierarchy for productivity dashboards.
 
 ## Style Foundations
 
-- **Visual style:** modern, clean, high-contrast, glass-like panels, soft shadows, rounded components
+- **Visual style:** modern, clean, cloud-platform aesthetic (Heroku/Vercel/GitHub inspired), dark theme, subtle gradients, soft shadows, glass-like panels, rounded components
 - **Typography scale:** 12/14/16/20/24/32
-- **Typography fonts:** primary=Inter, display=Inter, mono=JetBrains Mono
+- **Typography fonts:** primary=IBM Plex Sans, display=IBM Plex Sans, mono=IBM Plex Sans
 - **Typography weights:** 100, 200, 300, 400, 500, 600, 700, 800, 900
-- **Color palette:** primary (purple), neutral, success, warning, danger
-- **Spacing scale:** 4/8/12/16/24/32
+- **Color palette:** primary, neutral, success, warning, danger
+- **Spacing scale:** 8pt baseline grid
 
 ## Colors
 
-- **Primary (#9333ea):** Token from style foundations.
-- **Secondary (#a855f7):** Token from style foundations.
+- **Primary (#0C5CAB):** Token from style foundations.
+- **Secondary (#0a4a8a):** Token from style foundations.
 - **Success (#10b981):** Token from style foundations.
 - **Warning (#f59e0b):** Token from style foundations.
 - **Danger (#ef4444):** Token from style foundations.
-- **Surface (#FFFFFF):** Token from style foundations.
-- **Text (#09090b):** Token from style foundations.
-- **Neutral (#FFFFFF):** Derived from the surface token for official format compatibility.
+- **Surface (#09090b):** Token from style foundations.
+- **Text (#fafafa):** Token from style foundations.
+- **Neutral (#09090b):** Derived from the surface token for official format compatibility.

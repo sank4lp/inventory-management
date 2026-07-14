@@ -9,6 +9,76 @@ import {
   table,
 } from "./shared.js";
 
+export function renderRetentionCard(summary, { returnTo = "/backups", attributes = "" } = {}) {
+  const lastCompaction = summary.lastCompaction;
+  const compactedDays = lastCompaction?.compactedDays || [];
+  const retentionDeleted = lastCompaction?.retentionDeleted || [];
+  const storageWarning = summary.storageWarning
+    ? `
+        <p class="flash flash-warning">
+          Retention Days Need To Be Reduced: at the latest backup size, ${escapeHtml(
+            String(summary.retentionDays),
+          )} retained day(s) plus active-day backups may use about ${escapeHtml(formatBytes(summary.estimatedRetentionBytes))}.
+          Reduce retention to about ${escapeHtml(
+            String(summary.suggestedRetentionDays),
+          )} day(s) to avoid filling Raspberry Pi storage and risking backup loss.
+        </p>
+      `
+    : "";
+
+  return card(
+    "Retention And Compaction",
+    `
+      <div class="content-stack">
+        <div class="backup-protection-copy">
+          <p>When a new day starts, previous-day backups are compacted to the latest backup from that day. The compacted file is renamed so it is clear that extra same-day backups were removed.</p>
+          <p class="muted">The system also compacts whenever it finds multiple backups for older dates, and removes backups older than the retention window. It will not reduce retention days automatically.</p>
+        </div>
+        ${storageWarning}
+        <form method="post" action="/backups/retention" class="backup-schedule-form">
+          <input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />
+          <label>Retention Days
+            <input
+              type="number"
+              name="retention_days"
+              min="${escapeHtml(String(summary.minBackupRetentionDays))}"
+              max="${escapeHtml(String(summary.maxBackupRetentionDays))}"
+              step="1"
+              value="${escapeHtml(String(summary.retentionDays))}"
+              required
+            />
+          </label>
+          <button type="submit">Save Retention</button>
+          <div class="backup-schedule-summary">
+            <strong>${escapeHtml(String(summary.retentionDays))} Day(s)</strong>
+            <span>Current backups use ${escapeHtml(formatBytes(summary.totalBackupBytes))}</span>
+            <span>Daily estimate ${escapeHtml(formatBytes(summary.estimatedRetentionBytes))}</span>
+            <span>Active day limit ${escapeHtml(String(summary.activeDayBackupLimit))}</span>
+          </div>
+        </form>
+        <div class="meta-grid compact-meta-grid">
+          <div><strong>Last Compaction</strong><br />${
+            lastCompaction?.completedAt ? escapeHtml(formatDate(lastCompaction.completedAt)) : "Not recorded yet"
+          }</div>
+          <div><strong>Compacted Days</strong><br />${
+            compactedDays.length
+              ? escapeHtml(compactedDays.map((day) => day.date).join(", "))
+              : "No previous days compacted yet"
+          }</div>
+          <div><strong>Removed Backups</strong><br />${escapeHtml(
+            String(lastCompaction?.removedCount || 0),
+          )}</div>
+          <div><strong>Retention Deletes</strong><br />${escapeHtml(
+            String(retentionDeleted.length),
+          )}</div>
+        </div>
+      </div>
+    `,
+    "",
+    attributes,
+  );
+}
+
 export function createBackupPages({ backupService }) {
   function backupKindLabel(kind) {
     const labels = {
@@ -18,74 +88,6 @@ export function createBackupPages({ backupService }) {
       compacted: "Compacted",
     };
     return labels[kind] || "Manual";
-  }
-
-  function renderRetentionCard(summary) {
-    const lastCompaction = summary.lastCompaction;
-    const compactedDays = lastCompaction?.compactedDays || [];
-    const retentionDeleted = lastCompaction?.retentionDeleted || [];
-    const storageWarning = summary.storageWarning
-      ? `
-          <p class="flash flash-warning">
-            Retention Days Need To Be Reduced: at the latest backup size, ${escapeHtml(
-              String(summary.retentionDays),
-            )} retained day(s) plus active-day backups may use about ${escapeHtml(formatBytes(summary.estimatedRetentionBytes))}.
-            Reduce retention to about ${escapeHtml(
-              String(summary.suggestedRetentionDays),
-            )} day(s) to avoid filling Raspberry Pi storage and risking backup loss.
-          </p>
-        `
-      : "";
-
-    return card(
-      "Retention And Compaction",
-      `
-        <div class="content-stack">
-          <div class="backup-protection-copy">
-            <p>When a new day starts, previous-day backups are compacted to the latest backup from that day. The compacted file is renamed so it is clear that extra same-day backups were removed.</p>
-            <p class="muted">The system also compacts whenever it finds multiple backups for older dates, and removes backups older than the retention window. It will not reduce retention days automatically.</p>
-          </div>
-          ${storageWarning}
-          <form method="post" action="/backups/retention" class="backup-schedule-form">
-            <input type="hidden" name="return_to" value="/backups" />
-            <label>Retention Days
-              <input
-                type="number"
-                name="retention_days"
-                min="${escapeHtml(String(summary.minBackupRetentionDays))}"
-                max="${escapeHtml(String(summary.maxBackupRetentionDays))}"
-                step="1"
-                value="${escapeHtml(String(summary.retentionDays))}"
-                required
-              />
-            </label>
-            <button type="submit">Save Retention</button>
-            <div class="backup-schedule-summary">
-              <strong>${escapeHtml(String(summary.retentionDays))} Day(s)</strong>
-              <span>Current backups use ${escapeHtml(formatBytes(summary.totalBackupBytes))}</span>
-              <span>Daily estimate ${escapeHtml(formatBytes(summary.estimatedRetentionBytes))}</span>
-              <span>Active day limit ${escapeHtml(String(summary.activeDayBackupLimit))}</span>
-            </div>
-          </form>
-          <div class="meta-grid compact-meta-grid">
-            <div><strong>Last Compaction</strong><br />${
-              lastCompaction?.completedAt ? escapeHtml(formatDate(lastCompaction.completedAt)) : "Not recorded yet"
-            }</div>
-            <div><strong>Compacted Days</strong><br />${
-              compactedDays.length
-                ? escapeHtml(compactedDays.map((day) => day.date).join(", "))
-                : "No previous days compacted yet"
-            }</div>
-            <div><strong>Removed Backups</strong><br />${escapeHtml(
-              String(lastCompaction?.removedCount || 0),
-            )}</div>
-            <div><strong>Retention Deletes</strong><br />${escapeHtml(
-              String(retentionDeleted.length),
-            )}</div>
-          </div>
-        </div>
-      `,
-    );
   }
 
   function renderBackups(user, flash) {
@@ -106,7 +108,7 @@ export function createBackupPages({ backupService }) {
         ])}
         <section class="two-column">
           ${card(
-            "Protection",
+            "Create Backup Now",
             `
               <div class="backup-protection-copy">
                 <p>The system keeps SQLite in crash-safe WAL mode and checks whether a new automatic snapshot is due.</p>
@@ -130,6 +132,7 @@ export function createBackupPages({ backupService }) {
                 <button type="submit">Create Backup Now</button>
               </form>
             `,
+            `id="create-backup"`,
           )}
           ${card(
             "Automatic Schedule",
@@ -138,8 +141,9 @@ export function createBackupPages({ backupService }) {
                 ${backupScheduleForm(summary, { returnTo: "/backups" })}
               </div>
             `,
+            "",
+            `id="backup-schedule"`,
           )}
-          ${renderRetentionCard(summary)}
           ${card(
             "Restore Notes",
             `
@@ -147,6 +151,7 @@ export function createBackupPages({ backupService }) {
               <p class="muted">This protects against bad data changes and software mistakes, but it does not protect you if the Raspberry Pi storage itself is physically destroyed. For that, you still need an off-device copy.</p>
             `,
           )}
+          ${renderRetentionCard(summary)}
         </section>
         ${card(
           "Available Backups",
@@ -177,7 +182,7 @@ export function createBackupPages({ backupService }) {
               )
             : `<p class="muted">No backups have been created yet.</p>`,
           "",
-          `data-row-collapser data-row-limit="5" data-row-label="backups"`,
+          `id="available-backups" data-row-collapser data-row-limit="5" data-row-label="backups"`,
         )}
       `,
     });

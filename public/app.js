@@ -653,7 +653,11 @@ function wireMovementStockSummaries(root = document) {
 
 function wireNavState() {
   const pathname = window.location.pathname;
-  const links = document.querySelectorAll(".nav-links a");
+  const hash = window.location.hash;
+  const sidebar = document.querySelector(".dashboard-sidebar");
+  const links = sidebar
+    ? sidebar.querySelectorAll(".side-nav-link[href], .side-nav-direct[href]")
+    : document.querySelectorAll(".nav-links a");
 
   for (const link of links) {
     const href = link.getAttribute("href");
@@ -661,15 +665,105 @@ function wireNavState() {
       continue;
     }
 
+    const linkUrl = new URL(href, window.location.href);
+    const linkPath = linkUrl.pathname;
+    const linkHash = linkUrl.hash;
     let isActive = false;
-    if (href === "/") {
+    if (linkPath === "/") {
       isActive = pathname === "/";
     } else {
-      isActive = pathname === href || pathname.startsWith(`${href}/`);
+      isActive = pathname === linkPath || pathname.startsWith(`${linkPath}/`);
+    }
+
+    if (linkHash) {
+      isActive = isActive && hash === linkHash;
     }
 
     link.classList.toggle("nav-link-active", isActive);
   }
+
+  sidebar?.querySelectorAll(".side-nav-group").forEach((group) => {
+    const hasActiveLink = Boolean(group.querySelector(".nav-link-active"));
+    group.classList.toggle("side-nav-group-active", hasActiveLink || group.classList.contains("side-nav-group-active"));
+    if (hasActiveLink) {
+      group.open = true;
+    }
+  });
+}
+
+function dashboardSubtabTarget() {
+  const hash = window.location.hash;
+  if (!hash) {
+    return null;
+  }
+
+  if (window.location.pathname === "/reports") {
+    return null;
+  }
+
+  const sidebar = document.querySelector(".dashboard-sidebar");
+  if (!sidebar) {
+    return null;
+  }
+
+  const pathname = window.location.pathname;
+  const matchingLink = Array.from(sidebar.querySelectorAll(".side-nav-link[href]")).find((link) => {
+    const linkUrl = new URL(link.getAttribute("href"), window.location.href);
+    return linkUrl.pathname === pathname && linkUrl.hash === hash;
+  });
+
+  if (!matchingLink) {
+    return null;
+  }
+
+  const id = decodeURIComponent(hash.slice(1));
+  return id ? document.getElementById(id) : null;
+}
+
+function isDashboardContentElement(element) {
+  return element.matches(
+    "section, article, .stats-grid, .hero-grid, .two-column, .card, .app-panel, .secondary-panel, .reports-workspace",
+  );
+}
+
+function wireDashboardSectionFilter() {
+  const main = document.querySelector(".page-shell");
+  if (!main) {
+    return;
+  }
+
+  main.querySelectorAll("[data-dashboard-section-hidden]").forEach((element) => {
+    delete element.dataset.dashboardSectionHidden;
+  });
+
+  const target = dashboardSubtabTarget();
+  if (!target || !main.contains(target)) {
+    main.classList.remove("dashboard-section-filter-active");
+    return;
+  }
+
+  main.classList.add("dashboard-section-filter-active");
+
+  let current = target;
+  while (current && current !== main) {
+    const parent = current.parentElement;
+    if (!parent) {
+      break;
+    }
+
+    Array.from(parent.children).forEach((child) => {
+      if (child === current || child.contains(target) || !isDashboardContentElement(child)) {
+        return;
+      }
+      child.dataset.dashboardSectionHidden = "true";
+    });
+
+    current = parent;
+  }
+
+  window.requestAnimationFrame(() => {
+    target.scrollIntoView({ block: "start" });
+  });
 }
 
 function wireNavOverflow() {
@@ -793,6 +887,18 @@ function wireNavOverflow() {
   scheduleLayout();
 }
 
+function wireSidebarParentLinks() {
+  document.querySelectorAll(".side-nav-parent-link").forEach((link) => {
+    if (link.dataset.sidebarParentBound === "true") {
+      return;
+    }
+    link.dataset.sidebarParentBound = "true";
+    link.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+  });
+}
+
 function wireReportsWorkspace() {
   const workspace = document.querySelector("[data-reports-workspace]");
   if (!workspace || workspace.dataset.reportsWorkspaceBound === "true") {
@@ -806,20 +912,436 @@ function wireReportsWorkspace() {
   const modalContent = workspace.querySelector("[data-report-modal-content]");
   const printMenu = workspace.querySelector("[data-report-print-menu]");
   const reportButtons = Array.from(workspace.querySelectorAll("[data-report-open]"));
+  const inlinePanels = Array.from(workspace.querySelectorAll("[data-report-inline]"));
+  const inlinePanelMap = new Map(inlinePanels.map((panel) => [panel.dataset.reportInline, panel]));
+  const inlineStack = workspace.querySelector("[data-report-inline-stack]");
+  const libraryList = workspace.querySelector(".report-library-list");
+  const librarySearch = workspace.querySelector("[data-report-library-search]");
+  const libraryEmpty = workspace.querySelector("[data-report-library-empty]");
+  const reportAnnouncer = workspace.querySelector("[data-report-announcer]");
+  const stageTitle = workspace.querySelector("[data-report-stage-title]");
+  const stageToolbar = workspace.querySelector(".report-stage-toolbar");
+  const visualsControl = workspace.querySelector("[data-report-visuals-control]");
+  const visualsToggle = workspace.querySelector("[data-report-visuals-toggle]");
+  const visualsPanel = workspace.querySelector("[data-report-visuals-panel]");
+  const visualsOptions = workspace.querySelector("[data-report-visuals-options]");
+  const visualsNone = workspace.querySelector("[data-report-visuals-none]");
+  const filtersControl = workspace.querySelector("[data-report-filters-control]");
+  const filtersToggle = workspace.querySelector("[data-report-filters-toggle]");
+  const filtersPanel = workspace.querySelector("[data-report-filters-panel]");
+  const filtersOptions = workspace.querySelector("[data-report-filters-options]");
+  const filtersNone = workspace.querySelector("[data-report-filters-none]");
+  const timeControl = workspace.querySelector("[data-report-time-control]");
+  const timeToggle = workspace.querySelector("[data-report-time-toggle]");
+  const timePanel = workspace.querySelector("[data-report-time-panel]");
+  const timeForm = workspace.querySelector("[data-report-time-form]");
+  const timePreset = workspace.querySelector("[data-report-time-preset]");
+  const customTimeFields = workspace.querySelector("[data-report-custom-time-fields]");
   const reportTemplates = new Map(
     Array.from(workspace.querySelectorAll("[data-report-template]")).map((template) => [
       template.dataset.reportTemplate,
       template,
     ]),
   );
+  const reportKeys = new Set([...reportTemplates.keys(), ...inlinePanelMap.keys()]);
+  const defaultReportKey = inlinePanels[0]?.dataset.reportInline || "";
+  libraryList?.setAttribute("aria-label", "Reports");
 
   let activeReportKey = "";
   let lastFocusedElement = null;
+  let activeStockRoot = null;
+  let activeStockState = null;
+  let toolbarPanelId = 0;
+  const stockStateByReport = new Map();
+  const normalizeUnitToken = (value) => String(value || "").trim().toLocaleLowerCase("en");
+  const parseJsonObject = (value) => {
+    try {
+      const parsed = JSON.parse(value || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+  const parseReportUnits = (root) => {
+    try {
+      const parsed = JSON.parse(root?.dataset.reportUnits || "[]");
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((unit) => ({
+            token: normalizeUnitToken(unit?.token),
+            label: String(unit?.label || unit?.token || "").trim(),
+          }))
+          .filter((unit) => unit.token && unit.label);
+      }
+    } catch {
+      // Fall through to the rendered unit hooks for backwards-compatible markup.
+    }
+    const units = new Map();
+    root?.querySelectorAll("[data-report-visual-unit], [data-report-stock-unit]").forEach((element) => {
+      const token = normalizeUnitToken(
+        element.dataset.reportVisualUnit || element.dataset.reportStockUnit,
+      );
+      if (token && !units.has(token)) {
+        units.set(token, token);
+      }
+    });
+    return Array.from(units, ([token, label]) => ({ token, label }));
+  };
+  const stockStateFor = (root, reportKey) => {
+    if (!root) {
+      return null;
+    }
+    const key = reportKey || root.closest("[data-report-document]")?.dataset.reportDocument || "stock-report";
+    const units = parseReportUnits(root);
+    const unitTokens = new Set(units.map((unit) => unit.token));
+    let state = stockStateByReport.get(key);
+    if (!state) {
+      state = {
+        key,
+        root,
+        units,
+        summaries: parseJsonObject(root.dataset.reportUnitSummaries),
+        hasVisuals:
+          root.dataset.reportHasVisuals === "true" ||
+          (root.dataset.reportHasVisuals !== "false" && Boolean(root.querySelector("[data-report-visual-unit]"))),
+        visualSelections: new Set(unitTokens),
+        filterSelections: new Set(unitTokens),
+      };
+      stockStateByReport.set(key, state);
+      return state;
+    }
+
+    state.root = root;
+    state.units = units;
+    state.summaries = parseJsonObject(root.dataset.reportUnitSummaries);
+    state.hasVisuals =
+      root.dataset.reportHasVisuals === "true" ||
+      (root.dataset.reportHasVisuals !== "false" && Boolean(root.querySelector("[data-report-visual-unit]")));
+    state.visualSelections = new Set(
+      [...state.visualSelections].filter((token) => unitTokens.has(token)),
+    );
+    state.filterSelections = new Set(
+      [...state.filterSelections].filter((token) => unitTokens.has(token)),
+    );
+    return state;
+  };
+  const zeroSelectionSummary = () => ({
+    takeaway: "Select at least one unit to show report data.",
+    stockGroups: { value: "0", detail: "No units selected" },
+    units: { value: "None", detail: "0 units selected" },
+    largest: { value: "No data", detail: "Select units to compare" },
+    onHand: { value: "No data", detail: "Select units to show totals" },
+  });
+  const summaryForSelections = (state) => {
+    const selectedUnits = state.units.filter((unit) => state.filterSelections.has(unit.token));
+    if (!selectedUnits.length) {
+      return zeroSelectionSummary();
+    }
+    if (selectedUnits.length === 1) {
+      return state.summaries[selectedUnits[0].token] || state.summaries.all || zeroSelectionSummary();
+    }
+
+    const selectedSummaries = selectedUnits
+      .map((unit) => state.summaries[unit.token])
+      .filter(Boolean);
+    const labels = selectedUnits.map((unit) => unit.label);
+    const stockGroupCount = selectedSummaries.reduce(
+      (total, summary) => total + Number(summary.meta?.stockGroupCount || 0),
+      0,
+    );
+    const groupDetail = selectedSummaries.find((summary) => summary.stockGroups?.detail)?.stockGroups.detail ||
+      "Grouped by product";
+    return {
+      takeaway: `Current view includes ${labels.join(", ")}; values remain separated by unit.`,
+      stockGroups: { value: stockGroupCount.toLocaleString(), detail: groupDetail },
+      units: { value: labels.join(", "), detail: `${selectedUnits.length} units selected` },
+      largest: { value: "Separated by unit", detail: "Compare each selected unit" },
+      onHand: { value: "Separated by unit", detail: "Totals are not combined" },
+    };
+  };
+  const updateStockSummary = (state) => {
+    const summary = summaryForSelections(state);
+    const takeaway = state.root.querySelector("[data-report-summary-takeaway]");
+    if (takeaway) {
+      takeaway.textContent = summary.takeaway;
+    }
+    state.root.querySelectorAll("[data-report-summary-item]").forEach((item) => {
+      const content = summary[item.dataset.reportSummaryItem || ""];
+      if (!content) {
+        return;
+      }
+      const value = item.querySelector("[data-report-summary-value]");
+      const detail = item.querySelector("[data-report-summary-detail]");
+      if (value) {
+        value.textContent = String(content.value);
+      }
+      if (detail) {
+        detail.textContent = String(content.detail);
+      }
+    });
+  };
+  const updateToolbarLabels = (state, visibleVisuals) => {
+    if (visualsToggle) {
+      const selectedCount = state.visualSelections.size;
+      const status = selectedCount === 0
+        ? "table only"
+        : `${selectedCount} of ${state.units.length} visual${selectedCount === 1 ? "" : "s"} selected`;
+      visualsToggle.textContent = "Visuals";
+      visualsToggle.title = `Choose report visuals; ${status}`;
+      visualsToggle.setAttribute(
+        "aria-label",
+        `Visuals. ${status}. ${visibleVisuals} currently shown after filters.`,
+      );
+    }
+    if (filtersToggle) {
+      const selectedCount = state.filterSelections.size;
+      const status = `${selectedCount} of ${state.units.length} unit${state.units.length === 1 ? "" : "s"} selected`;
+      filtersToggle.title = `Filter report units; ${status}`;
+      filtersToggle.setAttribute("aria-label", `Filters. ${status}.`);
+    }
+  };
+  const applyStockState = (state) => {
+    if (!state?.root) {
+      return;
+    }
+    let visibleVisuals = 0;
+    state.root.querySelectorAll("[data-report-visual-unit]").forEach((visual) => {
+      const token = normalizeUnitToken(visual.dataset.reportVisualUnit);
+      visual.hidden = !(state.visualSelections.has(token) && state.filterSelections.has(token));
+      if (!visual.hidden) {
+        visibleVisuals += 1;
+      }
+    });
+    const visualGrid = state.root.querySelector("[data-report-visual-grid]");
+    const visualNote = state.root.querySelector("[data-report-visual-note]");
+    if (visualGrid) {
+      visualGrid.hidden = visibleVisuals === 0;
+    }
+    if (visualNote) {
+      visualNote.hidden = visibleVisuals === 0;
+    }
+
+    let visibleRows = 0;
+    state.root.querySelectorAll("[data-report-stock-row]").forEach((row) => {
+      const token = normalizeUnitToken(row.dataset.reportStockUnit);
+      row.hidden = !state.filterSelections.has(token);
+      if (!row.hidden) {
+        visibleRows += 1;
+      }
+    });
+    const emptyRow = state.root.querySelector("[data-report-stock-filter-empty]");
+    if (emptyRow) {
+      emptyRow.hidden = visibleRows > 0;
+    }
+
+    updateStockSummary(state);
+    updateToolbarLabels(state, visibleVisuals);
+  };
+  const renderUnitOptions = (
+    container,
+    state,
+    selectionKey,
+    optionHook,
+    selectAllHook,
+  ) => {
+    if (!container || !state) {
+      return;
+    }
+    const selected = state[selectionKey];
+    const fragment = document.createDocumentFragment();
+    const selectAllLabel = document.createElement("label");
+    selectAllLabel.className = "report-toolbar-option report-toolbar-option-select-all";
+    const selectAllInput = document.createElement("input");
+    selectAllInput.type = "checkbox";
+    selectAllInput.checked = state.units.length > 0 && selected.size === state.units.length;
+    selectAllInput.indeterminate = selected.size > 0 && selected.size < state.units.length;
+    selectAllInput.disabled = state.units.length === 0;
+    selectAllInput.setAttribute(selectAllHook, "");
+    const selectAllCopy = document.createElement("span");
+    selectAllCopy.textContent = "Select all";
+    selectAllLabel.append(selectAllInput, selectAllCopy);
+    fragment.append(selectAllLabel);
+    state.units.forEach((unit) => {
+      const label = document.createElement("label");
+      label.className = "report-toolbar-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = unit.token;
+      input.checked = selected.has(unit.token);
+      input.setAttribute(optionHook, "");
+      const copy = document.createElement("span");
+      copy.textContent = unit.label;
+      label.append(input, copy);
+      fragment.append(label);
+    });
+    if (!state.units.length) {
+      const empty = document.createElement("p");
+      empty.className = "report-toolbar-empty";
+      empty.textContent = "No units are available for this report.";
+      fragment.append(empty);
+    }
+    container.replaceChildren(fragment);
+  };
+  const restoreUnitOptionFocus = (container, hook, value = "") => {
+    if (!container || !hook) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      const candidates = Array.from(container.querySelectorAll(`[${hook}]`));
+      const target = value
+        ? candidates.find((input) => normalizeUnitToken(input.value) === normalizeUnitToken(value))
+        : candidates[0];
+      target?.focus();
+    });
+  };
+  const toolbarPopovers = [
+    { control: visualsControl, toggle: visualsToggle, panel: visualsPanel },
+    { control: filtersControl, toggle: filtersToggle, panel: filtersPanel },
+    { control: timeControl, toggle: timeToggle, panel: timePanel },
+  ].filter(({ control, toggle, panel }) => control && toggle && panel);
+  toolbarPopovers.forEach(({ toggle, panel }) => {
+    if (!panel.id) {
+      toolbarPanelId += 1;
+      panel.id = `report-toolbar-panel-${toolbarPanelId}`;
+    }
+    toggle.setAttribute("aria-controls", panel.id);
+    toggle.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
+  });
+  const closeToolbarPopovers = ({ except = null, restoreFocus = false } = {}) => {
+    let closedToggle = null;
+    toolbarPopovers.forEach(({ toggle, panel }) => {
+      if (panel === except || panel.hidden) {
+        return;
+      }
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      closedToggle ||= toggle;
+    });
+    if (restoreFocus) {
+      closedToggle?.focus();
+    }
+    return Boolean(closedToggle);
+  };
+  const setToolbarPopoverOpen = (entry, open) => {
+    if (!entry) {
+      return;
+    }
+    if (open) {
+      closeToolbarPopovers({ except: entry.panel });
+    }
+    entry.panel.hidden = !open;
+    entry.toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  const hasExplicitRangeHooks = inlinePanels.some((panel) =>
+    panel.hasAttribute("data-report-uses-global-range"));
+  const syncReportContextControls = (reportRoot) => {
+    const usesGlobalRange = reportRoot
+      ? reportRoot.hasAttribute("data-report-uses-global-range")
+        ? reportRoot.dataset.reportUsesGlobalRange === "true"
+        : !hasExplicitRangeHooks
+      : false;
+
+    if (timeControl) {
+      timeControl.hidden = !usesGlobalRange;
+      if (!usesGlobalRange && timePanel) {
+        timePanel.hidden = true;
+        timeToggle?.setAttribute("aria-expanded", "false");
+      }
+    }
+  };
+  const syncToolbarForReport = (stockRoot, reportKey) => {
+    closeToolbarPopovers();
+    activeStockRoot = stockRoot || null;
+    activeStockState = stockStateFor(activeStockRoot, reportKey);
+
+    if (!activeStockState) {
+      if (visualsControl) {
+        visualsControl.hidden = true;
+      }
+      if (filtersControl) {
+        filtersControl.hidden = true;
+      }
+      visualsOptions?.replaceChildren();
+      filtersOptions?.replaceChildren();
+      return;
+    }
+
+    if (visualsControl) {
+      visualsControl.hidden = !activeStockState.hasVisuals;
+    }
+    if (filtersControl) {
+      filtersControl.hidden = false;
+    }
+    if (!activeStockState.hasVisuals && visualsPanel) {
+      visualsPanel.hidden = true;
+      visualsToggle?.setAttribute("aria-expanded", "false");
+    }
+    renderUnitOptions(
+      visualsOptions,
+      activeStockState,
+      "visualSelections",
+      "data-report-visuals-option",
+      "data-report-visuals-select-all",
+    );
+    renderUnitOptions(
+      filtersOptions,
+      activeStockState,
+      "filterSelections",
+      "data-report-filters-option",
+      "data-report-filters-select-all",
+    );
+    applyStockState(activeStockState);
+  };
+  const validateCustomTimeRange = () => {
+    const fromInput = customTimeFields?.querySelector('input[name="from"]');
+    const toInput = customTimeFields?.querySelector('input[name="to"]');
+    if (!fromInput || !toInput) {
+      return true;
+    }
+    toInput.setCustomValidity("");
+    if (
+      timePreset?.value === "custom" &&
+      fromInput.value &&
+      toInput.value &&
+      fromInput.value > toInput.value
+    ) {
+      toInput.setCustomValidity("The end time must be the same as or later than the start time.");
+      return false;
+    }
+    return true;
+  };
+  const syncCustomTimeFields = () => {
+    const custom = timePreset?.value === "custom";
+    if (customTimeFields) {
+      customTimeFields.hidden = !custom;
+      customTimeFields.querySelectorAll('input[name="from"], input[name="to"]').forEach((input) => {
+        input.disabled = !custom;
+      });
+    }
+    validateCustomTimeRange();
+  };
 
   const reportKeyFromHash = () => window.location.hash.replace(/^#/, "");
-  const hasOpenReportSurface = () => Boolean((modal && !modal.hidden) || (printMenu && !printMenu.hidden));
+  const hasOpenReportSurface = () =>
+    Boolean((modal && !modal.hidden) || (printMenu && !printMenu.hidden));
   const syncBodyModalState = () => {
     document.body.classList.toggle("modal-open", hasOpenReportSurface());
+  };
+  const activeRangeHashKey = () =>
+    activeReportKey || (reportKeys.has(reportKeyFromHash()) ? reportKeyFromHash() : defaultReportKey);
+  const withReportHash = (value, key) => {
+    const target = new URL(value || window.location.pathname, window.location.href);
+    target.hash = key || "";
+    return `${target.pathname}${target.search}${target.hash}`;
+  };
+  const syncRangeControlHashes = () => {
+    const key = activeRangeHashKey();
+    if (timeForm) {
+      if (!timeForm.dataset.reportBaseAction) {
+        timeForm.dataset.reportBaseAction = timeForm.getAttribute("action") || window.location.pathname;
+      }
+      timeForm.setAttribute("action", withReportHash(timeForm.dataset.reportBaseAction, key));
+    }
   };
   const restoreFocus = () => {
     if (lastFocusedElement instanceof HTMLElement && document.contains(lastFocusedElement)) {
@@ -831,12 +1353,84 @@ function wireReportsWorkspace() {
     reportButtons.forEach((button) => {
       const active = button.dataset.reportOpen === key;
       button.classList.toggle("report-overview-card-active", active);
-      if (active) {
-        button.setAttribute("aria-expanded", "true");
+      button.classList.toggle("report-library-item-active", active);
+      if (inlinePanels.length) {
+        button.removeAttribute("aria-expanded");
+        if (active) {
+          button.setAttribute("aria-current", "page");
+        } else {
+          button.removeAttribute("aria-current");
+        }
       } else {
-        button.setAttribute("aria-expanded", "false");
+        button.setAttribute("aria-expanded", active ? "true" : "false");
       }
     });
+  };
+
+  const setInlineReport = (key, { scroll = false } = {}) => {
+    let activePanel = null;
+    inlinePanels.forEach((panel) => {
+      const active = panel.dataset.reportInline === key;
+      panel.hidden = !active;
+      if (active) {
+        activePanel = panel;
+      }
+    });
+
+    const active = Boolean(activePanel);
+    if (inlineStack) {
+      inlineStack.hidden = false;
+    }
+    if (stageToolbar) {
+      stageToolbar.hidden = false;
+    }
+    setActiveReportButton(active ? key : "");
+    const activeButton = reportButtons.find((button) => button.dataset.reportOpen === key);
+    const title = activeButton?.dataset.reportTitle || reportTemplates.get(key)?.dataset.reportTitle || "Report";
+    if (stageTitle && active) {
+      stageTitle.textContent = title;
+    }
+    if (reportAnnouncer && active) {
+      reportAnnouncer.textContent = `${title} report loaded.`;
+    }
+    syncReportContextControls(active ? activePanel : null);
+    syncToolbarForReport(
+      activePanel?.querySelector("[data-stock-composition-report]") || null,
+      active ? key : "",
+    );
+    syncRangeControlHashes();
+
+    if (scroll && activePanel) {
+      window.requestAnimationFrame(() => {
+        activePanel.scrollIntoView({ block: "start" });
+      });
+    }
+
+    return activePanel;
+  };
+
+  const setModalReport = (key) => {
+    const template = reportTemplates.get(key);
+    if (!template || !modal || !modalContent) {
+      return null;
+    }
+
+    if (modalTitle) {
+      modalTitle.textContent = template.dataset.reportTitle || "Report";
+    }
+    if (modalDescription) {
+      modalDescription.textContent = template.dataset.reportDescription || "";
+    }
+    modalContent.innerHTML = template.innerHTML;
+    const reportRoot = modalContent.querySelector("[data-report-document]");
+    syncReportContextControls(reportRoot);
+    syncToolbarForReport(
+      modalContent.querySelector("[data-stock-composition-report]"),
+      key,
+    );
+    modal.hidden = false;
+    setActiveReportButton(key);
+    return modal;
   };
 
   const closePrintMenu = ({ restore = true } = {}) => {
@@ -849,9 +1443,8 @@ function wireReportsWorkspace() {
     }
   };
 
-  const openReport = (key, { updateHash = false, focus = true } = {}) => {
-    const template = reportTemplates.get(key);
-    if (!template || !modal || !modalContent) {
+  const openReport = (key, { updateHash = false, focus = true, scroll = true } = {}) => {
+    if (!reportKeys.has(key)) {
       return false;
     }
 
@@ -859,14 +1452,15 @@ function wireReportsWorkspace() {
       lastFocusedElement = document.activeElement;
     }
     activeReportKey = key;
-    modalTitle.textContent = template.dataset.reportTitle || "Report";
-    modalDescription.textContent = template.dataset.reportDescription || "";
-    modalContent.innerHTML = template.innerHTML;
-    modal.hidden = false;
     if (printMenu) {
       printMenu.hidden = true;
     }
-    setActiveReportButton(key);
+    const reportSurface = inlinePanelMap.has(key)
+      ? setInlineReport(key, { scroll })
+      : setModalReport(key);
+    if (!reportSurface) {
+      return false;
+    }
     syncBodyModalState();
 
     if (updateHash && window.location.hash !== `#${key}`) {
@@ -874,7 +1468,11 @@ function wireReportsWorkspace() {
     }
 
     if (focus) {
-      modal.querySelector("[data-report-close]")?.focus();
+      if (modal && !modal.hidden) {
+        modal.querySelector("[data-report-close]")?.focus();
+      } else {
+        document.getElementById(key)?.focus?.();
+      }
     }
     return true;
   };
@@ -887,10 +1485,16 @@ function wireReportsWorkspace() {
       modalContent.replaceChildren();
     }
     activeReportKey = "";
-    setActiveReportButton("");
+    if (inlinePanels.length && defaultReportKey) {
+      activeReportKey = defaultReportKey;
+      setInlineReport(defaultReportKey);
+    } else {
+      setActiveReportButton("");
+      syncReportContextControls(null);
+    }
     syncBodyModalState();
 
-    if (clearHash && reportTemplates.has(reportKeyFromHash())) {
+    if (clearHash && reportKeys.has(reportKeyFromHash())) {
       window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
     }
     if (restore) {
@@ -918,20 +1522,197 @@ function wireReportsWorkspace() {
     window.setTimeout(() => {
       document.body.classList.remove("report-printing");
     }, 60000);
-    window.print();
+    window.requestAnimationFrame(() => window.print());
   };
 
   reportButtons.forEach((button) => {
-    button.setAttribute("aria-expanded", "false");
-    button.addEventListener("click", () => {
-      openReport(button.dataset.reportOpen || "", { updateHash: true });
+    if (!inlinePanels.length) {
+      button.setAttribute("aria-expanded", "false");
+    }
+    button.addEventListener("click", (event) => {
+      if (button.matches("a[href]")) {
+        event.preventDefault();
+      }
+      openReport(button.dataset.reportOpen || "", {
+        updateHash: true,
+        focus: !inlinePanels.length,
+        scroll: inlinePanels.length && window.matchMedia("(max-width: 900px)").matches,
+      });
+    });
+  });
+
+  toolbarPopovers.forEach((entry) => {
+    entry.toggle.addEventListener("click", () => {
+      if (entry.control.hidden) {
+        return;
+      }
+      setToolbarPopoverOpen(entry, entry.panel.hidden);
+    });
+  });
+  document.addEventListener("click", (event) => {
+    if (toolbarPopovers.some(({ control }) => control.contains(event.target))) {
+      return;
+    }
+    closeToolbarPopovers();
+  });
+
+  visualsOptions?.addEventListener("change", (event) => {
+    if (!activeStockState) {
+      return;
+    }
+    const selectAll = event.target.closest?.("[data-report-visuals-select-all]");
+    const input = event.target.closest?.("[data-report-visuals-option]");
+    if (selectAll) {
+      activeStockState.visualSelections = selectAll.checked
+        ? new Set(activeStockState.units.map((unit) => unit.token))
+        : new Set();
+    } else if (input) {
+      const token = normalizeUnitToken(input.value);
+      if (input.checked) {
+        activeStockState.visualSelections.add(token);
+      } else {
+        activeStockState.visualSelections.delete(token);
+      }
+    } else {
+      return;
+    }
+    const focusHook = selectAll
+      ? "data-report-visuals-select-all"
+      : "data-report-visuals-option";
+    const focusValue = input?.value || "";
+    renderUnitOptions(
+      visualsOptions,
+      activeStockState,
+      "visualSelections",
+      "data-report-visuals-option",
+      "data-report-visuals-select-all",
+    );
+    applyStockState(activeStockState);
+    restoreUnitOptionFocus(visualsOptions, focusHook, focusValue);
+  });
+  filtersOptions?.addEventListener("change", (event) => {
+    if (!activeStockState) {
+      return;
+    }
+    const selectAll = event.target.closest?.("[data-report-filters-select-all]");
+    const input = event.target.closest?.("[data-report-filters-option]");
+    if (selectAll) {
+      activeStockState.filterSelections = selectAll.checked
+        ? new Set(activeStockState.units.map((unit) => unit.token))
+        : new Set();
+    } else if (input) {
+      const token = normalizeUnitToken(input.value);
+      if (input.checked) {
+        activeStockState.filterSelections.add(token);
+      } else {
+        activeStockState.filterSelections.delete(token);
+      }
+    } else {
+      return;
+    }
+    const focusHook = selectAll
+      ? "data-report-filters-select-all"
+      : "data-report-filters-option";
+    const focusValue = input?.value || "";
+    renderUnitOptions(
+      filtersOptions,
+      activeStockState,
+      "filterSelections",
+      "data-report-filters-option",
+      "data-report-filters-select-all",
+    );
+    applyStockState(activeStockState);
+    restoreUnitOptionFocus(filtersOptions, focusHook, focusValue);
+  });
+  visualsNone?.addEventListener("click", () => {
+    if (!activeStockState) {
+      return;
+    }
+    activeStockState.visualSelections.clear();
+    renderUnitOptions(
+      visualsOptions,
+      activeStockState,
+      "visualSelections",
+      "data-report-visuals-option",
+      "data-report-visuals-select-all",
+    );
+    applyStockState(activeStockState);
+  });
+  filtersNone?.addEventListener("click", () => {
+    if (!activeStockState) {
+      return;
+    }
+    activeStockState.filterSelections.clear();
+    renderUnitOptions(
+      filtersOptions,
+      activeStockState,
+      "filterSelections",
+      "data-report-filters-option",
+      "data-report-filters-select-all",
+    );
+    applyStockState(activeStockState);
+  });
+
+  timePreset?.addEventListener("change", () => {
+    syncCustomTimeFields();
+  });
+  customTimeFields?.addEventListener("input", validateCustomTimeRange);
+  timeForm?.addEventListener("submit", (event) => {
+    syncCustomTimeFields();
+    if (!validateCustomTimeRange() || !timeForm.checkValidity()) {
+      event.preventDefault();
+      timeForm.reportValidity();
+      return;
+    }
+    syncRangeControlHashes();
+  });
+  syncCustomTimeFields();
+
+  librarySearch?.addEventListener("input", () => {
+    const query = librarySearch.value.trim().toLowerCase();
+    let visibleCount = 0;
+    reportButtons.forEach((button) => {
+      if (!button.closest(".report-library-list")) {
+        return;
+      }
+      const matches = !query || (button.dataset.reportSearchText || button.textContent || "").toLowerCase().includes(query);
+      button.hidden = !matches;
+      if (matches) {
+        visibleCount += 1;
+      }
+    });
+    libraryList?.querySelectorAll(".report-library-group-label").forEach((label) => {
+      let sibling = label.nextElementSibling;
+      let hasVisibleReport = false;
+      while (sibling && !sibling.classList.contains("report-library-group-label")) {
+        if (sibling.matches("[data-report-open]") && !sibling.hidden) {
+          hasVisibleReport = true;
+          break;
+        }
+        sibling = sibling.nextElementSibling;
+      }
+      label.hidden = !hasVisibleReport;
+    });
+    if (libraryEmpty) {
+      libraryEmpty.hidden = visibleCount > 0;
+    }
+  });
+
+  workspace.querySelectorAll("[data-report-format-form]").forEach((form) => {
+    form.addEventListener("submit", () => {
+      const returnTo = form.querySelector('input[name="return_to"]');
+      if (returnTo) {
+        if (!returnTo.dataset.reportBaseValue) {
+          returnTo.dataset.reportBaseValue = returnTo.value;
+        }
+        returnTo.value = withReportHash(returnTo.dataset.reportBaseValue, activeRangeHashKey());
+      }
     });
   });
 
   workspace.querySelector("[data-report-print-open]")?.addEventListener("click", openPrintMenu);
-  workspace.querySelector("[data-report-print-current]")?.addEventListener("click", printActiveReport);
-  workspace.querySelectorAll("[data-report-close]").forEach((button) => {
-    button.addEventListener("click", () => closeReport());
+  workspace.querySelectorAll("[data-report-print-current]").forEach((button) => {
+    button.addEventListener("click", printActiveReport);
   });
   workspace.querySelectorAll("[data-report-print-close]").forEach((button) => {
     button.addEventListener("click", () => closePrintMenu());
@@ -940,17 +1721,12 @@ function wireReportsWorkspace() {
     button.addEventListener("click", () => {
       const key = button.dataset.reportPrintOption || "";
       closePrintMenu({ restore: false });
-      if (openReport(key, { updateHash: true, focus: false })) {
+      if (openReport(key, { updateHash: true, focus: false, scroll: false })) {
         printActiveReport();
       }
     });
   });
 
-  modal?.addEventListener("click", (event) => {
-    if (event.target === modal) {
-      closeReport();
-    }
-  });
   printMenu?.addEventListener("click", (event) => {
     if (event.target === printMenu) {
       closePrintMenu();
@@ -958,6 +1734,10 @@ function wireReportsWorkspace() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") {
+      return;
+    }
+    if (closeToolbarPopovers({ restoreFocus: true })) {
+      event.preventDefault();
       return;
     }
     if (printMenu && !printMenu.hidden) {
@@ -970,28 +1750,59 @@ function wireReportsWorkspace() {
       closeReport();
     }
   });
+  window.addEventListener("beforeprint", () => {
+    if (!activeReportKey && defaultReportKey) {
+      activeReportKey = defaultReportKey;
+    }
+    if (activeReportKey) {
+      document.body.classList.add("report-printing");
+    }
+  });
   window.addEventListener("afterprint", () => {
     document.body.classList.remove("report-printing");
   });
-  window.addEventListener("hashchange", () => {
-    const key = reportKeyFromHash();
-    if (reportTemplates.has(key)) {
-      openReport(key, { focus: false });
-    } else if (modal && !modal.hidden) {
-      closeReport({ clearHash: false, restore: false });
+  modal?.addEventListener("click", (event) => {
+    if (event.target === modal) {
+      closeReport();
     }
   });
-  window.addEventListener("popstate", () => {
-    const key = reportKeyFromHash();
-    if (reportTemplates.has(key)) {
-      openReport(key, { focus: false });
-    } else if (modal && !modal.hidden) {
-      closeReport({ clearHash: false, restore: false });
-    }
+  workspace.querySelectorAll("[data-report-close]").forEach((button) => {
+    button.addEventListener("click", () => closeReport());
   });
 
-  if (reportTemplates.has(reportKeyFromHash())) {
+  const syncReportFromLocation = () => {
+    const key = reportKeyFromHash();
+    if (reportKeys.has(key)) {
+      openReport(key, { focus: false, scroll: false });
+    } else if (inlinePanels.length && defaultReportKey) {
+      activeReportKey = defaultReportKey;
+      setInlineReport(defaultReportKey);
+      if (key && window.location.pathname === "/reports") {
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}#${defaultReportKey}`,
+        );
+      }
+    } else if (activeReportKey) {
+      closeReport({ clearHash: false, restore: false });
+    }
+  };
+  window.addEventListener("hashchange", syncReportFromLocation);
+  window.addEventListener("popstate", syncReportFromLocation);
+
+  if (reportKeys.has(reportKeyFromHash())) {
     openReport(reportKeyFromHash(), { focus: false });
+  } else if (defaultReportKey) {
+    activeReportKey = defaultReportKey;
+    setInlineReport(defaultReportKey);
+    if (window.location.pathname === "/reports") {
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}#${defaultReportKey}`,
+      );
+    }
   }
 }
 
@@ -1011,6 +1822,29 @@ function wireReportFormatEditors() {
     const field = (name) => form.querySelector(`[data-report-format-field="${name}"]`);
     const companyPreview = preview.querySelector("[data-report-format-preview-company]");
     const labelPreview = preview.querySelector("[data-report-format-preview-label]");
+    const presetOptions = Array.from(form.querySelectorAll("[data-report-format-preset-option]"));
+    const stylePresetField = field("stylePreset");
+    const presetSettingNames = [
+      "fontFamily",
+      "bodyFontSize",
+      "headingFontSize",
+      "subheadingFontSize",
+      "accentColor",
+      "tableDensity",
+      "tableHeaderShade",
+      "rowShading",
+      "tableLines",
+      "sectionRule",
+    ];
+    const readCurrentPresetSettings = () => Object.fromEntries(
+      presetSettingNames
+        .filter((name) => field(name))
+        .map((name) => [name, field(name).value]),
+    );
+    let lastCustomValues = readCurrentPresetSettings();
+    const rememberCustomValues = () => {
+      lastCustomValues = readCurrentPresetSettings();
+    };
     const numberValue = (name, fallback, min, max) => {
       const value = Number(field(name)?.value || fallback);
       if (!Number.isInteger(value)) {
@@ -1019,8 +1853,103 @@ function wireReportFormatEditors() {
       return Math.min(max, Math.max(min, value));
     };
 
+    const presetValues = (option) => {
+      try {
+        const value = JSON.parse(option?.dataset.reportFormatPresetSettings || "{}");
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      } catch {
+        return {};
+      }
+    };
+
+    const valuesMatch = (left, right) => {
+      if (typeof right === "number") {
+        return Number(left) === right;
+      }
+      return String(left || "").trim().toLowerCase() === String(right || "").trim().toLowerCase();
+    };
+
+    const setPresetState = (value) => {
+      const nextValue = ["clean", "compact", "formal"].includes(value) ? value : "custom";
+      if (stylePresetField) {
+        stylePresetField.value = nextValue;
+      }
+      presetOptions.forEach((option) => {
+        option.checked = option.value === nextValue;
+      });
+      editor.dataset.reportFormatPreset = nextValue;
+    };
+
+    const syncPresetFromFields = () => {
+      const match = presetOptions.find((option) => {
+        if (option.value === "custom") {
+          return false;
+        }
+        const settings = presetValues(option);
+        const comparable = presetSettingNames.filter((name) => settings[name] !== undefined && field(name));
+        return comparable.length > 0 && comparable.every((name) => valuesMatch(field(name).value, settings[name]));
+      });
+      setPresetState(match?.value || "custom");
+    };
+
+    const setPreviewVariables = ({
+      stylePreset,
+      tableDensity,
+      tableHeaderShade,
+      rowShading,
+      tableLines,
+      sectionRule,
+      accentColor,
+    }) => {
+      const density = {
+        compact: { y: "5px", x: "8px" },
+        comfortable: { y: "8px", x: "12px" },
+        spacious: { y: "12px", x: "16px" },
+      }[tableDensity] || { y: "8px", x: "12px" };
+      const tableLineStyle = {
+        grid: { row: "1px", cell: "1px" },
+        horizontal: { row: "1px", cell: "0px" },
+        minimal: { row: "0px", cell: "0px" },
+      }[tableLines] || { row: "1px", cell: "0px" };
+      const ruleStyle = {
+        neutral: { color: "#bcc5ce", width: "1px" },
+        accent: { color: accentColor, width: "2px" },
+        light: { color: "#e5e7eb", width: "1px" },
+      }[sectionRule] || { color: accentColor, width: "2px" };
+      const lineHeight = stylePreset === "compact" ? "1.35" : stylePreset === "formal" ? "1.55" : "1.5";
+      const headerBackground = {
+        white: "#ffffff",
+        soft: "#f2f4f6",
+        accent: `color-mix(in srgb, ${accentColor} 12%, #ffffff)`,
+      }[tableHeaderShade] || "#f2f4f6";
+
+      preview.style.setProperty("--report-style-preset", stylePreset);
+      preview.style.setProperty("--report-body-line-height", lineHeight);
+      preview.style.setProperty("--report-table-density", tableDensity);
+      preview.style.setProperty("--report-table-cell-padding-y", density.y);
+      preview.style.setProperty("--report-table-cell-padding-x", density.x);
+      preview.style.setProperty("--report-table-header-shade", tableHeaderShade);
+      preview.style.setProperty("--report-table-header-background", headerBackground);
+      preview.style.setProperty("--report-row-shading", rowShading);
+      preview.style.setProperty("--report-row-alt-background", rowShading === "subtle" ? "#f8f9fa" : "#ffffff");
+      preview.style.setProperty("--report-table-lines", tableLines);
+      preview.style.setProperty("--report-table-row-border-width", tableLineStyle.row);
+      preview.style.setProperty("--report-table-cell-border-width", tableLineStyle.cell);
+      preview.style.setProperty("--report-table-border-color", "#d7dde3");
+      preview.style.setProperty("--report-section-rule", sectionRule);
+      preview.style.setProperty("--report-section-rule-color", ruleStyle.color);
+      preview.style.setProperty("--report-section-rule-width", ruleStyle.width);
+
+      preview.dataset.reportStylePreset = stylePreset;
+      preview.dataset.reportTableDensity = tableDensity;
+      preview.dataset.reportTableHeaderShade = tableHeaderShade;
+      preview.dataset.reportRowShading = rowShading;
+      preview.dataset.reportTableLines = tableLines;
+      preview.dataset.reportSectionRule = sectionRule;
+    };
+
     const applyPreview = () => {
-      const companyName = String(field("companyName")?.value || "Inventory Management").trim();
+      const companyName = String(field("companyName")?.value || "LytGuide IMS").trim();
       const headerLabel = String(field("headerLabel")?.value || "Inventory report").trim();
       const fontSelect = field("fontFamily");
       const fontCss = fontSelect?.selectedOptions?.[0]?.dataset.fontCss || "";
@@ -1028,6 +1957,12 @@ function wireReportFormatEditors() {
       const headingSize = numberValue("headingFontSize", 24, 18, 34);
       const subheadingSize = numberValue("subheadingFontSize", 13, 10, 18);
       const accentColor = String(field("accentColor")?.value || "#3158e8");
+      const stylePreset = String(stylePresetField?.value || "custom");
+      const tableDensity = String(field("tableDensity")?.value || "comfortable");
+      const tableHeaderShade = String(field("tableHeaderShade")?.value || "soft");
+      const rowShading = String(field("rowShading")?.value || "none");
+      const tableLines = String(field("tableLines")?.value || "horizontal");
+      const sectionRule = String(field("sectionRule")?.value || "accent");
 
       if (fontCss) {
         preview.style.setProperty("--report-font-family", fontCss);
@@ -1036,18 +1971,172 @@ function wireReportFormatEditors() {
       preview.style.setProperty("--report-heading-size", `${headingSize}px`);
       preview.style.setProperty("--report-subheading-size", `${subheadingSize}px`);
       preview.style.setProperty("--report-accent-color", accentColor);
+      setPreviewVariables({
+        stylePreset,
+        tableDensity,
+        tableHeaderShade,
+        rowShading,
+        tableLines,
+        sectionRule,
+        accentColor,
+      });
 
       if (companyPreview) {
-        companyPreview.textContent = companyName || "Inventory Management";
+        companyPreview.textContent = companyName || "LytGuide IMS";
       }
       if (labelPreview) {
         labelPreview.textContent = headerLabel || "Inventory report";
       }
     };
 
-    form.addEventListener("input", applyPreview);
-    form.addEventListener("change", applyPreview);
+    const applyPreset = (option) => {
+      const value = option?.value || "custom";
+      if (value !== "custom") {
+        const settings = presetValues(option);
+        presetSettingNames.forEach((name) => {
+          if (settings[name] === undefined || !field(name)) {
+            return;
+          }
+          field(name).value = String(settings[name]);
+        });
+      } else {
+        presetSettingNames.forEach((name) => {
+          if (lastCustomValues[name] === undefined || !field(name)) {
+            return;
+          }
+          field(name).value = String(lastCustomValues[name]);
+        });
+      }
+      setPresetState(value);
+      applyPreview();
+    };
+
+    form.addEventListener("input", (event) => {
+      if (event.target.matches("[data-report-format-preset-option]")) {
+        return;
+      }
+      syncPresetFromFields();
+      if (stylePresetField?.value === "custom") {
+        rememberCustomValues();
+      }
+      applyPreview();
+    });
+    form.addEventListener("change", (event) => {
+      if (event.target.matches("[data-report-format-preset-option]")) {
+        applyPreset(event.target);
+        return;
+      }
+      syncPresetFromFields();
+      if (stylePresetField?.value === "custom") {
+        rememberCustomValues();
+      }
+      applyPreview();
+    });
+
+    syncPresetFromFields();
+    if (stylePresetField?.value === "custom") {
+      rememberCustomValues();
+    }
     applyPreview();
+
+    if (!editor.matches("[data-report-format-modal]")) {
+      return;
+    }
+
+    const dialog = editor.querySelector('[role="dialog"]');
+    const launchers = Array.from(document.querySelectorAll("[data-report-format-open]")).filter((button) => {
+      const controls = button.getAttribute("aria-controls");
+      return !controls || controls === editor.id;
+    });
+    let restoreFocusTo = null;
+
+    const focusableElements = () => Array.from(
+      editor.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => !element.hidden && element.getClientRects().length > 0);
+
+    const syncBodyModalState = () => {
+      document.body.classList.toggle(
+        "modal-open",
+        Boolean(document.querySelector(".modal-backdrop:not([hidden])")),
+      );
+    };
+
+    const openModal = (trigger = null, { focus = true } = {}) => {
+      restoreFocusTo = trigger || restoreFocusTo;
+      editor.hidden = false;
+      launchers.forEach((button) => button.setAttribute("aria-expanded", "true"));
+      syncBodyModalState();
+      if (focus) {
+        window.requestAnimationFrame(() => {
+          editor.querySelector("[data-report-format-close]")?.focus();
+        });
+      }
+    };
+
+    const closeModal = ({ restore = true } = {}) => {
+      if (editor.hidden) {
+        return;
+      }
+      editor.hidden = true;
+      launchers.forEach((button) => button.setAttribute("aria-expanded", "false"));
+      syncBodyModalState();
+
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("format") === "1") {
+        url.searchParams.delete("format");
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+
+      if (restore) {
+        const target = restoreFocusTo?.isConnected ? restoreFocusTo : launchers[0];
+        target?.focus();
+      }
+      restoreFocusTo = null;
+    };
+
+    launchers.forEach((button) => {
+      button.addEventListener("click", () => openModal(button));
+    });
+    editor.querySelectorAll("[data-report-format-close]").forEach((button) => {
+      button.addEventListener("click", () => closeModal());
+    });
+    editor.addEventListener("click", (event) => {
+      if (event.target === editor) {
+        closeModal();
+      }
+    });
+    dialog?.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeModal();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const focusable = focusableElements();
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+
+    if (!editor.hidden || editor.dataset.reportFormatInitialOpen === "true") {
+      openModal(null, { focus: true });
+    }
   });
 }
 
@@ -2738,29 +3827,12 @@ function wireConfigurationWorkspace() {
   }
   workspace.dataset.configWorkspaceBound = "true";
 
-  const modal = workspace.querySelector("[data-config-modal]");
-  const modalTitle = workspace.querySelector("[data-config-modal-title]");
-  const modalDescription = workspace.querySelector("[data-config-modal-description]");
-  const modalClose = workspace.querySelector("[data-config-modal-close]");
   const sectionHost = workspace.querySelector("[data-config-section-host]");
+  const overviewSections = Array.from(workspace.querySelectorAll("[data-config-overview]"));
   const sectionGroups = {
     "controller-setup": ["controller-setup"],
     "cell-management": ["cell-management"],
     "cell-mapping": ["cell-mapping"],
-  };
-  const sectionCopy = {
-    "controller-setup": {
-      title: "Add Controller",
-      description: "Follow the guided ESP32 setup without leaving the Configuration console.",
-    },
-    "cell-management": {
-      title: "Manage Locations",
-      description: "Add, rename, delete, and review active storage locations in a focused flow.",
-    },
-    "cell-mapping": {
-      title: "Cell Mapping",
-      description: "Ping modules and assign them to physical storage locations.",
-    },
   };
   const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link]"));
   let sectionRequestId = 0;
@@ -2833,39 +3905,18 @@ function wireConfigurationWorkspace() {
     sectionHost.innerHTML = sectionLoadingHtml("Select a configuration flow to continue.");
   };
 
-  const clearActiveHash = () => {
-    if (hasDirtyMapping()) {
-      document.dispatchEvent(
-        new CustomEvent("inventory:mapping-request-navigation", {
-          detail: {
-            kind: "link",
-            href: `${window.location.pathname}${window.location.search}`,
-          },
-        }),
-      );
-      return;
-    }
-    if (window.location.hash) {
-      window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
-    }
-    render();
-  };
-
   const render = () => {
     const activeKey = activeFromHash();
     const visibleIds = new Set(sectionGroups[activeKey] || []);
-    const activeCopy = sectionCopy[activeKey] || null;
+    const flowIsActive = visibleIds.size > 0;
 
-    if (modal) {
-      modal.hidden = visibleIds.size === 0;
-      document.body.classList.toggle("modal-open", visibleIds.size > 0);
+    if (sectionHost) {
+      sectionHost.hidden = !flowIsActive;
     }
-    if (modalTitle && activeCopy) {
-      modalTitle.textContent = activeCopy.title;
-    }
-    if (modalDescription && activeCopy) {
-      modalDescription.textContent = activeCopy.description;
-    }
+    overviewSections.forEach((section) => {
+      section.hidden = flowIsActive;
+    });
+    document.body.classList.remove("modal-open");
 
     sectionLinks.forEach((link) => {
       const linkKey = link.dataset.configSectionLink || "";
@@ -2879,8 +3930,12 @@ function wireConfigurationWorkspace() {
       }
     });
 
-    if (visibleIds.size > 0) {
+    if (flowIsActive) {
       loadSection(activeKey).catch(() => {});
+      window.requestAnimationFrame(() => {
+        const activeSection = sectionHost?.querySelector(`[data-config-section="${activeKey}"]`);
+        (activeSection || sectionHost)?.scrollIntoView({ block: "start" });
+      });
     } else {
       unloadInactiveSection();
     }
@@ -2907,22 +3962,6 @@ function wireConfigurationWorkspace() {
     });
   });
 
-  modalClose?.addEventListener("click", clearActiveHash);
-  modal?.addEventListener("click", (event) => {
-    if (event.target === modal) {
-      clearActiveHash();
-    }
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !modal || modal.hidden) {
-      return;
-    }
-    if (document.querySelector("[data-mapping-unsaved-modal]:not([hidden])")) {
-      return;
-    }
-    event.preventDefault();
-    clearActiveHash();
-  });
   window.addEventListener("hashchange", render);
   window.addEventListener("popstate", render);
   render();
@@ -3365,6 +4404,12 @@ document.addEventListener("DOMContentLoaded", () => {
   wireToasts();
   wireCopyButtons();
   wireNavState();
+  wireDashboardSectionFilter();
+  window.addEventListener("hashchange", wireNavState);
+  window.addEventListener("hashchange", wireDashboardSectionFilter);
+  window.addEventListener("popstate", wireNavState);
+  window.addEventListener("popstate", wireDashboardSectionFilter);
+  wireSidebarParentLinks();
   wireNavOverflow();
   wireLiveSearch();
   wireQuantityShortcuts();

@@ -4,7 +4,103 @@ import { DatabaseSync } from "node:sqlite";
 
 const DATA_DIR = join(process.cwd(), "data");
 const DB_PATH = join(DATA_DIR, "inventory.db");
-export const APP_SCHEMA_VERSION = "3";
+export const APP_SCHEMA_VERSION = "5";
+
+const CORE_PRODUCT_FIELD_DEFINITIONS = [
+  {
+    key: "product.sku",
+    sourceColumn: "sku",
+    label: "SKU",
+    dataType: "text",
+    systemRole: "identifier",
+    required: 1,
+    sortOrder: 10,
+  },
+  {
+    key: "product.name",
+    sourceColumn: "name",
+    label: "Name",
+    dataType: "text",
+    systemRole: "display_name",
+    required: 1,
+    sortOrder: 20,
+  },
+  {
+    key: "product.brand",
+    sourceColumn: "brand",
+    label: "Brand",
+    dataType: "text",
+    systemRole: "brand",
+    required: 1,
+    sortOrder: 30,
+  },
+  {
+    key: "product.category",
+    sourceColumn: "category",
+    label: "Category",
+    dataType: "text",
+    systemRole: "category",
+    required: 0,
+    sortOrder: 40,
+  },
+  {
+    key: "product.variant",
+    sourceColumn: "variant",
+    label: "Variant",
+    dataType: "text",
+    systemRole: "variant",
+    required: 0,
+    sortOrder: 50,
+  },
+  {
+    key: "product.unit_of_measure",
+    sourceColumn: "unit_of_measure",
+    label: "Unit of measure",
+    dataType: "text",
+    systemRole: "unit_of_measure",
+    required: 1,
+    sortOrder: 60,
+  },
+  {
+    key: "product.items_per_cell",
+    sourceColumn: "items_per_cell",
+    label: "Items per location",
+    dataType: "number",
+    systemRole: "location_capacity",
+    required: 1,
+    sortOrder: 70,
+  },
+  {
+    key: "product.description",
+    sourceColumn: "description",
+    label: "Description",
+    dataType: "text",
+    systemRole: "description",
+    required: 0,
+    sortOrder: 80,
+  },
+];
+
+const BUILT_IN_PRODUCT_MOVEMENT_RECIPE = {
+  version: 1,
+  type: "product_movement",
+  metric: "picked_quantity",
+  groupBy: "product",
+  filters: {
+    category: null,
+    unitOfMeasure: null,
+  },
+  topN: 10,
+  visualization: "bar",
+  columns: [
+    "product.sku",
+    "product.name",
+    "picked_quantity",
+    "pick_frequency",
+    "put_quantity",
+    "net_outflow",
+  ],
+};
 
 function ensureDirectory(path) {
   mkdirSync(path, { recursive: true });
@@ -20,6 +116,51 @@ function ensureColumn(db, tableName, columnName, definition) {
   if (!exists) {
     db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
+}
+
+function seedReportingFoundation(db) {
+  const insertField = db.prepare(
+    `
+      INSERT OR IGNORE INTO product_field_definitions (
+        field_key, source_column, label, data_type, field_kind, system_role,
+        required, searchable, filterable, reportable, visible, active,
+        options_json, sort_order, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, 'core', ?, ?, 1, 1, 1, 1, 1, NULL, ?, ?, ?)
+    `,
+  );
+  const createdAt = nowIso();
+
+  for (const field of CORE_PRODUCT_FIELD_DEFINITIONS) {
+    insertField.run(
+      field.key,
+      field.sourceColumn,
+      field.label,
+      field.dataType,
+      field.systemRole,
+      field.required,
+      field.sortOrder,
+      createdAt,
+      createdAt,
+    );
+  }
+
+  db.prepare(
+    `
+      INSERT OR IGNORE INTO report_definitions (
+        stable_key, name, description, definition_type, recipe_json,
+        owner_user_id, visibility, is_locked, active, created_by, created_at, updated_at
+      )
+      VALUES (?, ?, ?, 'built_in', ?, NULL, 'shared', 1, 1, NULL, ?, ?)
+    `,
+  ).run(
+    "product-movement-demand",
+    "Product Movement & Demand",
+    "Shows the products most picked and put away using corrected completed-task quantities.",
+    JSON.stringify(BUILT_IN_PRODUCT_MOVEMENT_RECIPE),
+    createdAt,
+    createdAt,
+  );
 }
 
 function seedUsers(db, authHelpers) {
@@ -736,6 +877,20 @@ function initializeSchema(db) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS product_unit_conversions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      from_unit TEXT NOT NULL,
+      to_unit TEXT NOT NULL,
+      factor REAL NOT NULL CHECK(factor > 0),
+      precision_digits INTEGER NOT NULL DEFAULT 3 CHECK(precision_digits BETWEEN 0 AND 8),
+      preview_token TEXT NOT NULL UNIQUE,
+      before_json TEXT NOT NULL,
+      after_json TEXT NOT NULL,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS device_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       controller_id INTEGER REFERENCES controllers(id),
@@ -772,6 +927,69 @@ function initializeSchema(db) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS product_field_definitions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      field_key TEXT NOT NULL UNIQUE,
+      source_column TEXT UNIQUE,
+      label TEXT NOT NULL,
+      data_type TEXT NOT NULL CHECK(data_type IN ('text', 'number', 'date', 'boolean', 'select')),
+      field_kind TEXT NOT NULL CHECK(field_kind IN ('core', 'custom')),
+      system_role TEXT UNIQUE,
+      required INTEGER NOT NULL DEFAULT 0 CHECK(required IN (0, 1)),
+      searchable INTEGER NOT NULL DEFAULT 0 CHECK(searchable IN (0, 1)),
+      filterable INTEGER NOT NULL DEFAULT 0 CHECK(filterable IN (0, 1)),
+      reportable INTEGER NOT NULL DEFAULT 1 CHECK(reportable IN (0, 1)),
+      visible INTEGER NOT NULL DEFAULT 1 CHECK(visible IN (0, 1)),
+      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+      options_json TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 100,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK(
+        (field_kind = 'core' AND source_column IS NOT NULL AND system_role IS NOT NULL)
+        OR (field_kind = 'custom' AND source_column IS NULL AND system_role IS NULL)
+      )
+    );
+
+    CREATE TABLE IF NOT EXISTS product_attribute_values (
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      field_definition_id INTEGER NOT NULL REFERENCES product_field_definitions(id) ON DELETE CASCADE,
+      value_text TEXT,
+      value_number REAL,
+      value_date TEXT,
+      value_boolean INTEGER CHECK(value_boolean IN (0, 1)),
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(product_id, field_definition_id),
+      CHECK(
+        (value_text IS NOT NULL) +
+        (value_number IS NOT NULL) +
+        (value_date IS NOT NULL) +
+        (value_boolean IS NOT NULL) = 1
+      )
+    );
+
+    CREATE TABLE IF NOT EXISTS report_definitions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stable_key TEXT UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      definition_type TEXT NOT NULL CHECK(definition_type IN ('built_in', 'custom')),
+      recipe_json TEXT NOT NULL,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      visibility TEXT NOT NULL CHECK(visibility IN ('private', 'shared')),
+      is_locked INTEGER NOT NULL DEFAULT 0 CHECK(is_locked IN (0, 1)),
+      active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK(
+        (definition_type = 'built_in' AND owner_user_id IS NULL AND visibility = 'shared' AND is_locked = 1)
+        OR (definition_type = 'custom' AND owner_user_id IS NOT NULL AND is_locked = 0)
+      )
+    );
+
     CREATE INDEX IF NOT EXISTS idx_inventory_balances_product ON inventory_balances(product_id);
     CREATE INDEX IF NOT EXISTS idx_inventory_balances_cell ON inventory_balances(cell_id);
     CREATE INDEX IF NOT EXISTS idx_task_lines_task ON task_lines(task_id);
@@ -793,7 +1011,15 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_system_events_type_created ON system_events(event_type, created_at);
     CREATE INDEX IF NOT EXISTS idx_submission_tokens_scope_task ON submission_tokens(scope, task_id, used_at);
     CREATE INDEX IF NOT EXISTS idx_products_active_name ON products(active, name);
+    CREATE INDEX IF NOT EXISTS idx_product_fields_active_order ON product_field_definitions(active, sort_order, id);
+    CREATE INDEX IF NOT EXISTS idx_product_fields_reportable ON product_field_definitions(reportable, active, field_key);
+    CREATE INDEX IF NOT EXISTS idx_product_attribute_values_field ON product_attribute_values(field_definition_id, product_id);
+    CREATE INDEX IF NOT EXISTS idx_report_definitions_owner ON report_definitions(owner_user_id, active, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_report_definitions_visibility ON report_definitions(visibility, active, name);
+    CREATE INDEX IF NOT EXISTS idx_product_unit_conversions_product ON product_unit_conversions(product_id, created_at);
   `);
+
+  seedReportingFoundation(db);
 
   ensureColumn(db, "products", "items_per_cell", "REAL NOT NULL DEFAULT 12");
   ensureColumn(db, "controllers", "device_identity", "TEXT");
@@ -813,6 +1039,43 @@ function initializeSchema(db) {
     `,
   ).run();
   ensureColumn(db, "tasks", "last_touched_at", "TEXT");
+  ensureColumn(db, "task_lines", "unit_of_measure", "TEXT");
+  ensureColumn(db, "transactions", "unit_of_measure", "TEXT");
+  db.exec(`
+    UPDATE task_lines
+    SET unit_of_measure = (
+      SELECT p.unit_of_measure FROM products p WHERE p.id = task_lines.product_id
+    )
+    WHERE unit_of_measure IS NULL;
+
+    UPDATE transactions
+    SET unit_of_measure = (
+      SELECT p.unit_of_measure FROM products p WHERE p.id = transactions.product_id
+    )
+    WHERE unit_of_measure IS NULL;
+
+    CREATE TRIGGER IF NOT EXISTS trg_task_lines_unit_snapshot
+    AFTER INSERT ON task_lines
+    WHEN NEW.unit_of_measure IS NULL
+    BEGIN
+      UPDATE task_lines
+      SET unit_of_measure = (
+        SELECT p.unit_of_measure FROM products p WHERE p.id = NEW.product_id
+      )
+      WHERE id = NEW.id;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_transactions_unit_snapshot
+    AFTER INSERT ON transactions
+    WHEN NEW.unit_of_measure IS NULL
+    BEGIN
+      UPDATE transactions
+      SET unit_of_measure = (
+        SELECT p.unit_of_measure FROM products p WHERE p.id = NEW.product_id
+      )
+      WHERE id = NEW.id;
+    END;
+  `);
   db.prepare(
     `
       UPDATE tasks

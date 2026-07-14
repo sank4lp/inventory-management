@@ -113,12 +113,28 @@ export function createProductRepository(db) {
             LEFT JOIN inventory_balances b ON b.product_id = p.id
             LEFT JOIN cells stock_cell ON stock_cell.id = b.cell_id
             WHERE p.active = 1
-              AND (p.sku LIKE ? OR p.name LIKE ? OR p.brand LIKE ?)
+              AND (
+                p.sku LIKE ? OR p.name LIKE ? OR p.brand LIKE ?
+                OR EXISTS (
+                  SELECT 1
+                  FROM product_attribute_values pav
+                  JOIN product_field_definitions pfd ON pfd.id = pav.field_definition_id
+                  WHERE pav.product_id = p.id
+                    AND pfd.active = 1
+                    AND pfd.searchable = 1
+                    AND COALESCE(
+                      pav.value_text,
+                      CAST(pav.value_number AS TEXT),
+                      pav.value_date,
+                      CAST(pav.value_boolean AS TEXT)
+                    ) LIKE ?
+                )
+              )
             GROUP BY p.id
             ORDER BY p.name
           `,
         )
-        .all(pattern, pattern, pattern);
+        .all(pattern, pattern, pattern, pattern);
     },
 
     findById(productId) {

@@ -101,6 +101,10 @@ function iconSvg(name, className = "ui-icon") {
       <path d="M12 3 5 6v5c0 4.4 2.8 8.3 7 10 4.2-1.7 7-5.6 7-10V6l-7-3Z" />
       <path d="M9.5 12.2 11.2 14l3.6-4" />
     `,
+    profile: `
+      <circle cx="12" cy="8" r="4" />
+      <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
+    `,
     chevronDown: `
       <path d="m6 9 6 6 6-6" />
     `,
@@ -118,65 +122,184 @@ function nav(user, currentTitle = "") {
     return "";
   }
 
-  const links = [
-    ["/", "Overview", "overview"],
-    ["/pick", "Pick", "pick"],
-    ["/put", "Put", "put"],
-    ["/products", "Products", "products"],
-    ["/cells", "Locations", "locations"],
-    ["/reports", "Reporting", "reports"],
-  ];
-  if (user.role === "admin") {
-    links.push(["/devices", "Configuration", "devices"]);
-    links.push(["/backups", "Backups", "backups"]);
-    links.push(["/admin", "Admin", "admin"]);
-  }
-
   const activeTitle = String(currentTitle || "").toLowerCase();
+  const navItems = [
+    {
+      label: "Overview",
+      icon: "overview",
+      href: "/",
+      active: ["overview", "recommended actions"],
+      links: [
+        ["/#recent-tasks", "Recent Tasks"],
+        ["/recommended-actions", "Recommended Actions"],
+      ],
+    },
+    {
+      label: "Pick",
+      icon: "pick",
+      href: "/pick",
+      active: ["pick"],
+    },
+    {
+      label: "Put",
+      icon: "put",
+      href: "/put",
+      active: ["put"],
+    },
+    {
+      label: "Locations",
+      icon: "locations",
+      href: "/cells",
+      active: ["locations", "cell"],
+      links: [
+        ["/cells#find-location", "Find A Location"],
+        ["/cells#all-locations", "All Locations"],
+      ],
+    },
+    {
+      label: "Reporting",
+      icon: "reports",
+      href: "/reports",
+      active: ["reports"],
+      links: [
+        ["/reports#product-movement", "Product Movement"],
+        ["/reports#stock-snapshot", "Stock Snapshot"],
+        ["/reports#replenishment-watch", "Replenishment Watch"],
+        ["/reports#slow-moving-stock", "Slow-Moving Stock"],
+        ["/reports#movement", "Stock Change Over Time"],
+        ["/reports#team-activity", "Team Throughput"],
+        ["/reports#issues", "Exception Hotspots"],
+        ["/reports#adjustments", "Adjustment Audit"],
+      ],
+    },
+    {
+      label: "Configuration",
+      icon: "devices",
+      href: "/devices",
+      adminOnly: true,
+      active: ["configuration"],
+      links: [
+        ["/devices#configuration-status", "System Status"],
+        ["/devices#controller-health", "Controller Health"],
+        ["/devices#controller-setup", "Add Controller"],
+        ["/devices#cell-management", "Manage Locations"],
+        ["/devices#cell-mapping", "Cell Mapping"],
+      ],
+    },
+    {
+      label: "Backups",
+      icon: "backups",
+      href: "/backups",
+      adminOnly: true,
+      active: ["backups"],
+      links: [
+        ["/backups#create-backup", "Create Backup Now"],
+        ["/backups#backup-schedule", "Backup Schedule"],
+        ["/backups#available-backups", "Available Backups"],
+      ],
+    },
+    {
+      label: "Admin",
+      icon: "admin",
+      href: "/admin",
+      adminOnly: true,
+      active: ["admin"],
+      links: [
+        ["/admin#registration-keys", "Registration Keys"],
+        ["/admin#users", "Users"],
+        ["/admin/product-fields", "Product Fields"],
+        ["/admin#count-adjustment", "Count Adjustment"],
+        ["/admin#settings", "Settings"],
+        ["/admin#report-format", "Report Format"],
+        ["/admin#database-health", "Database Health"],
+      ],
+    },
+    {
+      label: "Profile",
+      icon: "profile",
+      href: "/profile",
+      active: ["profile"],
+      links: [
+        ["/profile#account-details", "Account Details"],
+        ["/profile#recent-activity", "Recent Activity"],
+        ["/profile#profile-recent-tasks", "Recent Tasks"],
+      ],
+    },
+  ];
+
+  const isItemActive = (item) =>
+    (item.active || [item.label]).some((label) => activeTitle.includes(label.toLowerCase()));
 
   return `
-    <nav class="top-nav">
-      <div class="top-nav-shell">
-        <div class="brand">
-          <span class="brand-mark">IM</span>
-          <div class="brand-copy">
-            <div class="brand-title">Inventory Management</div>
-          </div>
-        </div>
-        <div class="nav-links" data-nav-links>
-          ${links
-            .map(
-              ([href, label, icon]) =>
-                `<a class="${activeTitle.includes(label.toLowerCase()) || (label === "Overview" && activeTitle === "home") ? "nav-link-active" : ""}" href="${href}" data-nav-link>${iconSvg(icon, "nav-icon")}<span>${escapeHtml(label)}</span></a>`,
-            )
-            .join("")}
-          <div class="nav-overflow" data-nav-overflow hidden>
-            <button
-              type="button"
-              class="nav-overflow-toggle"
-              data-nav-overflow-toggle
-              aria-label="Show more navigation tabs"
-              aria-expanded="false"
-            >
-              ${iconSvg("chevronDown", "nav-icon nav-overflow-icon")}
-            </button>
-            <div class="nav-overflow-menu" data-nav-overflow-menu hidden></div>
-          </div>
-        </div>
-        <div class="session-box">
-          <a class="session-identity" href="/profile" aria-label="Open profile for ${escapeHtml(user.name)}">
+    <aside class="dashboard-sidebar" aria-label="Dashboard navigation">
+      <div class="dashboard-sidebar-inner">
+        <a class="brand dashboard-brand" href="/" aria-label="LytGuide IMS overview">
+          <img
+            class="brand-logo brand-logo-horizontal"
+            src="/brand/lytguide-logo-horizontal.svg"
+            alt="LytGuide IMS"
+            width="420"
+            height="112"
+          />
+        </a>
+        <div class="session-box sidebar-session-box">
+          <a class="session-identity sidebar-session-identity" href="/profile" aria-label="Open profile for ${escapeHtml(user.name)}">
             <span class="session-avatar">${escapeHtml(user.name.charAt(0).toUpperCase())}</span>
             <div class="session-copy">
               <div class="session-name">${escapeHtml(user.name)}</div>
               <div class="session-role">${escapeHtml(user.role)}</div>
             </div>
           </a>
+        </div>
+        <nav class="side-nav" aria-label="Dashboard sections" data-nav-links>
+          <button type="button" data-nav-overflow-toggle hidden aria-hidden="true" tabindex="-1"></button>
+          <div data-nav-overflow-menu hidden aria-hidden="true"></div>
+          ${navItems
+            .filter((item) => !item.adminOnly || user.role === "admin")
+            .map((item) => {
+              const active = isItemActive(item);
+              if (item.href && !item.links) {
+                return `
+                  <a class="side-nav-direct ${active ? "nav-link-active" : ""}" href="${item.href}">
+                    ${iconSvg(item.icon, "nav-icon")}
+                    <span>${escapeHtml(item.label)}</span>
+                  </a>
+                `;
+              }
+              return `
+                <details class="side-nav-group ${active ? "side-nav-group-active" : ""}" ${active ? "open" : ""}>
+                  <summary class="side-nav-summary">
+                    <span class="side-nav-summary-label">
+                      <a class="side-nav-parent-link" href="${item.href}">
+                        ${iconSvg(item.icon, "nav-icon")}
+                        <span>${escapeHtml(item.label)}</span>
+                      </a>
+                    </span>
+                    ${iconSvg("chevronDown", "nav-icon side-nav-chevron")}
+                  </summary>
+                  <div class="side-nav-sublist">
+                    ${item.links
+                      .map(
+                        ([href, label]) => `
+                          <a class="side-nav-link" href="${href}">
+                            <span>${escapeHtml(label)}</span>
+                          </a>
+                        `,
+                      )
+                      .join("")}
+                  </div>
+                </details>
+              `;
+            })
+            .join("")}
+        </nav>
+        <div class="sidebar-footer">
           <form method="post" action="/logout">
-            <button class="ghost-button" type="submit">Logout</button>
+            <button class="ghost-button sidebar-logout" type="submit">Logout</button>
           </form>
         </div>
       </div>
-    </nav>
+    </aside>
   `;
 }
 
@@ -200,26 +323,33 @@ export function page({ title, user, flash, content }) {
         </div>
       `
       : "";
+  const hasDashboardShell = Boolean(user);
+
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(title)} · Inventory Management</title>
+    <title>${escapeHtml(title)} · LytGuide IMS</title>
+    <link rel="icon" type="image/svg+xml" href="/brand/lytguide-icon.svg" />
     <link rel="stylesheet" href="/theme.css" />
     <link rel="stylesheet" href="/styles.css" />
     <script type="module" src="/app.js"></script>
   </head>
-  <body>
-    ${nav(user, title)}
+  <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}">
     ${toast}
-    <main class="page-shell">
-      <header class="page-header">
-        <h1>${escapeHtml(title)}</h1>
-      </header>
-      ${systemNotice}
-      ${content}
-    </main>
+    <div class="dashboard-shell ${hasDashboardShell ? "" : "dashboard-shell-public"}">
+      ${nav(user, title)}
+      <div class="dashboard-content">
+        <main class="page-shell">
+          <header class="page-header">
+            <h1>${escapeHtml(title)}</h1>
+          </header>
+          ${systemNotice}
+          ${content}
+        </main>
+      </div>
+    </div>
   </body>
 </html>`;
 }

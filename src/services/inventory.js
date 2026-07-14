@@ -534,13 +534,21 @@ export function updateProductDetails(db, input) {
   if (!product) {
     throw new Error("Product not found.");
   }
+  if (
+    String(input.unit_of_measure).trim().toLowerCase() !==
+    String(product.unit_of_measure).trim().toLowerCase()
+  ) {
+    throw new Error(
+      "Use the product unit migration preview to change an existing product's unit of measure.",
+    );
+  }
 
   return products.updateDetails(product.id, {
     name: input.name.trim(),
     brand: input.brand.trim(),
     category: input.category?.trim() || null,
     variant: input.variant?.trim() || null,
-    unit_of_measure: input.unit_of_measure.trim(),
+    unit_of_measure: product.unit_of_measure,
     description: input.description?.trim() || null,
     preferred_storage_strategy: input.preferred_storage_strategy?.trim() || product.preferred_storage_strategy || "closest-cell-first",
   });

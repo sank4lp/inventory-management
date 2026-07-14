@@ -10,6 +10,7 @@ import {
   getReportFormatSettings,
   reportFormatStyle,
 } from "../../services/report-format.js";
+import { createProductFieldService } from "../../services/product-fields.js";
 import {
   card,
   cellPickerField,
@@ -28,7 +29,57 @@ const LOW_STOCK_SIGNIFICANT_RATIO = 0.6;
 const LOW_STOCK_MIN_AVERAGE = 5;
 const MOVEMENT_STOCK_INITIAL_LIMIT = 5;
 
-export function createProductPages({ db }) {
+export function createProductPages({ db, productFieldService = null }) {
+  const fields = productFieldService || createProductFieldService({ db });
+
+  function fieldDefinitions(options = {}) {
+    return fields.list(options);
+  }
+
+  function fieldLabels() {
+    return fields.labels();
+  }
+
+  function fieldLabel(labels, key, fallback) {
+    return labels[key] || fallback;
+  }
+
+  function customFieldInput(field, value = null) {
+    const name = `custom_field_${field.id}`;
+    const required = field.required ? "required" : "";
+    const current = value === null || value === undefined ? "" : value;
+    if (field.data_type === "boolean") {
+      return `
+        <label class="checkbox-line product-custom-field">
+          <input type="hidden" name="${escapeHtml(name)}" value="0" />
+          <input type="checkbox" name="${escapeHtml(name)}" value="1" ${current === true || Number(current) === 1 ? "checked" : ""} />
+          ${escapeHtml(field.label)}
+        </label>
+      `;
+    }
+    if (field.data_type === "select") {
+      return `
+        <label class="product-custom-field">${escapeHtml(field.label)}
+          <select name="${escapeHtml(name)}" ${required}>
+            ${field.required ? "" : `<option value="">Not set</option>`}
+            ${(field.options || [])
+              .map((option) => `<option value="${escapeHtml(option)}" ${String(option) === String(current) ? "selected" : ""}>${escapeHtml(option)}</option>`)
+              .join("")}
+          </select>
+        </label>
+      `;
+    }
+    const type = field.data_type === "number" ? "number" : field.data_type === "date" ? "date" : "text";
+    return `
+      <label class="product-custom-field">${escapeHtml(field.label)}
+        <input type="${type}" name="${escapeHtml(name)}" value="${escapeHtml(current)}" ${field.data_type === "number" ? "step=\"any\"" : ""} ${required} />
+      </label>
+    `;
+  }
+
+  function visibleCustomFields() {
+    return fieldDefinitions().filter((field) => field.field_kind === "custom" && field.visible);
+  }
   function uniquePositiveQuantities(values) {
     const seen = new Set();
     return values
@@ -90,15 +141,19 @@ export function createProductPages({ db }) {
     emptyMessage = "No products match the current search.",
     search = "",
   ) {
+    const labels = fieldLabels();
+    const identifierLabel = fieldLabel(labels, "product.sku", "SKU");
+    const nameLabel = fieldLabel(labels, "product.name", "Name");
+    const unitLabel = fieldLabel(labels, "product.unit_of_measure", "Unit");
     const searchLabel = String(search || "").trim();
     return `
       <p class="muted">${escapeHtml(
         searchLabel
           ? `${formatQuantity(products.length)} product(s) match "${searchLabel}".`
-          : "Browse all products, or search by SKU/name when an operator has an item in hand.",
+          : `Browse all products, or search by ${identifierLabel}/${nameLabel.toLowerCase()} when an operator has an item in hand.`,
       )}</p>
       ${table(
-        ["SKU", "Name", "Available", "Unit", "Action"],
+        [identifierLabel, nameLabel, "Available", unitLabel, "Action"],
         products.map((product) => [
           `<a href="/products/${product.id}">${escapeHtml(product.sku)}</a>`,
           `<a href="/products/${product.id}">${escapeHtml(product.name)}</a><br /><small>${escapeHtml(product.brand)}</small>`,
@@ -270,31 +325,39 @@ export function createProductPages({ db }) {
   }
 
   function renderAdminProductDetailsForm(product) {
+    const labels = fieldLabels();
+    const customValues = new Map(
+      fields.getProductValues(product.id).map((field) => [Number(field.id), field.value]),
+    );
+    const customFields = visibleCustomFields();
     return `
       <details class="form-disclosure top-gap">
         <summary>Edit Product Details</summary>
         <form method="post" action="/products/${product.id}/details" class="stack-form">
           <div class="form-grid">
-            <label>SKU
+            <label>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}
               <input value="${escapeHtml(product.sku)}" disabled title="SKU is the product identity and cannot be changed." />
             </label>
-            <label>Name
+            <label>${escapeHtml(fieldLabel(labels, "product.name", "Name"))}
               <input name="name" value="${escapeHtml(product.name)}" required />
             </label>
-            <label>Brand
+            <label>${escapeHtml(fieldLabel(labels, "product.brand", "Brand"))}
               <input name="brand" value="${escapeHtml(product.brand)}" required />
             </label>
-            <label>Unit Of Measure
-              <input name="unit_of_measure" value="${escapeHtml(product.unit_of_measure)}" required />
+            <label>${escapeHtml(fieldLabel(labels, "product.unit_of_measure", "Unit Of Measure"))}
+              <input value="${escapeHtml(product.unit_of_measure)}" disabled title="Use the previewed unit migration workflow to change this value." />
+              <input type="hidden" name="unit_of_measure" value="${escapeHtml(product.unit_of_measure)}" />
+              <small><a href="/admin/product-fields#unit-migration">Change with a safe unit migration</a></small>
             </label>
-            <label>Category
+            <label>${escapeHtml(fieldLabel(labels, "product.category", "Category"))}
               <input name="category" value="${escapeHtml(product.category || "")}" />
             </label>
-            <label>Variant / Size
+            <label>${escapeHtml(fieldLabel(labels, "product.variant", "Variant / Size"))}
               <input name="variant" value="${escapeHtml(product.variant || "")}" />
             </label>
+            ${customFields.map((field) => customFieldInput(field, customValues.get(Number(field.id)))).join("")}
           </div>
-          <label>Description
+          <label>${escapeHtml(fieldLabel(labels, "product.description", "Description"))}
             <textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea>
           </label>
           <button type="submit" class="blue-button">Save Details</button>
@@ -329,6 +392,7 @@ export function createProductPages({ db }) {
   }
 
   function productReportTemplate(report, generatedAt, reportFormat) {
+    const labels = fieldLabels();
     return `
       <template
         data-report-template="${escapeHtml(report.key)}"
@@ -355,7 +419,14 @@ export function createProductPages({ db }) {
             </dl>
           </header>
           ${table(
-            ["SKU", "Name", "Available", "Unit", "30-day avg", "Status"],
+            [
+              fieldLabel(labels, "product.sku", "SKU"),
+              fieldLabel(labels, "product.name", "Name"),
+              "Available",
+              fieldLabel(labels, "product.unit_of_measure", "Unit"),
+              "30-day avg",
+              "Status",
+            ],
             productStatusRows(report.products),
             report.emptyMessage,
           )}
@@ -489,20 +560,12 @@ export function createProductPages({ db }) {
     });
   }
 
-  function productMatchesSearch(product, search) {
-    const searchLabel = String(search || "").trim().toLowerCase();
-    if (!searchLabel) {
-      return true;
-    }
-
-    return [product.sku, product.name, product.brand].some((value) =>
-      String(value || "").toLowerCase().includes(searchLabel),
-    );
-  }
-
   function renderProducts(user, flash, search, showAddProduct) {
+    const labels = fieldLabels();
+    const customFields = visibleCustomFields();
     const allProducts = enrichProductsWithStockTrends(listProducts(db));
-    const products = allProducts.filter((product) => productMatchesSearch(product, search));
+    const matchingProductIds = new Set(listProducts(db, search).map((product) => Number(product.id)));
+    const products = allProducts.filter((product) => matchingProductIds.has(Number(product.id)));
     const stockedProducts = allProducts.filter((product) => Number(product.total_available || 0) > 0);
     const outOfStockProducts = allProducts.filter((product) => Number(product.total_available || 0) <= 0);
     const lowStockProducts = allProducts.filter((product) => product.is_low_stock);
@@ -571,7 +634,7 @@ export function createProductPages({ db }) {
                   data-show-results-when-empty="true"
                 >
                   <label class="inline-form-wrap">Search products
-                    <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by SKU, name, or brand" />
+                    <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by ${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}, ${escapeHtml(fieldLabel(labels, "product.name", "name").toLowerCase())}, or ${escapeHtml(fieldLabel(labels, "product.brand", "brand").toLowerCase())}" />
                   </label>
                   ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
                   <button type="submit">Search</button>
@@ -603,17 +666,19 @@ export function createProductPages({ db }) {
                   </div>
                   <form method="post" action="/products" class="stack-form">
                     <div class="form-grid">
-                      <label>SKU<input name="sku" autocomplete="off" autofocus required placeholder="ARMY-BOOT-001" /></label>
-                      <label>Name<input name="name" required placeholder="Combat Boots" /></label>
-                      <label>Brand<input name="brand" required placeholder="Supplier or brand" /></label>
-                      <label>Unit Of Measure<input name="unit_of_measure" required placeholder="pieces, pairs, boxes" /></label>
-                      <label>Items Per Location<input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="6" required /></label>
+                      <label>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}<input name="sku" autocomplete="off" autofocus required placeholder="ARMY-BOOT-001" /></label>
+                      <label>${escapeHtml(fieldLabel(labels, "product.name", "Name"))}<input name="name" required placeholder="Combat Boots" /></label>
+                      <label>${escapeHtml(fieldLabel(labels, "product.brand", "Brand"))}<input name="brand" required placeholder="Supplier or brand" /></label>
+                      <label>${escapeHtml(fieldLabel(labels, "product.unit_of_measure", "Unit Of Measure"))}<input name="unit_of_measure" required placeholder="pieces, pairs, boxes" /></label>
+                      <label>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items Per Location"))}<input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="6" required /></label>
+                      ${customFields.filter((field) => field.required).map((field) => customFieldInput(field)).join("")}
                     </div>
                     <details class="form-disclosure">
                       <summary>Optional Catalog Details</summary>
                       <div class="form-grid">
-                        <label>Category<input name="category" placeholder="Footwear, medical, tools" /></label>
-                        <label>Variant / Size<input name="variant" placeholder="Size 10, XL, red" /></label>
+                        <label>${escapeHtml(fieldLabel(labels, "product.category", "Category"))}<input name="category" placeholder="Footwear, medical, tools" /></label>
+                        <label>${escapeHtml(fieldLabel(labels, "product.variant", "Variant / Size"))}<input name="variant" placeholder="Size 10, XL, red" /></label>
+                        ${customFields.filter((field) => !field.required).map((field) => customFieldInput(field)).join("")}
                       </div>
                     </details>
                     <div class="modal-actions">
@@ -642,6 +707,10 @@ export function createProductPages({ db }) {
       });
     }
 
+    const labels = fieldLabels();
+    const customAttributes = fields
+      .getProductValues(product.id)
+      .filter((field) => field.visible && field.value !== null && field.value !== undefined && field.value !== "");
     const productFindLedActive = url.searchParams.get("find_led") === "1";
 
     return page({
@@ -652,10 +721,19 @@ export function createProductPages({ db }) {
         ${card(
           "Product Summary",
           `
-            <p><strong>${escapeHtml(product.sku)}</strong></p>
-            <p>${escapeHtml(product.brand)} · ${escapeHtml(product.unit_of_measure)}</p>
+            <p><strong>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}:</strong> ${escapeHtml(product.sku)}</p>
+            <p><strong>${escapeHtml(fieldLabel(labels, "product.brand", "Brand"))}:</strong> ${escapeHtml(product.brand)} · <strong>${escapeHtml(fieldLabel(labels, "product.unit_of_measure", "Unit"))}:</strong> ${escapeHtml(product.unit_of_measure)}</p>
             <p class="muted">Available: ${escapeHtml(formatQuantity(product.total_available))} ${escapeHtml(product.unit_of_measure)}</p>
-            <p class="muted">Ideal items per cell: ${escapeHtml(formatQuantity(product.items_per_cell))}</p>
+            <p class="muted">${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items per location"))}: ${escapeHtml(formatQuantity(product.items_per_cell))}</p>
+            ${
+              customAttributes.length
+                ? `<dl class="product-custom-attribute-list">${customAttributes
+                    .map(
+                      (field) => `<div><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.data_type === "boolean" ? (field.value ? "Yes" : "No") : field.value)}</dd></div>`,
+                    )
+                    .join("")}</dl>`
+                : ""
+            }
             <div class="mini-actions">
               <a class="mini-link" href="/pick?product_id=${product.id}">Pick</a>
               <a class="mini-link" href="/put?product_id=${product.id}">Put</a>
@@ -665,7 +743,7 @@ export function createProductPages({ db }) {
               user.role === "admin"
                 ? `
                   <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form top-gap">
-                    <label>Items Per Cell
+                    <label>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items Per Location"))}
                       <input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
                     </label>
                     <button type="submit">Update Capacity</button>
