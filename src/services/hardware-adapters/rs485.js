@@ -636,6 +636,61 @@ export function createRs485Adapter({ config = {}, logger }) {
         ],
       };
     },
+    showCellQuantity(cell, quantity, color = "yellow") {
+      const brightness = currentBrightness();
+      const displayQuantity = String(quantity ?? "0").trim() || "0";
+      if (!hasModuleTarget(cell)) {
+        return {
+          ok: true,
+          degraded: true,
+          message: `${cell.logical_code} is not mapped to a controller.`,
+          events: [
+            event({
+              controllerId: cell.controller_id,
+              cellId: cell.id,
+              eventType: "cell_quantity_display_manual",
+              status: "degraded",
+              payload: {
+                type: "manual-guidance",
+                cell: cell.logical_code,
+                quantity: displayQuantity,
+                color,
+                ...brightnessPayload(brightness),
+                reason: "cell-not-mapped-to-controller",
+              },
+            }),
+          ],
+        };
+      }
+      const controllerAddress = controllerAddressFor(cell);
+      const resolvedColor = firmwareWord(color, "yellow");
+      const command = addressedCommand(
+        controllerAddress,
+        `text ${cell.hardware_channel} ${firmwareToken(displayQuantity)} ${resolvedColor} 120 ${brightness.brightnessPercent}`,
+      );
+      clearLocateTimer(cell.hardware_channel, controllerAddress);
+      send(command);
+      return {
+        ok: true,
+        degraded: false,
+        events: [
+          event({
+            controllerId: cell.controller_id,
+            cellId: cell.id,
+            eventType: "cell_quantity_displayed",
+            payload: {
+              type: "cell-quantity-display",
+              command,
+              hardwareChannel: cell.hardware_channel,
+              controllerAddress,
+              quantity: displayQuantity,
+              color: resolvedColor,
+              ...brightnessPayload(brightness),
+            },
+          }),
+        ],
+      };
+    },
     setCellLocate(cell, active = true) {
       const brightness = currentBrightness();
       if (!hasModuleTarget(cell)) {

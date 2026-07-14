@@ -127,6 +127,20 @@ export function createHardwareService({ db, config, logger }) {
         color,
       });
     },
+    showCellQuantity(cell, quantity, color = "yellow", context = {}) {
+      return run(
+        "cell_quantity_display",
+        adapter.showCellQuantity.bind(adapter),
+        [cell, quantity, color],
+        {
+          cellId: cell.id,
+          controllerId: cell.controller_id,
+          quantity,
+          color,
+          ...context,
+        },
+      );
+    },
     setCellLocate(cell, active = true) {
       return run("cell_locate", adapter.setCellLocate.bind(adapter), [cell, active], {
         cellId: cell.id,

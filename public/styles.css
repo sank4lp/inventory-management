@@ -2268,6 +2268,9 @@ button[disabled] {
 .report-stage-actions > button {
   height: var(--text-button-height);
   min-height: var(--text-button-height);
+  font-size: var(--font-size-sm);
+  font-weight: 780;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -2289,7 +2292,7 @@ button[disabled] {
   min-height: var(--text-button-height);
   padding: 0 13px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3034,8 +3037,8 @@ button[disabled] {
 
 .report-print-button {
   min-width: 112px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
+  font-weight: 780;
+  letter-spacing: normal;
 }
 
 .report-filter-panel {

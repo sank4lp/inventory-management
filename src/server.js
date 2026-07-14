@@ -1004,33 +1004,13 @@ export const requestHandler = async (request, response) => {
         return;
       }
 
-      const guidance = hardwareService.activateGuidance(
-        {
-          id: null,
-          type: "stock_count",
-          summary: product
-            ? `Show ${product.sku} quantity at ${cell.logical_code}`
-            : `Show stock count at ${cell.logical_code}`,
-        },
-        [
-          {
-            cell_id: cell.id,
-            logical_code: cell.logical_code,
-            controller_id: cell.controller_id,
-            controller_code: cell.controller_code,
-            controller_address: cell.controller_address,
-            hardware_channel: cell.hardware_channel,
-            planned_quantity: quantity,
-            guidance_color: "yellow",
-            guidance_role: product ? "product_quantity" : "location_stock_count",
-          },
-        ],
-        {
-          source: product ? "product_location_quantity" : "location_stock_count",
-          productId: product?.id || null,
-          displayQuantity: quantity,
-        },
-      );
+      const displayQuantity = Number.isInteger(quantity)
+        ? String(quantity)
+        : quantity.toFixed(2).replace(/\.?0+$/, "");
+      const guidance = hardwareService.showCellQuantity(cell, displayQuantity, "yellow", {
+        source: product ? "product_location_quantity" : "location_stock_count",
+        productId: product?.id || null,
+      });
 
       sendJson(response, {
         ok: guidance.ok,

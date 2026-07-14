@@ -3856,7 +3856,7 @@ test("show count sends the current server-side quantity to the LED in yellow", a
       `
         SELECT payload
         FROM device_events
-        WHERE event_type = 'guidance_activated' AND cell_id = 1
+        WHERE event_type = 'cell_quantity_displayed' AND cell_id = 1
         ORDER BY id DESC
         LIMIT 1
       `,
@@ -3864,9 +3864,9 @@ test("show count sends the current server-side quantity to the LED in yellow", a
     .get();
   assert.ok(storedEvent);
   const ledPayload = JSON.parse(storedEvent.payload);
+  assert.equal(ledPayload.type, "cell-quantity-display");
   assert.equal(ledPayload.color, "yellow");
   assert.equal(Number(ledPayload.quantity), expectedQuantity);
-  assert.equal(ledPayload.taskType, "stock_count");
 });
 
 test("cell mapping shows every online controller module and hides offline modules", async () => {

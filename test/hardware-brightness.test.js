@@ -162,3 +162,36 @@ test("RS485 guidance activation sends repeated full-plan bursts", async () => {
     [3, 3],
   );
 });
+
+test("RS485 stock count uses yellow text display for multi-digit and decimal quantities", async () => {
+  const { createRs485Adapter } = await freshImport("../src/services/hardware-adapters/rs485.js");
+  const { createLogger } = await freshImport("../src/logger.js");
+  const writes = [];
+  const adapter = createRs485Adapter({
+    config: {
+      rs485InterCommandDelayMs: 0,
+      rs485WriteRepeats: 1,
+      rs485WriteLine: (line) => writes.push(line.trim()),
+      ledBrightnessClock: () => new Date(2026, 4, 13, 14, 0, 0),
+    },
+    logger: createLogger({ level: "error", siteId: "test-site" }),
+  });
+
+  const result = adapter.showCellQuantity(
+    {
+      id: 1,
+      logical_code: "Z1-R1-C01",
+      controller_id: 7,
+      controller_address: "CTRL-A",
+      hardware_channel: 1,
+    },
+    "12.5",
+    "yellow",
+  );
+
+  assert.deepEqual(writes, ['to CTRL-A text 1 "12.5" yellow 120 20']);
+  assert.equal(result.degraded, false);
+  assert.equal(result.events[0].eventType, "cell_quantity_displayed");
+  assert.equal(result.events[0].payload.quantity, "12.5");
+  assert.equal(result.events[0].payload.color, "yellow");
+});
