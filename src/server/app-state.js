@@ -1,3 +1,4 @@
+import { createOperationsService } from "../modules/operations/service.js";
 import { appConfig } from "../config.js";
 import { createDatabase } from "../db.js";
 import { createLogger } from "../logger.js";
@@ -58,7 +59,7 @@ function startStalePendingTaskMaintenance(systemService) {
 
   stopStalePendingTaskMaintenance();
   stalePendingTaskTimer = setInterval(() => {
-    systemService.cancelStalePendingReviewTasks();
+    try { systemService.cancelStalePendingReviewTasks(); } catch(error) { logger.warn('work.inactivity.failed',{error:error.message}); }
   }, 30 * 1000);
   stalePendingTaskTimer.unref?.();
 }
@@ -105,6 +106,7 @@ function buildAppState() {
     config: appConfig,
     logger,
   });
+  const operationsService = createOperationsService({db, hardwareService, logger});
   const systemService = createSystemService({
     db,
     config: appConfig,
@@ -112,7 +114,8 @@ function buildAppState() {
     hardwareService,
     getTask,
   });
-  systemService.cancelStalePendingReviewTasks();
+  operationsService.flagInactivity({timeoutMs:0});
+  operationsService.flushGuidance();
   const startup = systemService.runStartupChecks();
   startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
   startStalePendingTaskMaintenance(systemService);
@@ -156,6 +159,7 @@ function buildAppState() {
   });
 
   return {
+    operationsService,
     adminService: createAdminService({ db }),
     anomalyService: createAnomalyService({ db }),
     backupService,
@@ -183,6 +187,7 @@ export function reloadAppState({ closeCurrentDb = true } = {}) {
   stopStalePendingTaskMaintenance();
   stopControllerHealthMaintenance();
   stopDatabaseMaintenance();
+  appState?.hardwareService?.dispose?.();
   if (closeCurrentDb && appState?.db) {
     appState.db.close();
   }

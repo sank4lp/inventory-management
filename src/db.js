@@ -1,10 +1,9 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { migrateOperations } from "./modules/operations/schema.js";
 
-const DATA_DIR = join(process.cwd(), "data");
-const DB_PATH = join(DATA_DIR, "inventory.db");
-export const APP_SCHEMA_VERSION = "5";
+export const APP_SCHEMA_VERSION = "6";
 
 const CORE_PRODUCT_FIELD_DEFINITIONS = [
   {
@@ -1093,7 +1092,7 @@ function initializeSchema(db) {
 }
 
 export function withTransaction(db, callback) {
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
     const result = callback();
     db.exec("COMMIT");
@@ -1105,6 +1104,7 @@ export function withTransaction(db, callback) {
 }
 
 export function createDatabase(authHelpers) {
+  const DB_PATH = join(process.cwd(), "data", "inventory.db");
   ensureDirectory(dirname(DB_PATH));
   const db = new DatabaseSync(DB_PATH);
   db.exec(`
@@ -1113,7 +1113,6 @@ export function createDatabase(authHelpers) {
     PRAGMA busy_timeout = 5000;
   `);
   initializeSchema(db);
-  db.prepare("UPDATE inventory_balances SET reserved_quantity = 0 WHERE reserved_quantity != 0").run();
   db.prepare(
     `
       DELETE FROM submission_tokens
@@ -1131,5 +1130,6 @@ export function createDatabase(authHelpers) {
   } else {
     seedInventory(db);
   }
+  migrateOperations(db);
   return db;
 }

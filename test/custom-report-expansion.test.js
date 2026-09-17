@@ -96,6 +96,7 @@ function completeWithActual({ db, inventory, operator, task, actual, completedAt
     note: "Custom report expansion fixture",
   });
   db.prepare("UPDATE tasks SET completed_at = ? WHERE id = ?").run(completedAt, task.id);
+  db.prepare("UPDATE transactions SET created_at = ? WHERE task_id = ?").run(completedAt, task.id);
   return task;
 }
 
@@ -240,6 +241,8 @@ test("movement trend and exception queries use completed actuals and never combi
   });
 
   const trend = buildMovementOverTimeReport(db, {
+    fromAt: "2026-07-01T00:00:00.000Z",
+    toAt: "2026-07-31T23:59:59.999Z",
     metric: "total_handled",
     groupBy: "day",
     topN: 10,

@@ -1,4 +1,7 @@
-import { accessSync, closeSync, constants, openSync, readSync, writeSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { accessSync, closeSync, constants, openSync, readSync, writeSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 import { resolveLedBrightness } from "../hardware-brightness.js";
@@ -94,6 +97,19 @@ export function createRs485Adapter({ config = {}, logger }) {
     { min: 0, max: 500 },
   );
   const writeLine = typeof config.rs485WriteLine === "function" ? config.rs485WriteLine : null;
+  let disposed=false, lockFd=null;
+  const lockPath=join(tmpdir(),`lytguide-rs485-${createHash('sha256').update(String(port)).digest('hex').slice(0,20)}.lock`);
+  function ownPort(){
+    if(lockFd!==null||writeLine)return;
+    try { lockFd=openSync(lockPath,'wx',0o600);writeFileSync(lockFd,String(process.pid)); }
+    catch(error){
+      if(error.code!=='EEXIST')throw error;
+      const pid=Number(readFileSync(lockPath,'utf8'));
+      try {if(!Number.isInteger(pid)||pid<=0)throw new Error('Invalid owner');process.kill(pid,0);}
+      catch(probe){if(probe.code==='ESRCH'){unlinkSync(lockPath);return ownPort();}}
+      throw new Error('Another process owns this RS485 port. Keep manual guidance until that writer is stopped.');
+    }
+  }
   let configured = false;
   let portFd = null;
   let lastWriteAt = 0;
@@ -114,6 +130,8 @@ export function createRs485Adapter({ config = {}, logger }) {
   }
 
   function ensureReady() {
+    if(disposed)throw new Error("Hardware adapter disposed.");
+    ownPort();
     if (writeLine) {
       startHeartbeatSync();
       return;
@@ -446,6 +464,13 @@ export function createRs485Adapter({ config = {}, logger }) {
 
   return {
     name: "rs485",
+    dispose() {
+      disposed=true;clearTimeout(heartbeatSyncTimer);clearInterval(heartbeatSyncTimer);
+      for(const timer of locateTimers.values())clearTimeout(timer.timeout);
+      locateTimers.clear();
+      if(portFd!==null){try{closeSync(portFd);}catch{}portFd=null;}
+      if(lockFd!==null){try{closeSync(lockFd);unlinkSync(lockPath);}catch{}lockFd=null;}
+    },
     healthCheck() {
       try {
         ensureReady();

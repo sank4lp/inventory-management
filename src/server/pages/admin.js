@@ -194,7 +194,7 @@ export function createAdminPages({ db, backupService = null }) {
               required
             />
           </label>
-          <p class="muted">Pick and Put tasks waiting for Complete Task are cancelled after this many minutes from the last operator action.</p>
+          <p class="muted">Pick and Put allocations that are inactive for this many minutes are flagged in Pending confirmations. Reservations remain held until the actual work is verified.</p>
           <button type="submit" class="blue-button">Save Timeout</button>
         </form>
       `,
