@@ -189,6 +189,7 @@ These need to be decided before the detailed tech spec is complete:
 4. Future clustering strategy rules for similar items
 5. Device-event behavior when controllers are partially offline
 6. Company-controlled warehouse sharing: category scope, warehouse/action assignments, overlapping groups, catalog ownership, offline policy changes and retention, transfer lifecycle, compatible migration and authority fencing; see the [detailed decisions and phased plan](02-company-warehouse-sharing.md).
+7. LightGuide company invitation, default-group onboarding, download/local installation, device enrollment, scoped bootstrap and replacement; see the [onboarding proposal and acceptance cases](03-lightguide-onboarding.md). Requirements and recommended implementation choices are distinguished there; implementation remains pending.
 
 ## Ongoing implementation guidance
 

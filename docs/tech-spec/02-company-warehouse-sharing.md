@@ -89,6 +89,8 @@ Policy preview/update APIs return effective read/action changes and require an e
 
 ## Portal and local UI
 
+The [LightGuide onboarding plan](03-lightguide-onboarding.md) adds the user's default-group requirement: omitted group selection resolves to the company's configured default with an effective-access preview. Group membership is separate from mode; Separate overrides group sharing. Initial company visibility defaults still require deliberate selection and approval. The plan also covers the portal download, local installation and separate Add Warehouse / Add or Replace Pi flows.
+
 Proposed company-admin entry: **Separate / Groups / All**, followed by category controls, warehouse members, user audiences and independent action permissions. Before saving, preview concrete examples of who can see which warehouse's catalog, quantities, tasks and identities, and who can actually perform each action. Show new-warehouse behavior, overlapping grants, affected offline devices, pending backfills and revocation limits. Block ambiguous overlap changes until explicitly resolved.
 
 Both portal and local UI show only authorized warehouse/scope choices, with clearly labelled local versus remote and timestamped data. Remote totals do not replace the current physical work location. A stale remote warehouse cannot become locally actionable through a selector. Hide unavailable configuration controls from operators while enforcing the same rules at APIs. Switching company/group/warehouse preserves pending reports under their original identity and cannot send them in the new context.

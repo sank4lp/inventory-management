@@ -12,6 +12,7 @@ Status: **future design requirements; cloud and multitenancy are not implemented
 | Vercel portal, secure Pi relay, durable cloud storage and synchronization | Planned below; unimplemented |
 | Shared portal with enforced company isolation, device enrollment and company-scoped administration | Planned below; prerequisite to any multi-company cloud launch |
 | Company-configurable Separate / Groups / All warehouse sharing, scoped catalog ownership and durable transfers | Required and unimplemented; see [warehouse sharing specification](../tech-spec/02-company-warehouse-sharing.md); blocks multi-company cloud readiness |
+| LightGuide invitation, onboarding/download portal and resumable Pi provisioning | Required future workflow; see [onboarding proposal](../tech-spec/03-lightguide-onboarding.md); installer/security recommendations are not finalized choices |
 | Automatic Wi-Fi/mobile-data switching under one hostname | Design and device validation required; hosting the app twice does not provide this |
 
 The local phase already establishes Pi authority and offline reporting semantics. Earlier architecture outlines describe the local application; they do not specify a complete cloud or tenant boundary. This plan adds those requirements explicitly. Existing local test results do not certify the future cloud system.
@@ -115,6 +116,8 @@ These are future tests, not completed results. Record browser/device versions, d
 Company isolation and company-configurable warehouse sharing are release gates for multi-company cloud launch, not later optional enhancements. Run the detailed [sharing acceptance matrix](../tech-spec/02-company-warehouse-sharing.md) as well. The user performs final physical warehouse acceptance; automated and simulator checks support that decision but do not replace it.
 
 ## Open decisions and delivery gates
+
+The [LightGuide onboarding plan](../tech-spec/03-lightguide-onboarding.md) specifies the company-code journey, default-group fallback, installation/download boundary, scoped bootstrap and safe Pi replacement. Its recommended single-use invitations/credentials, installer format and status flow require design validation. Initial enrollment needs internet under this proposal; later local operation does not. Include its acceptance matrix before cloud launch.
 
 1. Resolve the cloud database/isolation model and establish the tenant/warehouse schema and authorization foundation early. Resolve compatible local migration, invitations, company-controlled sharing modes/categories/overlaps, catalog ownership, transfer policy, device enrollment/revocation and offline permission validity. Proposed sharing defaults require approval; see the detailed specification's decision list.
 2. Choose relay topology, Vercel plan/runtime, durable routing/backplane, authority fencing, protocol versioning, retention and recovery targets. Specify the request/event contracts before implementation.

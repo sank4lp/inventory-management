@@ -57,6 +57,7 @@ For the implemented development-branch behavior, start with [Local-first operati
 | `architecture/03-pi-cloud-deployment-plan.md` | Future Pi/cloud access, strict company isolation, synchronization and acceptance gates |
 | `tech-spec/01-software-tech-spec-outline.md` | Detailed spec template and decision backlog |
 | `tech-spec/02-company-warehouse-sharing.md` | Required future Separate / Groups / All policies, stock authority, transfers, offline changes and acceptance tests |
+| `tech-spec/03-lightguide-onboarding.md` | Future company invitation, default-group onboarding, Pi download/install, provisioning and safe replacement proposal |
 
 ## Documentation principles
 
