@@ -453,6 +453,10 @@ test("product find shows yellow quantity guidance on every mapped holding cell",
   const inventory = await freshImport("../src/services/inventory.js");
   const { createProductPages } = await freshImport("../src/server/pages/products.js");
   const { requestHandler } = await freshImport("../src/server.js");
+  // This scenario requires stock; seed it explicitly in this route fixture.
+  const fixtureState = (await import("../src/server/app-state.js")).getAppState();
+  fixtureState.db.prepare("INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,3,0)").run();
+
 
   const { db } = getAppState();
   const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
@@ -1165,6 +1169,11 @@ test("capacity updates show newly-created recommended actions in a same-page pro
 
   const auth = await freshImport("../src/services/auth.js");
   const { requestHandler } = await freshImport("../src/server.js");
+  // This scenario requires stock; seed it explicitly in this route fixture.
+  const fixtureState = (await import("../src/server/app-state.js")).getAppState();
+  fixtureState.db.prepare("INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,3,0)").run();
+
+  fixtureState.db.prepare("INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,2,3,0),(1,3,3,0)").run();
   const response = new MockResponse();
   const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
   const body = new URLSearchParams({
@@ -1940,7 +1949,7 @@ test("overview recent tasks show user links and respect operator scope", async (
   assert.doesNotMatch(operatorHtml, /href="\/admin\/users\//);
 });
 
-test("pending review tasks auto-cancel five minutes after last touch by default", async () => {
+test("pending review inactivity flags verification and preserves reservations after five minutes", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-stale-pending-review-"));
   process.chdir(sandbox);
 
@@ -1997,9 +2006,11 @@ test("pending review tasks auto-cancel five minutes after last touch by default"
   const cancelledTaskIds = systemService.cancelStalePendingReviewTasks({ now });
 
   assert.deepEqual(cancelledTaskIds, [staleTask.id]);
-  assert.deepEqual(clearedTaskIds, [staleTask.id]);
-  assert.equal(inventory.getTask(db, staleTask.id).status, "cancelled");
-  assert.equal(inventory.getTask(db, staleTask.id).completed_at, now.toISOString());
+  assert.ok(clearedTaskIds.length > 0);
+  assert.equal(inventory.getTask(db, staleTask.id).status, "pending_review");
+  assert.equal(inventory.getTask(db, staleTask.id).attention, 1);
+  assert.equal(inventory.getTask(db, staleTask.id).completed_at, null);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM work_reservations WHERE state='held'").get().n,2);
   assert.equal(inventory.getTask(db, recentlyTouchedTask.id).status, "pending_review");
 });
 
@@ -2066,8 +2077,9 @@ test("pending review task timeout can be configured", async () => {
   assert.equal(settings.timeoutMinutes, 10);
   assert.equal(systemService.getPendingReviewTimeoutSettings().timeoutMinutes, 10);
   assert.deepEqual(cancelledTaskIds, [olderTask.id]);
-  assert.deepEqual(clearedTaskIds, [olderTask.id]);
-  assert.equal(inventory.getTask(db, olderTask.id).status, "cancelled");
+  assert.ok(clearedTaskIds.length > 0);
+  assert.equal(inventory.getTask(db, olderTask.id).status, "pending_review");
+  assert.equal(inventory.getTask(db, olderTask.id).attention, 1);
   assert.equal(inventory.getTask(db, insideWindowTask.id).status, "pending_review");
   assert.match(
     systemService.listRecentSystemEvents(1, "pending_review_timeout_setting_updated")[0].message,
@@ -2732,6 +2744,10 @@ test("admin adjustment product rows load from the selected cell", async () => {
 
   const auth = await freshImport("../src/services/auth.js");
   const { requestHandler } = await freshImport("../src/server.js");
+  // This scenario requires stock; seed it explicitly in this route fixture.
+  const fixtureState = (await import("../src/server/app-state.js")).getAppState();
+  fixtureState.db.prepare("INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,3,0)").run();
+
   const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
   const adjustmentResponse = new MockResponse();
 
@@ -4296,6 +4312,10 @@ test("no-op adjustments return to admin with informational feedback", async () =
 
   const auth = await freshImport("../src/services/auth.js");
   const { requestHandler } = await freshImport("../src/server.js");
+  // This scenario requires stock; seed it explicitly in this route fixture.
+  const fixtureState = (await import("../src/server/app-state.js")).getAppState();
+  fixtureState.db.prepare("INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,3,0)").run();
+
   const response = new MockResponse();
   const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
   const body = new URLSearchParams({

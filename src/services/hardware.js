@@ -28,6 +28,7 @@ function normalizeResult(result = {}) {
 
 export function createHardwareService({ db, config, logger }) {
   const adapter = adapterFactory(config, logger);
+  let disposed=false;
 
   function saveDeviceEvent(event) {
     db.prepare(
@@ -51,6 +52,24 @@ export function createHardwareService({ db, config, logger }) {
 
   function run(operationName, fn, args = [], context = {}) {
     try {
+      if(disposed) return {ok:false,degraded:true,message:"Hardware service was replaced.",events:[]};
+      if(operationName!=="controller_health") {
+        const targets=args.flat().filter(v=>v&&typeof v==='object'&&('hardware_channel' in v));
+        for(const target of targets) {
+          if(!target.controller_id||!target.hardware_channel)continue;
+          const ch=Number(target.hardware_channel);
+          const aliases=db.prepare("SELECT COUNT(*) n FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE ctrl.address=(SELECT address FROM controllers WHERE id=?) AND c.hardware_channel=?").get(target.controller_id,ch).n;
+          if(!Number.isInteger(ch)||ch<1||ch>255||aliases!==1)return {ok:false,degraded:true,message:"Physical mapping is ambiguous or invalid. Follow phone instructions manually and correct the mapping after work settles.",events:[]};
+        }
+
+        if(context.source==="work_coordinator") {
+          const desired=db.prepare("SELECT generation FROM work_guidance WHERE cell_id=?").get(context.workCellId);
+          if(!desired || desired.generation!==context.workGeneration) return {ok:false,degraded:true,message:"Superseded guidance ignored.",events:[]};
+        } else if(db.prepare("SELECT 1 FROM task_lines WHERE execution_state='working' LIMIT 1").get()) {
+          return {ok:false,degraded:true,message:"Location work is active. Utility displays and tests are paused until active turns settle.",events:[]};
+        }
+      }
+
       const result = normalizeResult(fn(...args));
       for (const event of result.events) {
         saveDeviceEvent(event);
@@ -69,14 +88,14 @@ export function createHardwareService({ db, config, logger }) {
       }
       return result;
     } catch (error) {
-      saveDeviceEvent({
+      try { saveDeviceEvent({
         eventType: `${operationName}_failed`,
         payload: {
           error: error.message,
           context,
         },
         status: "error",
-      });
+      }); } catch { /* Evidence logging must not turn a committed stock receipt into a failure. */ }
       logger.error(`hardware.${operationName}.failed`, {
         adapter: adapter.name,
         ...context,
@@ -93,6 +112,7 @@ export function createHardwareService({ db, config, logger }) {
 
   return {
     adapterName: adapter.name,
+    dispose() { disposed=true; adapter.dispose?.(); },
     healthCheck() {
       return adapter.healthCheck();
     },

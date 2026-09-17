@@ -124,6 +124,8 @@ function nav(user, currentTitle = "") {
 
   const activeTitle = String(currentTitle || "").toLowerCase();
   const navItems = [
+    {label:"My work",icon:"pick",href:"/work",active:["my work"],links:[["/record-movement","Record completed movement"],["/movement-history","Movement history"],["/labels","Location labels"]]},
+    {label:"Pending confirmations",icon:"reports",href:"/pending-confirmations",adminOnly:true,active:["pending confirmations"]},
     {
       label: "Overview",
       icon: "overview",
@@ -248,6 +250,7 @@ function nav(user, currentTitle = "") {
             height="112"
           />
         </a>
+        <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav">Menu · all functions</button>
         <div class="session-box sidebar-session-box">
           <a class="session-identity sidebar-session-identity" href="/profile" aria-label="Open profile for ${escapeHtml(user.name)}">
             <span class="session-avatar">${escapeHtml(user.name.charAt(0).toUpperCase())}</span>
@@ -257,7 +260,7 @@ function nav(user, currentTitle = "") {
             </div>
           </a>
         </div>
-        <nav class="side-nav" aria-label="Dashboard sections" data-nav-links>
+        <nav id="warehouse-main-nav" class="side-nav" aria-label="Dashboard sections" data-nav-links>
           <button type="button" data-nav-overflow-toggle hidden aria-hidden="true" tabindex="-1"></button>
           <div data-nav-overflow-menu hidden aria-hidden="true"></div>
           ${navItems
@@ -340,7 +343,9 @@ export function page({ title, user, flash, content }) {
     <link rel="icon" type="image/svg+xml" href="/brand/lytguide-icon.svg" />
     <link rel="stylesheet" href="/theme.css" />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/work.css" />
     <script type="module" src="/app.js"></script>
+    <script type="module" src="/client/mobile-nav.js"></script>
   </head>
   <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}">
     ${toast}

@@ -1,3 +1,4 @@
+import { guardSetupChange } from "../modules/operations/guards.js";
 import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -647,6 +648,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         error: eventMessage,
       });
     }
+    finally { db.prepare("DELETE FROM app_metadata WHERE key='firmware_busy'").run(); }
   }
 
   function getLastConfiguration() {
@@ -745,6 +747,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     },
     getLastConfiguration,
     startFlashJob(input = {}, actor = null) {
+      guardSetupChange(db);
       if (!executableExists(arduinoCliPath)) {
         throw new Error(
           `Arduino CLI was not found at "${arduinoCliPath}". Install arduino-cli or set ARDUINO_CLI_PATH.`,
@@ -815,6 +818,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         logs: [],
       };
 
+      db.prepare("INSERT OR REPLACE INTO app_metadata(key,value,updated_at) VALUES('firmware_busy',?,?)").run(job.id,nowIso());
       jobs.set(job.id, job);
       runFlashJob(job);
       logger?.info("firmware.flash.started", {

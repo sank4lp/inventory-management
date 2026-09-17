@@ -1,3 +1,5 @@
+import { guardSetupChange, guardLegacyTask } from "../modules/operations/guards.js";
+import { historicalFactor } from "../modules/operations/corrections.js";
 import { randomBytes } from "node:crypto";
 
 import { withTransaction } from "../db.js";
@@ -517,6 +519,7 @@ export function createProduct(db, input) {
 }
 
 export function removeProduct(db, productId) {
+  guardSetupChange(db,{productId:Number(productId)});
   return withTransaction(db, () => {
     const products = createProductRepository(db);
     const product = products.findById(productId);
@@ -546,6 +549,7 @@ export function removeProduct(db, productId) {
 }
 
 export function updateProductDetails(db, input) {
+  guardSetupChange(db,{productId:Number(input.productId)});
   const productId = Number(input.productId);
   const required = [
     ["name", "Product name is required."],
@@ -706,6 +710,8 @@ export function planPut(db, { userId, productId, quantity, preferredCellId = nul
 }
 
 export function cancelTask(db, { taskId }) {
+  guardLegacyTask(db, taskId);
+  guardSetupChange(db);
   const task = getTask(db, Number(taskId));
   if (!task) {
     throw new Error("Task not found.");
@@ -727,6 +733,8 @@ export function cancelTask(db, { taskId }) {
 }
 
 export function completeTask(db, { taskId, actualQuantities, actualCellIds, userId, note }) {
+  guardLegacyTask(db, taskId);
+  guardSetupChange(db);
   const task = getTask(db, Number(taskId));
   if (!task) {
     throw new Error("Task not found.");
@@ -843,6 +851,8 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
 }
 
 export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
+  guardLegacyTask(db, taskId);
+  guardSetupChange(db);
   const task = getTask(db, Number(taskId));
   if (!task) {
     throw new Error("Task not found.");
@@ -912,6 +922,8 @@ export function correctCompletedTask(
   db,
   { taskId, actualQuantities, actualCellIds, userId, note },
 ) {
+  guardLegacyTask(db, taskId);
+  guardSetupChange(db);
   const task = getTask(db, Number(taskId));
   if (!task) {
     throw new Error("Task not found.");
@@ -922,146 +934,37 @@ export function correctCompletedTask(
   }
 
   return withTransaction(db, () => {
-    const balances = createInventoryBalanceRepository(db);
-    const tasks = createTaskRepository(db);
-    const touchedCellIds = new Set();
-
-    for (const line of task.lines) {
-      const previousQuantity = Number(line.actual_quantity);
-      const nextQuantity = Number(actualQuantities[line.id] ?? previousQuantity);
-      const nextCellId = Number(actualCellIds?.[line.id] || line.cell_id);
-
-      if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
-        throw new Error("Corrected quantities must be zero or greater.");
-      }
-
-      const oldBalance = balances.getOrCreate(line.product_id, line.cell_id);
-
-      if (task.type === "pick") {
-        const nextPickCell = getPickCellAvailability(db, {
-          productId: line.product_id,
-          cellId: nextCellId,
-        });
-        const nextAvailable =
-          Number(nextPickCell.available_quantity) +
-          (Number(nextCellId) === Number(line.cell_id) ? previousQuantity : 0);
-
-        if (nextAvailable < nextQuantity) {
-          throw new Error(
-            `Cell ${nextPickCell.logical_code} no longer has enough stock to apply this correction safely.`,
-          );
-        }
-
-        balances.increase(oldBalance.id, previousQuantity);
-
-        db.prepare(
-          `
-            INSERT INTO transactions (
-              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-            )
-            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
-          `,
-        ).run(
-          line.product_id,
-          line.cell_id,
-          previousQuantity,
-          userId,
-          task.id,
-          note || `Correction reversal for task #${task.id}`,
-          nowIso(),
-        );
-
-        const nextBalance = balances.getOrCreate(line.product_id, nextCellId);
-        balances.decrease(nextBalance.id, nextQuantity);
-
-        db.prepare(
-          `
-            INSERT INTO transactions (
-              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-            )
-            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
-          `,
-        ).run(
-          line.product_id,
-          nextCellId,
-          -nextQuantity,
-          userId,
-          task.id,
-          note || `Correction applied for task #${task.id}`,
-          nowIso(),
-        );
-
-        touchedCellIds.add(Number(line.cell_id));
-        touchedCellIds.add(nextCellId);
-      } else if (task.type === "put") {
-        assertPutCellEligible(db, {
-          productId: line.product_id,
-          cellId: nextCellId,
-        });
-
-        assertSufficientBalance(
-          oldBalance,
-          previousQuantity,
-          `Cell ${line.logical_code} no longer contains the previously recorded quantity, so this correction cannot be applied safely.`,
-        );
-
-        balances.decrease(oldBalance.id, previousQuantity);
-
-        db.prepare(
-          `
-            INSERT INTO transactions (
-              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-            )
-            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
-          `,
-        ).run(
-          line.product_id,
-          line.cell_id,
-          -previousQuantity,
-          userId,
-          task.id,
-          note || `Correction reversal for task #${task.id}`,
-          nowIso(),
-        );
-
-        const newBalance = balances.getOrCreate(line.product_id, nextCellId);
-        balances.increase(newBalance.id, nextQuantity);
-
-        db.prepare(
-          `
-            INSERT INTO transactions (
-              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-            )
-            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
-          `,
-        ).run(
-          line.product_id,
-          nextCellId,
-          nextQuantity,
-          userId,
-          task.id,
-          note || `Correction applied for task #${task.id}`,
-          nowIso(),
-        );
-
-        touchedCellIds.add(Number(line.cell_id));
-        touchedCellIds.add(nextCellId);
-      }
-
-      const nextExceptionQuantity = Math.max(0, Number(line.planned_quantity) - nextQuantity);
-      tasks.updateLineActual({
-        lineId: line.id,
-        actualQuantity: nextQuantity,
-        exceptionQuantity: nextExceptionQuantity,
-        note: note || line.note,
-        cellId: nextCellId,
-      });
+    const deltas=new Map(), updates=[];
+    const add=(productId,cellId,delta)=>{const k=`${productId}:${cellId}`;const v=deltas.get(k)||{productId,cellId,delta:0};v.delta+=delta;deltas.set(k,v);};
+    for(const line of task.lines){
+      const raw=actualQuantities?.[line.id];
+      if(raw!=null&&String(raw).trim()==="")throw new Error("Enter an explicit actual quantity, including zero.");
+      const quantity=Number(raw??line.actual_quantity),cellId=Number(actualCellIds?.[line.id]||line.cell_id);
+      if(!Number.isFinite(quantity)||quantity<0)throw new Error("Corrected quantities must be zero or greater.");
+      const factor=historicalFactor(db,line.product_id,line.unit_of_measure,task.completed_at||task.started_at), sign=task.type==='pick'?-1:1;
+      add(line.product_id,line.cell_id,-sign*line.actual_quantity*factor);
+      add(line.product_id,cellId,sign*quantity*factor);
+      updates.push({line,quantity,cellId});
     }
-
-    return {
-      task: tasks.get(task.id),
-      anomalies: detectAnomalies(db).filter((anomaly) => touchedCellIds.has(anomaly.cellId)),
-    };
+    for(const {productId,cellId,delta} of deltas.values()){
+      const product=findProductOrThrow(db,productId);
+      const b=createInventoryBalanceRepository(db).getOrCreate(productId,cellId);
+      const next=Number((b.available_quantity+delta).toFixed(6));
+      if(next<0||next<b.reserved_quantity)throw new Error("Correction would leave insufficient stock for existing reservations.");
+      if(delta>0){
+        const occupied=db.prepare("SELECT COALESCE(SUM(available_quantity),0) n FROM inventory_balances WHERE cell_id=?").get(cellId).n;
+        if(occupied+delta>product.items_per_cell)throw new Error("Correction exceeds the location capacity.");
+      }
+      if(Math.abs(delta)>0.0000001){
+        db.prepare("UPDATE inventory_balances SET available_quantity=? WHERE id=?").run(next,b.id);
+        db.prepare("INSERT INTO transactions(type,product_id,cell_id,quantity_delta,user_id,task_id,reason,unit_of_measure,created_at) VALUES('adjustment',?,?,?,?,?,?,?,?)").run(productId,cellId,Number(delta.toFixed(6)),userId,task.id,note||`Correction for task #${task.id}`,product.unit_of_measure,nowIso());
+      }
+    }
+    for(const {line,quantity,cellId} of updates){
+      createTaskRepository(db).updateLineActual({lineId:line.id,actualQuantity:quantity,exceptionQuantity:Math.max(0,line.planned_quantity-quantity),note:note||line.note,cellId});
+      db.prepare("INSERT INTO work_events(line_id,actor_id,event_type,payload,created_at) VALUES(?,?,'historical_correction',?,?)").run(line.id,userId,JSON.stringify({previous:line.actual_quantity,actual:quantity,unit:line.unit_of_measure,oldCell:line.cell_id,cellId,note}),nowIso());
+    }
+    return {task:getTask(db,task.id),anomalies:detectAnomalies(db).filter(a=>[...deltas.values()].some(d=>d.cellId===a.cellId))};
   });
 }
 
@@ -1078,6 +981,7 @@ export function markPhysicalConfirmation(db, lineId) {
 }
 
 export function createAdjustment(db, { productId, cellId, quantityDelta, userId, reason, lines }) {
+  guardSetupChange(db,{cellId:Number(cellId)});
   const cell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
   if (!cell) {
     throw new Error("Cell not found.");
@@ -1432,6 +1336,7 @@ export function authenticateUser(db, { username, password, verifyPassword }) {
     username: user.username,
     role: user.role,
     status: user.status,
+    session_version: user.session_version,
   };
 }
 
@@ -1748,6 +1653,7 @@ export function updateControllerHealth(db, { controllerId, status }) {
 }
 
 export function deleteController(db, { controllerId }) {
+  guardSetupChange(db);
   return withTransaction(db, () => {
     const controller = db
       .prepare("SELECT * FROM controllers WHERE id = ?")
@@ -1938,6 +1844,7 @@ export function getCellDeletionImpact(db, cellId) {
 }
 
 export function deleteCell(db, { cellId, deletedBy = null } = {}) {
+  guardSetupChange(db,{cellId:Number(cellId)});
   return withTransaction(db, () => {
     const impact = getCellDeletionImpact(db, cellId);
     if (impact.hasStock) {
@@ -2081,6 +1988,7 @@ export function createCell(db, { logicalCode, capacity = 12, createdBy = null } 
 }
 
 export function renameCell(db, { cellId, logicalCode, renamedBy = null } = {}) {
+  guardSetupChange(db,{cellId:Number(cellId)});
   const id = Number(cellId);
   if (!Number.isInteger(id) || id <= 0) {
     throw new Error("Choose a location to rename.");
@@ -2113,12 +2021,19 @@ export function renameCell(db, { cellId, logicalCode, renamedBy = null } = {}) {
   });
 }
 
+function assertMappingIntegrity(db) {
+  const duplicate=db.prepare(`SELECT ctrl.address,c.hardware_channel,COUNT(*) n FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.hardware_channel IS NOT NULL GROUP BY ctrl.address,c.hardware_channel HAVING COUNT(*)>1 LIMIT 1`).get();
+  const invalid=db.prepare("SELECT 1 FROM cells WHERE hardware_channel IS NOT NULL AND (hardware_channel!=CAST(hardware_channel AS INTEGER) OR hardware_channel<1 OR hardware_channel>255) LIMIT 1").get();
+  if(duplicate||invalid)throw new Error('Each physical controller/channel must map to exactly one location, using an integer channel from 1 to 255.');
+}
+
 export function updateCellMapping(
   db,
   { cellId, hardwareChannel, logicalCode = null, targetCellId = null, mappedBy },
 ) {
+  guardSetupChange(db);
   const channel = Number(hardwareChannel);
-  if (!Number.isFinite(channel) || channel <= 0) {
+  if (!Number.isInteger(channel) || channel <= 0 || channel > 255) {
     throw new Error("Hardware channel must be a positive number.");
   }
 
@@ -2168,6 +2083,7 @@ export function updateCellMapping(
           WHERE id = ?
         `,
       ).run(channel, now, mappedBy, sourceCell.id);
+      assertMappingIntegrity(db);
       return db.prepare("SELECT * FROM cells WHERE id = ?").get(sourceCell.id);
     }
 
@@ -2205,6 +2121,7 @@ export function updateCellMapping(
     ).run(sourceCell.controller_id, channel, now, mappedBy, targetCell.id);
 
     retireEmptyMappingCell(db, sourceCell.id);
+    assertMappingIntegrity(db);
     return db.prepare("SELECT * FROM cells WHERE id = ?").get(targetCell.id);
   });
 }
@@ -2253,6 +2170,7 @@ export function configureControllerModules(
     firmwareVersion = ESP32_FIRMWARE_PROTOCOL,
   },
 ) {
+  guardSetupChange(db);
   const count = Number(moduleCount);
   if (!Number.isInteger(count) || count <= 0) {
     throw new Error("LED module count must be a positive whole number.");
@@ -2447,6 +2365,7 @@ export function configureControllerModules(
       mappingSummary.removed += staleDetached.removed;
     }
 
+    assertMappingIntegrity(db);
     const controller = db.prepare("SELECT * FROM controllers WHERE id = ?").get(controllerId);
     return {
       ...controller,
@@ -2456,6 +2375,7 @@ export function configureControllerModules(
 }
 
 export function updateProductItemsPerCell(db, { productId, itemsPerCell }) {
+  guardSetupChange(db,{productId:Number(productId)});
   const capacity = normalizeItemsPerCell(itemsPerCell);
   const result = createProductRepository(db).updateItemsPerCell(productId, capacity);
 
@@ -2470,6 +2390,7 @@ export function applyRecommendedAction(
   db,
   { sourceCellId, productId, moves, userId, reason },
 ) {
+  guardSetupChange(db,{productId:Number(productId)});
   const product = findProductOrThrow(db, Number(productId));
   const normalizedMoves = moves
     .map((move) => ({

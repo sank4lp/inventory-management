@@ -10,6 +10,8 @@ The current goal is to document the product clearly enough that you can:
 
 ## Current project baseline
 
+For the implemented development-branch behavior, start with [Local-first operations](LOCAL-FIRST-OPERATIONS.md). The [Pi/cloud and company isolation plan](architecture/03-pi-cloud-deployment-plan.md) records future requirements, open decisions and acceptance gates; cloud relay and shared-portal multitenancy are not implemented. Older flow and architecture outlines are design background where they differ from the current release notes.
+
 - Warehouse layout: **27 columns × 3 rows = 81 cells**
 - Operator station: **at the warehouse entry**
 - Primary user actions: **Pick** and **Put**
@@ -50,7 +52,12 @@ The current goal is to document the product clearly enough that you can:
 | `hardware/04-bench-controller-pinout.md` | Known-working ESP32, MAX485, LM2596, and WS2812 bench pinout |
 | `hardware/05-matrix-firmware-and-power.md` | Matrix firmware command inputs, color support, and buck-converter power sizing |
 | `architecture/01-software-architecture-outline.md` | Proposed software architecture direction |
+| `architecture/02-codebase-architecture.md` | Current local application layers and code organization |
+| `LOCAL-FIRST-OPERATIONS.md` | Implemented local multi-operator behavior and deployment/physical acceptance limits |
+| `architecture/03-pi-cloud-deployment-plan.md` | Future Pi/cloud access, strict company isolation, synchronization and acceptance gates |
 | `tech-spec/01-software-tech-spec-outline.md` | Detailed spec template and decision backlog |
+| `tech-spec/02-company-warehouse-sharing.md` | Required future Separate / Groups / All policies, stock authority, transfers, offline changes and acceptance tests |
+| `tech-spec/03-lightguide-onboarding.md` | Future company invitation, default-group onboarding, Pi download/install, provisioning and safe replacement proposal |
 
 ## Documentation principles
 
@@ -84,7 +91,7 @@ These documents are a strong starting draft, but several decisions are intention
 - A future placement strategy should support **grouping similar items in nearby cells** so related stock stays physically close together.
 - The initial printed report set at launch can be the same four core reports already identified in the docs.
 - Products should store an **items per cell** value that admins can edit later.
-- Inventory is tracked as actual quantity in cells only; the current software does **not** use a reservation layer.
+- Inventory records actual quantities in cells; the development branch also reserves planned quantities and coordinates cell turns. See [Local-first operations](LOCAL-FIRST-OPERATIONS.md) for the current rules.
 - The software should allow **mixed-product cells** and **over-capacity cells** when that is what actually happened, then highlight them for follow-up.
 - The home screen should include **recommended actions** to help users clean up flagged cells.
 - Search and picker controls should be **software-rendered**, not dependent on OS-native widgets.

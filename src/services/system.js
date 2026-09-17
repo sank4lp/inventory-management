@@ -1,3 +1,6 @@
+import { createOperationsService } from "../modules/operations/service.js";
+import { adoptPendingLegacyTasks } from "../modules/operations/schema.js";
+import { withTransaction } from "../db.js";
 import { randomBytes } from "node:crypto";
 
 import { updateControllerHealth } from "./inventory.js";
@@ -291,7 +294,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         `
           SELECT id
           FROM tasks
-          WHERE status = 'pending_review'
+          WHERE status = 'pending_review' AND workflow_version=1
           ORDER BY id
         `,
       )
@@ -340,7 +343,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         `
           SELECT id
           FROM tasks
-          WHERE status = 'pending_review'
+          WHERE status = 'pending_review' AND workflow_version=1
           ORDER BY id
         `,
       )
@@ -375,66 +378,13 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     return recoveredTaskIds;
   }
 
-  function cancelStalePendingReviewTasks({
-    now = new Date(),
-    timeoutMs = null,
-  } = {}) {
-    const currentTime = now instanceof Date ? now : new Date(now);
-    const configuredTimeoutMs = timeoutMs ?? readPendingReviewTimeoutSettings(db).timeoutMs;
-    const cutoff = new Date(currentTime.getTime() - configuredTimeoutMs).toISOString();
-    const cancelledTaskIds = [];
-    const rows = db
-      .prepare(
-        `
-          SELECT id
-          FROM tasks
-          WHERE status = 'pending_review'
-            AND COALESCE(last_touched_at, started_at) <= ?
-          ORDER BY id
-        `,
-      )
-      .all(cutoff);
-
-    for (const row of rows) {
-      const task = getTask(db, row.id);
-      if (!task || task.status !== "pending_review") {
-        continue;
-      }
-
-      const cancelledAt = currentTime.toISOString();
-      const clearResult = hardwareService.clearGuidance(task, task.lines, {
-        source: "pending_review_timeout",
-      });
-      db.prepare(
-        `
-          UPDATE tasks
-          SET status = 'cancelled', completed_at = ?, last_touched_at = ?
-          WHERE id = ? AND status = 'pending_review'
-        `,
-      ).run(cancelledAt, cancelledAt, task.id);
-      cancelledTaskIds.push(task.id);
-      recordSystemEvent({
-        eventType: "pending_review_timeout",
-        status: clearResult.degraded ? "warning" : "info",
-        message: `Cancelled stale pending review task #${task.id}.`,
-        payload: {
-          taskId: task.id,
-          timeoutMs: configuredTimeoutMs,
-          lastTouchedAt: task.last_touched_at || task.started_at,
-          degraded: clearResult.degraded,
-          adapter: hardwareService.adapterName,
-        },
-      });
-    }
-
-    if (cancelledTaskIds.length) {
-      logger.info("task.pending_review.timeout_cancelled", {
-        cancelledTaskIds,
-        timeoutMs: configuredTimeoutMs,
-      });
-    }
-
-    return cancelledTaskIds;
+  // Name retained for callers; inactivity now flags uncertainty and never cancels stock claims.
+  function cancelStalePendingReviewTasks({now=new Date(),timeoutMs=null}={}) {
+    withTransaction(db,()=>adoptPendingLegacyTasks(db));
+    const work=createOperationsService({db,hardwareService,logger});
+    const ids=work.flagInactivity({at:now instanceof Date?now:new Date(now),timeoutMs:timeoutMs??readPendingReviewTimeoutSettings(db).timeoutMs});
+    work.flushGuidance();
+    return ids;
   }
 
   function getPendingReviewTimeoutSettings() {

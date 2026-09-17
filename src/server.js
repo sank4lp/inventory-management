@@ -1,3 +1,4 @@
+import { operationsRoutes } from "./modules/operations/routes.js";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { URL } from "node:url";
@@ -495,6 +496,12 @@ function backupAwareFlash(message, tone, backupResult) {
 }
 
 export const requestHandler = async (request, response) => {
+  if (request.method === "POST") {
+    try {
+      if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) throw new Error("Open this action from the warehouse website.");
+      await parseForm(request);
+    } catch (error) { sendJson(response, { error: error.message }, 400); return; }
+  }
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   const {
     adminService,
@@ -519,6 +526,7 @@ export const requestHandler = async (request, response) => {
   }
 
   try {
+    if (await operationsRoutes(request,response,url,user,getAppState())) return;
     if (user) {
       updateUserLastActive(db, user.id);
     }
