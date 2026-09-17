@@ -56,6 +56,7 @@ For the implemented development-branch behavior, start with [Local-first operati
 | `LOCAL-FIRST-OPERATIONS.md` | Implemented local multi-operator behavior and deployment/physical acceptance limits |
 | `architecture/03-pi-cloud-deployment-plan.md` | Future Pi/cloud access, strict company isolation, synchronization and acceptance gates |
 | `tech-spec/01-software-tech-spec-outline.md` | Detailed spec template and decision backlog |
+| `tech-spec/02-company-warehouse-sharing.md` | Required future Separate / Groups / All policies, stock authority, transfers, offline changes and acceptance tests |
 
 ## Documentation principles
 

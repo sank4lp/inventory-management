@@ -11,6 +11,7 @@ Status: **future design requirements; cloud and multitenancy are not implemented
 | Pi production installation, trusted local HTTPS, real phone/Wi-Fi/hardware acceptance | Deployment and physical acceptance still required |
 | Vercel portal, secure Pi relay, durable cloud storage and synchronization | Planned below; unimplemented |
 | Shared portal with enforced company isolation, device enrollment and company-scoped administration | Planned below; prerequisite to any multi-company cloud launch |
+| Company-configurable Separate / Groups / All warehouse sharing, scoped catalog ownership and durable transfers | Required and unimplemented; see [warehouse sharing specification](../tech-spec/02-company-warehouse-sharing.md); blocks multi-company cloud readiness |
 | Automatic Wi-Fi/mobile-data switching under one hostname | Design and device validation required; hosting the app twice does not provide this |
 
 The local phase already establishes Pi authority and offline reporting semantics. Earlier architecture outlines describe the local application; they do not specify a complete cloud or tenant boundary. This plan adds those requirements explicitly. Existing local test results do not certify the future cloud system.
@@ -51,6 +52,14 @@ Offline storage and service-worker behavior must be reviewed for the shared port
 Choose and validate one durable cloud isolation model before implementation: a shared database with enforced tenant policies and scoped constraints, or dedicated company databases. Either choice still requires API, storage, event and job isolation. Define scoped backups, restores, migrations and audit access. Migrate the existing local installation into an explicit company and warehouse, mapping users, historical records, receipts and pending reports without assuming a universal default tenant. Back up and validate the migration before connecting it to the shared portal.
 
 Offline membership is a design decision, not an automatic promise of instant revocation. Local authentication must work without cloud availability using securely provisioned local credentials and the last accepted membership policy. Specify offline validity, local administrative revocation, conflict handling, and what happens when a cloud revocation cannot yet reach Pi. Recheck authorization when queued actions execute. Record and test the resulting availability/revocation tradeoff before launch.
+
+## Company-controlled sharing within the tenant boundary
+
+A company chooses whether its warehouses stay separate, share selected categories within groups, or share selected categories company-wide. Cross-company isolation is always mandatory. The [company/warehouse sharing specification](../tech-spec/02-company-warehouse-sharing.md) defines the mode semantics, proposed defaults awaiting approval, category ownership, authorization, versioned policy changes, offline revocation limits and required acceptance matrix.
+
+Sharing is not a global boolean: replication/visibility, user action grants, physical stock ownership and catalog/configuration ownership are separate dimensions. Warehouse and operator assignments still apply in All mode. Group overlap requires explicit approved effective grants and never creates accidental transitive access. Company admins configure policy with a preview of who sees and may do what; the local and cloud UI use the same scope rules.
+
+Each warehouse retains its stock ledger and authoritative Pi, even when availability is aggregated. Remote data remains timestamped and cannot authorize disconnected reservations. Cross-warehouse movements require linked, durable shipment/receipt records with partial and interrupted-transfer recovery and no duplicate credit. Policy changes preserve original physical evidence and cannot instantly erase already delivered data from offline devices. These capabilities must be designed, implemented and tested before multi-company cloud launch.
 
 ## Durable delivery and recovery contract
 
@@ -98,16 +107,18 @@ These are future tests, not completed results. Record browser/device versions, d
 | Authentication and roles | Login/logout, expiry, role changes, revoked devices and offline membership rules tested on both endpoints; queue execution reauthorized |
 | Company A versus B | Colliding item/cell IDs, guessed IDs and direct API requests cannot cross boundaries; test search, reports, exports/files, logs, caches, event subscriptions, queues and remote lights/device commands |
 | Device lifecycle and identity switching | Replayed old credentials, wrong tenant/warehouse envelopes, device reassignment, dataset restore, reconnect and browser company/session switches cannot expose or submit another company's data |
+| Warehouse sharing policy | Exercise Separate, Groups and All; assigned versus unassigned users, inside/outside and overlapping groups, category restrictions, exports/logs/caches, and policy changes while offline; no transitive or cross-company grants |
+| Shared catalogs, transfers and authority | Conflicting catalog edits preserve ownership/version history; partial/retried transfers do not double-credit; delayed sync and concurrent offline picks retain warehouse ownership; cloned/replaced Pis cannot become competing authorities |
 | 100-client application load | Simulate 100 concurrent clients with a defined local/remote mix, contention, outages and retry bursts; measure errors/latencies, Pi resource use and queue recovery; verify stock invariants and tenant isolation |
 | Physical site acceptance | Separately test real phones, warehouse Wi-Fi coverage/congestion/roaming, camera, trusted certificates, Pi power/restart and real lights/buttons/RS485; simulated client load does not establish Wi-Fi capacity |
 
-Company isolation is a release gate for multi-company cloud launch, not a later optional enhancement. The user performs final physical warehouse acceptance; automated and simulator checks support that decision but do not replace it.
+Company isolation and company-configurable warehouse sharing are release gates for multi-company cloud launch, not later optional enhancements. Run the detailed [sharing acceptance matrix](../tech-spec/02-company-warehouse-sharing.md) as well. The user performs final physical warehouse acceptance; automated and simulator checks support that decision but do not replace it.
 
 ## Open decisions and delivery gates
 
-1. Resolve the cloud database/isolation model, tenant migration, invitation and warehouse membership policies, device enrollment/revocation, and offline permission validity.
+1. Resolve the cloud database/isolation model and establish the tenant/warehouse schema and authorization foundation early. Resolve compatible local migration, invitations, company-controlled sharing modes/categories/overlaps, catalog ownership, transfer policy, device enrollment/revocation and offline permission validity. Proposed sharing defaults require approval; see the detailed specification's decision list.
 2. Choose relay topology, Vercel plan/runtime, durable routing/backplane, authority fencing, protocol versioning, retention and recovery targets. Specify the request/event contracts before implementation.
 3. Validate hostname/DNS/HTTPS provisioning, endpoint selection and cross-endpoint session behavior on target phones. Define a visible fallback if seamless switching cannot be assured.
-4. Implement the cloud and tenant work in a separately authorized phase; add adversarial, recovery and load tests covering the matrix above. Local release readiness is not cloud readiness.
+4. Implement the cloud, tenant and company-configurable sharing work in a separately authorized phase: schema/auth foundation, local migration, versioned policy editor and all modes, scoped replication/catalog ownership, then durable transfers/device recovery. Add adversarial, recovery and load tests covering both matrices before multi-company rollout. Local release readiness is not cloud readiness.
 5. After readiness, assist the user with Vercel and Pi deployment, persistent storage/backups, service startup, credentials, certificates and rollback procedures. No deployment or network changes occur as part of this planning update.
 6. Complete user-led physical acceptance and capture outstanding limitations before production launch. Keep branch review and any eventual merge as a separate gate; this plan does not merge or advance baseline branches.
