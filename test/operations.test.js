@@ -262,3 +262,14 @@ test('warehouse identity is enforced for fresh and replayed receipts',async()=>{
  assert.throws(()=>w.command(op,'manual',{...input,requestId:randomUUID()}),/another warehouse/);
  assert.equal(db.prepare('SELECT COUNT(*) n FROM work_reports').get().n,1);db.close();
 });
+
+
+test('legacy completed zero actual remains zero in view and correction form',async()=>{
+ const {db,admin}=await fixture();const {planPut,completeTask,getTask}=await import('../src/services/inventory.js');const {createTaskPages}=await import('../src/server/pages/tasks.js');
+ const planned=planPut(db,{userId:admin.id,productId:1,quantity:1});completeTask(db,{taskId:planned.id,actualQuantities:Object.fromEntries(planned.lines.map(l=>[l.id,0])),userId:admin.id,note:'Verified no movement'});
+ const task=getTask(db,planned.id),pages=createTaskPages({db});const view=pages.renderTask(admin,null,task);const edit=pages.renderTask(admin,null,task,'edit');
+ assert.match(view,/Recorded Movement · Do Not Execute Again/);
+ assert.match(edit,new RegExp('name="actual_'+task.lines[0].id+'"[\\s\\S]*?value="0"'));
+ assert.doesNotMatch(edit,new RegExp('name="actual_'+task.lines[0].id+'"[\\s\\S]*?value="1"'));
+ db.close();
+});
