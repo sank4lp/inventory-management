@@ -71,10 +71,10 @@ test('multi-operator accounting, recovery, isolation, and durable receipts',asyn
  db.close();
 });
 
-async function fixture(){
+async function fixture(hardwareService=null){
  process.chdir(mkdtempSync(join(tmpdir(),'lytguide-work-case-')));
  const {createDatabase}=await import('../src/db.js');const {hashPassword}=await import('../src/services/auth.js');const {createOperationsService}=await import('../src/modules/operations/service.js');
- const db=createDatabase({hashPassword,allowDevAuthSeeds:true,allowDemoInventorySeed:true});const w=createOperationsService({db});
+ const db=createDatabase({hashPassword,allowDevAuthSeeds:true,allowDemoInventorySeed:true});const w=createOperationsService({db,hardwareService});
  const admin=db.prepare("SELECT * FROM users WHERE role='admin' LIMIT 1").get(),op=db.prepare("SELECT * FROM users WHERE role='operator' LIMIT 1").get();
  const p=db.prepare('SELECT * FROM products LIMIT 1').get(),cells=db.prepare('SELECT * FROM cells WHERE active=1 ORDER BY id LIMIT 4').all();
  db.exec('DELETE FROM inventory_balances');db.prepare('UPDATE products SET items_per_cell=20 WHERE id=?').run(p.id);
@@ -272,4 +272,76 @@ test('legacy completed zero actual remains zero in view and correction form',asy
  assert.match(edit,new RegExp('name="actual_'+task.lines[0].id+'"[\\s\\S]*?value="0"'));
  assert.doesNotMatch(edit,new RegExp('name="actual_'+task.lines[0].id+'"[\\s\\S]*?value="1"'));
  db.close();
+});
+
+
+test('linking an open allocation to a posted movement requires disposition and releases only its own claim',async()=>{
+ const {db,w,op,admin,cells,stock,create,arrive,report}=await fixture();stock(cells[0],10);
+ const original=w.task(op,create(op,'pick',1).taskId).lines[0];arrive(op,original);
+ const posted=report(op,w.line(original.id),1);
+ const duplicate=w.task(op,create(op,'pick',2).taskId).lines[0];arrive(op,duplicate);
+ const received=report(op,w.line(duplicate.id),1,{manual:true});
+ const next=w.task(admin,create(admin,'pick',1).taskId).lines[0];
+ assert.equal(arrive(admin,next,'next').status,'busy');
+ const input={requestId:randomUUID(),reportId:received.reportId,dismissDuplicate:true,duplicateOf:posted.reportId,verification:'Original slip fully accounts for this duplicate allocation'};
+ assert.throws(()=>w.command(admin,'resolve',input),/Confirm.*fully accounts/);
+ assert.equal(w.snapshot(admin).pending.length,1);
+ assert.equal(w.held(cells[0].id,original.product_id,'pick'),3);
+ const resolved={...input,closeAllocation:true};
+ assert.equal(w.command(admin,'resolve',resolved).status,'recorded');
+ assert.equal(w.command(admin,'resolve',resolved).replayed,true);
+ assert.equal(w.line(duplicate.id).execution_state,'settled');
+ assert.equal(w.line(duplicate.id).actual_quantity,1);
+ assert.equal(w.held(cells[0].id,original.product_id,'pick'),1,'next allocation remains reserved');
+ assert.equal(w.snapshot(admin).pending.length,0);
+ assert.equal(w.task(op,duplicate.task_id).attention,0);
+ assert.equal(w.task(op,duplicate.task_id).status,'completed');
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,9);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,1);
+ assert.throws(()=>w.command(admin,'correct',{requestId:randomUUID(),lineId:duplicate.id,revision:w.line(duplicate.id).revision,quantity:2,verification:'Try correction on duplicate'}),/original movement/);
+ assert.equal(arrive(admin,next,'next').status,'ready');db.close();
+});
+
+test('inactivity delivers and retries clears without a later work command',async()=>{
+ let attempts=0;const hardware={activateGuidance(){return {ok:true};},clearGuidance(){attempts++;return {ok:attempts>1};}};
+ const {db,w,op,admin,cells,stock,create,arrive}=await fixture(hardware);stock(cells[0],3);
+ const l=w.task(op,create(op,'pick',2).taskId).lines[0];arrive(op,l);
+ const at=new Date(Date.now()+10*60000);
+ assert.deepEqual(w.flagInactivity({at}),[l.task_id]);
+ assert.equal(attempts,1);
+ assert.equal(db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(l.cell_id).delivered,0);
+ assert.deepEqual(w.flagInactivity({at}),[]);
+ assert.equal(attempts,2);
+ assert.equal(db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(l.cell_id).delivered,1);
+ assert.equal(w.snapshot(admin).pending.length,1);
+ assert.equal(w.held(l.cell_id,l.product_id,'pick'),2);
+ w.flagInactivity({at});assert.equal(attempts,2,'delivered clear is not replayed');db.close();
+});
+
+test('inactivity of a waiting allocation cannot replace a newer active turn',async()=>{
+ let clears=0;const hardware={activateGuidance(){return {ok:true};},clearGuidance(){clears++;return {ok:true};}};
+ const {db,w,op,admin,cells,stock,create,arrive}=await fixture(hardware);stock(cells[0],4);
+ const old=w.task(op,create(op,'pick',1).taskId).lines[0];
+ db.prepare('UPDATE tasks SET last_touched_at=? WHERE id=?').run(new Date(Date.now()-10*60000).toISOString(),old.task_id);
+ const current=w.task(admin,create(admin,'pick',1).taskId).lines[0];arrive(admin,current,'newer');
+ const guidance=db.prepare('SELECT generation,desired FROM work_guidance WHERE cell_id=?').get(old.cell_id);
+ assert.deepEqual(w.flagInactivity(),[old.task_id]);
+ assert.equal(clears,0);
+ assert.deepEqual(db.prepare('SELECT generation,desired FROM work_guidance WHERE cell_id=?').get(old.cell_id),guidance);
+ assert.equal(db.prepare('SELECT line_id,uncertain FROM cell_turns WHERE cell_id=?').get(old.cell_id).line_id,current.id);
+ assert.equal(w.held(old.cell_id,old.product_id,'pick'),2);db.close();
+});
+
+test('shared locator remains available when one participant needs verification',async()=>{
+ let clears=0;const located=[];const hardware={showCellQuantity(cell){located.push(cell.id);return {ok:true};},clearGuidance(){clears++;return {ok:true};}};
+ const {db,w,op,admin,cells,stock,cmd,create,arrive}=await fixture(hardware);stock(cells[0],4);
+ cmd(admin,'mode',{cellId:cells[0].id,mode:'shared'});
+ const active=w.task(admin,create(admin,'pick',1).taskId).lines[0];arrive(admin,active,'other');
+ const old=w.task(op,create(op,'pick',1).taskId).lines[0];arrive(op,old);
+ db.prepare('UPDATE tasks SET last_touched_at=? WHERE id=?').run(new Date(Date.now()-10*60000).toISOString(),old.task_id);
+ w.flagInactivity();
+ assert.equal(clears,0);assert.equal(located.length,3);
+ const desired=JSON.parse(db.prepare('SELECT desired FROM work_guidance WHERE cell_id=?').get(old.cell_id).desired);
+ assert.equal(desired.action,'locate');assert.equal(desired.lineId,active.id);
+ assert.equal(w.held(old.cell_id,old.product_id,'pick'),2);db.close();
 });

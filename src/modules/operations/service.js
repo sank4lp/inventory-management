@@ -282,7 +282,25 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (input.dismissDuplicate) {
       const linked = db.prepare("SELECT * FROM work_reports WHERE id=? AND status='posted'").get(input.duplicateOf);
       if (!linked || linked.id === report.id || linked.product_id!==report.product_id || linked.cell_id!==report.cell_id || linked.direction!==report.direction) throw new Error("Choose the recorded report that already accounts for this movement.");
+      const allocation = report.line_id ? line(report.line_id) : null;
+      if (allocation && ['ready','working'].includes(allocation.execution_state)) {
+        if (input.closeAllocation !== true) throw new Error('Confirm that the linked movement fully accounts for this allocation before closing it. Its reservation and turn remain held.');
+        if (linked.product_id !== allocation.product_id || linked.cell_id !== allocation.cell_id || linked.unit !== allocation.unit_of_measure || (report.quantity_known !== 0 && (report.unit !== linked.unit || report.quantity !== linked.quantity))) {
+          throw new Error('The linked movement does not match this allocation report. Verify the actual quantity and location before resolving it.');
+        }
+        db.prepare("INSERT INTO work_settlements(line_id,report_id,quantity,cell_id,unit,created_at) VALUES(?,?,?,?,?,?)")
+          .run(allocation.id, linked.id, linked.quantity, linked.cell_id, linked.unit, now());
+        db.prepare("UPDATE task_lines SET actual_quantity=?,exception_quantity=?,execution_state='settled',revision=revision+1,note=? WHERE id=?")
+          .run(linked.quantity, Math.max(0, rounded(allocation.planned_quantity-linked.quantity)), `${verification}; already covered by ${linked.id}`, allocation.id);
+        db.prepare("UPDATE work_reservations SET state='released' WHERE line_id=?").run(allocation.id);
+        releaseTurn(allocation);
+        syncReservations();
+        db.prepare("UPDATE work_reports SET status='resolved',resolver_id=?,resolved_at=?,verification=? WHERE line_id=? AND status='review' AND origin_ref LIKE 'attention:%' AND id!=?")
+          .run(actor.id, now(), verification, allocation.id, report.id);
+        event('allocation_accounted_elsewhere', actor, allocation.id, { linkedReport:linked.id, quantity:linked.quantity, verification }, report.id);
+      }
       db.prepare("UPDATE work_reports SET status='duplicate',verification=?,resolver_id=?,resolved_at=? WHERE id=?").run(`${verification}; already covered by ${linked.id}`, actor.id, now(), report.id);
+      if (allocation) taskProgress(allocation.task_id);
       event("duplicate_verified", actor, report.line_id, { linkedReport: linked.id, verification }, report.id);
       return { status: "recorded", message: "Linked to its existing movement; no stock was posted again." };
     }
@@ -360,6 +378,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function correct(actor, input, verified = false) {
     const allocation = line(input.lineId); own(actor, allocation);
     if (allocation.execution_state !== "settled" || Number(input.revision) !== allocation.revision) throw new Error("This recorded allocation changed. Refresh before correcting it.");
+    if (db.prepare("SELECT 1 FROM work_events WHERE line_id=? AND event_type='allocation_accounted_elsewhere'").get(allocation.id)) throw new Error('This allocation is covered by an existing movement. Correct the original movement record so stock is adjusted only once.');
     const verification = String(input.verification || "").trim();
     if (!verification) throw new Error("Give a reason for correcting this earlier record. Use Record completed movement for a new physical return or pick.");
     const factor=historicalFactor(db,allocation.product_id,allocation.unit_of_measure,allocation.completed_at||allocation.started_at);
@@ -490,7 +509,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       discrepancies: db.prepare("SELECT d.*,c.logical_code,p.name AS product_name FROM work_discrepancies d JOIN cells c ON c.id=d.cell_id JOIN products p ON p.id=d.product_id").all() };
   }
   function flagInactivity({ at = new Date(), timeoutMs = 5 * 60000 } = {}) {
-    return withTransaction(db, () => {
+    const staleIds = withTransaction(db, () => {
       const stale = db.prepare("SELECT id FROM tasks WHERE workflow_version=2 AND status='pending_review' AND attention=0 AND last_touched_at<=?").all(new Date(at.getTime() - timeoutMs).toISOString());
       for (const task of stale) {
         db.prepare("UPDATE tasks SET attention=1 WHERE id=?").run(task.id);
@@ -499,11 +518,21 @@ export function createOperationsService({ db, hardwareService = null, logger = n
           const owner = db.prepare("SELECT * FROM users WHERE id=?").get(allocation.created_by);
           const report = insertReport(owner, { quantity: 0, unknown: true, origin: `attention:${allocation.id}`, reason: "Actual quantity is unknown; zero is not a verified answer." }, allocation);
           review(report, "Inactivity needs verification. Expected quantity is shown for context; enter an actual quantity or keep pending.");
-          setGuidance(allocation.cell_id, { action: "clear" });
+          const guidance = db.prepare('SELECT desired FROM work_guidance WHERE cell_id=?').get(allocation.cell_id);
+          const desired = guidance ? JSON.parse(guidance.desired) : null;
+          // A waiting or older allocation must not replace another operator's guidance.
+          if (!desired || desired.lineId === allocation.id) {
+            const activeShared = allocation.guidance_mode === 'shared' && db.prepare(`SELECT l.id FROM task_lines l JOIN tasks t ON t.id=l.task_id
+              WHERE l.cell_id=? AND l.id!=? AND l.execution_state='working' AND t.attention=0 ORDER BY l.started_at DESC LIMIT 1`).get(allocation.cell_id, allocation.id);
+            setGuidance(allocation.cell_id, activeShared ? { action:'locate', lineId:activeShared.id } : { action:'clear' });
+          }
         }
       }
       return stale.map(t => t.id);
     });
+    // The maintenance timer also retries pending deliveries when no new task is stale.
+    try { flushGuidance(); } catch (error) { logger?.warn?.('work.guidance.deferred', { error:error.message }); }
+    return staleIds;
   }
   return { command, task, snapshot, identity, actorNow, line, held, flushGuidance, flagInactivity };
 }
