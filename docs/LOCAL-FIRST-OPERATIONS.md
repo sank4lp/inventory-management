@@ -2,6 +2,8 @@
 
 The warehouse Node service and SQLite database are the authority. This release has no cloud relay, remote synchronization service, or automatic Wi-Fi/mobile-data routing. Desktop, Android browsers and iPhone browsers use the same responsive application and role permissions. Supervisors and owners use the existing Admin role.
 
+The [Pi/cloud and company isolation plan](architecture/03-pi-cloud-deployment-plan.md) specifies the future shared portal, remote relay, offline boundaries and acceptance gates. These are unimplemented requirements. Existing account/warehouse browser separation is not complete cloud multitenancy; future owners and supervisors are Admin only within their own company.
+
 ## Operating flow
 
 1. Pick / Put reserves the full planned quantity atomically, without taking a light or cell turn.
