@@ -178,3 +178,87 @@ test('HTTP mutations recheck the session after the entire body arrives',async()=
  const before=live.prepare('SELECT COUNT(*) n FROM tasks').get().n;await requestHandler(request,response);
  assert.equal(response.status,401);assert.equal(live.prepare('SELECT COUNT(*) n FROM tasks').get().n,before);db.close();
 });
+
+test('structured attribution preserves original reporter and restricts operator impersonation',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock,create}=await fixture();stock(cells[0],5);
+ db.prepare("INSERT INTO users(name,username,password_hash,role,status,created_at) VALUES('Former worker','former','disabled','operator','inactive',?)").run(new Date().toISOString());
+ const former=db.prepare("SELECT id FROM users WHERE username='former'").get();
+ const manual={direction:'put',productId:p.id,cellId:cells[0].id,quantity:1,unit:p.unit_of_measure,origin:'attribution'};
+ assert.throws(()=>cmd(op,'manual',{...manual,performerId:admin.id}),/own performance/);
+ assert.throws(()=>cmd(op,'manual',{...manual,performerId:'unknown'}),/own performance/);
+ assert.throws(()=>cmd(admin,'manual',{...manual,performerId:99999}),/existing performer/);
+ const received=cmd(op,'manual',manual);
+ assert.throws(()=>cmd(op,'resolve',{reportId:received.reportId,quantity:1,verification:'not authorized'}),/Admin/);
+ const result=cmd(admin,'resolve',{reportId:received.reportId,quantity:1,performerId:former.id,verification:'Dated slip identifies former worker'});
+ const original=db.prepare('SELECT * FROM work_reports WHERE id=?').get(received.reportId),verified=db.prepare('SELECT * FROM work_reports WHERE id=?').get(result.reportId);
+ assert.equal(original.reporter_id,op.id);assert.equal(original.performer_id,op.id);assert.equal(original.resolver_id,admin.id);
+ assert.equal(verified.performer_id,former.id);assert.equal(verified.reporter_id,admin.id);
+ assert.equal(db.prepare('SELECT performed_by FROM transactions WHERE origin_ref=?').get('attribution').performed_by,former.id);
+ const l=w.task(op,create(op,'pick',1).taskId).lines[0];
+ const recovery=cmd(admin,'report',{lineId:l.id,revision:l.revision,cellId:l.cell_id,unit:l.unit_of_measure,quantity:1,manual:true,performerId:'unknown'});
+ const settled=cmd(admin,'resolve',{reportId:recovery.reportId,quantity:1,performerId:'unknown',verification:'Movement verified, person unknown'});
+ assert.equal(db.prepare('SELECT performer_id FROM work_reports WHERE id=?').get(settled.reportId).performer_id,null);
+ assert.equal(db.prepare('SELECT performed_by FROM transactions WHERE task_line_id=?').get(l.id).performed_by,null);
+ assert.ok(w.snapshot(admin).performers.some(u=>u.id===former.id&&u.status==='inactive'));
+ assert.deepEqual(w.snapshot(op).performers,[]);db.close();
+});
+
+test('historical manual reports verify fractional accounting quantities and retain origin deduplication',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock}=await fixture();stock(cells[0],4);
+ const {previewProductUnitConversion,applyProductUnitConversion}=await import('../src/services/unit-conversions.js');
+ db.prepare("UPDATE products SET unit_of_measure='boxes' WHERE id=?").run(p.id);
+ const input={actor:admin,productId:p.id,targetUnit:'pieces',factor:2.5,precision:2};const preview=previewProductUnitConversion(db,input);applyProductUnitConversion(db,{...input,previewToken:preview.token});
+ const report={direction:'put',productId:p.id,cellId:cells[0].id,quantity:0.5,unit:'boxes',occurredAt:'2020-01-01T00:00:00.000Z',origin:'old-slip'};
+ const r=cmd(op,'manual',report);const pending=w.snapshot(admin).pending.find(x=>x.id===r.reportId);
+ assert.equal(pending.accounting.quantity,1.25);assert.equal(pending.accounting.unit,'pieces');
+ const resolution={reportId:r.reportId,quantity:0.5,accountingQuantity:1.25,accountingUnit:'pieces',verification:'Original half box and pack size checked',requestId:randomUUID()};
+ assert.throws(()=>cmd(admin,'resolve',{...resolution,accountingQuantity:1}),/Recorded conversion/);
+ const result=w.command(admin,'resolve',resolution);assert.equal(result.status,'recorded');assert.equal(w.command(admin,'resolve',resolution).replayed,true);
+ const recorded=db.prepare('SELECT * FROM work_reports WHERE id=?').get(result.reportId);assert.equal(recorded.quantity,0.5);assert.equal(recorded.unit,'boxes');assert.equal(recorded.accounting_quantity,1.25);assert.match(recorded.conversion_evidence,/factor 2.5/);
+ const duplicate=cmd(op,'manual',report);assert.equal(cmd(admin,'resolve',{...resolution,requestId:randomUUID(),reportId:duplicate.reportId}).duplicate,true);
+ const currentDuplicate=cmd(op,'manual',{...report,unit:'pieces',quantity:1.25});assert.equal(cmd(admin,'resolve',{reportId:currentDuplicate.reportId,quantity:1.25,verification:'Same slip in current units'}).duplicate,true);
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM transactions WHERE origin_ref='old-slip'").get().n,1);
+ assert.equal(db.prepare('SELECT available_quantity q FROM inventory_balances WHERE cell_id=?').get(cells[0].id).q,11.25);db.close();
+});
+
+test('unsupported historical mapping can be resolved only with explicit quantity and provenance',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock}=await fixture();stock(cells[0],2);
+ const r=cmd(op,'manual',{direction:'pick',productId:p.id,cellId:cells[0].id,quantity:0.25,unit:'unrecorded cartons',origin:'unsupported-slip'});
+ assert.equal(w.snapshot(admin).pending.find(x=>x.id===r.reportId).accounting.available,false);
+ const input={reportId:r.reportId,quantity:0.25,accountingQuantity:1.125,accountingUnit:p.unit_of_measure,verification:'Original movement checked'};
+ assert.throws(()=>cmd(admin,'resolve',input),/evidence/);
+ assert.throws(()=>cmd(admin,'resolve',{...input,accountingQuantity:1.1234567,conversionProvenance:'Counted'}),/six decimal/);
+ const result=cmd(admin,'resolve',{...input,conversionProvenance:'Opened original pack and verified fractional current-unit quantity'});
+ assert.equal(result.status,'recorded');assert.equal(db.prepare('SELECT available_quantity q FROM inventory_balances WHERE cell_id=?').get(cells[0].id).q,0.875);
+ assert.equal(db.prepare('SELECT quantity,unit FROM work_reports WHERE id=?').get(r.reportId).unit,'unrecorded cartons');db.close();
+});
+
+test('legacy HTTP actual forms retain explicit old-cell reports, reject defaults and enforce ownership',async()=>{
+ const {db,op,admin}=await fixture();process.env.NO_SERVER_LISTEN='1';
+ const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
+ const {requestHandler}=await import('../src/server.js');const {createSessionCookie}=await import('../src/services/auth.js');const {Readable}=await import('node:stream');
+ const state=getAppState(),live=state.db,w=state.operationsService;
+ const command=(actor,action,input)=>w.command(actor,action,{requestId:randomUUID(),...input});
+ const task=command(op,'create',{direction:'put',productId:1,quantity:1}),old=w.task(op,task.taskId).lines[0];
+ command(op,'replan',{lineId:old.id,revision:old.revision,cellId:old.cell_id,quantity:2});
+ async function submit(actor,form){const request=Readable.from([Buffer.from(new URLSearchParams(form).toString())]);Object.assign(request,{method:'POST',url:`/tasks/${task.taskId}/confirm`,headers:{host:'localhost',accept:'application/json',cookie:createSessionCookie(actor).split(';')[0],'content-type':'application/x-www-form-urlencoded'}});const response={writeHead(status,headers){this.status=status;this.headers=headers;},end(body){this.body=body;}};await requestHandler(request,response);return response;}
+ assert.equal((await submit(op,{})).status,400);
+ const before=live.prepare('SELECT COUNT(*) n FROM transactions').get().n;
+ const form={['actual_'+old.id]:'0.5',note:'Old cell screen'};const first=await submit(op,form);assert.equal(first.status,302,first.body);const retry=await submit(op,form);assert.equal(retry.status,302,retry.body);
+ const reports=live.prepare("SELECT * FROM work_reports WHERE line_id=? AND origin_ref NOT LIKE 'attention:%'").all(old.id);assert.equal(reports.length,1);assert.equal(reports[0].quantity,0.5);assert.equal(reports[0].status,'review');
+ assert.equal(live.prepare('SELECT COUNT(*) n FROM transactions').get().n,before);
+ live.prepare("INSERT INTO users(name,username,password_hash,role,status,created_at) VALUES('Other','other-route','x','operator','active',?)").run(new Date().toISOString());const other=live.prepare("SELECT * FROM users WHERE username='other-route'").get();
+ assert.equal((await submit(other,form)).status,400);assert.equal((await submit(op,{['actual_'+old.id]:''})).status,400);
+ command(admin,'resolve',{reportId:reports[0].id,quantity:0.5,verification:'Old instruction verified'});
+ assert.equal(w.task(op,task.taskId).lines.find(l=>l.id!==old.id).reserved,2);db.close();
+});
+
+
+test('warehouse identity is enforced for fresh and replayed receipts',async()=>{
+ const {db,w,op,p,cells}=await fixture();const input={requestId:randomUUID(),site:w.identity().site,direction:'put',productId:p.id,cellId:cells[0].id,quantity:1,origin:'warehouse-check'};
+ w.command(op,'manual',input);
+ db.prepare("UPDATE app_metadata SET value='different-warehouse' WHERE key='warehouse_identity'").run();
+ assert.throws(()=>w.command(op,'manual',input),/another warehouse/);
+ assert.throws(()=>w.command(op,'manual',{...input,requestId:randomUUID()}),/another warehouse/);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM work_reports').get().n,1);db.close();
+});

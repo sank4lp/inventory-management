@@ -67,6 +67,9 @@ export function migrateOperations(db) {
     );
   `);
   add("work_reports", "quantity_known", "INTEGER NOT NULL DEFAULT 1");
+  add("work_reports", "accounting_quantity", "REAL");
+  add("work_reports", "accounting_unit", "TEXT");
+  add("work_reports", "conversion_evidence", "TEXT");
   db.exec(`CREATE TRIGGER IF NOT EXISTS revoke_user_sessions AFTER UPDATE OF status ON users
     WHEN OLD.status != NEW.status BEGIN UPDATE users SET session_version=session_version+1 WHERE id=NEW.id; END;`);
   db.exec(`CREATE TRIGGER IF NOT EXISTS work_label_new AFTER INSERT ON cells WHEN NEW.label_id IS NULL

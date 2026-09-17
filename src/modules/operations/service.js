@@ -98,6 +98,25 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       origin_ref,performed_by,reason,unit_of_measure,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(type, productId, cellId, quantity, actor.id, taskId, lineId, origin, performer || null, reason, unit, now());
   }
+  function performerFor(actor, input, fallback = null) {
+    if (actor.role !== 'admin') {
+      if (Object.hasOwn(input, 'performerId') && String(input.performerId) !== String(actor.id)) throw new Error('Operators can report only their own performance. Ask an admin to attribute somebody else’s work.');
+      return actor.id;
+    }
+    const id = Object.hasOwn(input, 'performerId') ? input.performerId : fallback;
+    if (id === '' || id == null || id === 'unknown') return null;
+    const person = db.prepare('SELECT id FROM users WHERE id=?').get(Number(id));
+    if (!person) throw new Error('Choose an existing performer or Unknown / unverified.');
+    return person.id;
+  }
+  function manualAccounting(report, quantity = report.quantity) {
+    const unit = db.prepare('SELECT unit_of_measure FROM products WHERE id=?').get(report.product_id).unit_of_measure;
+    try {
+      const factor = historicalFactor(db, report.product_id, report.unit, report.occurred_at || report.created_at);
+      const accountingQuantity = workQuantity(quantity * factor);
+      return { unit, factor, quantity: accountingQuantity, available: true, evidence: `Recorded conversion history from ${report.unit} to ${unit}; factor ${factor}; movement time ${report.occurred_at || report.created_at}` };
+    } catch (error) { return { unit, available: false, reason: error.message }; }
+  }
   function insertReport(actor, input, allocation = null) {
     const product = db.prepare("SELECT * FROM products WHERE id=?").get(Number(input.productId ?? allocation?.product_id));
     const cell = db.prepare("SELECT * FROM cells WHERE id=?").get(Number(input.cellId ?? allocation?.cell_id));
@@ -112,7 +131,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       reporter_id,status,reason,payload,occurred_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,'received',?,?,?,?)`)
       .run(reportId, origin, allocation?.id || null, product.id, cell.id, direction, quantity,
         input.unit || allocation?.unit_of_measure || product.unit_of_measure,
-        allocation?.created_by || (actor.role === "admin" ? (Number(input.performerId) || null) : actor.id),
+        performerFor(actor, input, allocation?.created_by),
         actor.id, input.reason || null, JSON.stringify(input), input.occurredAt || null, now());
     if(input.unknown) db.prepare("UPDATE work_reports SET quantity_known=0 WHERE id=?").run(reportId);
     return db.prepare("SELECT * FROM work_reports WHERE id=?").get(reportId);
@@ -138,7 +157,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { status: "recorded", reportId: already.report_id, duplicate: true, message: "This allocation was already recorded." };
       }
       if(supervisor && report.cell_id===allocation.cell_id && report.unit===allocation.unit_of_measure) {
-        const result=correct(actor,{lineId:allocation.id,revision:allocation.revision,quantity:report.quantity,verification,requestId:report.id},true);
+        const result=correct(actor,{lineId:allocation.id,revision:allocation.revision,quantity:report.quantity,verification,requestId:report.id,performerId:report.performer_id},true);
         if(result.status==='recorded') {
           db.prepare("UPDATE work_reports SET status='posted',resolved_at=?,resolver_id=?,verification=? WHERE id=?").run(now(),actor.id,verification,report.id);
           event('late_report_reconciled',actor,allocation.id,{verification},report.id);
@@ -167,7 +186,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       if (excess > 1e-9 && !supervisor) return review(report, "Actual put exceeds unreserved capacity. An admin must verify the report.");
       if (excess > 1e-9) markDiscrepancy(report.cell_id, report.product_id, `Capacity exceeded by ${excess} ${report.unit}; physical report verified by admin.`);
     }
-    if(!originPosted) movement({ actor, performer: allocation.created_by, productId: report.product_id, cellId: report.cell_id,
+    if(!originPosted) movement({ actor, performer: report.performer_id, productId: report.product_id, cellId: report.cell_id,
       quantity: allocation.type === "pick" ? -qty : qty, type: allocation.type, taskId: allocation.task_id,
       lineId: allocation.id, origin: report.origin_ref, reason: verification || report.reason || "Operator actual confirmation", unit: report.unit });
     db.prepare("INSERT INTO work_settlements(line_id,report_id,quantity,cell_id,unit,created_at) VALUES(?,?,?,?,?,?)")
@@ -270,8 +289,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const quantity = workQuantity(input.quantity);
     // Preserve the original report; supervisor's verified actual is a separate report.
     const verified = insertReport(actor, { ...JSON.parse(report.payload), productId: report.product_id, cellId: report.cell_id,
-      direction: report.direction, unit: report.unit, quantity, unknown:false, origin: report.origin_ref, reason: verification,
-      performerId: input.performerId || report.performer_id }, report.line_id ? line(report.line_id) : null);
+      direction: report.direction, unit: report.unit, quantity, occurredAt:report.occurred_at || report.created_at, unknown:false, origin: report.origin_ref, reason: verification,
+      performerId: Object.hasOwn(input, "performerId") ? input.performerId : report.performer_id }, report.line_id ? line(report.line_id) : null);
     let result;
     if (report.direction === "count") {
       db.prepare("UPDATE work_reports SET status='resolved',resolver_id=?,resolved_at=?,verification=? WHERE id IN (?,?)").run(actor.id,now(),verification,report.id,verified.id);
@@ -279,7 +298,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       return {status:"recorded",message:"Count observation reviewed. No stock balance was replaced. Record any separately verified movement or correction with its own evidence."};
     }
     if (report.line_id) result = settle(actor, verified, line(report.line_id), true, verification);
-    else result = postManual(actor, verified, verification);
+    else result = postManual(actor, verified, verification, input);
     if (result.status === "recorded") {
       db.prepare("UPDATE work_reports SET status='resolved',resolver_id=?,resolved_at=?,verification=? WHERE id=?").run(actor.id, now(), verification, report.id);
       if (report.line_id) {
@@ -289,25 +308,41 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     }
     return result;
   }
-  function postManual(actor, report, verification) {
+  function postManual(actor, report, verification, input) {
+    const mapping = manualAccounting(report);
     const existing = db.prepare("SELECT r.* FROM work_origins o JOIN work_reports r ON r.id=o.report_id WHERE o.origin_ref=?").get(report.origin_ref);
     if (existing) {
-      if (existing.quantity === report.quantity && existing.product_id === report.product_id && existing.cell_id === report.cell_id && existing.direction === report.direction && existing.unit === report.unit) {
-        db.prepare("UPDATE work_reports SET status='duplicate',resolved_at=? WHERE id=?").run(now(), report.id);
-        return { status: "recorded", duplicate: true, reportId: existing.id, message: "This movement reference was already recorded." };
+      const sameMovement = existing.product_id===report.product_id && existing.cell_id===report.cell_id && existing.direction===report.direction;
+      const sameOriginal = existing.quantity===report.quantity && existing.unit===report.unit;
+      const sameAccounting = existing.accounting_unit===report.unit && existing.accounting_quantity===report.quantity;
+      if (sameMovement && (sameOriginal || sameAccounting)) {
+        db.prepare("UPDATE work_reports SET status='duplicate',resolved_at=?,resolver_id=?,verification=? WHERE id=?").run(now(),actor.id,verification,report.id);
+        return {status:'recorded',duplicate:true,reportId:existing.id,message:'This movement reference was already recorded.'};
       }
-      return review(report, "This movement reference was already posted with different details. Verify whether this is a correction or another physical movement.");
+      return review(report, 'This movement reference was already posted with different details. Verify whether this is a correction or another physical movement.');
     }
-    const product = db.prepare("SELECT * FROM products WHERE id=?").get(report.product_id);
-    if (report.unit !== product.unit_of_measure) return review(report, "Reported historical unit differs from the current unit. Preserve this report and reconcile the conversion explicitly.");
+    let quantity = mapping.quantity, evidence = mapping.evidence;
+    if (report.unit !== mapping.unit || !mapping.available) {
+      quantity = workQuantity(input.accountingQuantity);
+      if (input.accountingUnit !== mapping.unit) throw new Error('The accounting unit changed. Refresh and verify the current-unit quantity.');
+      if (mapping.available) {
+        if (quantity !== mapping.quantity) throw new Error(`Recorded conversion gives ${mapping.quantity} ${mapping.unit}. Verify that exact accounting quantity.`);
+      } else {
+        const provenance = String(input.conversionProvenance || '').trim();
+        if (!provenance) throw new Error('Conversion history is unavailable or exceeds supported precision. Enter a verified current-unit quantity and its evidence; no factor will be guessed.');
+        evidence = `Supervisor established ${quantity} ${mapping.unit} for original ${report.quantity} ${report.unit}: ${provenance}`;
+      }
+    }
+    const product = db.prepare('SELECT * FROM products WHERE id=?').get(report.product_id);
     const onHand = balance(report.product_id, report.cell_id);
-    if (report.direction === "pick" && report.quantity > onHand) markDiscrepancy(report.cell_id,report.product_id,"Verified manual pick exceeds book stock. Full actual recorded; reconcile missing movements.");
-    const delta = report.direction === "pick" ? -report.quantity : report.quantity;
-    movement({ actor, performer: report.performer_id, productId: report.product_id, cellId: report.cell_id,
-      quantity: delta, type: report.direction, origin: report.origin_ref, reason: verification, unit: report.unit });
-    if (report.direction === "pick" && onHand + delta < held(report.cell_id, report.product_id, "pick")) markDiscrepancy(report.cell_id, report.product_id, "Verified manual pick left outstanding reservations short. Existing claims were not silently reduced.");
-    if (report.direction === "put" && !compatible(report.cell_id,report.product_id)) markDiscrepancy(report.cell_id,report.product_id,"Verified manual movement left mixed products in this location.");
-    if (report.direction === "put" && occupancy(report.cell_id) + held(report.cell_id, null, "put") > product.items_per_cell) markDiscrepancy(report.cell_id, report.product_id, "Verified manual put exceeds planned capacity. Review the location.");
+    if (report.direction === 'pick' && quantity > onHand) markDiscrepancy(report.cell_id,report.product_id,'Verified manual pick exceeds book stock. Full actual recorded; reconcile missing movements.');
+    const delta = report.direction === 'pick' ? -quantity : quantity;
+    movement({actor,performer:report.performer_id,productId:report.product_id,cellId:report.cell_id,quantity:delta,type:report.direction,origin:report.origin_ref,reason:verification,unit:mapping.unit});
+    db.prepare('UPDATE work_reports SET accounting_quantity=?,accounting_unit=?,conversion_evidence=? WHERE id=?').run(quantity,mapping.unit,evidence,report.id);
+    if (report.direction==='pick' && onHand+delta<held(report.cell_id,report.product_id,'pick')) markDiscrepancy(report.cell_id,report.product_id,'Verified manual pick left outstanding reservations short. Existing claims were not silently reduced.');
+    if (report.direction==='put' && !compatible(report.cell_id,report.product_id)) markDiscrepancy(report.cell_id,report.product_id,'Verified manual movement left mixed products in this location.');
+    if (report.direction==='put' && occupancy(report.cell_id)+held(report.cell_id,null,'put')>product.items_per_cell) markDiscrepancy(report.cell_id,report.product_id,'Verified manual put exceeds planned capacity. Review the location.');
+    event('manual_quantity_verified',actor,null,{originalQuantity:report.quantity,originalUnit:report.unit,accountingQuantity:quantity,accountingUnit:mapping.unit,evidence,performerId:report.performer_id},report.id);
     db.prepare("INSERT INTO work_origins(origin_ref,report_id) VALUES(?,?)").run(report.origin_ref, report.id);
     db.prepare("UPDATE work_reports SET status='posted',resolved_at=?,resolver_id=?,verification=? WHERE id=?").run(now(), actor.id, verification, report.id);
     event("manual_movement_recorded", actor, null, { quantity: report.quantity, direction: report.direction, verification }, report.id);
@@ -335,7 +370,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const overflow=delta>0 && occupancy(allocation.cell_id)+held(allocation.cell_id,null,'put')+delta>allocation.items_per_cell;
     if((shortage||overflow)&&!verified) return review(insertReport(actor,{...input,unit:allocation.unit_of_measure,cellId:allocation.cell_id,quantity,reason:verification,correction:true},allocation),'Proposed correction conflicts with stock or reservations. The full proposal is retained for supervisor verification.');
     if(shortage||overflow) markDiscrepancy(allocation.cell_id,allocation.product_id,'Supervisor verified a correction that leaves a stock/capacity discrepancy. Existing reservations remain intact.');
-    movement({ actor, performer: allocation.created_by, productId: allocation.product_id, cellId: allocation.cell_id,
+    movement({ actor, performer: verified ? performerFor(actor,input) : (db.prepare("SELECT performer_id FROM work_reports WHERE id=(SELECT report_id FROM work_settlements WHERE line_id=?)").get(allocation.id)?.performer_id ?? null), productId: allocation.product_id, cellId: allocation.cell_id,
       quantity: delta, type: "adjustment", taskId: allocation.task_id, lineId: allocation.id,
       origin: `correction:${input.requestId}`, reason: verification, unit: allocation.current_unit });
     db.prepare("UPDATE task_lines SET actual_quantity=?,exception_quantity=?,revision=revision+1 WHERE id=?").run(quantity, Math.max(0, allocation.planned_quantity - quantity), allocation.id);
@@ -392,12 +427,12 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const fingerprint = createHash("sha256").update(canonical({ action, input })).digest("hex");
     const result = withTransaction(db, () => {
       const current = actorNow(actor);
+      if (input.site && input.site !== identity().site) throw new Error("This report belongs to another warehouse.");
       const receipt = db.prepare("SELECT * FROM operation_receipts WHERE actor_id=? AND request_id=?").get(current.id, id);
       if (receipt) {
         if (receipt.fingerprint !== fingerprint) throw new Error("This request was already submitted with different details. Retrieve its result before changing the report.");
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
-      if (input.site && input.site !== identity().site) throw new Error("This report belongs to another warehouse.");
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
       const value = actions[action](current, input);
       db.prepare("INSERT INTO operation_receipts(actor_id,request_id,fingerprint,result_json,created_at) VALUES(?,?,?,?,?)")
@@ -451,7 +486,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       FROM work_reports r JOIN products p ON p.id=r.product_id JOIN cells c ON c.id=r.cell_id
       LEFT JOIN users u ON u.id=r.performer_id JOIN users reporter ON reporter.id=r.reporter_id
       LEFT JOIN task_lines l ON l.id=r.line_id WHERE r.status IN ('review','received') ORDER BY r.created_at`).all() : [];
-    return { ...identity(), user: current, reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(current.role,current.id,current.id), tasks: mine.map(t => task(current, t.id)), products, cells, pending, generatedAt: now(),
+    return { ...identity(), user: current, performers: current.role==='admin' ? db.prepare('SELECT id,name,username,status FROM users ORDER BY name').all() : [], reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(current.role,current.id,current.id), tasks: mine.map(t => task(current, t.id)), products, cells, pending:pending.map(r=>({...r,accounting:!r.line_id && r.direction!=='count' ? manualAccounting(r) : null})), generatedAt: now(),
       discrepancies: db.prepare("SELECT d.*,c.logical_code,p.name AS product_name FROM work_discrepancies d JOIN cells c ON c.id=d.cell_id JOIN products p ON p.id=d.product_id").all() };
   }
   function flagInactivity({ at = new Date(), timeoutMs = 5 * 60000 } = {}) {

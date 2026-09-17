@@ -18,7 +18,7 @@ The public offline shell and own cached work use a service worker and IndexedDB.
 
 During a disconnect, continue only known preallocated work under the warehouse's manual procedure. No new exclusive turn is granted offline. Unreserved work can be recorded as a provisional completed-movement report. Reconnect, return to the app, or press Send saved reports / refresh. Do not repeat the physical movement. If device storage fails, the interface does not claim that a report was saved.
 
-All unresolved situations go to Pending confirmations. Restart and inactivity preserve reservations and create verification cases; they never silently cancel or assume zero. Admin enters a verified actual, records how it was verified, or keeps the case open. Known performer, reporter, resolver, source reference and original reports remain separate evidence. A later conflicting phone report becomes a review case and can be reconciled as a net correction without posting the movement twice.
+All unresolved situations go to Pending confirmations. Restart and inactivity preserve reservations and create verification cases; they never silently cancel or assume zero. Admin enters a verified actual, records how it was verified, or keeps the case open. Admin selects a verified performer from existing accounts (including inactive historical accounts), or explicitly leaves the performer unknown. Operators can report only their own performance. Known performer, authenticated reporter, resolver, source reference and original reports remain separate evidence; a supervisor verification creates a new report without relabeling the original. A later conflicting phone report becomes a review case and can be reconciled as a net correction without posting the movement twice.
 
 A dead phone can be replaced to view the task and report known work; a new device cannot simply take over an uncertain exclusive turn. Admin resolves its prefilled allocation. A count while work continues is an observation, not a balance replacement. Review the movement history before making a separately verified correction. Verified actuals that exceed book stock or capacity remain visible as discrepancies; other reservations are not silently reduced.
 
@@ -27,6 +27,8 @@ For work that begins without any usable device, use a numbered movement slip:
 | Original reference | Time | Performer (or unknown) | Pick / put / count | Product | Cell | Actual quantity + unit | Notes |
 |---|---|---|---|---|---|---|---|
 | | | | | | | | |
+
+For an older unreserved movement, enter its original unit and time. The supervisor sees the recorded conversion factor and explicitly verifies the current-unit accounting quantity. If reliable conversion history is unavailable or exceeds supported precision, the supervisor must establish the current-unit quantity from evidence and record its provenance. Original quantities, units and references remain intact. Quantities support up to six decimal places; verified shortages retain other claims and create discrepancies.
 
 Enter the **same original reference** in Record completed movement when a device is available. Existing references prevent repeat posting. Ordinary phone disconnections do not require slips.
 
@@ -65,8 +67,13 @@ For disaster recovery: stop the service and hardware writer, preserve the curren
 
 ## Validation boundary
 
-All 105 automated tests pass. They cover reservations, per-cell actuals, duplicate/lost-response retry, first-arrival locking, shared cells, partial redistribution, supervisor shortages, stale plans, restart, account revocation, unit-aware/net corrections, transaction rollback, ledger reporting, QR encoding/decoding and hardware command guards.
+All 110 automated tests pass. They cover reservations, per-cell actuals, duplicate/lost-response retry, first-arrival locking, shared cells, partial redistribution, supervisor shortages, stale plans, restart, account revocation, unit-aware/net corrections, transaction rollback, ledger reporting, QR encoding/decoding and hardware command guards.
 
 An isolated simulator preview was exercised with two separate operator browser sessions and an Admin session. Browser checks included typed location arrival, busy feedback, partial actual, server outage, saved queue surviving offline reload, supervisor resolution, explicit zero, keep-pending and put replanning. Rendered mobile (320 and 390 px) and desktop (1440 px) screens were inspected.
 
 Real phone camera scanning, iPhone/Android home-screen installation, warehouse roaming, real RS485 delivery and physical power-loss behavior still require site acceptance. QR decoder round-trip and typed-code tests are not camera tests.
+
+
+Additional recovery validation covered fractional historical-unit manual reports, unsupported mappings with explicit provenance, immutable original attribution, inactive performers, operator impersonation rejection, stale compatibility HTTP forms and wrong-warehouse receipt replay. Browser testing kept a saved report pending across a warehouse-identity change and same-browser account switch, then recovered it under the originating account and warehouse. A rendered supervisor flow verified the original and accounting quantities and selected performer.
+
+Retained mobile screens checked include product search/detail/settings, location search/detail, reports and time filters, configuration/controller health/location management, admin settings and task detail/correction access. Demo-only product capacity, location rename, timeout save and simulator health actions succeeded. Operator navigation and reports/location/own-task access were checked separately. A catalog grid overflow was corrected; wide data tables remain contained horizontal scrollers. These are browser checks, not physical phone installation/camera or controller acceptance.
