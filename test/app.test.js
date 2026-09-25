@@ -873,8 +873,16 @@ test("profile page shows account details and activity summary", async () => {
 
   assert.match(html, /href="\/profile"/);
   assert.match(html, /data-nav-links/);
-  assert.match(html, /data-nav-overflow-toggle/);
-  assert.match(html, /data-nav-overflow-menu/);
+  assert.doesNotMatch(html, /<summary[^>]*>(?:(?!<\/summary>)[\s\S])*<a\b/);
+  assert.match(html, /aria-label="Overview shortcuts"/);
+  const operatorHtml = pages.renderProfile(operator, null);
+  const operatorNav = operatorHtml.split('aria-label="Dashboard sections"')[1].split('</nav>')[0];
+  const primaryNav = operatorNav.split('<details class="side-nav-more"')[0];
+  assert.deepEqual([...primaryNav.matchAll(/href="([^"]+)"/g)].map((match) => match[1]), ['/work', '/pick', '/put']);
+  for (const href of ['/products', '/cells', '/reports', '/profile', '/record-movement', '/movement-history', '/labels']) {
+    assert.ok(operatorNav.includes(`href="${href}"`), `${href} remains available to operators`);
+  }
+  assert.ok(!operatorNav.includes('href="/admin"'));
   assert.match(html, /Signed In As/);
   assert.match(html, /System Admin/);
   assert.match(html, /admin/);

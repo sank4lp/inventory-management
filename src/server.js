@@ -606,7 +606,7 @@ export const requestHandler = async (request, response) => {
         userId: signedInUser.id,
         username: signedInUser.username,
       });
-      sendRedirect(response, appendFlash("/", "Signed in successfully.", "success"), {
+      sendRedirect(response, appendFlash(signedInUser.role === "admin" ? "/" : "/work", "Signed in successfully.", "success"), {
         "Set-Cookie": createSessionCookie(signedInUser),
       });
       return;

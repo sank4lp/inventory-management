@@ -238,75 +238,51 @@ function nav(user, currentTitle = "") {
   const isItemActive = (item) =>
     (item.active || [item.label]).some((label) => activeTitle.includes(label.toLowerCase()));
 
+  const renderItem = (item) => {
+    const active = isItemActive(item);
+    const link = `<a class="side-nav-direct ${active ? "nav-link-active" : ""}" href="${item.href}" ${active ? 'aria-current="page"' : ''}>
+      ${iconSvg(item.icon, "nav-icon")}<span>${escapeHtml(item.label)}</span></a>`;
+    if (!item.links) return link;
+    return `<div class="side-nav-item">${link}
+      <details class="side-nav-group">
+        <summary class="side-nav-summary" aria-label="${escapeHtml(item.label)} shortcuts">${iconSvg("chevronDown", "nav-icon side-nav-chevron")}</summary>
+        <div class="side-nav-sublist">${item.links.map(([href, label]) => `<a class="side-nav-link" href="${href}">${escapeHtml(label)}</a>`).join("")}</div>
+      </details></div>`;
+  };
+  const allowed = navItems.filter((item) => !item.adminOnly || user.role === "admin");
+  const primary = allowed.filter((item) => ["/work", "/pick", "/put"].includes(item.href));
+  const secondary = allowed.filter((item) => !primary.includes(item));
+  const workTools = [
+    {href:'/record-movement', label:'Record completed movement', icon:'pick'},
+    {href:'/movement-history', label:'Movement history', icon:'reports'},
+    {href:'/labels', label:'Location labels', icon:'locations'},
+  ];
+  const operator = user.role !== "admin";
+  const navigation = operator
+    ? `${primary.map((item) => renderItem({...item, links: null})).join("")}
+      <details class="side-nav-more" ${[...secondary, ...workTools].some(isItemActive) ? "open" : ""}>
+        <summary class="side-nav-summary">More tools ${iconSvg("chevronDown", "nav-icon")}</summary>
+        <div class="side-nav-more-content">${secondary.map(renderItem).join("")}
+          ${workTools.map(renderItem).join("")}
+        </div>
+      </details>`
+    : allowed.map(renderItem).join("");
+
   return `
     <aside class="dashboard-sidebar" aria-label="Dashboard navigation">
       <div class="dashboard-sidebar-inner">
-        <a class="brand dashboard-brand" href="/" aria-label="LytGuide IMS overview">
-          <img
-            class="brand-logo brand-logo-horizontal"
-            src="/brand/lytguide-logo-horizontal.svg"
-            alt="LytGuide IMS"
-            width="420"
-            height="112"
-          />
+        <a class="brand dashboard-brand" href="${operator ? "/work" : "/"}" aria-label="LytGuide IMS ${operator ? "My work" : "overview"}">
+          <img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112" />
         </a>
-        <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav">Menu · all functions</button>
+        <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav" hidden>Menu</button>
         <div class="session-box sidebar-session-box">
           <a class="session-identity sidebar-session-identity" href="/profile" aria-label="Open profile for ${escapeHtml(user.name)}">
             <span class="session-avatar">${escapeHtml(user.name.charAt(0).toUpperCase())}</span>
-            <div class="session-copy">
-              <div class="session-name">${escapeHtml(user.name)}</div>
-              <div class="session-role">${escapeHtml(user.role)}</div>
-            </div>
+            <div class="session-copy"><div class="session-name">${escapeHtml(user.name)}</div><div class="session-role">${escapeHtml(user.role)}</div></div>
           </a>
         </div>
-        <nav id="warehouse-main-nav" class="side-nav" aria-label="Dashboard sections" data-nav-links>
-          <button type="button" data-nav-overflow-toggle hidden aria-hidden="true" tabindex="-1"></button>
-          <div data-nav-overflow-menu hidden aria-hidden="true"></div>
-          ${navItems
-            .filter((item) => !item.adminOnly || user.role === "admin")
-            .map((item) => {
-              const active = isItemActive(item);
-              if (item.href && !item.links) {
-                return `
-                  <a class="side-nav-direct ${active ? "nav-link-active" : ""}" href="${item.href}">
-                    ${iconSvg(item.icon, "nav-icon")}
-                    <span>${escapeHtml(item.label)}</span>
-                  </a>
-                `;
-              }
-              return `
-                <details class="side-nav-group ${active ? "side-nav-group-active" : ""}" ${active ? "open" : ""}>
-                  <summary class="side-nav-summary">
-                    <span class="side-nav-summary-label">
-                      <a class="side-nav-parent-link" href="${item.href}">
-                        ${iconSvg(item.icon, "nav-icon")}
-                        <span>${escapeHtml(item.label)}</span>
-                      </a>
-                    </span>
-                    ${iconSvg("chevronDown", "nav-icon side-nav-chevron")}
-                  </summary>
-                  <div class="side-nav-sublist">
-                    ${item.links
-                      .map(
-                        ([href, label]) => `
-                          <a class="side-nav-link" href="${href}">
-                            <span>${escapeHtml(label)}</span>
-                          </a>
-                        `,
-                      )
-                      .join("")}
-                  </div>
-                </details>
-              `;
-            })
-            .join("")}
-        </nav>
-        <div class="sidebar-footer">
-          <form method="post" action="/logout">
-            <button class="ghost-button sidebar-logout" type="submit">Logout</button>
-          </form>
-        </div>
+        <nav id="warehouse-main-nav" class="side-nav" aria-label="Dashboard sections" data-nav-links>${navigation}</nav>
+        <div class="sidebar-footer"><form method="post" action="/logout"><button class="ghost-button sidebar-logout" type="submit">Logout</button></form></div>
       </div>
     </aside>
   `;
