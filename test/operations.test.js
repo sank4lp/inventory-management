@@ -1,0 +1,347 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+
+test('multi-operator accounting, recovery, isolation, and durable receipts',async()=>{
+ process.chdir(mkdtempSync(join(tmpdir(),'lytguide-work-test-')));
+ const {createDatabase}=await import('../src/db.js');
+ const {hashPassword}=await import('../src/services/auth.js');
+ const {createOperationsService}=await import('../src/modules/operations/service.js');
+ let db=createDatabase({hashPassword,allowDevAuthSeeds:true,allowDemoInventorySeed:true});
+ let work=createOperationsService({db});
+ const admin=db.prepare("SELECT * FROM users WHERE role='admin' LIMIT 1").get();
+ const op=db.prepare("SELECT * FROM users WHERE role='operator' LIMIT 1").get();
+ db.prepare("INSERT INTO users(name,username,password_hash,role,status,created_at) VALUES('Second operator','second',?,'operator','active',?)").run(hashPassword('test-only'),new Date().toISOString());
+ const second=db.prepare("SELECT * FROM users WHERE username='second'").get();
+ const p=db.prepare('SELECT * FROM products LIMIT 1').get();
+ const cells=db.prepare('SELECT * FROM cells WHERE active=1 ORDER BY id LIMIT 3').all();
+ db.exec('DELETE FROM inventory_balances');
+ db.prepare('UPDATE products SET items_per_cell=20 WHERE id=?').run(p.id);
+ db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,10,0)').run(p.id,cells[0].id);
+ const cmd=(a,action,input)=>work.command(a,action,{requestId:randomUUID(),...input});
+ const create=(actor,n)=>cmd(actor,'create',{direction:'pick',productId:p.id,quantity:n});
+ const t1=create(op,4),t2=create(second,4);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0,'creation takes no turn');
+ assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances').get().n,8);
+ assert.throws(()=>create(op,3),/Not enough/);
+ let a=work.task(op,t1.taskId).lines[0],b=work.task(second,t2.taskId).lines[0];
+ assert.equal(work.task(second,t1.taskId).canAct,false,'existing read access is retained without mutation permission');
+ assert.throws(()=>cmd(second,'cancel',{lineId:a.id,revision:a.revision}),/own allocations/);
+ const arrive=(actor,l,device)=>cmd(actor,'acquire',{lineId:l.id,revision:l.revision,location:l.logical_code,deviceId:device});
+ assert.equal(arrive(second,b,'B').status,'ready','later task can arrive first');
+ assert.equal(arrive(op,a,'A').status,'busy');
+ b=work.line(b.id);
+ const input={requestId:randomUUID(),lineId:b.id,revision:b.revision,cellId:b.cell_id,unit:b.unit_of_measure,quantity:1,deviceId:'B'};
+ assert.equal(work.command(second,'report',input).status,'recorded');
+ assert.equal(work.command(second,'report',input).replayed,true);
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,9);
+ assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances').get().n,4);
+ assert.throws(()=>work.command(second,'report',{...input,quantity:2}),/different details/);
+ arrive(op,a,'A');a=work.line(a.id);
+ assert.throws(()=>cmd(op,'report',{lineId:a.id,revision:a.revision,cellId:a.cell_id,unit:a.unit_of_measure,quantity:'',deviceId:'A'}),/blank/);
+ const future=new Date(Date.now()+10*60000);
+ work.flagInactivity({at:future});
+ assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances').get().n,4,'inactivity does not release');
+ const pending=work.snapshot(admin).pending.find(r=>r.line_id===a.id);
+ assert.equal(JSON.parse(pending.payload).unknown,true);
+ const resolved=cmd(admin,'resolve',{reportId:pending.id,quantity:2,verification:'Operator confirmed actual two'});
+ assert.equal(resolved.status,'recorded');
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,7);
+ const late=cmd(op,'report',{lineId:a.id,revision:a.revision,cellId:a.cell_id,unit:a.unit_of_measure,quantity:3,deviceId:'A'});
+ assert.equal(late.status,'review');assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,7);
+ const before=db.prepare('SELECT COUNT(*) n FROM transactions').get().n;
+ const manual=cmd(op,'manual',{direction:'put',productId:p.id,cellId:cells[0].id,unit:p.unit_of_measure,quantity:1,origin:'slip-123'});
+ assert.equal(cmd(admin,'resolve',{reportId:manual.reportId,quantity:1,verification:'Original numbered slip checked'}).status,'recorded');
+ const duplicate=cmd(op,'manual',{direction:'put',productId:p.id,cellId:cells[0].id,unit:p.unit_of_measure,quantity:1,origin:'slip-123'});
+ assert.equal(cmd(admin,'resolve',{reportId:duplicate.reportId,quantity:1,verification:'Same original slip checked'}).duplicate,true);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,before+1);
+ const fresh=create(op,2);const heldBefore=db.prepare("SELECT SUM(quantity) n FROM work_reservations WHERE state='held'").get().n;
+ db.close();db=createDatabase({hashPassword,allowDevAuthSeeds:true,allowDemoInventorySeed:true});work=createOperationsService({db});
+ assert.equal(db.prepare("SELECT SUM(quantity) n FROM work_reservations WHERE state='held'").get().n,heldBefore);
+ assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances WHERE product_id=? AND cell_id=?').get(p.id,cells[0].id).n,2);
+ assert.equal(work.command(second,'report',input).replayed,true,'receipt survives restart');
+ db.prepare("UPDATE users SET status='inactive' WHERE id=?").run(op.id);
+ assert.throws(()=>create(op,1),/session/);
+ assert.ok(work.snapshot(admin).pending.length,'suspended user evidence remains visible');
+ db.prepare("UPDATE users SET status='active' WHERE id=?").run(op.id);
+ assert.throws(()=>create(op,1),/session/,'old session is still revoked');
+ db.close();
+});
+
+async function fixture(hardwareService=null){
+ process.chdir(mkdtempSync(join(tmpdir(),'lytguide-work-case-')));
+ const {createDatabase}=await import('../src/db.js');const {hashPassword}=await import('../src/services/auth.js');const {createOperationsService}=await import('../src/modules/operations/service.js');
+ const db=createDatabase({hashPassword,allowDevAuthSeeds:true,allowDemoInventorySeed:true});const w=createOperationsService({db,hardwareService});
+ const admin=db.prepare("SELECT * FROM users WHERE role='admin' LIMIT 1").get(),op=db.prepare("SELECT * FROM users WHERE role='operator' LIMIT 1").get();
+ const p=db.prepare('SELECT * FROM products LIMIT 1').get(),cells=db.prepare('SELECT * FROM cells WHERE active=1 ORDER BY id LIMIT 4').all();
+ db.exec('DELETE FROM inventory_balances');db.prepare('UPDATE products SET items_per_cell=20 WHERE id=?').run(p.id);
+ const cmd=(actor,action,input)=>w.command(actor,action,{requestId:randomUUID(),...input});
+ const stock=(cell,n)=>db.prepare('INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,?,0)').run(p.id,cell.id,n);
+ const create=(actor,type,n)=>cmd(actor,'create',{direction:type,productId:p.id,quantity:n});
+ const arrive=(actor,l,device='a')=>cmd(actor,'acquire',{lineId:l.id,revision:l.revision,location:l.logical_code,deviceId:device});
+ const report=(actor,l,n,extra={})=>cmd(actor,'report',{lineId:l.id,revision:l.revision,cellId:l.cell_id,unit:l.unit_of_measure,quantity:n,deviceId:'a',...extra});
+ return {db,w,admin,op,p,cells,cmd,stock,create,arrive,report};
+}
+test('shared cells have independent quantity holds and no exclusive lock',async()=>{
+ const f=await fixture();const {db,w,op,admin,cells,stock,cmd,create,arrive,report}=f;stock(cells[0],10);cmd(admin,'mode',{cellId:cells[0].id,mode:'shared'});
+ const a=w.task(op,create(op,'pick',3).taskId).lines[0],b=w.task(admin,create(admin,'pick',3).taskId).lines[0];
+ assert.equal(arrive(op,a).status,'ready');assert.equal(arrive(admin,b,'b').status,'ready');assert.equal(db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0);
+ assert.equal(report(op,w.line(a.id),2).status,'recorded');assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances').get().n,3);
+ assert.equal(report(admin,w.line(b.id),0,{deviceId:'b'}).status,'recorded');assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,8);db.close();
+});
+test('a conflicting A4 report leaves B independent and admin can retain other claims short',async()=>{
+ const {db,w,op,admin,cells,stock,create,arrive,report,cmd}=await fixture();stock(cells[0],3);stock(cells[1],2);
+ const t=create(op,'pick',5),[a,b]=w.task(op,t.taskId).lines;stock(cells[0],5);
+ create(admin,'pick',2); // reserve the two newly available units at A
+ arrive(op,a);assert.equal(report(op,w.line(a.id),4).status,'review');
+ arrive(op,b);assert.equal(report(op,w.line(b.id),1).status,'recorded','B is independent of review at A');
+ const pending=w.snapshot(admin).pending.find(r=>r.line_id===a.id);assert.equal(cmd(admin,'resolve',{reportId:pending.id,quantity:4,verification:'Operator verified A4 B1'}).status,'recorded');
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances WHERE cell_id=?').get(a.cell_id).n,1);
+ assert.equal(w.held(a.cell_id,a.product_id,'pick'),2,'other claim preserved');assert.equal(db.prepare('SELECT COUNT(*) n FROM work_discrepancies').get().n,1);db.close();
+});
+test('stale put plans retain their original actual without posting replacement defaults',async()=>{
+ const {db,w,op,admin,cells,create,cmd,report}=await fixture();const t=create(op,'put',5);const old=w.task(op,t.taskId).lines[0];
+ cmd(op,'replan',{lineId:old.id,revision:old.revision,cellId:cells[1].id,quantity:5});
+ const received=report(op,old,4);assert.equal(received.status,'review');assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,0);
+ assert.equal(cmd(admin,'resolve',{reportId:received.reportId,quantity:4,verification:'Old cell actual verified'}).status,'recorded');
+ const replacement=w.task(op,t.taskId).lines.find(l=>l.cell_id===cells[1].id);assert.equal(replacement.execution_state,'ready');assert.equal(replacement.reserved,5);
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances WHERE cell_id=?').get(old.cell_id).n,4);
+ assert.throws(()=>cmd(op,'correct',{lineId:replacement.id,revision:replacement.revision,quantity:1,verification:'wrong'}),/recorded allocation/);db.close();
+});
+test('unit-aware historical corrections use a net delta after later picks',async()=>{
+ const {db,w,op,admin,p,cells,create,arrive,report,cmd}=await fixture();
+ const {previewProductUnitConversion,applyProductUnitConversion}=await import('../src/services/unit-conversions.js');
+ db.prepare("UPDATE products SET unit_of_measure='boxes',items_per_cell=20 WHERE id=?").run(p.id);
+ let a=w.task(op,create(op,'put',2).taskId).lines[0];arrive(op,a);a=w.line(a.id);report(op,a,2);
+ const input={actor:admin,productId:p.id,targetUnit:'pieces',factor:25,precision:0};const preview=previewProductUnitConversion(db,input);applyProductUnitConversion(db,{...input,previewToken:preview.token});
+ a=w.line(a.id);cmd(op,'correct',{lineId:a.id,revision:a.revision,quantity:1,verification:'One box received, original entry was two'});
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances WHERE cell_id=?').get(a.cell_id).n,25);
+ const b=w.task(op,create(op,'pick',20).taskId).lines[0];arrive(op,b);report(op,w.line(b.id),20);
+ a=w.line(a.id);cmd(op,'correct',{lineId:a.id,revision:a.revision,quantity:0.9,verification:'Net historical correction'});
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances WHERE cell_id=?').get(a.cell_id).n,2.5);db.close();
+});
+test('a failed receipt insert rolls back the entire settlement',async()=>{
+ const {db,w,op,cells,stock,create,arrive,report}=await fixture();stock(cells[0],4);const a=w.task(op,create(op,'pick',2).taskId).lines[0];arrive(op,a);
+ db.exec("CREATE TRIGGER fail_receipt BEFORE INSERT ON operation_receipts BEGIN SELECT RAISE(ABORT,'injected disk failure'); END;");
+ assert.throws(()=>report(op,w.line(a.id),1),/injected disk failure/);assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,4);assert.equal(db.prepare('SELECT COUNT(*) n FROM work_settlements').get().n,0);assert.equal(db.prepare('SELECT COUNT(*) n FROM work_reports').get().n,0);db.close();
+});
+test('ledger trend includes partial tasks, manual movements and correction deltas',async()=>{
+ const {db,w,op,admin,p,cells,stock,create,arrive,report,cmd}=await fixture();stock(cells[0],2);stock(cells[1],2);
+ const t=create(op,'pick',4);const [a,b]=w.task(op,t.taskId).lines;arrive(op,a);report(op,w.line(a.id),1);
+ const manual=cmd(op,'manual',{direction:'put',productId:p.id,cellId:cells[0].id,unit:p.unit_of_measure,quantity:3,origin:'ledger-test'});
+ cmd(admin,'resolve',{reportId:manual.reportId,quantity:3,verification:'Physical return checked'});
+ const settled=w.line(a.id);cmd(op,'correct',{lineId:a.id,revision:settled.revision,quantity:0,verification:'Earlier pick was entered in error'});
+ assert.equal(w.line(b.id).execution_state,'ready');
+ const {buildMovementOverTimeReport}=await import('../src/services/reports.js');const trend=buildMovementOverTimeReport(db,{metric:'net_change',groupBy:'day'});
+ assert.equal(trend.totals.net_change,3);assert.equal(trend.totals.picked_quantity,1);assert.equal(trend.totals.put_quantity,3);db.close();
+});
+test('camera decoder can decode the generated warehouse location QR',async()=>{
+ const QRCode=(await import('qrcode')).default;const jsQR=(await import('jsqr')).default;const {PNG}=await import('pngjs');
+ const token='lytguide:fixture-warehouse:unique-logical-cell:1';const png=PNG.sync.read(await QRCode.toBuffer(token,{width:360,margin:4,errorCorrectionLevel:'M'}));
+ assert.equal(jsQR(new Uint8ClampedArray(png.data),png.width,png.height).data,token);
+});
+test('hardware utility commands cannot replace an active turn; old generations and disposed writers are rejected',async()=>{
+ const {db,w,op,cells,stock,create,arrive}=await fixture();
+ const {createHardwareService}=await import('../src/services/hardware.js');const logger={debug(){},info(){},warn(){},error(){}};
+ const hw=createHardwareService({db,config:{hardwareAdapter:'simulator'},logger});stock(cells[0],4);
+ const a=w.task(op,create(op,'pick',1).taskId).lines[0];arrive(op,a);
+ assert.equal(hw.showCellQuantity(cells[0],999).ok,false);
+ assert.equal(hw.clearGuidance({},[cells[0]],{source:'work_coordinator',workCellId:cells[0].id,workGeneration:'obsolete'}).ok,false);
+ hw.dispose();assert.equal(hw.activateGuidance({},[cells[0]]).ok,false);db.close();
+});
+test('late conflicting actual can be reconciled once as a net correction',async()=>{
+ const {db,w,op,admin,cells,stock,create,arrive,report,cmd}=await fixture();stock(cells[0],5);
+ const a=w.task(op,create(op,'pick',2).taskId).lines[0];arrive(op,a);report(op,w.line(a.id),1);
+ const late=report(op,a,3);assert.equal(late.status,'review');
+ const input={requestId:randomUUID(),reportId:late.reportId,quantity:3,verification:'Checked original physical total three'};
+ assert.equal(w.command(admin,'resolve',input).status,'recorded');assert.equal(w.command(admin,'resolve',input).replayed,true);
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,2);
+ assert.equal(w.line(a.id).actual_quantity,3);assert.equal(w.snapshot(admin).pending.length,0);db.close();
+});
+test('unplanned actual product mismatch remains evidence and never consumes another product',async()=>{
+ const {db,w,op,cells,stock,create,arrive,report}=await fixture();stock(cells[0],3);const a=w.task(op,create(op,'pick',1).taskId).lines[0];arrive(op,a);
+ const other=db.prepare('SELECT id FROM products WHERE id!=? LIMIT 1').get(a.product_id);
+ assert.equal(report(op,w.line(a.id),1,{productId:other.id}).status,'review');assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,3);db.close();
+});
+test('HTTP mutations recheck the session after the entire body arrives',async()=>{
+ const {db,op}=await fixture();process.env.NO_SERVER_LISTEN='1';
+ const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
+ const {requestHandler}=await import('../src/server.js');const {createSessionCookie}=await import('../src/services/auth.js');const {Readable}=await import('node:stream');
+ const live=getAppState().db, cookie=createSessionCookie(live.prepare('SELECT * FROM users WHERE id=?').get(op.id)).split(';')[0];
+ const body=JSON.stringify({requestId:randomUUID(),direction:'put',productId:1,quantity:1});
+ const request=Readable.from((async function*(){yield Buffer.from(body.slice(0,12));live.prepare("UPDATE users SET status='inactive' WHERE id=?").run(op.id);yield Buffer.from(body.slice(12));})());
+ Object.assign(request,{method:'POST',url:'/api/work/create',headers:{host:'localhost',cookie,'content-type':'application/json'}});
+ const response={writeHead(status,headers){this.status=status;this.headers=headers;},end(body){this.body=body;}};
+ const before=live.prepare('SELECT COUNT(*) n FROM tasks').get().n;await requestHandler(request,response);
+ assert.equal(response.status,401);assert.equal(live.prepare('SELECT COUNT(*) n FROM tasks').get().n,before);db.close();
+});
+
+test('structured attribution preserves original reporter and restricts operator impersonation',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock,create}=await fixture();stock(cells[0],5);
+ db.prepare("INSERT INTO users(name,username,password_hash,role,status,created_at) VALUES('Former worker','former','disabled','operator','inactive',?)").run(new Date().toISOString());
+ const former=db.prepare("SELECT id FROM users WHERE username='former'").get();
+ const manual={direction:'put',productId:p.id,cellId:cells[0].id,quantity:1,unit:p.unit_of_measure,origin:'attribution'};
+ assert.throws(()=>cmd(op,'manual',{...manual,performerId:admin.id}),/own performance/);
+ assert.throws(()=>cmd(op,'manual',{...manual,performerId:'unknown'}),/own performance/);
+ assert.throws(()=>cmd(admin,'manual',{...manual,performerId:99999}),/existing performer/);
+ const received=cmd(op,'manual',manual);
+ assert.throws(()=>cmd(op,'resolve',{reportId:received.reportId,quantity:1,verification:'not authorized'}),/Admin/);
+ const result=cmd(admin,'resolve',{reportId:received.reportId,quantity:1,performerId:former.id,verification:'Dated slip identifies former worker'});
+ const original=db.prepare('SELECT * FROM work_reports WHERE id=?').get(received.reportId),verified=db.prepare('SELECT * FROM work_reports WHERE id=?').get(result.reportId);
+ assert.equal(original.reporter_id,op.id);assert.equal(original.performer_id,op.id);assert.equal(original.resolver_id,admin.id);
+ assert.equal(verified.performer_id,former.id);assert.equal(verified.reporter_id,admin.id);
+ assert.equal(db.prepare('SELECT performed_by FROM transactions WHERE origin_ref=?').get('attribution').performed_by,former.id);
+ const l=w.task(op,create(op,'pick',1).taskId).lines[0];
+ const recovery=cmd(admin,'report',{lineId:l.id,revision:l.revision,cellId:l.cell_id,unit:l.unit_of_measure,quantity:1,manual:true,performerId:'unknown'});
+ const settled=cmd(admin,'resolve',{reportId:recovery.reportId,quantity:1,performerId:'unknown',verification:'Movement verified, person unknown'});
+ assert.equal(db.prepare('SELECT performer_id FROM work_reports WHERE id=?').get(settled.reportId).performer_id,null);
+ assert.equal(db.prepare('SELECT performed_by FROM transactions WHERE task_line_id=?').get(l.id).performed_by,null);
+ assert.ok(w.snapshot(admin).performers.some(u=>u.id===former.id&&u.status==='inactive'));
+ assert.deepEqual(w.snapshot(op).performers,[]);db.close();
+});
+
+test('historical manual reports verify fractional accounting quantities and retain origin deduplication',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock}=await fixture();stock(cells[0],4);
+ const {previewProductUnitConversion,applyProductUnitConversion}=await import('../src/services/unit-conversions.js');
+ db.prepare("UPDATE products SET unit_of_measure='boxes' WHERE id=?").run(p.id);
+ const input={actor:admin,productId:p.id,targetUnit:'pieces',factor:2.5,precision:2};const preview=previewProductUnitConversion(db,input);applyProductUnitConversion(db,{...input,previewToken:preview.token});
+ const report={direction:'put',productId:p.id,cellId:cells[0].id,quantity:0.5,unit:'boxes',occurredAt:'2020-01-01T00:00:00.000Z',origin:'old-slip'};
+ const r=cmd(op,'manual',report);const pending=w.snapshot(admin).pending.find(x=>x.id===r.reportId);
+ assert.equal(pending.accounting.quantity,1.25);assert.equal(pending.accounting.unit,'pieces');
+ const resolution={reportId:r.reportId,quantity:0.5,accountingQuantity:1.25,accountingUnit:'pieces',verification:'Original half box and pack size checked',requestId:randomUUID()};
+ assert.throws(()=>cmd(admin,'resolve',{...resolution,accountingQuantity:1}),/Recorded conversion/);
+ const result=w.command(admin,'resolve',resolution);assert.equal(result.status,'recorded');assert.equal(w.command(admin,'resolve',resolution).replayed,true);
+ const recorded=db.prepare('SELECT * FROM work_reports WHERE id=?').get(result.reportId);assert.equal(recorded.quantity,0.5);assert.equal(recorded.unit,'boxes');assert.equal(recorded.accounting_quantity,1.25);assert.match(recorded.conversion_evidence,/factor 2.5/);
+ const duplicate=cmd(op,'manual',report);assert.equal(cmd(admin,'resolve',{...resolution,requestId:randomUUID(),reportId:duplicate.reportId}).duplicate,true);
+ const currentDuplicate=cmd(op,'manual',{...report,unit:'pieces',quantity:1.25});assert.equal(cmd(admin,'resolve',{reportId:currentDuplicate.reportId,quantity:1.25,verification:'Same slip in current units'}).duplicate,true);
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM transactions WHERE origin_ref='old-slip'").get().n,1);
+ assert.equal(db.prepare('SELECT available_quantity q FROM inventory_balances WHERE cell_id=?').get(cells[0].id).q,11.25);db.close();
+});
+
+test('unsupported historical mapping can be resolved only with explicit quantity and provenance',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock}=await fixture();stock(cells[0],2);
+ const r=cmd(op,'manual',{direction:'pick',productId:p.id,cellId:cells[0].id,quantity:0.25,unit:'unrecorded cartons',origin:'unsupported-slip'});
+ assert.equal(w.snapshot(admin).pending.find(x=>x.id===r.reportId).accounting.available,false);
+ const input={reportId:r.reportId,quantity:0.25,accountingQuantity:1.125,accountingUnit:p.unit_of_measure,verification:'Original movement checked'};
+ assert.throws(()=>cmd(admin,'resolve',input),/evidence/);
+ assert.throws(()=>cmd(admin,'resolve',{...input,accountingQuantity:1.1234567,conversionProvenance:'Counted'}),/six decimal/);
+ const result=cmd(admin,'resolve',{...input,conversionProvenance:'Opened original pack and verified fractional current-unit quantity'});
+ assert.equal(result.status,'recorded');assert.equal(db.prepare('SELECT available_quantity q FROM inventory_balances WHERE cell_id=?').get(cells[0].id).q,0.875);
+ assert.equal(db.prepare('SELECT quantity,unit FROM work_reports WHERE id=?').get(r.reportId).unit,'unrecorded cartons');db.close();
+});
+
+test('legacy HTTP actual forms retain explicit old-cell reports, reject defaults and enforce ownership',async()=>{
+ const {db,op,admin}=await fixture();process.env.NO_SERVER_LISTEN='1';
+ const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
+ const {requestHandler}=await import('../src/server.js');const {createSessionCookie}=await import('../src/services/auth.js');const {Readable}=await import('node:stream');
+ const state=getAppState(),live=state.db,w=state.operationsService;
+ const command=(actor,action,input)=>w.command(actor,action,{requestId:randomUUID(),...input});
+ const task=command(op,'create',{direction:'put',productId:1,quantity:1}),old=w.task(op,task.taskId).lines[0];
+ command(op,'replan',{lineId:old.id,revision:old.revision,cellId:old.cell_id,quantity:2});
+ async function submit(actor,form){const request=Readable.from([Buffer.from(new URLSearchParams(form).toString())]);Object.assign(request,{method:'POST',url:`/tasks/${task.taskId}/confirm`,headers:{host:'localhost',accept:'application/json',cookie:createSessionCookie(actor).split(';')[0],'content-type':'application/x-www-form-urlencoded'}});const response={writeHead(status,headers){this.status=status;this.headers=headers;},end(body){this.body=body;}};await requestHandler(request,response);return response;}
+ assert.equal((await submit(op,{})).status,400);
+ const before=live.prepare('SELECT COUNT(*) n FROM transactions').get().n;
+ const form={['actual_'+old.id]:'0.5',note:'Old cell screen'};const first=await submit(op,form);assert.equal(first.status,302,first.body);const retry=await submit(op,form);assert.equal(retry.status,302,retry.body);
+ const reports=live.prepare("SELECT * FROM work_reports WHERE line_id=? AND origin_ref NOT LIKE 'attention:%'").all(old.id);assert.equal(reports.length,1);assert.equal(reports[0].quantity,0.5);assert.equal(reports[0].status,'review');
+ assert.equal(live.prepare('SELECT COUNT(*) n FROM transactions').get().n,before);
+ live.prepare("INSERT INTO users(name,username,password_hash,role,status,created_at) VALUES('Other','other-route','x','operator','active',?)").run(new Date().toISOString());const other=live.prepare("SELECT * FROM users WHERE username='other-route'").get();
+ assert.equal((await submit(other,form)).status,400);assert.equal((await submit(op,{['actual_'+old.id]:''})).status,400);
+ command(admin,'resolve',{reportId:reports[0].id,quantity:0.5,verification:'Old instruction verified'});
+ assert.equal(w.task(op,task.taskId).lines.find(l=>l.id!==old.id).reserved,2);db.close();
+});
+
+
+test('warehouse identity is enforced for fresh and replayed receipts',async()=>{
+ const {db,w,op,p,cells}=await fixture();const input={requestId:randomUUID(),site:w.identity().site,direction:'put',productId:p.id,cellId:cells[0].id,quantity:1,origin:'warehouse-check'};
+ w.command(op,'manual',input);
+ db.prepare("UPDATE app_metadata SET value='different-warehouse' WHERE key='warehouse_identity'").run();
+ assert.throws(()=>w.command(op,'manual',input),/another warehouse/);
+ assert.throws(()=>w.command(op,'manual',{...input,requestId:randomUUID()}),/another warehouse/);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM work_reports').get().n,1);db.close();
+});
+
+
+test('legacy completed zero actual remains zero in view and correction form',async()=>{
+ const {db,admin}=await fixture();const {planPut,completeTask,getTask}=await import('../src/services/inventory.js');const {createTaskPages}=await import('../src/server/pages/tasks.js');
+ const planned=planPut(db,{userId:admin.id,productId:1,quantity:1});completeTask(db,{taskId:planned.id,actualQuantities:Object.fromEntries(planned.lines.map(l=>[l.id,0])),userId:admin.id,note:'Verified no movement'});
+ const task=getTask(db,planned.id),pages=createTaskPages({db});const view=pages.renderTask(admin,null,task);const edit=pages.renderTask(admin,null,task,'edit');
+ assert.match(view,/Recorded Movement · Do Not Execute Again/);
+ assert.match(edit,new RegExp('name="actual_'+task.lines[0].id+'"[\\s\\S]*?value="0"'));
+ assert.doesNotMatch(edit,new RegExp('name="actual_'+task.lines[0].id+'"[\\s\\S]*?value="1"'));
+ db.close();
+});
+
+
+test('linking an open allocation to a posted movement requires disposition and releases only its own claim',async()=>{
+ const {db,w,op,admin,cells,stock,create,arrive,report}=await fixture();stock(cells[0],10);
+ const original=w.task(op,create(op,'pick',1).taskId).lines[0];arrive(op,original);
+ const posted=report(op,w.line(original.id),1);
+ const duplicate=w.task(op,create(op,'pick',2).taskId).lines[0];arrive(op,duplicate);
+ const received=report(op,w.line(duplicate.id),1,{manual:true});
+ const next=w.task(admin,create(admin,'pick',1).taskId).lines[0];
+ assert.equal(arrive(admin,next,'next').status,'busy');
+ const input={requestId:randomUUID(),reportId:received.reportId,dismissDuplicate:true,duplicateOf:posted.reportId,verification:'Original slip fully accounts for this duplicate allocation'};
+ assert.throws(()=>w.command(admin,'resolve',input),/Confirm.*fully accounts/);
+ assert.equal(w.snapshot(admin).pending.length,1);
+ assert.equal(w.held(cells[0].id,original.product_id,'pick'),3);
+ const resolved={...input,closeAllocation:true};
+ assert.equal(w.command(admin,'resolve',resolved).status,'recorded');
+ assert.equal(w.command(admin,'resolve',resolved).replayed,true);
+ assert.equal(w.line(duplicate.id).execution_state,'settled');
+ assert.equal(w.line(duplicate.id).actual_quantity,1);
+ assert.equal(w.held(cells[0].id,original.product_id,'pick'),1,'next allocation remains reserved');
+ assert.equal(w.snapshot(admin).pending.length,0);
+ assert.equal(w.task(op,duplicate.task_id).attention,0);
+ assert.equal(w.task(op,duplicate.task_id).status,'completed');
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,9);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,1);
+ assert.throws(()=>w.command(admin,'correct',{requestId:randomUUID(),lineId:duplicate.id,revision:w.line(duplicate.id).revision,quantity:2,verification:'Try correction on duplicate'}),/original movement/);
+ assert.equal(arrive(admin,next,'next').status,'ready');db.close();
+});
+
+test('inactivity delivers and retries clears without a later work command',async()=>{
+ let attempts=0;const hardware={activateGuidance(){return {ok:true};},clearGuidance(){attempts++;return {ok:attempts>1};}};
+ const {db,w,op,admin,cells,stock,create,arrive}=await fixture(hardware);stock(cells[0],3);
+ const l=w.task(op,create(op,'pick',2).taskId).lines[0];arrive(op,l);
+ const at=new Date(Date.now()+10*60000);
+ assert.deepEqual(w.flagInactivity({at}),[l.task_id]);
+ assert.equal(attempts,1);
+ assert.equal(db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(l.cell_id).delivered,0);
+ assert.deepEqual(w.flagInactivity({at}),[]);
+ assert.equal(attempts,2);
+ assert.equal(db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(l.cell_id).delivered,1);
+ assert.equal(w.snapshot(admin).pending.length,1);
+ assert.equal(w.held(l.cell_id,l.product_id,'pick'),2);
+ w.flagInactivity({at});assert.equal(attempts,2,'delivered clear is not replayed');db.close();
+});
+
+test('inactivity of a waiting allocation cannot replace a newer active turn',async()=>{
+ let clears=0;const hardware={activateGuidance(){return {ok:true};},clearGuidance(){clears++;return {ok:true};}};
+ const {db,w,op,admin,cells,stock,create,arrive}=await fixture(hardware);stock(cells[0],4);
+ const old=w.task(op,create(op,'pick',1).taskId).lines[0];
+ db.prepare('UPDATE tasks SET last_touched_at=? WHERE id=?').run(new Date(Date.now()-10*60000).toISOString(),old.task_id);
+ const current=w.task(admin,create(admin,'pick',1).taskId).lines[0];arrive(admin,current,'newer');
+ const guidance=db.prepare('SELECT generation,desired FROM work_guidance WHERE cell_id=?').get(old.cell_id);
+ assert.deepEqual(w.flagInactivity(),[old.task_id]);
+ assert.equal(clears,0);
+ assert.deepEqual(db.prepare('SELECT generation,desired FROM work_guidance WHERE cell_id=?').get(old.cell_id),guidance);
+ assert.equal(db.prepare('SELECT line_id,uncertain FROM cell_turns WHERE cell_id=?').get(old.cell_id).line_id,current.id);
+ assert.equal(w.held(old.cell_id,old.product_id,'pick'),2);db.close();
+});
+
+test('shared locator remains available when one participant needs verification',async()=>{
+ let clears=0;const located=[];const hardware={showCellQuantity(cell){located.push(cell.id);return {ok:true};},clearGuidance(){clears++;return {ok:true};}};
+ const {db,w,op,admin,cells,stock,cmd,create,arrive}=await fixture(hardware);stock(cells[0],4);
+ cmd(admin,'mode',{cellId:cells[0].id,mode:'shared'});
+ const active=w.task(admin,create(admin,'pick',1).taskId).lines[0];arrive(admin,active,'other');
+ const old=w.task(op,create(op,'pick',1).taskId).lines[0];arrive(op,old);
+ db.prepare('UPDATE tasks SET last_touched_at=? WHERE id=?').run(new Date(Date.now()-10*60000).toISOString(),old.task_id);
+ w.flagInactivity();
+ assert.equal(clears,0);assert.equal(located.length,3);
+ const desired=JSON.parse(db.prepare('SELECT desired FROM work_guidance WHERE cell_id=?').get(old.cell_id).desired);
+ assert.equal(desired.action,'locate');assert.equal(desired.lineId,active.id);
+ assert.equal(w.held(old.cell_id,old.product_id,'pick'),2);db.close();
+});

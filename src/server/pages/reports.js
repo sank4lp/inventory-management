@@ -1304,7 +1304,7 @@ function productMovementBody(rows, report = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>${escapeHtml(report.note || `${presentation.label} is calculated from corrected completed tasks. Current stock is an as-of-now value, and incompatible units are never combined.`)}</span>
+      <span>${escapeHtml(report.note || `${presentation.label} is calculated from corrected completed tasks. Current stock is an as-of-now value, and incompatible units are never combined. Open-task partial movements and manual reports are shown in Stock Change Over Time and Movement history.`)}</span>
     </footer>
   `;
 }
@@ -1418,7 +1418,7 @@ function movementOverTimeBody(report = {}, { chartKey = "movement-over-time" } =
     ${charts ? `
       <section class="report-visuals" aria-label="Movement trend visuals">
         <div class="report-visual-grid">${charts}</div>
-        <p class="report-visual-note"><sup>*</sup> Trend quantities are calculated from corrected completed tasks and never combine incompatible units.</p>
+        <p class="report-visual-note"><sup>*</sup> Trend quantities use posted ledger movements, including partial allocations, manual movements and correction deltas; incompatible units are never combined.</p>
       </section>
     ` : ""}
     <section class="report-document-section">
@@ -1786,7 +1786,7 @@ function teamThroughputBody(report = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>Throughput uses completed task counts, not mixed-unit item totals. Multi-line tasks count once.</span>
+      <span>Throughput uses completed task counts, not mixed-unit item totals. Multi-line tasks count once. Open-task partial movements and unreserved manual movements are excluded; use Stock Change Over Time for posted inventory changes.</span>
     </footer>
   `;
 }

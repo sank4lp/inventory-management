@@ -79,7 +79,7 @@ export function createProfilePages({ db }) {
             { label: "Tasks Created", value: formatQuantity(profile.activity.tasksCreated) },
             { label: "Tasks Completed", value: formatQuantity(profile.activity.tasksCompleted) },
             { label: "Inventory Transactions", value: formatQuantity(profile.activity.transactionsRecorded) },
-            { label: "Last Active", value: formatDate(lastActiveLabel(profile)) },
+            { label: "Last Active", value: formatDate(lastActiveLabel(profile)), text: true },
           ])}
 
           ${card(

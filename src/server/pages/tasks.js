@@ -321,7 +321,7 @@ export function createTaskPages({ db }) {
     const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
     const taskLabel = task.type === "pick" ? "Pick Task" : "Put Task";
     const movementLabel = task.type === "pick" ? "Pick" : "Put";
-    const actionLabel = task.type === "pick" ? "Complete Pick" : "Complete Put";
+    const actionLabel = task.status === "completed" ? "Recorded Movement · Do Not Execute Again" : task.type === "pick" ? "Complete Pick" : "Complete Put";
     const taskTitle = `${editMode ? "Correct" : task.type === "pick" ? "Pick" : "Put"} Task #${task.id}`;
     const editSubmitPath = editMode && task.status === "completed" ? "correct" : "confirm";
     const canAdjustPutPlan = task.type === "put" && taskIsActive && canEditTask(user, task);
@@ -378,11 +378,11 @@ export function createTaskPages({ db }) {
             min="0"
             inputmode="numeric"
             name="actual_${line.id}"
-            value="${escapeHtml(line.actual_quantity || line.planned_quantity)}"
+            value="${escapeHtml(line.actual_quantity ?? line.planned_quantity)}"
             data-quantity-change-input
             ${canAdjustPutPlan ? `data-put-actual-qty-for="${escapeHtml(line.id)}"` : ""}
           />`
-        : escapeHtml(formatQuantity(line.actual_quantity || line.planned_quantity)),
+        : escapeHtml(formatQuantity(line.actual_quantity ?? line.planned_quantity)),
       ...(canAdjustPutPlan
         ? [
             `<button
@@ -507,7 +507,7 @@ export function createTaskPages({ db }) {
                 : `<p class="muted">${
                     task.status === "cancelled"
                       ? "Cancelled tasks cannot be completed or edited. Start a new task instead."
-                      : "Only the task owner or an admin can edit this task."
+                      : canEditTask(user, task) ? "This is a completed record. Choose Correct Task to fix an earlier entry; record a new physical movement separately." : "Only the task owner or an admin can edit this task."
                   }</p>`
             }
           `,

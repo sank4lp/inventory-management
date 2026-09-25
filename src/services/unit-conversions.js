@@ -1,3 +1,4 @@
+import { guardSetupChange } from "../modules/operations/guards.js";
 import { createHash } from "node:crypto";
 
 import { withTransaction } from "../db.js";
@@ -174,6 +175,7 @@ export function previewProductUnitConversion(db, input) {
 }
 
 export function applyProductUnitConversion(db, input) {
+  guardSetupChange(db);
   const createdBy = assertAdmin(input.actor);
   const preview = previewProductUnitConversion(db, input);
   if (!input.previewToken || input.previewToken !== preview.token) {

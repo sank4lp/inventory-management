@@ -1326,11 +1326,9 @@ export function buildMovementOverTimeReport(db, options = {}) {
   const topN = reportTopN(options);
   const visualization = reportVisualization(options);
   const filters = reportFilters(options);
-  const { conditions: rangeConditions, params } = reportRangeConditions(options);
+  const { conditions: rangeConditions, params } = reportRangeConditions(options, "tr.created_at");
   const conditions = [
-    "t.status = 'completed'",
-    "t.type IN ('pick', 'put')",
-    "t.completed_at IS NOT NULL",
+    "tr.type IN ('pick', 'put', 'adjustment')",
     ...rangeConditions,
   ];
   if (filters.category) {
@@ -1342,9 +1340,9 @@ export function buildMovementOverTimeReport(db, options = {}) {
     params.push(filters.unitOfMeasure);
   }
   const periodExpression = {
-    day: "date(t.completed_at)",
-    week: "date(t.completed_at, '-' || ((CAST(strftime('%w', t.completed_at) AS INTEGER) + 6) % 7) || ' days')",
-    month: "date(t.completed_at, 'start of month')",
+    day: "date(tr.created_at)",
+    week: "date(tr.created_at, '-' || ((CAST(strftime('%w', tr.created_at) AS INTEGER) + 6) % 7) || ' days')",
+    month: "date(tr.created_at, 'start of month')",
   }[groupBy];
   const sourceRows = db
     .prepare(
@@ -1353,24 +1351,19 @@ export function buildMovementOverTimeReport(db, options = {}) {
           ${periodExpression} AS period,
           p.id AS product_id,
           p.unit_of_measure AS current_unit,
-          COALESCE(tl.unit_of_measure, p.unit_of_measure) AS recorded_unit,
-          SUM(CASE WHEN t.type = 'pick' THEN tl.actual_quantity ELSE 0 END) AS picked_quantity,
-          SUM(CASE WHEN t.type = 'put' THEN tl.actual_quantity ELSE 0 END) AS put_quantity,
-          SUM(tl.actual_quantity) AS total_handled,
-          SUM(CASE
-            WHEN t.type = 'put' THEN tl.actual_quantity
-            WHEN t.type = 'pick' THEN -tl.actual_quantity
-            ELSE 0
-          END) AS net_change
-        FROM task_lines tl
-        JOIN tasks t ON t.id = tl.task_id
-        JOIN products p ON p.id = tl.product_id
+          COALESCE(tr.unit_of_measure, p.unit_of_measure) AS recorded_unit,
+          SUM(CASE WHEN tr.type = 'pick' THEN -tr.quantity_delta ELSE 0 END) AS picked_quantity,
+          SUM(CASE WHEN tr.type = 'put' THEN tr.quantity_delta ELSE 0 END) AS put_quantity,
+          SUM(CASE WHEN tr.type IN ('pick','put') THEN ABS(tr.quantity_delta) ELSE 0 END) AS total_handled,
+          SUM(tr.quantity_delta) AS net_change
+        FROM transactions tr
+        JOIN products p ON p.id = tr.product_id
         WHERE ${conditions.join(" AND ")}
         GROUP BY
           ${periodExpression},
           p.id,
           p.unit_of_measure,
-          COALESCE(tl.unit_of_measure, p.unit_of_measure)
+          COALESCE(tr.unit_of_measure, p.unit_of_measure)
         ORDER BY period ASC, p.id
       `,
     )

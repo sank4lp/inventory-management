@@ -580,7 +580,7 @@ test("client controller binds multi-select stock controls, curated hashes, and r
   assert.match(appSource, /window\.addEventListener\("afterprint"/);
 });
 
-test("report tables fit without internal scrolling and share compact stock typography", () => {
+test("paper-preview and print report styles retain compact stock typography", () => {
   const styles = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
 
   assert.match(

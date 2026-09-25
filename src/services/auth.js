@@ -39,11 +39,12 @@ export function createSessionCookie(user) {
   const payload = JSON.stringify({
     userId: user.id,
     role: user.role,
+    version: user.session_version || 1,
     exp: Date.now() + SESSION_TTL_MS,
   });
   const encoded = Buffer.from(payload, "utf8").toString("base64url");
   const signature = sign(encoded);
-  return `session=${encoded}.${signature}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}`;
+  return `session=${encoded}.${signature}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}${appConfig.nodeEnv === "production" ? "; Secure" : ""}`;
 }
 
 export function clearSessionCookie() {
@@ -71,17 +72,18 @@ export function getSessionUser(request, db) {
     return null;
   }
 
-  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-  if (payload.exp < Date.now()) {
+  let payload;
+  try { payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")); } catch { return null; }
+  if (!Number.isFinite(payload.exp) || payload.exp < Date.now()) {
     return null;
   }
 
   return (
     db
       .prepare(
-        "SELECT id, name, username, role, status, created_at, last_active_at FROM users WHERE id = ? AND status = 'active'",
+        "SELECT id, name, username, role, status, created_at, last_active_at, session_version FROM users WHERE id = ? AND status = 'active' AND session_version = ?",
       )
-      .get(payload.userId) || null
+      .get(payload.userId, payload.version || 1) || null
   );
 }
 

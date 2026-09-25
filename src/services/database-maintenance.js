@@ -209,6 +209,7 @@ export function createDatabaseMaintenanceService({
   }
 
   function archiveOldBusinessHistory({ now = new Date() } = {}) {
+    if(db.prepare("SELECT 1 FROM operation_receipts UNION ALL SELECT 1 FROM work_events UNION ALL SELECT 1 FROM tasks WHERE workflow_version=2 LIMIT 1").get()) return {archived:false,archiveFiles:[],tasksArchived:0,taskLinesArchived:0,transactionsArchived:0,deviceEventsDeleted:0,reason:"Multi-operator evidence and replay receipts retained during the local pilot."};
     const currentTime = now instanceof Date ? now : new Date(now);
     const cutoffAt = daysBefore(currentTime, businessArchiveAfterDays).toISOString();
     const predicate = taskArchivePredicate();
