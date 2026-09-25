@@ -1,0 +1,216 @@
+/* Screen UI contract, loaded after legacy page styles and the operator UI.
+   Keep paper/report-format previews under their own typography controls. */
+@media screen {
+  :root {
+    --ui-control-height: 2.75rem;
+    --ui-control-radius: .625rem;
+    --ui-label-size: .875rem;
+    --ui-help-size: .8125rem;
+    --text-button-height: var(--ui-control-height);
+  }
+
+  /* The offline page deliberately loads only theme, work and this shared layer. */
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { line-height: 1.5; }
+  button, input, select, textarea { font-family: inherit; }
+  button, .mini-link, .action-cta-button, .work-primary, .work-secondary,
+  #work-app button, .qr-dialog button, .combo-option, .firmware-detect-actions .ghost-button {
+    min-height: var(--ui-control-height);
+    border-radius: var(--ui-control-radius);
+    font-size: var(--ui-label-size);
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),
+  select, textarea, #work-app input:not([type=checkbox]), #work-app select {
+    min-width: 0;
+    min-height: var(--ui-control-height);
+    max-width: 100%;
+    border-radius: var(--ui-control-radius);
+    font-size: 1rem;
+    line-height: 1.5;
+    padding: calc((var(--ui-control-height) - 1.5em - 2px) / 2) .75rem;
+  }
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]).combo-input { padding-inline-end: 3.25rem; }
+  .combo-toggle { width: 3rem; min-height: calc(var(--ui-control-height) - 2px); height: calc(var(--ui-control-height) - 2px); }
+  textarea { padding-block: .75rem; }
+  .report-format-color-control input[type=color] { height: var(--ui-control-height); min-height: var(--ui-control-height); }
+  label, #work-app label { font-size: var(--ui-label-size); }
+  .mini-link, .action-cta-button, .ping-button, .locate-button, .count-button,
+  .led-action-button, .report-stage-actions > button, .report-toolbar-control > button {
+    height: auto;
+    padding: .625rem .875rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .icon-button, .toast-close, .row-collapse-icon-button {
+    width: var(--ui-control-height);
+    min-width: var(--ui-control-height);
+    min-height: var(--ui-control-height);
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .toast { grid-template-columns: minmax(0, 1fr) var(--ui-control-height); }
+  .side-nav-direct, .side-nav-summary, .side-nav-sublist a,
+  #work-app summary, .form-disclosure summary {
+    min-height: var(--ui-control-height);
+  }
+  #work-app summary, .form-disclosure summary { align-content: center; }
+  summary { min-height: var(--ui-control-height); align-content: center; cursor: pointer; }
+  .work-toolbar a, .work-footer a, .work-tools-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--ui-control-height);
+    font-size: var(--ui-label-size);
+  }
+  #work-app button.text-button { font-size: var(--ui-help-size); }
+  .work-help, .work-task p, .work-callout, .work-plan-help { font-size: .875rem; }
+  .work-badge, .work-eyebrow, .work-reference, .work-connection small,
+  .work-queue small, .work-product span, .work-quantity small,
+  #work-app .work-footer, .work-footer p { font-size: .75rem; }
+  .work-quantity { flex-wrap: wrap; gap: .75rem; }
+  .work-quantity strong { font-size: clamp(2rem, 3vw, 3rem); overflow-wrap: anywhere; }
+  .work-card-heading, .work-task-summary { flex-wrap: wrap; }
+  .work-actions { flex-wrap: wrap; }
+  .work-grid, .label-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+  .label-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 12.5rem), 1fr)); }
+
+  /* Shrink flex/grid children, never the text, to fit the available content area. */
+  .dashboard-shell:not(.dashboard-shell-public) { max-width: 113rem; margin-inline: auto; }
+  .page-shell { min-width: 0; z-index: auto; }
+  .stats-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.25rem), 1fr)); }
+  .stat-card { min-width: 0; }
+  .stat-value { overflow-wrap: anywhere; }
+  .stat-value-text { font-size: 1rem; line-height: 1.5; }
+  .page-header h1 { font-size: clamp(1.5rem, 1.15rem + 1vw, 2rem); overflow-wrap: anywhere; }
+  .card-header, .panel-heading, .secondary-panel-header, .completion-header,
+  .adjustment-lines-header, .adjustment-line-footer, .firmware-progress-head {
+    flex-wrap: wrap;
+    gap: .75rem;
+  }
+  .card-header > *, .panel-heading > *, .secondary-panel-header > *,
+  .inline-form > *, .firmware-progress-head > * { min-width: 0; max-width: 100%; }
+  .inline-form-wrap { min-width: 0; max-width: 100%; flex: 1 1 16rem; }
+  .inline-form > label, .inline-form > input, .inline-form > select { flex: 1 1 12rem; }
+  .mini-actions { gap: .5rem; }
+  .hero-grid, .two-column { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+  .table-wrap, .table-scroll, .work-table-wrap { max-width: 100%; min-width: 0; overscroll-behavior-x: contain; }
+  .reports-workspace { grid-template-columns: minmax(0, 1fr); }
+  .reports-workspace > * { min-width: 0; max-width: 100%; }
+  .catalog-controls { flex-wrap: wrap; }
+  .catalog-controls > .inline-form { min-width: 0; }
+  #cell-management .table-wrap input[name=logical_code] { min-width: 11rem; }
+  .report-format-panel-embedded { container-type: inline-size; }
+  .report-format-panel-embedded .report-format-editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .report-format-editor-grid > *, .report-format-form-grid > * { min-width: 0; }
+
+  /* Let fixed dialogs escape the page stacking context and fit short screens. */
+  .modal-backdrop { overflow-y: auto; padding: 1rem; }
+  body:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
+  .modal-panel { max-height: calc(100dvh - 2rem); }
+  .qr-dialog { max-height: calc(100dvh - 2rem); overflow-y: auto; }
+  .completion-panel { overflow-y: auto; }
+
+  .danger-button { color: #a32222; background: #fff1f1; border-color: #e9b4b4; }
+  .danger-button:hover { color: #821b1b; background: #ffe4e4; }
+  .green-button { color: #fff; background: linear-gradient(180deg, #087a52, #065f46); border-color: #087a52; }
+  .green-button:hover { background: #065f46; border-color: #065f46; }
+  .backup-schedule-summary { color: #24497c; background: #edf4ff; }
+  .backup-schedule-summary strong { color: #193c6b; }
+  .backup-schedule-summary span { color: #36577f; }
+  .firmware-port-status-ok, .adjustment-line-saved .adjustment-line-state { color: #176145; background: #e2f5eb; }
+  .firmware-port-status-missing { color: #a32222; background: #fff0f0; }
+  .mapping-cell-name-saved { color: #176145; }
+  .mapping-cell-name-dirty { color: #79500c; }
+  .adjustment-empty-state-warning, .adjustment-line-dirty .adjustment-line-state { color: #79500c; background: #fff5db; }
+  .combo-panel { color: var(--text); background: var(--panel); }
+
+  .report-toolbar-popover { border-radius: var(--ui-control-radius); gap: .75rem; max-height: min(36rem, 70dvh); }
+  .report-toolbar-popover h3, .report-toolbar-popover legend,
+  .report-toolbar-popover > strong, .report-toolbar-popover > header strong,
+  .report-toolbar-popover label { font-size: var(--ui-label-size); }
+  .report-toolbar-popover > header span, .report-toolbar-popover p,
+  .report-toolbar-popover small { font-size: var(--ui-help-size); line-height: 1.5; }
+  .report-toolbar-popover select, .report-toolbar-popover input[type=datetime-local] {
+    min-height: var(--ui-control-height); font-size: 1rem;
+  }
+  .report-toolbar-popover-actions button, .report-toolbar-popover button[type=submit] {
+    min-height: var(--ui-control-height); font-size: var(--ui-label-size); padding: .625rem .875rem;
+  }
+  .report-toolbar-option { min-height: var(--ui-control-height); padding: .625rem .375rem; }
+  .report-toolbar-popover label.report-toolbar-option:has(input[type=checkbox], input[type=radio]) {
+    grid-template-columns: 1.125rem minmax(0, 1fr); align-items: center;
+  }
+  .report-toolbar-popover .report-toolbar-option input[type=checkbox],
+  .report-toolbar-popover .report-toolbar-option input[type=radio] { width: 1.125rem; height: 1.125rem; }
+  .report-toolbar-options { max-height: 17rem; }
+
+  /* Reports remain readable on screen; wide tables/charts scroll within the page.
+     Exclude the deliberately scaled paper-format preview and all print media. */
+  .report-document:not(.report-format-preview) { min-width: 0; }
+  .report-document:not(.report-format-preview) .table-wrap,
+  .report-document:not(.report-format-preview) .report-summary-table-wrap,
+  .report-document:not(.report-format-preview) [data-report-stock-table],
+  .report-document:not(.report-format-preview) .report-chart {
+    min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain;
+  }
+  .report-document:not(.report-format-preview) table {
+    min-width: 40rem; table-layout: auto; font-size: max(.875rem, var(--report-body-size)); line-height: 1.5;
+  }
+  .report-document:not(.report-format-preview) th,
+  .report-document:not(.report-format-preview) td {
+    padding: .625rem .75rem; overflow-wrap: normal; word-break: normal;
+  }
+  .report-document:not(.report-format-preview) th { font-size: .8125rem; }
+  .report-document:not(.report-format-preview) .report-bar-chart {
+    min-width: 47.5rem; max-height: none;
+  }
+  .report-document:not(.report-format-preview) .report-chart p,
+  .report-document:not(.report-format-preview) .report-visual-note,
+  .report-document:not(.report-format-preview) .report-document-context dd,
+  .report-document:not(.report-format-preview) .report-document-context dt { font-size: .75rem; }
+  .report-document:not(.report-format-preview) .report-bar-label,
+  .report-document:not(.report-format-preview) .report-bar-value { font-size: 13px; }
+  .report-document:not(.report-format-preview) :is(.report-kpi > span, .report-kpi > small,
+    .report-insights h4, .report-takeaway h4, .report-summary-line > :first-child,
+    .report-document-meta dt, .report-document-meta dd) { font-size: .75rem; }
+  .report-document:not(.report-format-preview) :is(.report-insights p, .report-insights li) { font-size: .875rem; }
+  .report-format-control > small { font-size: .75rem; }
+  .report-document:not(.report-format-preview) :is(.report-donut-legend strong,
+    .report-donut-legend small, .report-donut-percentage,
+    .report-donut-center-label, .report-donut-center-unit) { font-size: .75rem; }
+
+  @container (min-width: 58rem) {
+    .report-format-panel-embedded .report-format-editor-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+  }
+  @media (max-width: 1020px), (pointer: coarse) {
+    :root { --ui-control-height: 3rem; }
+    .side-nav-item > .side-nav-group > .side-nav-summary { width: 3rem; min-height: 3rem; }
+    .side-nav-item > .side-nav-direct { padding-right: 3.5rem; }
+  }
+  @media (max-width: 700px) {
+    .page-shell { padding: 1rem; }
+    .card, .allocation, .work-panel, .work-task, .work-empty { padding: 1rem; }
+    .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat-card { padding: .875rem; gap: .625rem; }
+    .work-toolbar nav a, .work-footer a { min-height: var(--ui-control-height); font-size: var(--ui-label-size); }
+    .report-stage-context-actions { position: relative; gap: .5rem; }
+    .report-toolbar-control { position: static; }
+    .report-toolbar-control > button { max-width: none; height: 100%; }
+    .report-toolbar-control [data-report-time-toggle] { max-width: none; }
+    .report-stage-context-actions .report-toolbar-control .report-toolbar-popover {
+      position: fixed; top: auto; bottom: max(1rem, env(safe-area-inset-bottom));
+      left: 1rem; right: 1rem; transform: none; width: auto; max-height: 70dvh;
+    }
+    .report-stage-actions > button { width: auto; flex: 1 1 auto; }
+    .report-format-preview-kpis { grid-template-columns: repeat(auto-fit, minmax(min(100%, 6rem), 1fr)); }
+    .report-library-list { grid-auto-columns: clamp(14rem, 75vw, 18rem); }
+    .report-document-header > *, .report-document-meta { min-width: 0; }
+    .offline-shell { padding: 1rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; }
+    .work-task:hover { transform: none; }
+  }
+}

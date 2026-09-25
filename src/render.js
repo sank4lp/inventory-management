@@ -320,6 +320,7 @@ export function page({ title, user, flash, content }) {
     <link rel="stylesheet" href="/theme.css" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/work.css" />
+    <link rel="stylesheet" href="/responsive.css" />
     <script type="module" src="/app.js"></script>
     <script type="module" src="/client/mobile-nav.js"></script>
   </head>
@@ -361,7 +362,7 @@ export function statsGrid(items) {
           (item) => `
             <article class="stat-card">
               <div class="stat-label">${escapeHtml(item.label)}</div>
-              <div class="stat-value">${escapeHtml(item.value)}</div>
+              <div class="stat-value${item.text ? " stat-value-text" : ""}">${escapeHtml(item.value)}</div>
             </article>
           `,
         )

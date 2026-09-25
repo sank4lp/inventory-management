@@ -12,6 +12,8 @@ The current goal is to document the product clearly enough that you can:
 
 For the implemented development-branch behavior, start with [Local-first operations](LOCAL-FIRST-OPERATIONS.md). The [Pi/cloud and company isolation plan](architecture/03-pi-cloud-deployment-plan.md) records future requirements, open decisions and acceptance gates; cloud relay and shared-portal multitenancy are not implemented. Older flow and architecture outlines are design background where they differ from the current release notes.
 
+The [responsive UI contract and validation](RESPONSIVE-UI.md) records shared sizing rules and the phone, tablet, desktop, and large-screen checks.
+
 - Warehouse layout: **27 columns × 3 rows = 81 cells**
 - Operator station: **at the warehouse entry**
 - Primary user actions: **Pick** and **Put**
