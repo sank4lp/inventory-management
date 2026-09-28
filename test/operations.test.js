@@ -355,8 +355,8 @@ test('Phase 1 assignments, deadlines, handback, stale evidence and partial hando
  assert.throws(()=>arrive(op,l),/Start task/);assert.throws(()=>arrive(admin,l),/assigned operator/);
  const due=t.due_at;
  cmd(admin,'timing',{minutes:1,enabled:true});assert.equal(w.task(admin,t.id).due_at,due);
- cmd(op,'decline',{taskId:t.id,generation:t.assignment_generation,reason:'Busy'});
- t=w.task(admin,t.id);assert.equal(t.outcome,'needs_assignment');assert.equal(t.due_at,due);assert.equal(t.assignee_id,null);
+ cmd(op,'decline',{taskId:t.id,generation:t.assignment_generation,reason:'Busy',note:'Finishing aisle two'});
+ t=w.task(admin,t.id);assert.equal(t.outcome,'needs_assignment');assert.equal(t.due_at,due);assert.equal(t.assignee_id,null);assert.equal(JSON.parse(t.assignment_history.at(-1).payload).note,'Finishing aisle two');
  assert.equal(db.prepare("SELECT COUNT(*) n FROM work_reservations WHERE state='held'").get().n,0);
  assert.equal(w.snapshot(admin).operators.find(u=>u.id===op.id).open,0);
  w.flagInactivity({at:new Date(Date.now()+3600000),timeoutMs:0});assert.equal(w.task(admin,t.id).outcome,'needs_assignment','returned requests never acquire phantom inactivity cases');

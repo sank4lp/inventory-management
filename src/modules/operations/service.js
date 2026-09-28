@@ -355,7 +355,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       else {askReview(actor,{lineId:l.id,reason:'Operator handed back work; verify actual and confirm physical work has stopped.'});uncertain=true;}
     }
     db.prepare("UPDATE tasks SET assignee_id=NULL,assignment_state='returned',assignment_generation=assignment_generation+1 WHERE id=?").run(t.id);
-    assignmentEvent(actor,t.id,'returned',t.assignee_id,{reason:input.reason||'',uncertain});taskProgress(t.id);
+    assignmentEvent(actor,t.id,'returned',t.assignee_id,{reason:input.reason||'',note:String(input.note||''),uncertain});taskProgress(t.id);
     return {status:uncertain?'review':'recorded',message:uncertain?'Return received. Physical work still needs review before reassignment.':'Returned to Needs assignment. The original deadline is unchanged.'};
   }
   function reassign(actor,input) {
