@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { describeLocation } from "../../modules/operations/location-contract.js";
 import {
   listCellCatalog,
   listCells,
@@ -342,6 +344,7 @@ export function createLocationPages({ db }) {
           "Location Summary",
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
+            <p>${escapeHtml(describeLocation(db,cell.id).directions)}</p>
             <p>${
               cell.controller_code && cell.hardware_channel
                 ? `${escapeHtml(cell.controller_code)} · Channel ${escapeHtml(cell.hardware_channel)}`
@@ -366,6 +369,11 @@ export function createLocationPages({ db }) {
           "",
           `data-row-collapser data-row-limit="4" data-row-label="products"`,
         )}
+        ${user.role==='admin'?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
+          <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="descriptionRevision" value="${describeLocation(db,cell.id).descriptionRevision}">
+          <label>Location name<input name="displayName" maxlength="160" value="${escapeHtml(cell.display_name||'')}"></label>
+          <label>Travel instructions<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second shelf on the left"></label>
+          <p>The cell code, QR and stock history stay unchanged. </p><button>Save directions</button></form>`):''}
       `,
     });
   }

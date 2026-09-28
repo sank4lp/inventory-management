@@ -77,11 +77,68 @@ export function migrateOperations(db) {
   for (const cell of db.prepare("SELECT id FROM cells WHERE label_id IS NULL").all()) {
     db.prepare("UPDATE cells SET label_id = ? WHERE id = ?").run(randomUUID(), cell.id);
   }
+  migrateWorkflowContracts(db, add);
   adoptPendingLegacyTasks(db);
   for (const key of ["warehouse_identity", "dataset_generation"]) {
     db.prepare("INSERT OR IGNORE INTO app_metadata(key,value,updated_at) VALUES(?,?,?)")
       .run(key, randomUUID(), new Date().toISOString());
   }
+}
+
+function migrateWorkflowContracts(db, add) {
+  const first = !db.prepare('PRAGMA table_info(tasks)').all().some(c => c.name === 'assignee_id');
+  for (const [name, definition] of Object.entries({
+    assignee_id:'INTEGER REFERENCES users(id)', assigned_by:'INTEGER REFERENCES users(id)', assigned_at:'TEXT',
+    assignment_generation:'INTEGER NOT NULL DEFAULT 1', assignment_state:"TEXT NOT NULL DEFAULT 'legacy'",
+    assignment_source:"TEXT NOT NULL DEFAULT 'legacy'", due_at:'TEXT', requested_quantity:'REAL',
+    outcome:"TEXT NOT NULL DEFAULT 'open'", instruction_note:'TEXT', stop_requested:'INTEGER NOT NULL DEFAULT 0',
+  })) add('tasks', name, definition);
+  add('task_lines','instruction_snapshot','TEXT');
+  add('task_lines','instruction_owner','INTEGER REFERENCES users(id)');
+  add('task_lines','assignment_generation','INTEGER NOT NULL DEFAULT 1');
+  add('work_reports','case_revision','INTEGER NOT NULL DEFAULT 1');
+  for (const [name, definition] of Object.entries({display_name:'TEXT', travel_instructions:'TEXT',
+    description_revision:'INTEGER NOT NULL DEFAULT 1', binding_revision:'INTEGER NOT NULL DEFAULT 1',
+    binding_verified_at:'TEXT', binding_verified_by:'INTEGER REFERENCES users(id)'})) add('cells',name,definition);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_assignment_events (
+      id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), actor_id INTEGER NOT NULL REFERENCES users(id),
+      event_type TEXT NOT NULL, generation INTEGER NOT NULL, previous_assignee INTEGER REFERENCES users(id),
+      assignee_id INTEGER REFERENCES users(id), payload TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS work_instruction_history (
+      line_id INTEGER NOT NULL REFERENCES task_lines(id), revision INTEGER NOT NULL, assignee_id INTEGER REFERENCES users(id),
+      assignment_generation INTEGER NOT NULL, snapshot TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(line_id,revision)
+    );
+    CREATE TABLE IF NOT EXISTS location_field_definitions (
+      field_key TEXT PRIMARY KEY, label TEXT NOT NULL, field_type TEXT NOT NULL CHECK(field_type IN ('text','number','select')),
+      options_json TEXT NOT NULL DEFAULT '[]', required INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1,
+      display_order INTEGER NOT NULL DEFAULT 0, use_in_directions INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS location_field_values (
+      cell_id INTEGER NOT NULL REFERENCES cells(id), field_key TEXT NOT NULL REFERENCES location_field_definitions(field_key),
+      value_json TEXT NOT NULL, PRIMARY KEY(cell_id,field_key)
+    );
+    CREATE TABLE IF NOT EXISTS location_labels (
+      token TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 1, cell_id INTEGER REFERENCES cells(id),
+      state TEXT NOT NULL CHECK(state IN ('unbound','bound','revoked')), created_at TEXT NOT NULL,
+      bound_at TEXT, bound_by INTEGER REFERENCES users(id), retired_cell_id INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS location_current_label ON location_labels(cell_id) WHERE state='bound';
+    INSERT OR IGNORE INTO location_labels(token,revision,cell_id,state,created_at)
+      SELECT label_id,label_revision,id,'bound',strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM cells WHERE label_id IS NOT NULL;
+    CREATE TRIGGER IF NOT EXISTS location_binding_changed AFTER UPDATE OF controller_id,hardware_channel ON cells
+      WHEN OLD.controller_id IS NOT NEW.controller_id OR OLD.hardware_channel IS NOT NEW.hardware_channel
+      BEGIN UPDATE cells SET binding_revision=binding_revision+1,binding_verified_at=NULL,binding_verified_by=NULL WHERE id=NEW.id; END;
+  `);
+  add('location_labels','retired_cell_id','INTEGER');
+  db.exec(`CREATE TRIGGER IF NOT EXISTS location_label_retired BEFORE DELETE ON cells
+    BEGIN UPDATE location_labels SET state='revoked',retired_cell_id=OLD.id,cell_id=NULL WHERE cell_id=OLD.id; END;`);
+  db.exec(`UPDATE tasks SET attention=0,outcome='needs_assignment' WHERE assignment_state='returned' AND stop_requested=0
+    AND NOT EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=tasks.id AND l.execution_state IN ('ready','working'))
+    AND NOT EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=tasks.id AND r.status IN ('review','received'));`);
+  if (first) db.exec(`UPDATE tasks SET assignee_id=created_by,requested_quantity=(SELECT SUM(planned_quantity) FROM task_lines WHERE task_id=tasks.id AND execution_state!='superseded');
+    UPDATE task_lines SET instruction_owner=(SELECT created_by FROM tasks WHERE id=task_lines.task_id);`);
 }
 
 export function adoptPendingLegacyTasks(db) {

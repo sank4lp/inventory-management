@@ -1945,12 +1945,12 @@ test("overview recent tasks show user links and respect operator scope", async (
   const adminHtml = homePages.renderHome(admin, null, new URL("http://localhost/"));
   const operatorHtml = homePages.renderHome(operator, null, new URL("http://localhost/"));
 
-  assert.match(adminHtml, /<th>User<\/th>/);
+  assert.match(adminHtml, /<th>Created by<\/th>/);
   assert.match(adminHtml, new RegExp(`href="/tasks/${adminTask.id}"`));
   assert.match(adminHtml, new RegExp(`href="/tasks/${operatorTask.id}"`));
   assert.match(adminHtml, new RegExp(`href="/admin/users/${admin.id}"`));
   assert.match(adminHtml, new RegExp(`href="/admin/users/${operator.id}"`));
-  assert.match(operatorHtml, /<th>User<\/th>/);
+  assert.match(operatorHtml, /<th>Created by<\/th>/);
   assert.doesNotMatch(operatorHtml, new RegExp(`href="/tasks/${adminTask.id}"`));
   assert.match(operatorHtml, new RegExp(`href="/tasks/${operatorTask.id}"`));
   assert.match(operatorHtml, /href="\/profile"/);

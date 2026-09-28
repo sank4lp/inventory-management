@@ -87,6 +87,7 @@ export function createHomePages({ db }) {
       user,
       flash,
       content: `
+        ${user.role==='admin'?'<p><a class="action-cta-button" href="/work/overview">Team work — assignments and workloads</a></p>':''}
         <section class="overview-action-grid" aria-label="Primary workflows">
           <a class="overview-action-tile overview-action-pick" href="/pick" aria-label="Pick">
             ${overviewActionIcon("pick")}
@@ -117,13 +118,13 @@ export function createHomePages({ db }) {
             ${
               tasks.length
                 ? table(
-                    ["Task", "User", "Product", "Type", "Status", "Started", "Correction"],
+                    ["Task", "Created by", "Product", "Type", "Status", "Started", "Correction"],
                     tasks.map((task) => [
                       `<a href="/tasks/${task.id}">#${task.id}</a>`,
                       taskOwnerLink(user, task),
                       `${escapeHtml(task.first_product_name || "—")}<br /><small>${escapeHtml(task.first_sku || "—")}</small>`,
                       statusBadge(task.type),
-                      statusBadge(task.status),
+                      statusBadge(task.outcome && task.outcome!=='open' ? task.outcome.replaceAll('_',' ') : task.status),
                       escapeHtml(formatDate(task.started_at)),
                       task.status === "completed"
                         ? `<a class="mini-link" href="/tasks/${task.id}?mode=edit">Correct</a>`

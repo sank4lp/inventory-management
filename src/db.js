@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { migrateOperations } from "./modules/operations/schema.js";
 
-export const APP_SCHEMA_VERSION = "6";
+export const APP_SCHEMA_VERSION = "7";
 
 const CORE_PRODUCT_FIELD_DEFINITIONS = [
   {

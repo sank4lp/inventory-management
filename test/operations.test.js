@@ -28,7 +28,7 @@ test('multi-operator accounting, recovery, isolation, and durable receipts',asyn
  assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances').get().n,8);
  assert.throws(()=>create(op,3),/Not enough/);
  let a=work.task(op,t1.taskId).lines[0],b=work.task(second,t2.taskId).lines[0];
- assert.equal(work.task(second,t1.taskId).canAct,false,'existing read access is retained without mutation permission');
+ assert.throws(()=>work.task(second,t1.taskId),/another operator/,'team visibility is permission scoped');
  assert.throws(()=>cmd(second,'cancel',{lineId:a.id,revision:a.revision}),/own allocations/);
  const arrive=(actor,l,device)=>cmd(actor,'acquire',{lineId:l.id,revision:l.revision,location:l.logical_code,deviceId:device});
  assert.equal(arrive(second,b,'B').status,'ready','later task can arrive first');
@@ -295,7 +295,7 @@ test('linking an open allocation to a posted movement requires disposition and r
  assert.equal(w.held(cells[0].id,original.product_id,'pick'),1,'next allocation remains reserved');
  assert.equal(w.snapshot(admin).pending.length,0);
  assert.equal(w.task(op,duplicate.task_id).attention,0);
- assert.equal(w.task(op,duplicate.task_id).status,'completed');
+ assert.equal(w.task(op,duplicate.task_id).outcome,'stopped','a linked partial movement is not fulfilled');
  assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,9);
  assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,1);
  assert.throws(()=>w.command(admin,'correct',{requestId:randomUUID(),lineId:duplicate.id,revision:w.line(duplicate.id).revision,quantity:2,verification:'Try correction on duplicate'}),/original movement/);
@@ -344,4 +344,128 @@ test('shared locator remains available when one participant needs verification',
  const desired=JSON.parse(db.prepare('SELECT desired FROM work_guidance WHERE cell_id=?').get(old.cell_id).desired);
  assert.equal(desired.action,'locate');assert.equal(desired.lineId,active.id);
  assert.equal(w.held(old.cell_id,old.product_id,'pick'),2);db.close();
+});
+
+test('Phase 1 assignments, deadlines, handback, stale evidence and partial handoff',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock,arrive,report}=await fixture();stock(cells[0],10);stock(cells[1],10);
+ const createAssigned=n=>cmd(admin,'create',{direction:'pick',productId:p.id,quantity:n,assigneeId:op.id});
+ let t=w.task(admin,createAssigned(5).taskId),l=t.lines[0];
+ assert.equal(t.created_by,admin.id);assert.equal(t.assignee_id,op.id);assert.equal(t.assignment_state,'offered');
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0);
+ assert.throws(()=>arrive(op,l),/Start task/);assert.throws(()=>arrive(admin,l),/assigned operator/);
+ const due=t.due_at;
+ cmd(admin,'timing',{minutes:1,enabled:true});assert.equal(w.task(admin,t.id).due_at,due);
+ cmd(op,'decline',{taskId:t.id,generation:t.assignment_generation,reason:'Busy'});
+ t=w.task(admin,t.id);assert.equal(t.outcome,'needs_assignment');assert.equal(t.due_at,due);assert.equal(t.assignee_id,null);
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM work_reservations WHERE state='held'").get().n,0);
+ assert.equal(w.snapshot(admin).operators.find(u=>u.id===op.id).open,0);
+ w.flagInactivity({at:new Date(Date.now()+3600000),timeoutMs:0});assert.equal(w.task(admin,t.id).outcome,'needs_assignment','returned requests never acquire phantom inactivity cases');
+ cmd(admin,'reassign',{taskId:t.id,generation:t.assignment_generation,assigneeId:admin.id});
+ assert.throws(()=>cmd(admin,'reassign',{taskId:t.id,generation:t.assignment_generation,assigneeId:op.id}),/changed/);
+ assert.equal(report(op,l,2).status,'review','old assignee retains physical evidence');
+ assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances WHERE cell_id=?').get(cells[0].id).n,10);
+ assert.equal(w.task(admin,t.id).outcome,'needs_review');
+ // Independent new work can continue.
+ let next=w.task(op,createAssigned(2).taskId);const start=cmd(op,'start',{taskId:next.id,generation:next.assignment_generation});
+ assert.equal(start.status,'recorded');assert.equal(db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0);
+ next=w.task(op,next.id);l=next.lines.find(l=>l.execution_state==='ready');arrive(op,l);l=w.line(l.id);
+ assert.throws(()=>cmd(admin,'reassign',{taskId:next.id,generation:next.assignment_generation,assigneeId:admin.id}),/hand over/);
+ assert.equal(report(op,l,1,{method:'manual',manualReason:'Camera unavailable'}).status,'recorded');
+ next=w.task(op,next.id);assert.equal(next.outcome,'stopped');
+ assert.equal(db.prepare('SELECT performed_by FROM transactions WHERE task_id=?').get(next.id).performed_by,op.id);
+ cmd(admin,'reassign',{taskId:next.id,generation:next.assignment_generation,assigneeId:admin.id});
+ next=w.task(admin,next.id);assert.equal(next.lines.filter(l=>l.execution_state==='ready').reduce((n,l)=>n+l.planned_quantity,0),1);
+ assert.ok(Math.abs(Date.parse(next.due_at)-Date.parse(next.started_at)-60000)<100,'deadline derives from initial assignment, never reassignment');
+ const historyBefore=next.assignment_history.length;
+ cmd(admin,'deadline',{taskId:next.id,generation:next.assignment_generation,dueAt:new Date(Date.now()-60000).toISOString(),reason:'Test overdue'});
+ next=w.task(admin,next.id);assert.equal(next.overdue,true);assert.equal(next.assignment_history.length,historyBefore+1);
+ assert.equal(db.prepare('SELECT state FROM work_reservations WHERE line_id=?').get(next.lines.at(-1).id).state,'held');
+ db.prepare('UPDATE tasks SET started_at=? WHERE id=?').run(new Date(Date.now()+3600000).toISOString(),next.id);
+ const badClock=w.task(admin,next.id);assert.equal(badClock.clock_invalid,true);assert.equal(badClock.overdue,false,'clock inconsistency is shown instead of fabricated lateness');
+ assert.throws(()=>cmd(op,'timing',{minutes:2}),/Admin/);db.close();
+});
+
+test('Phase 1 scan never posts, manual Finish shares accounting, flexible actuals and zero/unknown stop',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock,create,arrive,report}=await fixture();stock(cells[0],3);stock(cells[1],10);
+ const t=create(op,'pick',5);let [a,b]=w.task(op,t.taskId).lines;
+ // New stock permits the operator to report four at A despite its original three instruction.
+ db.prepare('UPDATE inventory_balances SET available_quantity=5 WHERE cell_id=?').run(a.cell_id);
+ const start=cmd(op,'acquire',{lineId:a.id,revision:a.revision,deviceId:'a',method:'arrival'});a=w.line(a.id);
+ assert.equal(start.status,'ready');const label=`lytguide:${w.identity().site}:${a.label_id}:${a.label_revision}`;
+ assert.throws(()=>cmd(op,'verify',{lineId:a.id,revision:a.revision,deviceId:'a',location:'wrong'}),/Wrong/);
+ assert.equal(cmd(op,'verify',{lineId:a.id,revision:a.revision,deviceId:'a',location:label}).status,'verified');
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,0,'scanning alone posts nothing');
+ assert.equal(report(op,a,4,{method:'camera',location:label}).status,'recorded');
+ b=w.line(b.id);assert.equal(b.planned_quantity,1);arrive(op,b);b=w.line(b.id);
+ const frozen={requestId:randomUUID(),lineId:b.id,revision:b.revision,deviceId:'a',cellId:b.cell_id,unit:b.unit_of_measure,quantity:1,method:'manual',manualReason:'No camera'};
+ assert.equal(w.command(op,'report',frozen).status,'recorded');assert.equal(w.command(op,'report',frozen).replayed,true);
+ assert.equal(w.task(op,t.taskId).outcome,'completed');assert.equal(w.task(op,t.taskId).recorded_quantity,5);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,2);
+ let zero=w.task(op,create(op,'pick',1).taskId).lines[0];arrive(op,zero);zero=w.line(zero.id);
+ assert.throws(()=>cmd(op,'cancel',{lineId:zero.id,revision:zero.revision,deviceId:'a'}),/Nothing moved/);
+ assert.equal(cmd(op,'cancel',{lineId:zero.id,revision:zero.revision,deviceId:'a',zeroConfirmed:true}).status,'recorded');
+ assert.equal(w.task(op,zero.task_id).outcome,'cancelled');assert.equal(report(op,zero,1).status,'review');
+ let uncertain=w.task(op,create(op,'put',1).taskId);let u=uncertain.lines[0];arrive(op,u);u=w.line(u.id);
+ assert.equal(cmd(op,'stop',{taskId:uncertain.id,generation:uncertain.assignment_generation}).status,'review');
+ assert.equal(db.prepare('SELECT state FROM work_reservations WHERE line_id=?').get(u.id).state,'held');
+ assert.throws(()=>cmd(op,'cancel',{lineId:u.id,revision:u.revision,zeroConfirmed:true}),/pending/);
+ const pending=w.snapshot(admin).pending.find(r=>r.line_id===u.id);
+ assert.equal(pending.quantity_known,0);assert.equal(pending.performer_id,null);
+ assert.equal(cmd(admin,'resolve',{reportId:pending.id,caseRevision:pending.case_revision,quantity:0,performerId:'unknown',verification:'Spoke with operator; work stopped',stopRemaining:true}).status,'recorded');
+ assert.equal(w.task(op,uncertain.id).outcome,'cancelled');db.close();
+});
+
+test('Phase 1 migrated identity, directions and revoked labels stay distinct from hardware and old instructions',async()=>{
+ const {db,w,admin,op,cells,stock,cmd,create,arrive,report}=await fixture();stock(cells[0],10);
+ const c=db.prepare('SELECT * FROM cells WHERE id=?').get(cells[0].id),label=c.label_id;
+ db.prepare("INSERT INTO location_field_definitions(field_key,label,field_type,use_in_directions) VALUES('area','Area','text',1)").run();
+ cmd(admin,'locationDetails',{cellId:c.id,descriptionRevision:c.description_revision,displayName:'Packing shelf left',travelInstructions:'Through the blue door',attributes:{area:'North'}});
+ const t=w.task(op,create(op,'pick',2).taskId),l=t.lines[0];assert.match(l.directions.directions,/Area North, Packing shelf left, Through the blue door/);
+ cmd(admin,'locationDetails',{cellId:c.id,descriptionRevision:c.description_revision+1,displayName:'Packing shelf right',travelInstructions:'New directions'});
+ assert.equal(db.prepare('SELECT label_id FROM cells WHERE id=?').get(c.id).label_id,label);
+ assert.match(w.task(op,t.id).lines[0].directions.directions,/shelf left/,'displayed instruction history is retained');
+ arrive(op,l);const current=w.line(l.id),qr=`lytguide:${w.identity().site}:${label}:${c.label_revision}`;
+ db.prepare("UPDATE location_labels SET state='revoked' WHERE token=?").run(label);
+ assert.throws(()=>cmd(op,'verify',{lineId:l.id,revision:current.revision,deviceId:'a',location:qr}),/revoked/);
+ assert.equal(report(op,current,2,{method:'camera',location:qr}).status,'review');
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,0);
+ assert.throws(()=>cmd(op,'locationDetails',{cellId:c.id,descriptionRevision:3}),/Admin/);
+ db.close();
+});
+
+test('Phase 1 legacy migration never invents assignment history/deadlines; restart preserves new defaults and receipts',async()=>{
+ const {db,w,admin,op,stock,cells,create,cmd}=await fixture();stock(cells[0],10);
+ const t=w.task(op,create(op,'pick',2).taskId),due=t.due_at;
+ cmd(admin,'timing',{enabled:false,minutes:120});const next=w.task(op,create(op,'pick',1).taskId);assert.equal(next.due_at,null);assert.equal(w.task(op,t.id).due_at,due);
+ assert.throws(()=>cmd(admin,'timing',{minutes:0}),/positive/);
+ const {migrateOperations}=await import('../src/modules/operations/schema.js');migrateOperations(db);
+ assert.equal(w.task(op,t.id).due_at,due);assert.equal(w.snapshot(admin).timing.enabled,false);
+ // Existing source records carry no false audit entries when assignment state is legacy.
+ db.prepare("UPDATE tasks SET assignment_source='legacy',assignment_state='legacy',assigned_at=NULL,assigned_by=NULL,due_at=NULL WHERE id=?").run(t.id);
+ db.prepare('DELETE FROM task_assignment_events WHERE task_id=?').run(t.id);
+ migrateOperations(db);const legacy=w.task(op,t.id);assert.equal(legacy.assignee_id,op.id);assert.equal(legacy.assigned_at,null);assert.equal(legacy.assigned_by,null);assert.equal(legacy.due_at,null);assert.equal(legacy.assignment_history.length,0);
+ assert.throws(()=>w.command(admin,'stop',{requestId:randomUUID(),actorId:op.id,taskId:t.id,generation:t.assignment_generation}),/another account/);
+ db.close();
+});
+
+test('Phase 1 team throughput attributes assigned completion to physical performer, not creator',async()=>{
+ const {db,w,admin,op,p,cells,cmd,stock,arrive,report}=await fixture();stock(cells[0],10);
+ let t=w.task(op,cmd(admin,'create',{direction:'pick',productId:p.id,quantity:2,assigneeId:op.id}).taskId);
+ cmd(op,'start',{taskId:t.id,generation:t.assignment_generation});t=w.task(op,t.id);arrive(op,t.lines[0]);assert.equal(report(op,w.line(t.lines[0].id),2).status,'recorded');
+ const {buildTeamThroughputReport}=await import('../src/services/reports.js');const result=buildTeamThroughputReport(db,{});
+ assert.equal(result.rows[0].user_id,op.id);assert.equal(result.rows[0].completed_tasks,1);assert.equal(result.rows.some(r=>r.user_id===admin.id),false);db.close();
+});
+
+test('review movement search reaches older history and keeps matching and access scoped',async()=>{
+ const {db,w,admin,op,cells,stock,create,arrive,report}=await fixture();stock(cells[0],10);
+ const t=create(op,'pick',1);let l=w.task(op,t.taskId).lines[0];arrive(op,l);l=w.line(l.id);
+ const posted=report(op,l,1);db.prepare("UPDATE work_reports SET origin_ref='older-slip-42',created_at='2020-01-01T00:00:00.000Z' WHERE id=?").run(posted.reportId);
+ const copy=db.prepare(`INSERT INTO work_reports(id,origin_ref,product_id,cell_id,direction,quantity,unit,reporter_id,status,payload,created_at)
+ SELECT ?,?,product_id,cell_id,direction,quantity,unit,reporter_id,'posted','{}','2026-01-01T00:00:00.000Z' FROM work_reports WHERE id=?`);
+ for(let i=0;i<501;i++)copy.run('later-'+i,'later-slip-'+i,posted.reportId);
+ assert.equal(w.snapshot(admin).postedReports.some(r=>r.id===posted.reportId),false);
+ const matches=w.searchMovements(admin,{reportId:posted.reportId,q:'older-slip-42'});
+ assert.equal(matches.length,1);assert.equal(matches[0].id,posted.reportId);
+ assert.equal(w.searchMovements(admin,{reportId:posted.reportId,q:''}).length,100);
+ assert.throws(()=>w.searchMovements(op,{reportId:posted.reportId,q:''}),/admin/i);db.close();
 });

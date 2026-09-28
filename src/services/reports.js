@@ -1965,7 +1965,11 @@ export function buildTeamThroughputReport(db, options = {}) {
         WITH completed_tasks AS (
           SELECT
             t.id AS task_id,
-            t.created_by AS user_id,
+            CASE WHEN t.workflow_version=2 THEN (
+              SELECT CASE WHEN COUNT(DISTINCT tr.performed_by)=1 AND SUM(tr.performed_by IS NULL)=0
+                THEN MAX(tr.performed_by) ELSE NULL END FROM transactions tr
+              WHERE tr.task_id=t.id AND tr.type IN ('pick','put')
+            ) ELSE t.created_by END AS user_id,
             t.type,
             COALESCE(
               MAX(CASE WHEN tl.exception_quantity > 0 THEN 1 ELSE 0 END),
@@ -1985,8 +1989,8 @@ export function buildTeamThroughputReport(db, options = {}) {
         )
         SELECT
           u.id AS user_id,
-          u.name,
-          u.username,
+          COALESCE(u.name,'Multiple / unknown performers') AS name,
+          COALESCE(u.username,'unattributed') AS username,
           COUNT(*) AS completed_tasks,
           SUM(CASE WHEN completed.type = 'pick' THEN 1 ELSE 0 END) AS completed_pick_tasks,
           SUM(CASE WHEN completed.type = 'put' THEN 1 ELSE 0 END) AS completed_put_tasks,
@@ -2000,7 +2004,7 @@ export function buildTeamThroughputReport(db, options = {}) {
           ROUND(AVG(completed.duration_minutes), 1) AS average_completion_minutes,
           SUM(completed.duration_minutes) AS total_duration_minutes
         FROM completed_tasks completed
-        JOIN users u ON u.id = completed.user_id
+        LEFT JOIN users u ON u.id = completed.user_id
         GROUP BY u.id
         ORDER BY completed_tasks DESC, u.username COLLATE NOCASE, u.id
       `,
@@ -2026,7 +2030,7 @@ export function buildTeamThroughputReport(db, options = {}) {
     totals.exception_free_tasks += Number(row.exception_free_tasks || 0);
     totalDurationMinutes += Number(row.total_duration_minutes || 0);
     return {
-      user_id: Number(row.user_id),
+      user_id: row.user_id == null ? null : Number(row.user_id),
       name: String(row.name || row.username || "Unknown user"),
       username: String(row.username || ""),
       completed_tasks: completedTasks,

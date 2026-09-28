@@ -322,9 +322,10 @@ export function page({ title, user, flash, content }) {
     <link rel="stylesheet" href="/work.css" />
     <link rel="stylesheet" href="/responsive.css" />
     <script type="module" src="/app.js"></script>
+    ${user ? '<script type="module" src="/client/work-outbox-status.js"></script>' : ''}
     <script type="module" src="/client/mobile-nav.js"></script>
   </head>
-  <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}">
+  <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}" ${user ? `data-account-id="${user.id}"` : ""}>
     ${toast}
     <div class="dashboard-shell ${hasDashboardShell ? "" : "dashboard-shell-public"}">
       ${nav(user, title)}

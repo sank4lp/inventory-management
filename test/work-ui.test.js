@@ -19,20 +19,19 @@ function view({online = true, role = 'operator', tasks = []} = {}) {
 }
 const line = {id:1,revision:2,cell_id:3,logical_code:'A3',unit_of_measure:'pieces',planned_quantity:5,product_name:'Part',product_id:1,type:'pick',execution_state:'ready',created_by:1};
 
-test('ready work separates arrival from physical-report recovery; working actual remains explicit', () => {
-  const ui = view(); ui.context.line = line;
-  const ready = ui.run('lineCard(line)');
-  assert.match(ready, /Start at this location/);
-  assert.match(ready, /data-disclosure="manual-1"[^>]*><summary>Already moved stock/);
-  assert.match(ready, /name="manual" value="true"/);
-  const working = ui.run("lineCard({...line,execution_state:'working'})");
-  const actual = working.match(/<input name="quantity"[^>]+>/)[0];
-  assert.match(actual, /min="0"/);
-  assert.match(actual, /required/);
-  assert.doesNotMatch(actual, /value=/, 'planned quantity must never prefill the actual');
-  assert.match(working, /Use 0 if nothing moved/);
-  assert.match(working, /data-disclosure="resume-1"/);
-  assert.match(working, /name="manual"/);
+test('arrival, camera and summary remain separate; only explicit Finish declares the displayed actual', () => {
+  const ui=view();ui.context.line=line;
+  const ready=ui.run('lineCard(line)');assert.match(ready,/I'm at this location/);
+  assert.doesNotMatch(ready,/Finish pick at this cell/);
+  const working=ui.run("lineCard({...line,execution_state:'working'})");
+  assert.match(working,/Resume camera/);assert.match(working,/Complete without scanning/);
+  assert.doesNotMatch(working,/Finish pick at this cell/);
+  ui.run("stages.set(stageKey(line),{method:'manual'})");
+  const summary=ui.run("lineCard({...line,execution_state:'working'})");
+  assert.match(summary,/Finish pick at this cell/);assert.match(summary,/Press Finish only after moving/);
+  assert.match(summary,/Manual completion — no QR verification/);assert.match(summary,/name="quantity"[^>]+value="5"/);
+  assert.match(summary,/min="0"/);assert.match(summary,/Change quantity/);
+  assert.match(summary,/Report a difference/);assert.match(summary,/Nothing moved — cancel/);
 });
 
 test('offline reports stay accessible and queued/view-only safeguards survive simpler screens', () => {
@@ -67,7 +66,7 @@ test('refresh restores both opened and explicitly closed disclosure state', () =
   const before = [{dataset:{disclosure:'work-tools'},open:true},{dataset:{disclosure:'manual-1'},open:false}];
   const after = [{dataset:{disclosure:'work-tools'},open:false},{dataset:{disclosure:'manual-1'},open:true}];
   let reads = 0;
-  ui.root.querySelectorAll = () => reads++ === 0 ? before : after;
+  ui.root.querySelectorAll = selector => selector.startsWith('form') ? [] : reads++ === 0 ? before : after;
   ui.run('render()');
   assert.equal(after[0].open,true);
   assert.equal(after[1].open,false);
