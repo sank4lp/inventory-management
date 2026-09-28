@@ -1,0 +1,7 @@
+{
+  "choicesHidden": false,
+  "label": "Cycle 3 preview field",
+  "options": "North\nSouth",
+  "type": "select",
+  "width": 820
+}

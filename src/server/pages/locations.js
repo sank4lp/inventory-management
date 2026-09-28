@@ -850,7 +850,7 @@ export function createLocationPages({ db }) {
       (controller) => String(controller.heartbeat_status || "").toLowerCase() === "online",
     ).length;
     const moduleTotal = controllers.reduce(
-      (sum, controller) => sum + Number(controller.module_count || controller.mapped_cells || 0),
+      (sum, controller) => sum + Number(controller.module_count || 0),
       0,
     );
 
@@ -859,7 +859,7 @@ export function createLocationPages({ db }) {
       `<code>${escapeHtml(controller.address || "")}</code>`,
       statusBadge(controller.heartbeat_status),
       escapeHtml(formatDate(controller.last_seen_at)),
-      escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
+      controller.module_count ? escapeHtml(formatQuantity(controller.module_count)) : '<span class="muted">Light count not configured</span>',
       escapeHtml(formatQuantity(controller.mapped_cells)),
       `
         <div class="mini-actions">
@@ -943,7 +943,7 @@ export function createLocationPages({ db }) {
             <div class="panel-heading">
               <div>
                 <h2 id="configuration-status-heading">System Status</h2>
-                <p class="muted">Controller health shows the latest saved check. Use refresh on a controller when you need a live RS485 check.</p>
+                <p class="muted">Controller health shows the latest saved check. Configured output counts come from controller setup; mapped locations do not establish the physical light count. Use refresh on a controller when you need a live RS485 check.</p>
               </div>
             </div>
             <div class="status-strip">
@@ -952,7 +952,7 @@ export function createLocationPages({ db }) {
                 <strong>${escapeHtml(`${onlineControllers}/${controllers.length}`)}</strong>
               </div>
               <div class="status-metric">
-                <span class="muted">LED Modules</span>
+                <span class="muted">Configured LED outputs</span>
                 <strong>${escapeHtml(formatQuantity(moduleTotal))}</strong>
               </div>
               <div class="status-metric">
@@ -974,7 +974,7 @@ export function createLocationPages({ db }) {
               </div>
             </div>
             ${table(
-              ["Controller", "RS485 ID", "Health", "Last Seen", "LED Modules", "Cells", "Actions"],
+              ["Controller", "RS485 ID", "Health", "Last Seen", "Configured outputs", "Mapped locations", "Actions"],
               controllerRows,
             )}
           </section>

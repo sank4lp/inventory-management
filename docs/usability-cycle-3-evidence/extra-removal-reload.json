@@ -1,0 +1,20 @@
+{
+  "extras": 0,
+  "rows": [
+    {
+      "actual": "0",
+      "affected": "0",
+      "condition": "",
+      "product": "1",
+      "removeButtons": 0
+    },
+    {
+      "actual": "5",
+      "affected": "2",
+      "condition": "damaged",
+      "product": "2",
+      "removeButtons": 0
+    }
+  ],
+  "width": 390
+}

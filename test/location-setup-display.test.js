@@ -37,3 +37,8 @@ test('quantity displays preserve exact scoped balances and protect mappings duri
  assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),before);
  f.db.close();
 });
+
+test('zero declared outputs cannot begin setup despite existing mappings and do not emit hardware commands',()=>{
+ const f=fixture();f.db.prepare('UPDATE controllers SET module_count=0 WHERE id=?').run(f.controller.id);const mapped=f.db.prepare('SELECT id,controller_id,hardware_channel FROM cells WHERE controller_id=?').all(f.controller.id),events=f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n;
+ assert.ok(mapped.length>0);assert.throws(()=>f.command('start',{controllerId:f.controller.id}),/output count/);assert.equal(f.setup.snapshot(f.admin).sessions.length,0);assert.deepEqual(f.db.prepare('SELECT id,controller_id,hardware_channel FROM cells WHERE controller_id=?').all(f.controller.id),mapped);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n,events);f.db.close();
+});
