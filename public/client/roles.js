@@ -1,5 +1,20 @@
 (()=>{
  const form=document.querySelector('[data-role-editor]');if(!form)return;
  const {catalog,settings}=JSON.parse(document.querySelector('#role-catalog').textContent);
- const refresh=()=>{const selected=new Set([...form.querySelectorAll('[data-capability]:checked')].map(x=>x.dataset.capability));const nav=[['work.view','Work'],['products.view','Products'],['locations.view','Locations'],['count.view','Stocktaking'],['reports.view','Reports']].filter(([c])=>selected.has(c)).map(([,n])=>n);const permitted=settings.filter(x=>selected.has(x[2])).map(x=>x[1]);form.querySelector('[data-role-preview]').textContent=`Navigation: ${nav.join(', ')||'Account only'}. Settings: ${permitted.join(', ')||'None'}. ${selected.size} permitted actions and views.`;const missing=catalog.filter(c=>selected.has(c.id)).flatMap(c=>c.requires.filter(r=>!selected.has(r)).map(r=>c.label+' requires '+catalog.find(v=>v.id===r).label));form.querySelector('[data-role-prerequisites]').textContent=missing.length?'Select required permissions before saving: '+missing.join('; '):'All action prerequisites selected.';};form.addEventListener('change',refresh);refresh();
+ const selected=()=>new Set([...form.querySelectorAll('[data-capability]:checked')].map(x=>x.dataset.capability));
+ function requiredAccess(current){
+  const required=new Set(current);let changed=true;
+  while(changed){changed=false;for(const c of catalog.filter(c=>required.has(c.id)))for(const id of c.id==='access.manage'?catalog.map(c=>c.id):c.requires)if(!required.has(id)){required.add(id);changed=true;}}
+  return catalog.filter(c=>required.has(c.id)&&!current.has(c.id));
+ }
+ const refresh=()=>{
+  const current=selected(),missing=requiredAccess(current);
+  const nav=[['work.view','Work'],['products.view','Products'],['locations.view','Locations'],['count.view','Stocktaking'],['reports.view','Reports']].filter(([c])=>current.has(c)).map(([,n])=>n);
+  const permitted=settings.filter(x=>current.has(x[2])).map(x=>x[1]);
+  form.querySelector('[data-role-preview]').textContent=`Navigation: ${nav.join(', ')||'Account only'}. Settings: ${permitted.join(', ')||'None'}. ${current.size} permitted actions and views.`;
+  form.querySelector('[data-role-prerequisites]').textContent=missing.length?'Required additional access: '+missing.map(c=>c.label).join('; ')+'. Include these permissions or uncheck the action that needs them.':'All required access is selected.';
+  form.querySelector('[data-include-required]').hidden=!missing.length;
+ };
+ form.querySelector('[data-include-required]').addEventListener('click',()=>{const missing=new Set(requiredAccess(selected()).map(c=>c.id));for(const box of form.querySelectorAll('[data-capability]'))if(missing.has(box.dataset.capability))box.checked=true;refresh();});
+ form.addEventListener('change',refresh);refresh();
 })();
