@@ -1,0 +1,66 @@
+{
+  "fields": [
+    {
+      "name": "direction",
+      "required": false,
+      "value": "pick",
+      "visible": true
+    },
+    {
+      "name": "productSearch",
+      "required": false,
+      "value": "",
+      "visible": true
+    },
+    {
+      "name": "productId",
+      "required": true,
+      "value": "8",
+      "visible": true
+    },
+    {
+      "name": "cellId",
+      "required": true,
+      "value": "2",
+      "visible": true
+    },
+    {
+      "name": "quantity",
+      "required": true,
+      "value": "2",
+      "visible": true
+    },
+    {
+      "name": "reason",
+      "required": true,
+      "value": "",
+      "visible": true
+    },
+    {
+      "name": "performerId",
+      "required": false,
+      "value": "unknown",
+      "visible": true
+    },
+    {
+      "name": "origin",
+      "required": true,
+      "value": "movement-792b69c9-1c6a-4785-b39c-842120513712",
+      "visible": true
+    },
+    {
+      "name": "unit",
+      "required": false,
+      "value": "",
+      "visible": true
+    },
+    {
+      "name": "occurredAt",
+      "required": false,
+      "value": "",
+      "visible": true
+    }
+  ],
+  "horizontalOverflow": false,
+  "url": "http://127.0.0.1:3213/record-movement?product_id=8&cell_id=2&quantity=2&return_to=%2Fcells%2F2&direction=pick"
+}

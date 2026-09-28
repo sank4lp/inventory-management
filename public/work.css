@@ -92,3 +92,10 @@
 .role-capability{min-height:44px;padding:8px 0;cursor:pointer}
 .role-capability:focus-within{outline:2px solid #42ac85;outline-offset:3px;border-radius:4px}
 [hidden]{display:none!important}
+
+/* One set of operator actions lives beside the product, including on phones. */
+#work-app .work-task-table th[scope=row]{min-width:230px;max-width:290px}
+#work-app .task-primary-actions{display:grid;gap:8px;margin-top:12px;font-weight:400}
+#work-app .task-primary-actions form{margin:0;padding:0;border:0;gap:8px}
+#work-app .task-primary-actions :is(a,button,summary){min-height:44px}
+#work-app .task-primary-actions details{margin-top:0}
