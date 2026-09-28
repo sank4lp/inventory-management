@@ -2019,7 +2019,7 @@ export function createReportsPages({ db }) {
             escapeHtml(row.logical_code),
             escapeHtml(formatQuantity(row.quantity_delta)),
             escapeHtml(row.unit_of_measure),
-            escapeHtml(row.reason),
+            escapeHtml(row.reason)+(row.stocktake_run_id ? `<br><a href="/stocktaking/results?run=${Number(row.stocktake_run_id)}#observation-${escapeHtml(String(row.origin_ref).slice(10))}">Count evidence</a>` : ''),
             escapeHtml(row.username),
           ]),
           "No adjustments were recorded in this timeframe.",
@@ -2069,15 +2069,15 @@ export function createReportsPages({ db }) {
                   <p class="report-eyebrow">Curated Questions</p>
                   <h2 id="report-library-title">Choose A Report</h2>
                 </div>
-                <span>${escapeHtml(formatQuantity(reportSections.length))}</span>
+                <span>${escapeHtml(formatQuantity(reportSections.length+1))}</span>
               </div>
               <label class="report-library-search">
                 <span>Search reports</span>
                 <input type="search" placeholder="Name or purpose" autocomplete="off" data-report-library-search />
               </label>
               <nav class="report-library-list report-overview-grid" aria-label="Curated warehouse reports">
-                <p class="report-library-group-label">Warehouse Questions</p>
-                ${builtInReportSections.map(reportLibraryItem).join("")}
+                ${[['Stock',['stock-snapshot','replenishment-watch','slow-moving-stock']],['Operations',['product-movement','movement','team-activity']],['Checks',['issues','adjustments']]].map(([label,keys])=>`<p class="report-library-group-label">${label}</p>${builtInReportSections.filter(r=>keys.includes(r.key)).map(reportLibraryItem).join('')}`).join('')}
+                <a class="report-library-item" href="/reports/stocktake-differences">Stocktake differences · count evidence and coverage</a>
                 <p class="report-library-empty" data-report-library-empty hidden>No reports match that search.</p>
               </nav>
             </aside>

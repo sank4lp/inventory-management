@@ -1,5 +1,10 @@
 import { operationsRoutes } from "./modules/operations/routes.js";
 import { createServer } from "node:http";
+import {stocktakingRoutes} from './modules/stocktaking/routes.js';
+import {phaseTwoNavigation} from './modules/stocktaking/navigation.js';
+import {locationBrowseRoutes} from './modules/locations/browse.js';
+import {locationSetupRoutes} from './modules/locations/routes.js';
+import {displayRoutes} from './modules/stocktaking/display-routes.js';
 import { join } from "node:path";
 import { URL } from "node:url";
 
@@ -526,6 +531,11 @@ export const requestHandler = async (request, response) => {
   }
 
   try {
+    if(locationBrowseRoutes(request,response,url,user,getAppState()))return;
+    if(await locationSetupRoutes(request,response,url,user,getAppState()))return;
+    if(displayRoutes(request,response,url,user,getAppState()))return;
+    if(phaseTwoNavigation(request,response,url,user,getAppState()))return;
+    if(await stocktakingRoutes(request,response,url,user,getAppState()))return;
     if (await operationsRoutes(request,response,url,user,getAppState())) return;
     if (user) {
       updateUserLastActive(db, user.id);

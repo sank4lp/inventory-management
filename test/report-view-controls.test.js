@@ -280,7 +280,7 @@ test("curated report library exposes one clear question and print target per rep
 
   assert.match(html, /Curated Questions/);
   assert.match(html, /Choose the warehouse question you want answered\./);
-  assert.match(html, /<span>8<\/span>/);
+  assert.match(html, /<span>9<\/span>/);
   const libraryItems = tagsWithAttribute(html, "a", "data-report-open");
   const inlineReports = tagsWithAttribute(html, "article", "data-report-inline");
   const printOptions = tagsWithAttribute(html, "button", "data-report-print-option");

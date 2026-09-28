@@ -2,8 +2,10 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { migrateOperations } from "./modules/operations/schema.js";
+import { migrateStocktaking } from "./modules/stocktaking/schema.js";
+import {migratePhaseTwo} from './modules/stocktaking/phase-two-schema.js';
 
-export const APP_SCHEMA_VERSION = "7";
+export const APP_SCHEMA_VERSION = "8";
 
 const CORE_PRODUCT_FIELD_DEFINITIONS = [
   {
@@ -1131,5 +1133,7 @@ export function createDatabase(authHelpers) {
     seedInventory(db);
   }
   migrateOperations(db);
+  migrateStocktaking(db);
+  migratePhaseTwo(db);
   return db;
 }

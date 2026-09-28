@@ -8,6 +8,7 @@ export function hasOutstandingWork(db, { cellId = null, productId = null } = {})
 }
 
 export function guardSetupChange(db, scope = {}) {
+  if(db.prepare("SELECT name FROM sqlite_master WHERE name='display_requests'").get()&&db.prepare("SELECT 1 FROM display_requests WHERE state IN ('active','expiring') AND id!=? LIMIT 1").get(scope.allowDisplayId||''))throw new Error('Stop the active utility display before changing setup. Its ownership receipt protects task and location guidance.');
   if (hasOutstandingWork(db, scope)) {
     throw new Error("This change affects outstanding warehouse work. Resolve Pending confirmations first. Physical work can continue using Record completed movement.");
   }

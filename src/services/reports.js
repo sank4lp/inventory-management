@@ -2213,7 +2213,9 @@ export function buildReports(db, { fromAt, toAt }) {
           tr.quantity_delta,
           COALESCE(tr.unit_of_measure, p.unit_of_measure) AS unit_of_measure,
           u.username,
-          tr.reason
+          tr.reason,
+          tr.origin_ref,
+          (SELECT i.run_id FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id WHERE o.id=substr(tr.origin_ref,11) AND tr.origin_ref LIKE 'stocktake:%') AS stocktake_run_id
         FROM transactions tr
         JOIN products p ON p.id = tr.product_id
         JOIN cells c ON c.id = tr.cell_id

@@ -203,7 +203,7 @@ export function createAdminPages({ db, backupService = null }) {
     );
   }
 
-  function renderAdmin(user, flash) {
+  function renderAdmin(user, flash, section = "all") {
     const users = listUsers(db);
     const keys = listRegistrationKeys(db);
     const products = listProducts(db);
@@ -338,16 +338,15 @@ export function createAdminPages({ db, backupService = null }) {
     });
 
     return page({
-      title: "Admin",
+      title: section === "people" ? "Settings · People & access" : section === "system" ? "Settings · System" : "Settings",
       user,
       flash,
       content: `
-        ${accessManagementSection}
-        ${countAdjustmentCard}
-        ${settingsSection}
-        ${reportFormatSection}
+        ${section === "people" || section === "all" ? accessManagementSection : ""}
+        ${section === "all" ? `<p id="count-adjustment"><a href="/stocktaking">Stocktaking — count, review and correct</a></p><p id="report-format"><a href="/reports?format=1">Report appearance</a></p>` : ""}
+        ${section !== "people" ? `<p><a href="/work/timing">Work timing rules</a> · <a href="/backups">Backups, retention and recovery</a></p>` : ""}
         ${
-          dashboard
+          dashboard && section !== "people"
             ? card(
                 "System",
                 `
@@ -404,7 +403,7 @@ export function createAdminPages({ db, backupService = null }) {
               )
             : ""
         }
-        ${databaseHealth ? renderDatabaseHealth(databaseHealth) : ""}
+        ${databaseHealth && section !== "people" ? renderDatabaseHealth(databaseHealth) : ""}
       `,
     });
   }

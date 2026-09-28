@@ -1854,7 +1854,7 @@ export function deleteCell(db, { cellId, deletedBy = null } = {}) {
     const id = Number(cellId);
     db.prepare("DELETE FROM inventory_balances WHERE cell_id = ?").run(id);
     const placeholder = createModulePlaceholder(db, impact.cell, deletedBy);
-    const hasHistory = cellHasOperationalHistory(db, id);
+    const hasHistory = cellHasOperationalHistory(db, id)||!!db.prepare('SELECT 1 FROM stocktake_items WHERE cell_id=?').get(id)||!!db.prepare("SELECT 1 FROM stocktake_schedules s,json_each(s.scope_json,'$.cellIds') j WHERE json_extract(s.scope_json,'$.mode')='selected' AND j.value=?").get(id);
 
     if (hasHistory) {
       db.prepare(

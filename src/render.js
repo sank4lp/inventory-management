@@ -118,174 +118,17 @@ function iconSvg(name, className = "ui-icon") {
 }
 
 function nav(user, currentTitle = "") {
-  if (!user) {
-    return "";
-  }
-
-  const activeTitle = String(currentTitle || "").toLowerCase();
-  const navItems = [
-    {label:"My work",icon:"pick",href:"/work",active:["my work"],links:[["/record-movement","Record completed movement"],["/movement-history","Movement history"],["/labels","Location labels"]]},
-    {label:"Pending confirmations",icon:"reports",href:"/pending-confirmations",adminOnly:true,active:["pending confirmations"]},
-    {
-      label: "Overview",
-      icon: "overview",
-      href: "/",
-      active: ["overview", "recommended actions"],
-      links: [
-        ["/#recent-tasks", "Recent Tasks"],
-        ["/recommended-actions", "Recommended Actions"],
-      ],
-    },
-    {
-      label: "Pick",
-      icon: "pick",
-      href: "/pick",
-      active: ["pick"],
-    },
-    {
-      label: "Put",
-      icon: "put",
-      href: "/put",
-      active: ["put"],
-    },
-    {
-      label: "Products",
-      icon: "products",
-      href: "/products",
-      active: ["products"],
-    },
-    {
-      label: "Locations",
-      icon: "locations",
-      href: "/cells",
-      active: ["locations", "cell"],
-      links: [
-        ["/cells#find-location", "Find A Location"],
-        ["/cells#all-locations", "All Locations"],
-      ],
-    },
-    {
-      label: "Reporting",
-      icon: "reports",
-      href: "/reports",
-      active: ["reports"],
-      links: [
-        ["/reports#product-movement", "Product Movement"],
-        ["/reports#stock-snapshot", "Stock Snapshot"],
-        ["/reports#replenishment-watch", "Replenishment Watch"],
-        ["/reports#slow-moving-stock", "Slow-Moving Stock"],
-        ["/reports#movement", "Stock Change Over Time"],
-        ["/reports#team-activity", "Team Throughput"],
-        ["/reports#issues", "Exception Hotspots"],
-        ["/reports#adjustments", "Adjustment Audit"],
-      ],
-    },
-    {
-      label: "Configuration",
-      icon: "devices",
-      href: "/devices",
-      adminOnly: true,
-      active: ["configuration"],
-      links: [
-        ["/devices#configuration-status", "System Status"],
-        ["/devices#controller-health", "Controller Health"],
-        ["/devices#controller-setup", "Add Controller"],
-        ["/devices#cell-management", "Manage Locations"],
-        ["/devices#cell-mapping", "Cell Mapping"],
-      ],
-    },
-    {
-      label: "Backups",
-      icon: "backups",
-      href: "/backups",
-      adminOnly: true,
-      active: ["backups"],
-      links: [
-        ["/backups#create-backup", "Create Backup Now"],
-        ["/backups#backup-schedule", "Backup Schedule"],
-        ["/backups#available-backups", "Available Backups"],
-      ],
-    },
-    {
-      label: "Admin",
-      icon: "admin",
-      href: "/admin",
-      adminOnly: true,
-      active: ["admin"],
-      links: [
-        ["/admin#registration-keys", "Registration Keys"],
-        ["/admin#users", "Users"],
-        ["/admin/product-fields", "Product Fields"],
-        ["/admin#count-adjustment", "Count Adjustment"],
-        ["/admin#settings", "Settings"],
-        ["/admin#report-format", "Report Format"],
-        ["/admin#database-health", "Database Health"],
-      ],
-    },
-    {
-      label: "Profile",
-      icon: "profile",
-      href: "/profile",
-      active: ["profile"],
-      links: [
-        ["/profile#account-details", "Account Details"],
-        ["/profile#recent-activity", "Recent Activity"],
-        ["/profile#profile-recent-tasks", "Recent Tasks"],
-      ],
-    },
-  ];
-
-  const isItemActive = (item) =>
-    (item.active || [item.label]).some((label) => activeTitle.includes(label.toLowerCase()));
-
-  const renderItem = (item) => {
-    const active = isItemActive(item);
-    const link = `<a class="side-nav-direct ${active ? "nav-link-active" : ""}" href="${item.href}" ${active ? 'aria-current="page"' : ''}>
-      ${iconSvg(item.icon, "nav-icon")}<span>${escapeHtml(item.label)}</span></a>`;
-    if (!item.links) return link;
-    return `<div class="side-nav-item">${link}
-      <details class="side-nav-group">
-        <summary class="side-nav-summary" aria-label="${escapeHtml(item.label)} shortcuts">${iconSvg("chevronDown", "nav-icon side-nav-chevron")}</summary>
-        <div class="side-nav-sublist">${item.links.map(([href, label]) => `<a class="side-nav-link" href="${href}">${escapeHtml(label)}</a>`).join("")}</div>
-      </details></div>`;
-  };
-  const allowed = navItems.filter((item) => !item.adminOnly || user.role === "admin");
-  const primary = allowed.filter((item) => ["/work", "/pick", "/put"].includes(item.href));
-  const secondary = allowed.filter((item) => !primary.includes(item));
-  const workTools = [
-    {href:'/record-movement', label:'Record completed movement', icon:'pick'},
-    {href:'/movement-history', label:'Movement history', icon:'reports'},
-    {href:'/labels', label:'Location labels', icon:'locations'},
-  ];
-  const operator = user.role !== "admin";
-  const navigation = operator
-    ? `${primary.map((item) => renderItem({...item, links: null})).join("")}
-      <details class="side-nav-more" ${[...secondary, ...workTools].some(isItemActive) ? "open" : ""}>
-        <summary class="side-nav-summary">More tools ${iconSvg("chevronDown", "nav-icon")}</summary>
-        <div class="side-nav-more-content">${secondary.map(renderItem).join("")}
-          ${workTools.map(renderItem).join("")}
-        </div>
-      </details>`
-    : allowed.map(renderItem).join("");
-
-  return `
-    <aside class="dashboard-sidebar" aria-label="Dashboard navigation">
-      <div class="dashboard-sidebar-inner">
-        <a class="brand dashboard-brand" href="${operator ? "/work" : "/"}" aria-label="LytGuide IMS ${operator ? "My work" : "overview"}">
-          <img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112" />
-        </a>
-        <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav" hidden>Menu</button>
-        <div class="session-box sidebar-session-box">
-          <a class="session-identity sidebar-session-identity" href="/profile" aria-label="Open profile for ${escapeHtml(user.name)}">
-            <span class="session-avatar">${escapeHtml(user.name.charAt(0).toUpperCase())}</span>
-            <div class="session-copy"><div class="session-name">${escapeHtml(user.name)}</div><div class="session-role">${escapeHtml(user.role)}</div></div>
-          </a>
-        </div>
-        <nav id="warehouse-main-nav" class="side-nav" aria-label="Dashboard sections" data-nav-links>${navigation}</nav>
-        <div class="sidebar-footer"><form method="post" action="/logout"><button class="ghost-button sidebar-logout" type="submit">Logout</button></form></div>
-      </div>
-    </aside>
-  `;
+  if(!user)return '';
+  const runtime=getRuntimeContext(),admin=user.role==='admin',title=currentTitle.toLowerCase();
+  const counts=runtime.stocktakingService?.snapshot(user);
+  const primary=[['Work',admin?'/work/overview':'/work','pick'],['Products','/products','products'],['Locations','/cells','locations'],['Stocktaking','/stocktaking','reports'],['Reports','/reports','reports']];
+  const active=title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups'].some(t=>title.includes(t))?'Settings':'Work';
+  return `<aside class="dashboard-sidebar" aria-label="Dashboard navigation"><div class="dashboard-sidebar-inner">
+    <a class="brand dashboard-brand" href="${admin?'/work/overview':'/work'}"><img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112"></a>
+    <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav" hidden>Menu</button>
+    <nav id="warehouse-main-nav" class="side-nav" aria-label="Primary areas" data-nav-links>${primary.map(([label,href,icon])=>`<a class="side-nav-direct ${active===label?'nav-link-active':''}" href="${href}" ${active===label?'aria-current="page"':''}>${iconSvg(icon,'nav-icon')}<span>${label}</span>${label==='Stocktaking'?`<span data-stocktake-badge ${counts?.badge?'':'hidden'}>${counts?.badge||0}</span>`:''}</a>`).join('')}</nav>
+    <div class="sidebar-footer">${admin?`<a class="side-nav-direct" href="/settings">${iconSvg('admin','nav-icon')}Settings</a>`:''}<details class="account-menu"><summary>${escapeHtml(user.name)} · Account</summary><a href="/profile">Profile</a><a href="/work?device_help=1#device-help">Saved reports & device help</a><form method="post" action="/logout"><button class="ghost-button sidebar-logout">Sign out</button></form></details></div>
+  </div></aside>`;
 }
 
 export function page({ title, user, flash, content }) {
@@ -322,8 +165,9 @@ export function page({ title, user, flash, content }) {
     <link rel="stylesheet" href="/work.css" />
     <link rel="stylesheet" href="/responsive.css" />
     <script type="module" src="/app.js"></script>
-    ${user ? '<script type="module" src="/client/work-outbox-status.js"></script>' : ''}
+    ${user ? '<script type="module" src="/client/work-outbox-status.js"></script><script type="module" src="/client/stocktake-status.js"></script>' : ''}
     <script type="module" src="/client/mobile-nav.js"></script>
+    <script type="module" src="/client/displays.js"></script><script type="module" src="/client/recommendation-actuals.js"></script>
   </head>
   <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}" ${user ? `data-account-id="${user.id}"` : ""}>
     ${toast}
@@ -335,6 +179,7 @@ export function page({ title, user, flash, content }) {
             <h1>${escapeHtml(title)}</h1>
           </header>
           ${systemNotice}
+          ${user ? `<aside data-stocktake-reminder class="stocktake-reminder" aria-live="polite" hidden></aside>` : ""}
           ${content}
         </main>
       </div>

@@ -214,3 +214,40 @@
     .work-task:hover { transform: none; }
   }
 }
+
+/* Phase 2 shared count, setup and primary navigation controls. */
+@media screen {
+  .count-form { display:grid; gap:1rem; max-width:48rem; margin-block:1rem; }
+  .count-form label { display:grid; gap:.35rem; min-width:0; }
+  .count-form label:has(input[type=checkbox]) { display:flex; align-items:center; min-height:44px; gap:.6rem; }
+  .count-form fieldset { min-width:0; border:1px solid var(--border,#ccd5df); border-radius:.625rem; padding:1rem; display:grid; gap:.75rem; }
+  .count-form legend { font-size:1.1rem; font-weight:700; overflow-wrap:anywhere; }
+  .count-form button { justify-self:start; max-width:100%; white-space:normal; }
+  .count-run { border-block-start:1px solid var(--border,#ccd5df); padding-block:1rem; overflow-wrap:anywhere; }
+  .count-run p,.count-run h3 { overflow-wrap:anywhere; }
+  .count-location-options { max-height:24rem; overflow-y:auto; }
+  .stocktake-reminder { padding:.75rem 1rem; margin-block:.75rem; border:1px solid #b9ccdf; border-radius:.625rem; background:#f0f6fc; }
+  .account-menu { padding:.5rem; min-width:0; }
+  .account-menu a { display:flex; align-items:center; min-height:44px; }
+  [data-stocktake-badge] { border-radius:1rem; padding:0 .5rem; background:#eaf2fb; color:#184775; }
+  #stocktaking-app { min-width:0; }
+  .qr-dialog video { display:block; width:100%; max-height:55dvh; }
+}
+@media print {
+  .stocktake-reminder,.count-form,.account-menu,#stocktaking-app .work-toolbar,#stocktaking-app button {display:none!important;}
+  #stocktaking-app .work-panel {break-inside:auto;}
+  #stocktaking-app .count-run {break-inside:avoid;}
+}
+.setup-labels{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}.setup-label{text-align:center;padding:1rem;border:1px solid #ccc;break-inside:avoid}.setup-label svg{width:160px;max-width:100%}.setup-label strong,.setup-label small{display:block;overflow-wrap:anywhere}
+@media screen {
+ .count-form input[type="checkbox"],#location-setup-app input[type="checkbox"],form[data-recommendation-actuals] input[type="checkbox"]{width:1.25rem!important;min-width:1.25rem;height:1.25rem;min-height:1.25rem;flex:0 0 1.25rem;margin:.15rem 0;box-shadow:none;padding:0;}
+ #location-setup-app label:has(input[type="checkbox"]){display:flex;align-items:flex-start;gap:.65rem;text-align:left;}
+ #location-setup-app [data-session]>button,#location-setup-app [data-session]>.work-secondary{margin:.25rem .25rem .25rem 0;}
+ #location-setup-app,.work-panel, .work-panel a{overflow-wrap:anywhere;}
+}
+@media screen {
+ .product-status-grid .stat-card>a{display:flex;flex-direction:column;gap:.5rem;align-items:flex-start;min-width:0;text-decoration:none;color:inherit;}
+ .product-status-grid .stat-card .stat-value{display:block;line-height:1.15;}
+ .product-status-grid .stat-card>button{margin-top:.75rem;max-width:100%;white-space:normal;}
+ .catalog-controls .catalog-audit-button{white-space:normal;max-width:100%;min-width:0;}
+}

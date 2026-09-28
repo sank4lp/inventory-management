@@ -59,13 +59,30 @@ export function createHardwareService({ db, config, logger }) {
           if(!target.controller_id||!target.hardware_channel)continue;
           const ch=Number(target.hardware_channel);
           const aliases=db.prepare("SELECT COUNT(*) n FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE ctrl.address=(SELECT address FROM controllers WHERE id=?) AND c.hardware_channel=?").get(target.controller_id,ch).n;
-          if(!Number.isInteger(ch)||ch<1||ch>255||aliases!==1)return {ok:false,degraded:true,message:"Physical mapping is ambiguous or invalid. Follow phone instructions manually and correct the mapping after work settles.",events:[]};
+          let unboundSetup=false;
+          if(aliases===0&&context.source==='display_coordinator') {
+            const request=db.prepare("SELECT * FROM display_requests WHERE id=? AND actor_id=? AND state IN ('active','expiring')").get(context.displayId,context.displayActor);
+            const scope=request?JSON.parse(request.scope_json):{};
+            const controller=scope.controllerTest?db.prepare('SELECT * FROM controllers WHERE id=? AND active=1').get(scope.controllerTest):null;
+            const setup=scope.setupSession?db.prepare('SELECT * FROM location_setup_sessions WHERE id=? AND actor_id=?').get(scope.setupSession,context.displayActor):null;
+            // Only the selected output from an authenticated setup receipt may address an unbound light.
+            unboundSetup=!!controller&&controller.id===target.controller_id&&ch<=controller.module_count&&scope.controllerRevision===JSON.stringify([controller.address,controller.module_count,controller.configured_at]);
+            unboundSetup=unboundSetup||!!setup&&setup.controller_id===target.controller_id&&
+              JSON.parse(request.targets_json).some(t=>t.channel===ch&&t.controllerId===target.controller_id)&&
+              (operationName==='cell_quantity_clear'||(setup.status==='active'&&setup.output===ch&&setup.generation===scope.setupGeneration));
+          }
+          if(!Number.isInteger(ch)||ch<1||ch>255||(aliases!==1&&!unboundSetup))return {ok:false,degraded:true,message:"Physical mapping is ambiguous or invalid. Follow phone instructions manually and correct the mapping after work settles.",events:[]};
         }
 
-        if(context.source==="work_coordinator") {
+        if(context.source==='display_coordinator') {
+          const display=db.prepare("SELECT * FROM display_requests WHERE id=? AND actor_id=? AND state IN ('active','expiring')").get(context.displayId,context.displayActor);
+          if(!display)return {ok:false,degraded:true,message:'Superseded display request ignored.',events:[]};
+          for(const target of targets){const owned=JSON.parse(display.targets_json).find(t=>t.controllerId===target.controller_id&&t.channel===target.hardware_channel);const work=db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(target.id||null)?.generation||null;if(!owned||owned.workGeneration!==work)return {ok:false,degraded:true,message:'Newer task guidance is protected.',events:[]};}
+          if(db.prepare("SELECT 1 FROM task_lines WHERE execution_state='working' LIMIT 1").get())return {ok:false,degraded:true,message:'Task guidance is active.',events:[]};
+        } else if(context.source==="work_coordinator") {
           const desired=db.prepare("SELECT generation FROM work_guidance WHERE cell_id=?").get(context.workCellId);
           if(!desired || desired.generation!==context.workGeneration) return {ok:false,degraded:true,message:"Superseded guidance ignored.",events:[]};
-        } else if(db.prepare("SELECT 1 FROM task_lines WHERE execution_state='working' LIMIT 1").get()) {
+        } else if(db.prepare("SELECT 1 FROM task_lines WHERE execution_state='working' LIMIT 1").get() || db.prepare("SELECT 1 FROM display_requests WHERE state IN ('active','expiring') LIMIT 1").get()) {
           return {ok:false,degraded:true,message:"Location work is active. Utility displays and tests are paused until active turns settle.",events:[]};
         }
       }

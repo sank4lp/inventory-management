@@ -2,6 +2,7 @@ import { describeLocation, validLocationLabel, saveLocationDescription } from ".
 import { workCapabilities } from "./access.js";
 import { readPendingReviewTimeoutSettings, savePendingReviewTimeoutSettings } from "../../services/task-timeout-settings.js";
 import { historicalFactor } from "./corrections.js";
+import {controlledCell,countBoundary} from '../stocktaking/accounting.js';
 import { createHash, randomUUID } from "node:crypto";
 import { withTransaction } from "../../db.js";
 import { createTaskRepository } from "../../repositories/task-repository.js";
@@ -173,6 +174,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return { status: "review", reportId: report.id, message: reason };
   }
   function settle(actor, report, allocation, supervisor = false, verification = "") {
+    if(controlledCell(db,report.cell_id)&&!supervisor)return review(report,'This location has goods under controlled condition review. Actual movement is retained for verification.');
     if(report.direction!==allocation.type) return review(report,"The reported action differs from the task. Verify this physical movement separately.");
     if(report.product_id!==allocation.product_id) return review(report,"The reported product differs from the allocation. Reconcile the retained report as a separate verified physical movement.");
     const already = db.prepare("SELECT * FROM work_settlements WHERE line_id=?").get(allocation.id);
@@ -192,6 +194,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       }
       return review(report, "This allocation has already been settled differently. The later physical report is retained; an admin can correct the recorded allocation.");
     }
+    if(countBoundary(db,report,allocation)&&!(supervisor&&JSON.parse(report.payload).countBoundaryCleared===true))return review(report,'A stocktake correction may already include this movement. Review its count correction before posting again.');
     if (!supervisor && ["cancelled", "superseded"].includes(allocation.execution_state)) return review(report, "The original allocation changed or was cancelled. Verify the reported physical movement before recording it.");
     const qty = report.quantity;
     if (report.product_id !== allocation.product_id || report.unit !== allocation.current_unit || (!supervisor && report.cell_id !== allocation.cell_id)) return review(report, "The location or accounting unit changed. Retained for supervisor reconciliation; nothing has been silently converted or relocated.");
@@ -246,6 +249,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const allocations = [];
     for (const cell of cells) {
       if (remaining <= 0) break;
+      if(controlledCell(db,cell.id))continue;
       if (db.prepare("SELECT 1 FROM work_discrepancies WHERE cell_id=? AND product_id=?").get(cell.id, product.id)) continue;
       const room = input.direction === "pick"
         ? rounded(balance(product.id, cell.id) - held(cell.id, product.id, "pick"))
@@ -419,6 +423,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function acquire(actor, input) {
     if(metadata("firmware_busy")) throw new Error("Controller maintenance is in progress. No new guidance is available.");
     const allocation = line(input.lineId); executeOwner(actor, allocation, input);
+    if(controlledCell(db,allocation.cell_id))throw new Error('This location has a condition review. Ask a supervisor to resolve affected instructions; report any actual movement already performed.');
     if (!input.deviceId) throw new Error("A device identity is required.");
     if (allocation.revision !== Number(input.revision) || !["ready", "working"].includes(allocation.execution_state)) throw new Error("This allocation changed. Refresh it before requesting guidance; already performed work can still be reported.");
     if (db.prepare("SELECT 1 FROM work_reports WHERE line_id=? AND status='review'").get(allocation.id)) throw new Error("This task needs supervisor review. You can still report actual work.");
@@ -467,6 +472,24 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (input.keepOpen) { db.prepare("UPDATE work_reports SET case_revision=case_revision+1 WHERE id=?").run(report.id); event("verification_deferred", actor, report.line_id, { reason: input.verification || "Unable to verify" }, report.id); return { status: "review", message: "Kept pending. No quantity was assumed." }; }
     const verification = String(input.verification || "").trim();
     if (!verification) throw new Error("Choose how you verified the actual quantity.");
+    const boundary=report.direction!=='count'?countBoundary(db,report,report.line_id?line(report.line_id):null):null;
+    if(input.countCorrectionId) {
+      const o=db.prepare(`SELECT o.*,i.cell_id FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_settlements s ON s.observation_id=o.id WHERE o.id=?`).get(input.countCorrectionId);
+      const counted=o?JSON.parse(o.lines_json).find(l=>l.productId===report.product_id):null;
+      const alreadyLinked=db.prepare(`SELECT COALESCE(SUM(ABS(COALESCE(x.accounted_delta,r.quantity))),0) q FROM stocktake_movement_links x JOIN work_reports r ON r.id=x.report_id WHERE x.observation_id=? AND r.product_id=?`).get(input.countCorrectionId,report.product_id).q;
+      const settlement=report.line_id?db.prepare('SELECT * FROM work_settlements WHERE line_id=?').get(report.line_id):null;
+      const accountedDelta=(report.quantity-(settlement?.quantity||0))*(report.direction==='pick'?-1:1);
+      if(!['pick','put'].includes(report.direction)||!o||o.cell_id!==report.cell_id||!counted||report.quantity_known===0||counted.unit!==report.unit||Math.sign(counted.difference)!==Math.sign(accountedDelta)||Math.abs(accountedDelta)+alreadyLinked>Math.abs(counted.difference)+1e-9)throw new Error('This correction does not account for the reported product, unit and quantity.');
+      db.prepare('INSERT INTO stocktake_movement_links(report_id,observation_id,actor_id,evidence,created_at,accounted_delta) VALUES(?,?,?,?,?,?)').run(report.id,o.id,actor.id,verification,now(),accountedDelta);
+      db.prepare("UPDATE work_reports SET status='duplicate',verification=?,resolver_id=?,resolved_at=? WHERE id=?").run(verification+'; accounted by stocktake '+o.id,actor.id,now(),report.id);
+      db.prepare('INSERT OR IGNORE INTO work_origins(origin_ref,report_id) VALUES(?,?)').run(report.origin_ref,report.id);
+      if(report.line_id){const l=line(report.line_id);if(!db.prepare('SELECT 1 FROM work_settlements WHERE line_id=?').get(l.id)){db.prepare('INSERT INTO work_settlements VALUES(?,?,?,?,?,?)').run(l.id,report.id,report.quantity,report.cell_id,report.unit,now());db.prepare("UPDATE task_lines SET execution_state='settled',actual_quantity=?,revision=revision+1 WHERE id=?").run(report.quantity,l.id);db.prepare("UPDATE work_reservations SET state='released' WHERE line_id=?").run(l.id);releaseTurn(l);syncReservations();}}
+      if(settlement){db.prepare('UPDATE work_settlements SET quantity=? WHERE line_id=?').run(report.quantity,report.line_id);db.prepare('UPDATE task_lines SET actual_quantity=?,revision=revision+1 WHERE id=?').run(report.quantity,report.line_id);}
+      if(report.line_id)taskProgress(line(report.line_id).task_id);
+      event('movement_accounted_by_stocktake',actor,report.line_id,{observationId:o.id,verification},report.id);
+      return {status:'recorded',message:'Linked to the count correction. No stock was subtracted or added again.'};
+    }
+    if(boundary&&input.afterCountVerified!==true&&!input.dismissDuplicate)throw new Error('Review the stocktake correction first. Link it if it already accounts for this movement, or explicitly verify this was a separate later movement.');
     if (input.dismissDuplicate) {
       const linked = db.prepare("SELECT * FROM work_reports WHERE id=? AND status='posted'").get(input.duplicateOf);
       if (!linked || linked.id === report.id || linked.product_id!==report.product_id || linked.cell_id!==report.cell_id || linked.direction!==report.direction) throw new Error("Choose the recorded report that already accounts for this movement.");
@@ -495,7 +518,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const quantity = workQuantity(input.quantity);
     // Preserve the original report; supervisor's verified actual is a separate report.
     const verified = insertReport(actor, { ...JSON.parse(report.payload), productId: report.product_id, cellId: report.cell_id,
-      direction: report.direction, unit: report.unit, quantity, occurredAt:report.occurred_at || report.created_at, unknown:false, origin: report.origin_ref, reason: verification,
+      direction: report.direction, unit: report.unit, quantity, occurredAt:report.occurred_at || report.created_at, unknown:false, origin: report.origin_ref, reason: verification, countBoundaryCleared:input.afterCountVerified===true,
       performerId: Object.hasOwn(input, "performerId") ? input.performerId : report.performer_id }, report.line_id ? line(report.line_id) : null);
     let result;
     if (report.direction === "count") {
@@ -516,6 +539,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return result;
   }
   function postManual(actor, report, verification, input) {
+    if(countBoundary(db,report)&&input.afterCountVerified!==true)throw new Error('A stocktake correction may already account for this movement. Verify or link it first.');
     const mapping = manualAccounting(report);
     const existing = db.prepare("SELECT r.* FROM work_origins o JOIN work_reports r ON r.id=o.report_id WHERE o.origin_ref=?").get(report.origin_ref);
     if (existing) {
@@ -570,11 +594,12 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function correct(actor, input, verified = false) {
     const allocation = line(input.lineId); own(actor, allocation);
     if (allocation.execution_state !== "settled" || Number(input.revision) !== allocation.revision) throw new Error("This recorded allocation changed. Refresh before correcting it.");
-    if (db.prepare("SELECT 1 FROM work_events WHERE line_id=? AND event_type='allocation_accounted_elsewhere'").get(allocation.id)) throw new Error('This allocation is covered by an existing movement. Correct the original movement record so stock is adjusted only once.');
+    if (db.prepare("SELECT 1 FROM work_events WHERE line_id=? AND event_type IN ('allocation_accounted_elsewhere','movement_accounted_by_stocktake')").get(allocation.id)) throw new Error('This allocation is covered by an existing movement. Correct the original movement record so stock is adjusted only once.');
     const verification = String(input.verification || "").trim();
     if (!verification) throw new Error("Give a reason for correcting this earlier record. Use Record completed movement for a new physical return or pick.");
     const factor=historicalFactor(db,allocation.product_id,allocation.unit_of_measure,allocation.completed_at||allocation.started_at);
     const quantity = workQuantity(input.quantity);
+    if(!verified&&countBoundary(db,{cell_id:allocation.cell_id},allocation))return review(insertReport(actor,{...input,productId:allocation.product_id,cellId:allocation.cell_id,direction:allocation.type,quantity,unit:allocation.unit_of_measure},allocation),'This earlier correction overlaps a stocktake. Verify whether its difference is already included before changing stock again.');
     const delta = rounded((quantity - allocation.actual_quantity) * factor * (allocation.type === "pick" ? -1 : 1));
     const next = rounded(balance(allocation.product_id, allocation.cell_id) + delta);
     const shortage=next<0 || next<held(allocation.cell_id,allocation.product_id,'pick');
@@ -609,6 +634,21 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return {status:'recorded',message:'Unstarted allocation replanned. Earlier instructions remain in the audit history.'};
   }
   const actions = {
+    recommendation(actor,input) {
+      if(input.physicalConfirmed!==true||!String(input.reason||'').trim())throw new Error('Confirm the actual physical movements and record what happened.');
+      if(!Array.isArray(input.moves)||!input.moves.length)throw new Error('Enter the actual for each planned movement, including zero.');
+      const reports=[];
+      for(const [index,move] of input.moves.entries()) {
+        if(Number(move.sourceCellId)===Number(move.targetCellId))throw new Error('Source and target must differ.');
+        for(const [direction,cellId,value] of [['pick',move.sourceCellId,move.picked],['put',move.targetCellId,move.put]]) {
+          const quantity=workQuantity(value);
+          const report=insertReport(actor,{productId:input.productId,cellId,direction,quantity,origin:'recommendation:'+input.requestId+':'+index+':'+direction,reason:input.reason,unknown:false});
+          review(report,'Recommendation physical result retained for verification. Picked and put quantities are separate; no planned quantity was posted.');reports.push(report.id);
+        }
+      }
+      event('recommendation_observed',actor,null,{...input,reports});
+      return {status:'review',reportIds:reports,message:'Actual movements saved for supervisor verification, including any partial or interrupted move. No suggested quantity was posted automatically.'};
+    },
     locationDetails(actor,input) {actorNow(actor,true);const result=saveLocationDescription(db,actor,input);event("location_description_changed",actor,null,input);return result;},
     replan, verify, start: startTask, decline: returnTask, reassign, stop: stopTask, deadline, timing: saveTiming, askReview,
     reconcile(actor,input) {

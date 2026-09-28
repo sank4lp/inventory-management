@@ -360,7 +360,7 @@ test("reports page presents a finite curated question library without custom cre
   assert.match(html, /Choose A Report/);
   assert.match(html, /Choose the warehouse question you want answered\./);
   assert.match(html, /aria-label="Curated warehouse reports"/);
-  assert.match(html, /Warehouse Questions/);
+  assert.match(html, /Stocktake differences/);
 
   const questions = [
     [

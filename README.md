@@ -1,6 +1,6 @@
 # Inventory Management App
 
-Phase-1 local-first software implementation based on the docs in `docs/`.
+Local warehouse inventory software with guided Work, Stocktaking and Location setup.
 
 ## Features
 

@@ -196,7 +196,7 @@ export function createProductPages({ db, productFieldService = null }) {
           : `Browse all products, or search by ${identifierLabel}/${nameLabel.toLowerCase()} when an operator has an item in hand.`,
       )}</p>
       ${table(
-        [identifierLabel, nameLabel, "Available", unitLabel, "Items Per Location", "Action"],
+        [identifierLabel, nameLabel, "On shelf", unitLabel, "Items Per Location", "Action"],
         products.map((product) => [
           `<a href="/products/${product.id}">${escapeHtml(product.sku)}</a>`,
           `<a href="/products/${product.id}">${escapeHtml(product.name)}</a><br /><small>${escapeHtml(product.brand)}</small>`,
@@ -345,6 +345,7 @@ export function createProductPages({ db, productFieldService = null }) {
   }
 
   function renderProductFindForm(product, active = false) {
+    active=false; // Active display status comes from its ownership receipt.
     const disabled = !product.locations.length;
     const title = disabled
       ? "Put stock into a mapped location before showing this product's quantities."
@@ -372,7 +373,7 @@ export function createProductPages({ db, productFieldService = null }) {
             title="${escapeHtml(title)}"
             aria-pressed="${active ? "true" : "false"}"
             ${disabled ? "disabled" : ""}
-          >${active ? "Showing All Quantities" : "Show All Quantities"}</button>
+          >${active ? "Showing All Quantities" : "Show quantities in all locations"}</button>
         </span>
       </form>
     `;
@@ -476,7 +477,7 @@ export function createProductPages({ db, productFieldService = null }) {
             [
               fieldLabel(labels, "product.sku", "SKU"),
               fieldLabel(labels, "product.name", "Name"),
-              "Available",
+              "On shelf",
               fieldLabel(labels, "product.unit_of_measure", "Unit"),
               "30-day avg",
               "Status",
@@ -490,19 +491,7 @@ export function createProductPages({ db, productFieldService = null }) {
   }
 
   function productStatButton(report) {
-    return `
-      <button
-        type="button"
-        class="stat-card stat-card-action"
-        data-report-open="${escapeHtml(report.key)}"
-        aria-haspopup="dialog"
-        aria-controls="product-status-report-modal"
-      >
-        <span class="stat-label">${escapeHtml(report.label)}</span>
-        <span class="stat-value">${escapeHtml(formatQuantity(report.products.length))}</span>
-        <span class="stat-action-hint">Open Printable List</span>
-      </button>
-    `;
+    return `<div class="stat-card"><a class="stat-card-action" href="/products?status=${escapeHtml(report.key)}"><span class="stat-label">${escapeHtml(report.label)}</span><span class="stat-value">${escapeHtml(formatQuantity(report.products.length))}</span><span>Filter catalog</span></a><button type="button" class="ghost-button" data-report-open="${escapeHtml(report.key)}" aria-haspopup="dialog" aria-controls="product-status-report-modal">Print this list</button></div>`;
   }
 
   function renderProductStatusReports(reports, generatedAt, reportFormat) {
@@ -625,7 +614,8 @@ export function createProductPages({ db, productFieldService = null }) {
     const customFields = visibleCustomFields();
     const allProducts = enrichProductsWithStockTrends(listProducts(db));
     const matchingProductIds = new Set(listProducts(db, search).map((product) => Number(product.id)));
-    const products = allProducts.filter((product) => matchingProductIds.has(Number(product.id)));
+    const selectedStatus=url.searchParams.get('status')||'catalog-items';
+    const products = allProducts.filter(product => matchingProductIds.has(Number(product.id)) && (selectedStatus==='in-stock'?product.total_available>0:selectedStatus==='out-of-stock'?product.total_available<=0:selectedStatus==='low-stock'?product.is_low_stock:true));
     const stockedProducts = allProducts.filter((product) => Number(product.total_available || 0) > 0);
     const outOfStockProducts = allProducts.filter((product) => Number(product.total_available || 0) <= 0);
     const lowStockProducts = allProducts.filter((product) => product.is_low_stock);
@@ -684,17 +674,14 @@ export function createProductPages({ db, productFieldService = null }) {
             ${card(
               "Catalog",
               `
-                <div class="catalog-controls">
+                <p>Stock values are on shelf, including reserved goods. <a href="/quantities">View on-shelf, reserved and available-to-pick quantities</a>. Locations with unresolved conditions need review.</p><div class="catalog-controls">
                   <form
                     method="get"
                     action="/products"
                     class="inline-form"
-                    data-live-search-form
-                    data-endpoint="/fragments/catalog-products"
-                    data-target="#catalog-product-results"
-                    data-show-results-when-empty="true"
+
                   >
-                    <label class="inline-form-wrap">Search products
+                    <input type="hidden" name="status" value="${escapeHtml(selectedStatus)}"><label class="inline-form-wrap">Search products
                       <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by ${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}, ${escapeHtml(fieldLabel(labels, "product.name", "name").toLowerCase())}, or ${escapeHtml(fieldLabel(labels, "product.brand", "brand").toLowerCase())}" />
                     </label>
                     ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
@@ -714,14 +701,14 @@ export function createProductPages({ db, productFieldService = null }) {
                     aria-pressed="false"
                     title="Show total available stock on every mapped stocked cell in yellow."
                     ${stockedProducts.length ? "" : "disabled aria-disabled=\"true\""}
-                  >Show All Quantities</button>
+                  >Show all quantities — entire warehouse</button>
                 </div>
                 <div id="catalog-product-results">
                   ${renderCatalogProductResults(
                     products,
                     search ? "No products match that search." : "No products have been added yet.",
                     search,
-                    { canEditCapacity: user.role === "admin" },
+                    { canEditCapacity: false },
                   )}
                 </div>
               `,
@@ -808,7 +795,7 @@ export function createProductPages({ db, productFieldService = null }) {
                     <dd>${escapeHtml(product.sku)}</dd>
                   </div>
                   <div class="product-summary-fact-primary">
-                    <dt>Available</dt>
+                    <dt>On shelf</dt>
                     <dd>${escapeHtml(formatQuantity(product.total_available))} <span>${escapeHtml(product.unit_of_measure)}</span></dd>
                   </div>
                   <div>
@@ -876,10 +863,10 @@ export function createProductPages({ db, productFieldService = null }) {
         ${card(
           "Locations Holding This Product",
           table(
-            ["Cell", "Available", "Last Activity", "Action"],
+            ["Cell", "On shelf", "Last Activity", "Action"],
             product.locations.map((location) => [
               `<a href="/cells/${location.cell_id}">${escapeHtml(location.logical_code)}</a>`,
-              escapeHtml(formatQuantity(location.available_quantity)),
+              `On shelf ${escapeHtml(formatQuantity(location.available_quantity))} ${escapeHtml(product.unit_of_measure)} · <a href="/quantities?cellId=${location.cell_id}&productId=${product.id}">Availability and holds</a>`,
               escapeHtml(formatDate(location.last_activity_at)),
               `
                 <div class="mini-actions">
