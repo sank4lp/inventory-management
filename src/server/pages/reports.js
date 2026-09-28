@@ -807,7 +807,7 @@ function stockDetailColumnLabel(column, { groupLabel, unitLabel, labels }) {
     return "Products";
   }
   if (column === "available_quantity") {
-    return "Available";
+    return "On shelf (recorded)";
   }
   return labels[column] || fallbackLabels[column] || column.replace(/^custom\./, "").replaceAll("_", " ");
 }
@@ -1093,7 +1093,7 @@ function stockCompositionBody(
       </section>
       <footer class="report-notes">
         <strong>Calculation note</strong>
-        <span>Stock composition is a current snapshot. Percentages use the complete total for each compatible unit, including the “Other” slice.</span>
+        <span>Stock composition shows recorded on-shelf stock, including reserved goods; it is not the quantity available to pick. Percentages use the complete total for each compatible unit, including the “Other” slice.</span>
       </footer>
     </section>
   `;
@@ -1306,7 +1306,7 @@ function productMovementBody(rows, report = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>${escapeHtml(report.note || `${presentation.label} is calculated from corrected completed tasks. Current stock is an as-of-now value, and incompatible units are never combined. Open-task partial movements and manual reports are shown in Stock Change Over Time and Movement history.`)}</span>
+      <span>${escapeHtml(report.note || `${presentation.label} is calculated from corrected completed tasks. Current stock is an as-of-now value, and incompatible units are never combined. Open-task partial movements and manual movement entries are shown in Stock Change Over Time and Movement history.`)}</span>
     </footer>
   `;
 }
@@ -1623,7 +1623,7 @@ function replenishmentWatchBody(report = {}, labels = {}) {
     <section class="report-document-section">
       <h4>Products To Review</h4>
       ${table(
-        [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "Available", batchLabel, "Locations"],
+        [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "On shelf (recorded)", batchLabel, "Locations"],
         rows.map((row) => [
           `${escapeHtml(row.name)}<br /><small>${escapeHtml(skuLabel)}: ${escapeHtml(row.sku)}</small>`,
           escapeHtml(row.category || "Uncategorized"),
@@ -1637,7 +1637,7 @@ function replenishmentWatchBody(report = {}, labels = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>“Low” means one normal location batch or less. This is a practical replenishment watch, not a demand forecast or supplier reorder point.</span>
+      <span>Quantities are recorded on shelf, including reserved goods. “Low” means one normal location batch or less. This is a practical replenishment watch, not a demand forecast or supplier reorder point.</span>
     </footer>
   `;
 }
@@ -1951,7 +1951,7 @@ export function createReportsPages({ db }) {
       {
         key: "stock-snapshot",
         title: "Stock Snapshot",
-        description: "What stock can we pick right now?",
+        description: "What stock is recorded on shelf?",
         metric: formatQuantity(stockCompositionReport.totalMatchingRows ?? stockCompositionRows.length),
         metricLabel: "Products With Stock",
         usesGlobalRange: false,
@@ -1959,7 +1959,7 @@ export function createReportsPages({ db }) {
         body: stockCompositionBody(
           { ...stockCompositionReport, groupBy: "product", labels: stockCompositionReport.labels || productLabels },
           { visualization: "bar", chartKey: "stock-snapshot" },
-        ),
+        ) + (can(user, "locations.view") ? '<p class="report-availability-link"><a href="/quantities">View on-shelf, reserved and available-to-pick quantities</a></p>' : ""),
       },
       {
         key: "replenishment-watch",

@@ -1,0 +1,26 @@
+ public/client/location-setup.js           |  23 ++++---
+ public/client/stocktake-status.js         |   5 +-
+ public/client/stocktaking.js              |  29 +++++----
+ public/client/work.js                     | 100 ++++++++++++++++++++----------
+ public/responsive.css                     |  55 +++++++++++++++-
+ public/sw.js                              |   2 +-
+ public/work.css                           |   9 ++-
+ src/modules/access/service.js             |   2 +-
+ src/modules/operations/access.js          |   1 +
+ src/modules/operations/service.js         |  45 +++++++-------
+ src/modules/stocktaking/display-routes.js |   2 +-
+ src/modules/stocktaking/service.js        |   6 +-
+ src/server/pages/locations.js             |  10 +--
+ src/server/pages/report-format-editor.js  |   2 +-
+ src/server/pages/reports.js               |  14 ++---
+ src/services/report-definitions.js        |   2 +-
+ test/access.test.js                       |   4 ++
+ test/custom-report-expansion.test.js      |   2 +-
+ test/location-setup-display.test.js       |  20 ++++++
+ test/report-view-controls.test.js         |  20 +++++-
+ test/stock-composition.test.js            |   2 +-
+ test/stocktaking.test.js                  |  11 ++++
+ test/usability-cycle-3.test.js            |  94 ++++++++++++++++++++++++++++
+ test/work-refinement.test.js              |   3 +
+ test/work-ui.test.js                      |  36 +++++++++++
+ 25 files changed, 398 insertions(+), 101 deletions(-)

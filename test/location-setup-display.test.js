@@ -42,3 +42,18 @@ test('zero declared outputs cannot begin setup despite existing mappings and do 
  const f=fixture();f.db.prepare('UPDATE controllers SET module_count=0 WHERE id=?').run(f.controller.id);const mapped=f.db.prepare('SELECT id,controller_id,hardware_channel FROM cells WHERE controller_id=?').all(f.controller.id),events=f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n;
  assert.ok(mapped.length>0);assert.throws(()=>f.command('start',{controllerId:f.controller.id}),/output count/);assert.equal(f.setup.snapshot(f.admin).sessions.length,0);assert.deepEqual(f.db.prepare('SELECT id,controller_id,hardware_channel FROM cells WHERE controller_id=?').all(f.controller.id),mapped);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n,events);f.db.close();
 });
+
+test('opening quantity scopes only reads balances and selecting a product stays distinct from starting a display',async()=>{
+ const f=fixture(),{displayRoutes}=await import('../src/modules/stocktaking/display-routes.js');
+ const c=f.db.prepare('SELECT * FROM cells LIMIT 1').get(),p=f.db.prepare('SELECT * FROM products LIMIT 1').get();
+ f.db.prepare('UPDATE inventory_balances SET available_quantity=3,reserved_quantity=3 WHERE cell_id=? AND product_id=?').run(c.id,p.id);
+ const balances=f.db.prepare('SELECT * FROM inventory_balances').all(),events=f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n;
+ const render=(query,user=f.op)=>{const res={body:'',writeHead(){},end(v){this.body=v;}};assert.equal(displayRoutes({method:'GET'},res,new URL('http://localhost/quantities'+query),user,{displayCoordinator:f.display}),true);return res.body;};
+ const selected=render(`?cellId=${c.id}&productId=${p.id}`);
+ assert.match(selected,/On shelf 3 · Reserved 3 · Available to pick 0/);assert.match(selected,/Selected product at this location/);assert.match(selected,/Start quantity display/);assert.doesNotMatch(selected,/Show this product on LED|Select this product at this location/);
+ assert.match(render(`?cellId=${c.id}`),/Select this product at this location/);
+ assert.match(render(`?productId=${p.id}`),/Selected product across its locations/);
+ assert.match(render(''),/Entire warehouse/);assert.match(render(`?kind=locate&cellId=${c.id}`),/Start locator display/);
+ const readOnly={...f.op,capabilities:['locations.view']};assert.doesNotMatch(render(`?cellId=${c.id}&productId=${p.id}`,readOnly),/data-display-start/);
+ assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),balances);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n,events);f.db.close();
+});

@@ -23,7 +23,7 @@
     line-height: 1.4;
   }
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),
-  select, textarea, #work-app input:not([type=checkbox]), #work-app select {
+  select, textarea, #work-app input:not([type=checkbox]):not([type=radio]), #work-app select {
     min-width: 0;
     min-height: var(--ui-control-height);
     max-width: 100%;
@@ -215,7 +215,7 @@
   }
 }
 
-/* Phase 2 shared count, setup and primary navigation controls. */
+/* Shared count, setup and primary navigation controls. */
 @media screen {
   .count-form { display:grid; gap:1rem; max-width:48rem; margin-block:1rem; }
   .count-form label { display:grid; gap:.35rem; min-width:0; }
@@ -250,4 +250,55 @@
  .product-status-grid .stat-card .stat-value{display:block;line-height:1.15;}
  .product-status-grid .stat-card>button{margin-top:.75rem;max-width:100%;white-space:normal;}
  .catalog-controls .catalog-audit-button{white-space:normal;max-width:100%;min-width:0;}
+}
+
+/* Shared screen controls. Paper reports retain their selected print formatting. */
+@media screen {
+  :root {
+    --ui-primary: #1c6553;
+    --ui-primary-hover: #154d40;
+    --ui-secondary-border: #bbcfc6;
+    --ui-secondary-ink: #245b4c;
+  }
+  button, .blue-button, .green-button, .action-cta-button, .work-primary, #work-app button, .qr-dialog button {
+    background: var(--ui-primary); color: #fff; border-color: var(--ui-primary); box-shadow: none;
+    max-width: 100%; white-space: normal; overflow-wrap: anywhere;
+  }
+  button:hover, .blue-button:hover, .green-button:hover, .action-cta-button:hover, .work-primary:hover, #work-app button:hover {
+    background: var(--ui-primary-hover); border-color: var(--ui-primary-hover); color: #fff;
+  }
+  button.secondary, .ghost-button, .work-secondary, .secondary-cta,
+  #work-app button.secondary, .refresh-button, .mobile-nav-toggle {
+    background: #fff; color: var(--ui-secondary-ink); border-color: var(--ui-secondary-border); box-shadow: none;
+  }
+  button.secondary:hover, .ghost-button:hover, .work-secondary:hover, .secondary-cta:hover,
+  #work-app button.secondary:hover, .refresh-button:hover {
+    background: #eaf3ef; color: var(--ui-secondary-ink); border-color: var(--ui-secondary-border);
+  }
+  .danger-button, button.danger-button, #work-app button.danger-button {
+    background: #fff1f1; color: #a32222; border-color: #e9b4b4;
+  }
+  .danger-button:hover, button.danger-button:hover, #work-app button.danger-button:hover {
+    background: #ffe4e4; color: #821b1b; border-color: #e9b4b4;
+  }
+  button.text-button, #work-app button.text-button { background: transparent; color: var(--ui-secondary-ink); border: 0; }
+  button:disabled, #work-app button:disabled { cursor: not-allowed; }
+  label:has(> input:is([type=checkbox], [type=radio])),
+  .count-form label:has(> input:is([type=checkbox], [type=radio])),
+  #location-setup-app label:has(> input:is([type=checkbox], [type=radio])),
+  #work-app label:has(> input:is([type=checkbox], [type=radio])) {
+    display: flex; flex-direction: row; align-items: flex-start; gap: .65rem;
+    min-height: var(--ui-control-height); padding-block: .5rem; line-height: 1.5;
+    text-align: left; overflow-wrap: anywhere;
+  }
+  input:is([type=checkbox], [type=radio]), #work-app input:is([type=checkbox], [type=radio]) {
+    width: 1.25rem; min-width: 1.25rem; height: 1.25rem; min-height: 1.25rem;
+    flex: 0 0 1.25rem; padding: 0; margin: .05rem 0; box-shadow: none; accent-color: var(--ui-primary);
+  }
+  /* A wrapped label is one rectangular target, without overlaying adjacent controls. */
+  .page-shell :is(td, th) > a, .page-shell p > a:only-child {
+    display: inline-flex; align-items: center; min-height: var(--ui-control-height);
+    max-width: 100%; padding-block: .25rem; vertical-align: middle; overflow-wrap: anywhere;
+  }
+  .page-shell :is(td, th) > a { min-width: 2.75rem; }
 }

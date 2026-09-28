@@ -38,5 +38,9 @@ test('direct HTTP requests and role UI share permissions, including cross-user t
  const task=state.operationsService.command(admin,'create',{requestId:randomUUID(),direction:'pick',productId:1,quantity:1});const denied=await call('GET','/api/work/snapshot?taskId='+task.taskId,op);assert.equal(denied.statusCode,400);assert.match(denied.body,/another operator/);
  const original=(await call('GET','/api/work/snapshot',op));assert.equal(JSON.parse(original.body).tasks.length,0);
  assert.equal((await call('POST','/api/work/nonexistent',admin,{requestId:randomUUID()})).statusCode,400);assert.equal((await call('GET','/api/unknown',admin)).statusCode,404);
+ const workOnly=access.saveRole(admin,{name:'Work view only',capabilities:['work.view']});access.assign(admin,{userId:op.id,roleId:workOnly});
+ const restricted=JSON.parse((await call('GET','/api/work/snapshot',op)).body);assert.equal(restricted.capabilities.view,true);assert.equal(restricted.capabilities.countView,false);assert.equal(restricted.capabilities.locationsView,false);
+ for(const path of ['/stocktaking','/stocktaking/results','/quantities','/cells','/labels','/pending-confirmations','/work/overview']){const denied=await call('GET',path,op);assert.equal(denied.statusCode,302,path);assert.match(denied.headers.Location,/role.*permitting/);}
+ for(const path of ['/','/recommended-actions','/work','/work/history'])assert.equal((await call('GET',path,op)).statusCode,200,path);
  const editor=await call('GET','/settings/roles?copy=operator',admin);assert.equal(editor.statusCode,200);assert.match(editor.body,/data-capability="hardware.view"/);assert.match(editor.body,/Access preview/);
 });

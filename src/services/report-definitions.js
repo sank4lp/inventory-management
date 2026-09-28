@@ -229,7 +229,7 @@ export function validateStockCompositionRecipe(db, input) {
   }
   const metric = String(recipe.metric || "available_quantity");
   if (metric !== "available_quantity") {
-    throw new Error("Stock composition reports use available quantity.");
+    throw new Error("Stock composition reports use recorded on-shelf quantity.");
   }
 
   const allowedFields = reportableProductFieldKeys(db);

@@ -343,7 +343,7 @@ function editorContents(reportFormat, returnTo) {
               <h4>Inventory Detail</h4>
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Product</th><th>Category</th><th>Available</th></tr></thead>
+                  <thead><tr><th>Product</th><th>Category</th><th>On shelf (recorded)</th></tr></thead>
                   <tbody>
                     <tr><td>Basmati Rice</td><td>Rice</td><td>1,240 kg</td></tr>
                     <tr><td>Brown Rice</td><td>Rice</td><td>880 kg</td></tr>

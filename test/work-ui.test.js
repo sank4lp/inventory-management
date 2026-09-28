@@ -144,3 +144,15 @@ test('restoring a review draft exposes required evidence even when its disclosur
  ui.run("drafts.set(draftKey(reviewForm),{verification:{value:'Other evidence (describe below)'},verificationNote:{value:''}});snapshot.pending=[];render()");
  assert.equal(method.value,'Other evidence (describe below)');assert.equal(details.open,true);assert.equal(note.required,true);assert.ok(note.error);
 });
+
+// The same renderer consumes live snapshots and cached snapshots during outages.
+test('Work tools use snapshot capabilities online and offline, including older cached snapshots',()=>{
+ for(const online of [true,false]){
+  const ui=view({online,role:'custom'});
+  ui.run("snapshot.capabilities={view:true};render()");
+  assert.match(ui.root.innerHTML,/href="\/"/);assert.match(ui.root.innerHTML,/href="\/recommended-actions"/);
+  assert.doesNotMatch(ui.root.innerHTML,/href="\/(?:stocktaking|cells|labels|work\/overview|pending-confirmations|work\/timing)"/);
+  ui.run("snapshot.capabilities.countView=true;snapshot.capabilities.locationsView=true;render()");
+  assert.match(ui.root.innerHTML,/href="\/stocktaking"/);assert.equal(ui.run("allowed(workLinkCapability('/cells/1'))"),true);
+ }
+});

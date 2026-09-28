@@ -475,7 +475,7 @@ test("stock composition recipes validate donut constraints and persist unchanged
 
   assert.throws(
     () => service.validate(stockRecipe({ metric: "picked_quantity" })),
-    /Stock composition reports use available quantity/,
+    /Stock composition reports use recorded on-shelf quantity/,
   );
   assert.throws(
     () => service.validate(stockRecipe({ groupBy: "unit_of_measure" })),

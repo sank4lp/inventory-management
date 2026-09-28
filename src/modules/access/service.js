@@ -19,7 +19,7 @@ export function effectiveUser(db,user) {
 }
 export function currentActor(db,actor,capability) {
   const row=db.prepare('SELECT id,name,username,role,role_id,status,session_version,created_at,last_active_at FROM users WHERE id=?').get(Number(actor?.id));
-  if(!row||row.status!=='active'||actor?.session_version!=null&&row.session_version!==actor.session_version){const e=new Error('Your session is no longer active. Sign in again; pending reports remain available for review.');e.statusCode=403;throw e;}
+  if(!row||row.status!=='active'||actor?.session_version!=null&&row.session_version!==actor.session_version){const e=new Error('Your session is no longer active. Sign in again; saved updates remain available for review.');e.statusCode=403;throw e;}
   const current=effectiveUser(db,row);if(capability)assertCan(current,capability);return current;
 }
 export function auditAccess(db,actor,type,target,payload) {db.prepare('INSERT INTO access_events(actor_id,event_type,target,payload,created_at) VALUES(?,?,?,?,?)').run(actor?.id||null,type,String(target),JSON.stringify(payload),new Date().toISOString());}

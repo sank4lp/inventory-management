@@ -368,7 +368,7 @@ test("reports page presents a finite curated question library without custom cre
       "Product Movement & Demand",
       "Which products were picked most in the selected timeframe?",
     ],
-    ["stock-snapshot", "Stock Snapshot", "What stock can we pick right now?"],
+    ["stock-snapshot", "Stock Snapshot", "What stock is recorded on shelf?"],
     [
       "replenishment-watch",
       "Replenishment Watch",
