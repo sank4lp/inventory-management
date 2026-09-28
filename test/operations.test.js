@@ -411,7 +411,10 @@ test('Phase 1 scan never posts, manual Finish shares accounting, flexible actual
  assert.throws(()=>cmd(op,'cancel',{lineId:u.id,revision:u.revision,zeroConfirmed:true}),/pending/);
  const pending=w.snapshot(admin).pending.find(r=>r.line_id===u.id);
  assert.equal(pending.quantity_known,0);assert.equal(pending.performer_id,null);
- assert.equal(cmd(admin,'resolve',{reportId:pending.id,caseRevision:pending.case_revision,quantity:0,performerId:'unknown',verification:'Spoke with operator; work stopped',stopRemaining:true}).status,'recorded');
+ cmd(admin,'resolve',{reportId:pending.id,caseRevision:pending.case_revision,keepOpen:true,verification:'Awaiting handover'});
+ assert.throws(()=>cmd(admin,'resolve',{reportId:pending.id,caseRevision:pending.case_revision,quantity:0,verification:'Old screen'}),/supervisor changed/);
+ assert.equal(cmd(admin,'resolve',{reportId:pending.id,caseRevision:pending.case_revision+1,quantity:0,performerId:'unknown',verification:'Spoke with operator; work stopped',stopRemaining:true}).status,'recorded');
+ assert.equal(cmd(admin,'resolve',{reportId:pending.id,keepOpen:true}).status,'recorded','an old unable-to-verify action cannot reopen a settled case');
  assert.equal(w.task(op,uncertain.id).outcome,'cancelled');db.close();
 });
 

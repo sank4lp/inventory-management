@@ -463,10 +463,10 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const report = db.prepare("SELECT * FROM work_reports WHERE id=?").get(input.reportId);
     if (!report) throw new Error("Report not found.");
     if (input.caseRevision!=null && Number(input.caseRevision)!==report.case_revision) throw new Error('Another supervisor changed this case. Refresh before resolving.');
+    if (!['review','received'].includes(report.status)) return { status: "recorded", message: "This report is already resolved.", reportId: report.id };
     if (input.keepOpen) { db.prepare("UPDATE work_reports SET case_revision=case_revision+1 WHERE id=?").run(report.id); event("verification_deferred", actor, report.line_id, { reason: input.verification || "Unable to verify" }, report.id); return { status: "review", message: "Kept pending. No quantity was assumed." }; }
     const verification = String(input.verification || "").trim();
     if (!verification) throw new Error("Choose how you verified the actual quantity.");
-    if (!['review','received'].includes(report.status)) return { status: "recorded", message: "This report is already resolved.", reportId: report.id };
     if (input.dismissDuplicate) {
       const linked = db.prepare("SELECT * FROM work_reports WHERE id=? AND status='posted'").get(input.duplicateOf);
       if (!linked || linked.id === report.id || linked.product_id!==report.product_id || linked.cell_id!==report.cell_id || linked.direction!==report.direction) throw new Error("Choose the recorded report that already accounts for this movement.");
