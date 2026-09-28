@@ -78,6 +78,12 @@ export function migrateOperations(db) {
     db.prepare("UPDATE cells SET label_id = ? WHERE id = ?").run(randomUUID(), cell.id);
   }
   migrateWorkflowContracts(db, add);
+  db.exec(`CREATE INDEX IF NOT EXISTS work_task_pages ON tasks(workflow_version,assignee_id,outcome,id);
+    CREATE INDEX IF NOT EXISTS work_team_pages ON tasks(workflow_version,outcome,due_at,id);
+    CREATE INDEX IF NOT EXISTS work_assignment_scope ON task_assignment_events(task_id,assignee_id,previous_assignee);
+    CREATE INDEX IF NOT EXISTS work_line_task ON task_lines(task_id,execution_state);
+    CREATE INDEX IF NOT EXISTS work_report_line_status ON work_reports(line_id,status);
+    CREATE INDEX IF NOT EXISTS work_review_person ON work_reports(status,performer_id,created_at);`);
   adoptPendingLegacyTasks(db);
   for (const key of ["warehouse_identity", "dataset_generation"]) {
     db.prepare("INSERT OR IGNORE INTO app_metadata(key,value,updated_at) VALUES(?,?,?)")

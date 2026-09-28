@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import * as reportFormatServices from "../../services/report-format.js";
 import { escapeHtml } from "./shared.js";
 
@@ -368,7 +369,7 @@ export function renderReportFormatEditor(
     attributes = "",
   } = {},
 ) {
-  if (user?.role !== "admin") {
+  if (!can(user,"reports.format")) {
     return "";
   }
 

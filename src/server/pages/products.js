@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import {
   getCellDetail,
   getProductDetail,
@@ -832,7 +833,7 @@ export function createProductPages({ db, productFieldService = null }) {
               </aside>
             </div>
             ${
-              user.role === "admin"
+              (can(user,"products.capacity")||can(user,"products.edit")||can(user,"products.remove"))
                 ? `
                   <details class="form-disclosure product-settings-disclosure top-gap">
                     <summary>Product Settings</summary>
@@ -1059,7 +1060,7 @@ export function createProductPages({ db, productFieldService = null }) {
     const recommendationSummary = recommendations.length
       ? `${formatQuantity(recommendations.length)} recommendation(s) are available and can free ${formatQuantity(totalFreedLocations)} ${totalFreedLocations === 1 ? "location" : "locations"} in total.`
       : "No consolidation recommendations are currently available, but capacity can still be reviewed before retrying.";
-    const capacityOption = user.role === "admin"
+    const capacityOption = can(user,"products.capacity")
       ? `
         <section class="put-capacity-option">
           <span class="put-capacity-option-step">2</span>

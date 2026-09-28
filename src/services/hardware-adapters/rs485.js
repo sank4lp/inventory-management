@@ -1,8 +1,8 @@
+import {createHostAdapter} from "../../modules/hardware/host-adapter.js";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { accessSync, closeSync, constants, openSync, readSync, writeSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 
 import { resolveLedBrightness } from "../hardware-brightness.js";
 
@@ -70,6 +70,7 @@ function parseJsonLines(text) {
 }
 
 export function createRs485Adapter({ config = {}, logger }) {
+  const host=createHostAdapter({config});
   const port = config.rs485SerialPort || process.env.RS485_SERIAL_PORT || "";
   const writeRepeats = numberSetting(
     config.rs485WriteRepeats ?? process.env.RS485_WRITE_REPEATS,
@@ -141,18 +142,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     }
     accessSync(port, constants.W_OK);
     if (!configured) {
-      const result = spawnSync("stty", [
-        "-F",
-        port,
-        "115200",
-        "cs8",
-        "-cstopb",
-        "-parenb",
-        "-ixon",
-        "-ixoff",
-        "raw",
-        "-echo",
-      ]);
+      const result = host.configureSerial(port);
       if (result.status !== 0) {
         throw new Error(`Could not configure RS485 serial port ${port}.`);
       }

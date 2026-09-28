@@ -325,7 +325,8 @@ test('inactivity of a waiting allocation cannot replace a newer active turn',asy
  db.prepare('UPDATE tasks SET last_touched_at=? WHERE id=?').run(new Date(Date.now()-10*60000).toISOString(),old.task_id);
  const current=w.task(admin,create(admin,'pick',1).taskId).lines[0];arrive(admin,current,'newer');
  const guidance=db.prepare('SELECT generation,desired FROM work_guidance WHERE cell_id=?').get(old.cell_id);
- assert.deepEqual(w.flagInactivity(),[old.task_id]);
+ assert.deepEqual(w.flagInactivity(),[],'untouched waiting work is not physical uncertainty');
+ assert.equal(w.snapshot(admin).pending.length,0);
  assert.equal(clears,0);
  assert.deepEqual(db.prepare('SELECT generation,desired FROM work_guidance WHERE cell_id=?').get(old.cell_id),guidance);
  assert.equal(db.prepare('SELECT line_id,uncertain FROM cell_turns WHERE cell_id=?').get(old.cell_id).line_id,current.id);

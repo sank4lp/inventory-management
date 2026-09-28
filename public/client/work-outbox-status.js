@@ -12,7 +12,7 @@ if(account && !document.querySelector('#work-app')) {
         let strip=document.querySelector('#saved-work-status');
         if(!pending.length){strip?.remove();return;}
         if(!strip){strip=document.createElement('aside');strip.id='saved-work-status';strip.className='work-callout warning';strip.setAttribute('role','status');document.querySelector('main')?.prepend(strip);}
-        strip.replaceChildren(document.createTextNode(`${pending.length} saved work report(s) need attention. They stay with this account after sign out. `));
+        strip.replaceChildren(document.createTextNode(`${pending.length} saved work update(s) need attention. They stay with this account after sign out. `));
         const link=document.createElement('a');link.href='/work';link.textContent='Open saved work';strip.append(link);
       };
     };read();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')read();});

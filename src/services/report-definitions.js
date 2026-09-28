@@ -1,3 +1,5 @@
+import {currentActor} from "../modules/access/service.js";
+import {can} from "../modules/access/catalog.js";
 const MOVEMENT_METRICS = new Set([
   "picked_quantity",
   "pick_frequency",
@@ -528,12 +530,12 @@ function presentDefinition(db, row) {
   };
 }
 
-function requestedVisibility(actor, value, fallback = "private") {
+function requestedVisibility(db,actor, value, fallback = "private") {
   const visibility = String(value || fallback);
   if (!new Set(["private", "shared"]).has(visibility)) {
     throw new Error("Report visibility must be private or shared.");
   }
-  if (visibility === "shared" && actor?.role !== "admin") {
+  if (visibility === "shared" && !can(currentActor(db,actor),"reports.format")) {
     throw new Error("Only an admin can publish a shared report.");
   }
   return visibility;
@@ -610,7 +612,7 @@ export function createReportDefinition(db, input) {
       cleanText(input.description, "Report description", 500, { required: false }),
       JSON.stringify(recipe),
       ownerUserId,
-      requestedVisibility(input.actor, input.visibility),
+      requestedVisibility(db,input.actor, input.visibility),
       ownerUserId,
       createdAt,
       createdAt,
@@ -637,7 +639,7 @@ export function updateReportDefinition(db, input) {
   const visibility =
     input.visibility === undefined
       ? row.visibility
-      : requestedVisibility(input.actor, input.visibility, row.visibility);
+      : requestedVisibility(db,input.actor, input.visibility, row.visibility);
 
   db.prepare(
     `

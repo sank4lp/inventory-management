@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import { randomUUID } from "node:crypto";
 import { describeLocation } from "../../modules/operations/location-contract.js";
 import {
@@ -369,7 +370,7 @@ export function createLocationPages({ db }) {
           "",
           `data-row-collapser data-row-limit="4" data-row-label="products"`,
         )}
-        ${user.role==='admin'?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
+        ${can(user,'locations.manage')?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
           <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="descriptionRevision" value="${describeLocation(db,cell.id).descriptionRevision}">
           <label>Location name<input name="displayName" maxlength="160" value="${escapeHtml(cell.display_name||'')}"></label>
           <label>Travel instructions<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second shelf on the left"></label>
@@ -840,6 +841,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderDevices(user, flash) {
+    if(!can(user,'hardware.flash')&&!can(user,'hardware.map')&&!can(user,'locations.manage')&&!can(user,'hardware.test')&&!can(user,'hardware.controllers'))return page({title:'Hardware configuration and health',user,flash,content:`<p><a href="/settings">← Settings</a></p><p>Controller health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.</p>${table(['Controller','RS485 address','Health','Last seen','Outputs'],listControllers(db).map(c=>[escapeHtml(c.controller_code),escapeHtml(c.address),statusBadge(c.heartbeat_status),escapeHtml(formatDate(c.last_seen_at)),c.module_count]))}<h2>Location mappings</h2>${table(['Location','Controller','Output','Mapping'],listCells(db).map(c=>[escapeHtml(c.display_name||c.logical_code),escapeHtml(c.controller_code||c.controller_id||'Manual'),escapeHtml(c.hardware_channel||'—'),escapeHtml(c.mapping_status)]))}`});
     const controllers = listControllers(db);
     const cells = listCells(db);
     const mappedCells = cells.filter(cellIsMapped);

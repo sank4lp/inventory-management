@@ -1,3 +1,5 @@
+import {currentActor} from "../../modules/access/service.js";
+import {can} from "../../modules/access/catalog.js";
 import * as reportServices from "../../services/reports.js";
 import {
   getReportFormatSettings,
@@ -1895,6 +1897,7 @@ export function createReportsPages({ db }) {
     const range = resolveReportRange(url, runtime.config?.reportDefaultDays || 30);
     const generatedAt = new Date().toISOString();
     const reportFormat = getReportFormatSettings(db);
+    currentActor(db,user,"reports.view");
     const reports = buildReports(db, { fromAt: range.fromAt, toAt: range.toAt });
     const productMovementReport = reports.productMovement || {};
     const productMovement = normalizeProductMovement(productMovementReport);
@@ -2042,7 +2045,7 @@ export function createReportsPages({ db }) {
             </div>
             <div class="reports-hero-actions">
               ${
-                user.role === "admin"
+                can(user,"reports.format")
                   ? `<button
                       type="button"
                       class="ghost-button"

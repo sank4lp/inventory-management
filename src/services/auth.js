@@ -1,3 +1,5 @@
+import {effectiveUser} from "../modules/access/service.js";
+import {fullAdministrator} from "../modules/access/catalog.js";
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { appConfig } from "../config.js";
 
@@ -78,15 +80,15 @@ export function getSessionUser(request, db) {
     return null;
   }
 
-  return (
+  return effectiveUser(db, (
     db
       .prepare(
         "SELECT id, name, username, role, status, created_at, last_active_at, session_version FROM users WHERE id = ? AND status = 'active' AND session_version = ?",
       )
       .get(payload.userId, payload.version || 1) || null
-  );
+  ));
 }
 
 export function requireRole(user, role) {
-  return user && user.role === role;
+  return role === "admin" ? fullAdministrator(user) : user?.role_id === role;
 }

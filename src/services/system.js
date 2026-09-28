@@ -1,3 +1,5 @@
+import {effectiveUser,currentActor} from "../modules/access/service.js";
+import {fullAdministrator} from "../modules/access/catalog.js";
 import { createOperationsService } from "../modules/operations/service.js";
 import { adoptPendingLegacyTasks } from "../modules/operations/schema.js";
 import { withTransaction } from "../db.js";
@@ -284,8 +286,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
       .get();
     const schemaVersion = schemaVersionRow?.value || "unknown";
     const adminCount = Number(
-      db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND status = 'active'").get()
-        .count,
+      db.prepare("SELECT * FROM users WHERE status='active'").all().filter(u=>fullAdministrator(effectiveUser(db,u))).length,
     );
     const hardwareHealth = hardwareService.healthCheck();
     const controllerHealthResults = refreshControllerHealths({ now });
@@ -392,6 +393,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   }
 
   function updatePendingReviewTimeout({ timeoutMinutes, updatedBy = null, now = new Date() } = {}) {
+    currentActor(db,{id:updatedBy},'work.timing');
     const settings = savePendingReviewTimeoutSettings(db, {
       timeoutMinutes,
       now,

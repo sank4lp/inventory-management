@@ -1,0 +1,5 @@
+(()=>{
+ const form=document.querySelector('[data-role-editor]');if(!form)return;
+ const {catalog,settings}=JSON.parse(document.querySelector('#role-catalog').textContent);
+ const refresh=()=>{const selected=new Set([...form.querySelectorAll('[data-capability]:checked')].map(x=>x.dataset.capability));const nav=[['work.view','Work'],['products.view','Products'],['locations.view','Locations'],['count.view','Stocktaking'],['reports.view','Reports']].filter(([c])=>selected.has(c)).map(([,n])=>n);const permitted=settings.filter(x=>selected.has(x[2])).map(x=>x[1]);form.querySelector('[data-role-preview]').textContent=`Navigation: ${nav.join(', ')||'Account only'}. Settings: ${permitted.join(', ')||'None'}. ${selected.size} permitted actions and views.`;const missing=catalog.filter(c=>selected.has(c.id)).flatMap(c=>c.requires.filter(r=>!selected.has(r)).map(r=>c.label+' requires '+catalog.find(v=>v.id===r).label));form.querySelector('[data-role-prerequisites]').textContent=missing.length?'Select required permissions before saving: '+missing.join('; '):'All action prerequisites selected.';};form.addEventListener('change',refresh);refresh();
+})();

@@ -1,3 +1,4 @@
+import {assertCan,can} from "../modules/access/catalog.js";
 import {randomUUID,createHash} from 'node:crypto';
 import {withTransaction} from '../db.js';
 export function createDisplayCoordinator({db,hardwareService,operationsService,clock=()=>new Date()}) {
@@ -20,7 +21,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
   }
   function expire(){for(const row of db.prepare("SELECT * FROM display_requests WHERE state IN ('active','expiring') AND expires_at<=?").all(clock().toISOString()))clear(row);}
   function view(actor,scope={}) {
-    operationsService.actorNow(actor);
+    assertCan(operationsService.actorNow(actor),"locations.view");
     const cells=db.prepare('SELECT id FROM cells WHERE active=1 ORDER BY logical_code').all().map(c=>cell(c.id)).filter(c=>(!scope.cellId||c.id===Number(scope.cellId))&&(!scope.cellIds||scope.cellIds.includes(c.id)));
     return cells.map(c=>{const products=db.prepare(`SELECT b.product_id,p.name,p.unit_of_measure,b.available_quantity AS on_hand,b.reserved_quantity,
       (EXISTS(SELECT 1 FROM work_discrepancies d WHERE d.cell_id=b.cell_id AND d.product_id=b.product_id) OR EXISTS(SELECT 1 FROM stocktake_condition_reviews cr WHERE cr.cell_id=b.cell_id AND cr.state='open')) AS uncertain
@@ -31,6 +32,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     const a=operationsService.actorNow(actor),id=String(input.requestId||randomUUID());expire();
     const fingerprint=createHash('sha256').update(JSON.stringify(scope)).digest('hex');
     const old=db.prepare('SELECT * FROM display_requests WHERE id=?').get(id);if(old){if(old.actor_id!==a.id||old.fingerprint!==fingerprint)throw new Error('This display request belongs to different contents or an account.');return {...old,targets:JSON.parse(old.targets_json),message:'Existing display receipt retrieved; no old command was replayed.'};}
+    assertCan(a,scope.setupTarget||scope.setupTargets?(scope.controllerTest?'hardware.test':'locations.bind'):scope.kind==='quantity'?'locations.quantity':'locations.locate');
     if(db.prepare("SELECT 1 FROM display_requests WHERE state IN ('active','expiring')").get())throw new Error('Another display is active. Stop your current display or wait for its bounded lifetime.');
     if(activeWork())return {state:'busy',targets:[],message:'Location work is active. Quantities remain on screen; task guidance is unchanged.'};
     const rows=scope.setupTargets?scope.setupTargets.map(cell=>({cell,products:[]})):scope.setupTarget?[{cell:scope.setupTarget,products:[]}]:view(a,scope),targets=[];
@@ -49,6 +51,6 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     return {id,state:'active',targets,expires_at:expires,message:'Display command sent for eligible locations for up to two minutes. A sent command is not physical confirmation.'};
   }
   function stop(actor,id){const a=operationsService.actorNow(actor),row=db.prepare('SELECT * FROM display_requests WHERE id=? AND actor_id=?').get(id,a.id);if(!row)throw new Error('This display belongs to another operator.');if(['active','expiring'].includes(row.state))clear(row);return {message:'Only this display request was stopped. Newer task guidance was preserved.'};}
-  function status(actor){const a=operationsService.actorNow(actor);expire();return db.prepare("SELECT id,actor_id,state,expires_at,scope_json,targets_json FROM display_requests WHERE state IN ('active','expiring')").all().map(r=>({...r,canStop:r.actor_id===a.id,scope:JSON.parse(r.scope_json),targets:JSON.parse(r.targets_json)}));}
+  function status(actor){const a=operationsService.actorNow(actor,"locations.view");expire();return db.prepare("SELECT id,actor_id,state,expires_at,scope_json,targets_json FROM display_requests WHERE state IN ('active','expiring')").all().filter(r=>r.actor_id===a.id||can(a,"hardware.view")).map(r=>({...r,canStop:r.actor_id===a.id,scope:JSON.parse(r.scope_json),targets:JSON.parse(r.targets_json)}));}
   return {start,stop,status,view,expire};
 }

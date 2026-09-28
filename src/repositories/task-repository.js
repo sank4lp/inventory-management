@@ -1,3 +1,4 @@
+import {can} from "../modules/access/catalog.js";
 import { nowIso } from "../shared/time.js";
 
 function taskLinesWithCells(db, taskId) {
@@ -95,7 +96,7 @@ export function createTaskRepository(db) {
     },
 
     listRecentForUser(user, limit = 10) {
-      if (user.role === "admin") {
+      if (can(user,"work.team")) {
         return this.listRecent(limit);
       }
 

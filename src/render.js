@@ -1,3 +1,5 @@
+import {can,navigation,SETTINGS} from "./modules/access/catalog.js";
+import {permittedMarkup} from "./modules/access/routes-policy.js";
 import { getRuntimeContext } from "./server/runtime-context.js";
 
 export function escapeHtml(value) {
@@ -119,19 +121,20 @@ function iconSvg(name, className = "ui-icon") {
 
 function nav(user, currentTitle = "") {
   if(!user)return '';
-  const runtime=getRuntimeContext(),admin=user.role==='admin',title=currentTitle.toLowerCase();
-  const counts=runtime.stocktakingService?.snapshot(user);
-  const primary=[['Work',admin?'/work/overview':'/work','pick'],['Products','/products','products'],['Locations','/cells','locations'],['Stocktaking','/stocktaking','reports'],['Reports','/reports','reports']];
-  const active=title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups'].some(t=>title.includes(t))?'Settings':'Work';
+  const runtime=getRuntimeContext(),admin=can(user,'work.team'),title=currentTitle.toLowerCase();
+  const counts=can(user,"count.view")?runtime.stocktakingService?.snapshot(user):null;
+  const primary=navigation(user);
+  const active=title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups','roles and permissions','hardware'].some(t=>title.includes(t))?'Settings':'Work';
   return `<aside class="dashboard-sidebar" aria-label="Dashboard navigation"><div class="dashboard-sidebar-inner">
-    <a class="brand dashboard-brand" href="${admin?'/work/overview':'/work'}"><img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112"></a>
+    <a class="brand dashboard-brand" href="${primary[0]?.[1]||'/profile'}"><img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112"></a>
     <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav" hidden>Menu</button>
     <nav id="warehouse-main-nav" class="side-nav" aria-label="Primary areas" data-nav-links>${primary.map(([label,href,icon])=>`<a class="side-nav-direct ${active===label?'nav-link-active':''}" href="${href}" ${active===label?'aria-current="page"':''}>${iconSvg(icon,'nav-icon')}<span>${label}</span>${label==='Stocktaking'?`<span data-stocktake-badge ${counts?.badge?'':'hidden'}>${counts?.badge||0}</span>`:''}</a>`).join('')}</nav>
-    <div class="sidebar-footer">${admin?`<a class="side-nav-direct" href="/settings">${iconSvg('admin','nav-icon')}Settings</a>`:''}<details class="account-menu"><summary>${escapeHtml(user.name)} · Account</summary><a href="/profile">Profile</a><a href="/work?device_help=1#device-help">Saved reports & device help</a><form method="post" action="/logout"><button class="ghost-button sidebar-logout">Sign out</button></form></details></div>
+    <div class="sidebar-footer">${SETTINGS.some(x=>can(user,x[2]))?`<a class="side-nav-direct" href="/settings">${iconSvg('admin','nav-icon')}Settings</a>`:''}<details class="account-menu"><summary>${escapeHtml(user.name)} · Account</summary><a href="/profile">Profile</a><a href="/work?device_help=1#device-help">Saved updates & device help</a><form method="post" action="/logout"><button class="ghost-button sidebar-logout">Sign out</button></form></details></div>
   </div></aside>`;
 }
 
 export function page({ title, user, flash, content }) {
+  if(user)content=permittedMarkup(content,user);
   const runtime = getRuntimeContext();
   const systemHealth = runtime.systemService?.healthSummary(runtime.startup);
   const systemNotice =

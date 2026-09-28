@@ -31,7 +31,7 @@ test('arrival, camera and summary remain separate; only explicit Finish declares
   assert.match(summary,/Finish pick at this cell/);assert.match(summary,/Press Finish only after moving/);
   assert.match(summary,/Manual completion — no QR verification/);assert.match(summary,/name="quantity"[^>]+value="5"/);
   assert.match(summary,/min="0"/);assert.match(summary,/Change quantity/);
-  assert.match(summary,/Report a difference/);assert.match(summary,/Nothing moved — cancel/);
+  assert.match(summary,/Record a difference/);assert.match(summary,/Nothing moved — cancel/);
 });
 
 test('offline reports stay accessible and queued/view-only safeguards survive simpler screens', () => {
@@ -43,7 +43,7 @@ test('offline reports stay accessible and queued/view-only safeguards survive si
   assert.doesNotMatch(readonly, /<form/);
   ui.run("outbox=[{partition:key(),state:'local',input:{lineId:1}}]");
   assert.match(ui.run('lineCard(line)'), /Do not repeat the movement/);
-  assert.match(ui.run('lineCard(line)'), /<button disabled>Report saved/);
+  assert.match(ui.run('lineCard(line)'), /<button disabled>Update saved/);
 });
 
 test('active and review tasks precede completed history; optional location retains explicit preference', () => {
@@ -105,3 +105,16 @@ test('mobile menu Escape and breakpoint changes restore focus after CSS hides a 
   assert.equal(document.activeElement,link);
   assert.equal(classes.has('mobile-menu-open'),false);
 });
+
+test('saved updates describe the actual action and distinguish delivery from supervisor checking',()=>{
+ const ui=view();ui.context.update={action:'report',input:{direction:'pick',quantity:4,unit:'cases'},state:'local',message:'Saved report'};
+ let html=ui.run('queueEntry(update)');assert.match(html,/Pick 4 cases/);assert.match(html,/Saved on this device/);assert.doesNotMatch(html,/supervisor check|report/i);
+ ui.context.update={...ui.context.update,state:'review'};html=ui.run('queueEntry(update)');assert.match(html,/Received by the warehouse/);assert.match(html,/do not repeat the movement/);assert.doesNotMatch(html,/receipt is not confirmed|Waiting for warehouse confirmation/);
+ ui.context.update={action:'reassign',input:{},state:'not-applied',message:'Assignment changed'};html=ui.run('queueEntry(update)');assert.match(html,/Assign task/);assert.match(html,/Change could not be saved/);assert.doesNotMatch(html,/Quantity needs supervisor/);
+});
+test('count comparison uses actual evidence and leaves inclusion versus separate movement explicit',()=>{
+ const ui=view();ui.context.entry={id:'case',product_id:1,direction:'pick',quantity:2,quantity_known:1,unit:'cases',countOverlap:true,countEvidence:{id:'count',logical_code:'A1',title:'Shelf count',counted_at:'2026-09-28T08:00:00Z',counter_name:'Alex',lines:[{productId:1,recorded:10,actual:8,unit:'cases'}]}};
+ const html=ui.run('countOptions(entry)');assert.match(html,/from 10 to 8 cases/);assert.match(html,/pick of 2 cases/);assert.match(html,/Already included in this count/);assert.match(html,/separate pick/);assert.match(html,/Matching quantities alone do not prove this/);assert.doesNotMatch(html,/observation ID|overlaps a stocktake/);
+});
+
+test('review cases render all three people and human duplicate/count choices without internal-ID inputs',()=>{const ui=view({role:'admin'});ui.context.review={id:'opaque-case-id',case_revision:1,product_id:1,cell_id:1,product_name:'Bolts',logical_code:'A1',direction:'put',quantity:2,quantity_known:1,unit:'cases',reporter_name:'Alex',reporter_username:'entry-user',operator_name:'Sam',performer_username:'sam2',assignee_name:'Sam',assignee_username:'sam1',created_at:'2026-09-25T09:00:00Z',reason:'Verify original physical work',payload:'{}'};ui.run('snapshot.pending=[review];snapshot.discrepancies=[];snapshot.postedReports=[];snapshot.performers=[];');const html=ui.run('pendingPage()');assert.match(html,/Assigned to/);assert.match(html,/Performed by/);assert.match(html,/Entered by/);assert.match(html,/sam1/);assert.match(html,/sam2/);assert.match(html,/Has this put already been saved/);assert.match(html,/View saved entry/);assert.match(html,/Use this saved entry/);assert.doesNotMatch(html,/Reported by|Movement overlaps|Already recorded elsewhere|<input[^>]+name="countCorrectionId"/);});

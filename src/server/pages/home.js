@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import {
   getRecommendedActions,
   listRecentTasksForUser,
@@ -74,7 +75,7 @@ export function createHomePages({ db }) {
 
   function taskOwnerLink(user, task) {
     const label = task.created_by_name || task.created_by_username || `User #${task.created_by}`;
-    const href = user.role === "admin" ? `/admin/users/${task.created_by}` : "/profile";
+    const href = can(user,"people.view") ? `/admin/users/${task.created_by}` : "/profile";
     return `<a class="mini-link" href="${href}">${escapeHtml(label)}</a>`;
   }
 
@@ -87,7 +88,7 @@ export function createHomePages({ db }) {
       user,
       flash,
       content: `
-        ${user.role==='admin'?'<p><a class="action-cta-button" href="/work/overview">Team work — assignments and workloads</a></p>':''}
+        ${can(user,'work.team')?'<p><a class="action-cta-button" href="/work/overview">Team work — assignments and workloads</a></p>':''}
         <section class="overview-action-grid" aria-label="Primary workflows">
           <a class="overview-action-tile overview-action-pick" href="/pick" aria-label="Pick">
             ${overviewActionIcon("pick")}

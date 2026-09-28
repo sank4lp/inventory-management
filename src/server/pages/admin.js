@@ -1,3 +1,5 @@
+import {effectiveUser} from "../../modules/access/service.js";
+import {can} from "../../modules/access/catalog.js";
 import {
   listCells,
   listProducts,
@@ -254,6 +256,7 @@ export function createAdminPages({ db, backupService = null }) {
           "Registration Keys",
           `
             <div class="content-stack">
+              <p><a href="/settings/roles">Roles and Permissions — create roles or change assigned access</a></p>
               <p class="muted">Create one one-time key per person. The key sets the account role during registration and becomes used after that person creates an account.</p>
               <div class="key-quick-actions">
                 <form method="post" action="/admin/registration-keys" class="inline-form">
@@ -271,11 +274,11 @@ export function createAdminPages({ db, backupService = null }) {
                 </form>
               </div>
               <details class="form-disclosure">
-                <summary>Use A Custom Key Value</summary>
+                <summary>Choose a role and issue an invitation</summary>
                 <form method="post" action="/admin/registration-keys" class="stack-form">
                   <label>Key Value<input name="key_value" placeholder="INVITE-AKSHAY-2026" /></label>
                   <label>Role
-                    ${rolePickerField()}
+                    <select name="role">${db.prepare("SELECT id,name FROM access_roles ORDER BY builtin DESC,name").all().map(r=>`<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}</select>
                   </label>
                   <label class="checkbox-line">
                     <input type="checkbox" name="usage_policy" value="global" />
@@ -287,9 +290,9 @@ export function createAdminPages({ db, backupService = null }) {
               <div class="copy-status" data-copy-status role="status" aria-live="polite"></div>
               ${table(
                 ["Key", "Role", "Type", "Usage", "Status", "Action"],
-                keys.map((key) => [
+                (can(user,"access.manage")?keys:[]).map((key) => [
                   `<code>${escapeHtml(key.key_value)}</code>`,
-                  statusBadge(key.role),
+                  statusBadge(db.prepare("SELECT name FROM access_roles WHERE id=?").get(key.role_id||key.role)?.name||key.role),
                   registrationKeyTypeLabel(key),
                   escapeHtml(registrationKeyUsageLabel(key)),
                   statusBadge(key.status),
@@ -307,7 +310,7 @@ export function createAdminPages({ db, backupService = null }) {
             ["Name", "Role", "Status", "Action"],
             users.map((entry) => [
               `<a href="/admin/users/${entry.id}">${escapeHtml(entry.name)}</a><br /><small>${escapeHtml(entry.username)}</small>`,
-              statusBadge(entry.role),
+              statusBadge(effectiveUser(db,entry).role_name),
               statusBadge(entry.status),
               renderUserActions(user, entry),
             ]),

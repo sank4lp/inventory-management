@@ -1,3 +1,4 @@
+import {currentActor} from "../modules/access/service.js";
 import {
   createProduct,
   getProductDetail,
@@ -16,15 +17,19 @@ export function createCatalogService({ db }) {
       return getProductDetail(db, productId);
     },
     createProduct(input) {
+      currentActor(db,input.actor,"products.add");
       return createProduct(db, input);
     },
-    removeProduct(productId) {
+    removeProduct(productId,actor) {
+      currentActor(db,actor,"products.remove");
       return removeProduct(db, productId);
     },
     updateProductDetails(input) {
+      currentActor(db,input.actor,"products.edit");
       return updateProductDetails(db, input);
     },
     updateProductItemsPerCell(input) {
+      currentActor(db,input.actor,"products.capacity");
       return updateProductItemsPerCell(db, input);
     },
   };

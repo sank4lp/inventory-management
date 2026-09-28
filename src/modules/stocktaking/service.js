@@ -1,3 +1,5 @@
+import {can,assertCan} from "../access/catalog.js";
+import {effectiveUser} from "../access/service.js";
 import {createHash,randomUUID} from 'node:crypto';
 import {withTransaction} from '../../db.js';
 import {workQuantity} from '../operations/service.js';
@@ -8,7 +10,7 @@ import {controlledCell} from './accounting.js';
 const json=JSON.stringify,parse=JSON.parse;
 const round=n=>Math.round(n*1e6)/1e6;
 const canonical=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
-export const countCapabilities=u=>({view:u?.status==='active'&&['admin','operator'].includes(u.role),count:u?.status==='active'&&['admin','operator'].includes(u.role),manage:u?.status==='active'&&u.role==='admin',approve:u?.status==='active'&&u.role==='admin'});
+export const countCapabilities=u=>({view:can(u,'count.view'),count:can(u,'count.perform'),create:can(u,'count.create'),team:can(u,'count.team'),manage:can(u,'count.manage'),schedule:can(u,'count.schedule'),recount:can(u,'count.recount'),approve:can(u,'count.approve'),condition:can(u,'count.condition')});
 export function dateInZone(at,timezone) {return new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(at);}
 export function nextCountDate(date,frequency,interval,anchor) {
   const [y,m,d]=date.split('-').map(Number);
@@ -21,7 +23,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
   const now=()=>clock().toISOString(),identity=()=>operationsService.identity();
   const event=(actor,type,payload={},run=null,item=null)=>db.prepare('INSERT INTO stocktake_events(run_id,item_id,actor_id,event_type,payload,created_at) VALUES(?,?,?,?,?,?)').run(run,item,actor?.id||null,type,json(payload),now());
   function actorNow(actor,permission='view') {const current=operationsService.actorNow(actor);if(!countCapabilities(current)[permission])throw new Error('This stocktaking action is not permitted.');return current;}
-  const eligible=id=>{const u=db.prepare('SELECT * FROM users WHERE id=?').get(Number(id));if(!countCapabilities(u).count)throw new Error('Choose an active counter.');return u.id;};
+  const eligible=id=>{const u=db.prepare('SELECT * FROM users WHERE id=?').get(Number(id));if(!countCapabilities(effectiveUser(db,u)).count)throw new Error('Choose an active counter.');return u.id;};
   function scope(input) {
     let cells=db.prepare('SELECT id FROM cells WHERE active=1 ORDER BY id').all().map(c=>c.id);
     if(input.mode==='selected') {const selected=[...new Set((input.cellIds||[]).map(Number))];if(!selected.length||selected.some(id=>!cells.includes(id)))throw new Error('Select existing active locations.');cells=selected;}
@@ -32,8 +34,8 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
     const cellIds=schedule&&input.mode==='selected'?parse(schedule.scope_json).cellIds:scope(input),timezone=schedule?.timezone||input.timezone||db.prepare("SELECT value FROM app_metadata WHERE key='warehouse_timezone'").get()?.value||'Asia/Kolkata';
     dateInZone(clock(),timezone);
     const due=input.dueDate?validDate(input.dueDate):null;
-    const assignee=input.assigneeId?eligible(input.assigneeId):actor?.role==='operator'?actor.id:null;
-    if(actor?.role==='operator'&&assignee!==actor.id)throw new Error('You may create a count only for yourself.');
+    const assignee=input.assigneeId?eligible(input.assigneeId):actor&&!can(actor,'count.manage')?actor.id:null;
+    if(actor&&!can(actor,'count.manage')&&assignee!==actor.id)throw new Error('You may create a count only for yourself.');
     const result=db.prepare(`INSERT INTO stocktake_runs(title,scope_json,due_date,timezone,schedule_revision,occurrence,created_by,created_at)
       VALUES(?,?,?,?,?,?,?,?)`).run(String(input.title||'Warehouse stock check').slice(0,160),json({mode:input.mode,cellIds}),due,timezone,schedule?.revision||null,schedule?`${schedule.revision}:${due}`:null,actor?.id||null,now());
     const runId=Number(result.lastInsertRowid);
@@ -47,7 +49,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       if(!s||s.next_due>dateInZone(clock(),s.timezone))return;
       if(db.prepare("SELECT 1 FROM stocktake_runs WHERE occurrence IS NOT NULL AND status NOT IN ('completed','closed')").get())return;
       const input={...parse(s.scope_json),dueDate:s.next_due,assigneeId:s.assignee_id,title:'Scheduled stocktake'};
-      if(s.assignee_id&&!countCapabilities(db.prepare('SELECT * FROM users WHERE id=?').get(s.assignee_id)).count)input.assigneeId=null;
+      if(s.assignee_id&&!countCapabilities(effectiveUser(db,db.prepare('SELECT * FROM users WHERE id=?').get(s.assignee_id))).count)input.assigneeId=null;
       const created=createRun(null,input,{schedule:s});
       let next=nextCountDate(s.next_due,s.frequency,s.interval_days,s.anchor_day);while(next<=dateInZone(clock(),s.timezone))next=nextCountDate(next,s.frequency,s.interval_days,s.anchor_day);
       db.prepare('UPDATE stocktake_schedules SET next_due=? WHERE id=1').run(next);
@@ -56,7 +58,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
   }
   function run(actor,id) {
     const r=db.prepare('SELECT * FROM stocktake_runs WHERE id=?').get(Number(id));if(!r)throw new Error('Stocktake not found.');
-    const visible=actor.role==='admin'||r.created_by===actor.id||db.prepare(`SELECT 1 FROM stocktake_items i WHERE run_id=? AND (assignee_id=? OR EXISTS(SELECT 1 FROM stocktake_attempts a WHERE a.item_id=i.id AND a.counter_id=?))`).get(r.id,actor.id,actor.id);
+    const visible=can(actor,'count.team')||r.created_by===actor.id||db.prepare(`SELECT 1 FROM stocktake_items i WHERE run_id=? AND (assignee_id=? OR EXISTS(SELECT 1 FROM stocktake_attempts a WHERE a.item_id=i.id AND a.counter_id=?))`).get(r.id,actor.id,actor.id);
     if(!visible)throw new Error('This stocktake belongs to another counter.');return r;
   }
   function item(actor,input,{manage=false}={}) {
@@ -91,7 +93,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
   const actions={
     create:(a,i)=>createRun(a,i),
     schedule(a,i) {
-      actorNow(a,'manage');const old=db.prepare('SELECT * FROM stocktake_schedules WHERE id=1').get();
+      actorNow(a,'schedule');const old=db.prepare('SELECT * FROM stocktake_schedules WHERE id=1').get();
       if(Number(i.revision||0)!==(old?.revision||0))throw new Error('The schedule changed. Refresh it.');
       const cells=scope(i),frequency=i.frequency,interval=Number(i.intervalDays||30);if(!['weekly','monthly','custom'].includes(frequency)||!Number.isInteger(interval)||interval<1||interval>3650)throw new Error('Choose a valid cadence.');
       const due=validDate(i.nextDue),timezone=i.timezone||'Asia/Kolkata';dateInZone(clock(),timezone);
@@ -117,7 +119,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       if(!lines.length&&i.emptyConfirmed!==true)throw new Error('Explicitly confirm that this location is empty.');
       const unknown=(i.unknown||[]).map(v=>String(v).trim()).filter(Boolean);if(unknown.some(v=>v.length>1000))throw new Error('Keep unidentified-item descriptions under 1000 characters.');
       if(attempt.observation_id){const old=db.prepare('SELECT * FROM stocktake_observations WHERE id=?').get(attempt.observation_id),compare=list=>list.map(({productId,unit,actual,conditionQuantity,condition})=>({productId,unit,actual,conditionQuantity,condition}));if(canonical(compare(parse(old.lines_json)))!==canonical(compare(lines))||canonical(parse(old.unknown_json))!==canonical(unknown)||String(old.note||'')!==String(i.note||''))throw new Error('A different count was already received for this attempt. Your new evidence remains on this device; request a fresh recount.');return {status:'recorded',observationId:old.id,message:'This count was already received.'};}
-      const id=randomUUID(),safe=stable(before,row.cell_id)&&row.generation===attempt.generation&&row.assignee_id===a.id&&!['closed','completed'].includes(r.status)&&(!i.dataset||i.dataset===identity().dataset)&&lines.every(l=>db.prepare('SELECT unit_of_measure FROM products WHERE id=?').get(l.productId).unit_of_measure===l.unit);
+      const id=randomUUID(),safe=can(a,'count.perform')&&stable(before,row.cell_id)&&row.generation===attempt.generation&&row.assignee_id===a.id&&!['closed','completed'].includes(r.status)&&(!i.dataset||i.dataset===identity().dataset)&&lines.every(l=>db.prepare('SELECT unit_of_measure FROM products WHERE id=?').get(l.productId).unit_of_measure===l.unit);
       const condition=lines.some(l=>l.conditionQuantity>0)||unknown.length;const status=!safe?'recheck':condition||lines.some(l=>l.difference!==0)?'review':'matched';
       let countedAt=i.countedAt||null;if(countedAt&&(!Number.isFinite(Date.parse(countedAt))||Date.parse(countedAt)>clock().getTime()+60000))throw new Error('Choose a valid actual counting time or leave it unknown.');
       db.prepare(`INSERT INTO stocktake_observations(id,attempt_id,item_id,counter_id,lines_json,unknown_json,reported_reason,note,counted_at,received_at,status,supersedes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,attempt.id,row.id,a.id,json(lines),json(unknown),i.reason||null,i.note||null,countedAt,now(),status,row.latest_observation);
@@ -126,7 +128,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       if(condition)db.prepare('INSERT INTO stocktake_condition_reviews(observation_id,cell_id,details) VALUES(?,?,?)').run(id,row.cell_id,json({lines:lines.filter(l=>l.conditionQuantity),unknown}));
       event(a,'observed',{observationId:id,status},row.run_id,row.id);refreshRun(row.run_id);return {status,observationId:id,message:status==='matched'?'Count saved — matches. No stock movement.':status==='recheck'?'Observation saved — needs a fresh stable count.':'Difference sent for review. Physical stock has not changed.'};},
     skip(a,i){const row=item(a,i);if(!String(i.reason||'').trim())throw new Error('Give a reason for skipping.');db.prepare("UPDATE stocktake_items SET state='skipped',generation=generation+1,note=? WHERE id=?").run(i.reason,row.id);event(a,'skipped',{reason:i.reason},row.run_id,row.id);return {status:'recorded',message:'Skipped, not counted. Return to this location later.'};},
-    review(a,i){actorNow(a,'approve');const o=db.prepare('SELECT * FROM stocktake_observations WHERE id=?').get(i.observationId);if(!o)throw new Error('Count observation not found.');const row=db.prepare('SELECT * FROM stocktake_items WHERE id=?').get(o.item_id);run(a,row.run_id);
+    review(a,i){actorNow(a,i.action==='recount'?'recount':'approve');const o=db.prepare('SELECT * FROM stocktake_observations WHERE id=?').get(i.observationId);if(!o)throw new Error('Count observation not found.');const row=db.prepare('SELECT * FROM stocktake_items WHERE id=?').get(o.item_id);run(a,row.run_id);
       if(['approved','matched','linked','recounted'].includes(o.status))return {status:'recorded',message:'This observation already has a final resolution. No stock was posted again.'};
       if(o.revision!==Number(i.revision))throw new Error('Another reviewer changed this count. Refresh.');
       const evidence=String(i.evidence||'').trim();if(!evidence)throw new Error('Record how this was verified, or why it remains unverified.');
@@ -149,7 +151,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       }else throw new Error('Choose a review action.');
       if(row.latest_observation===o.id)db.prepare("UPDATE stocktake_items SET state='counted' WHERE id=?").run(row.id);
       event(a,'reviewed',{observationId:o.id,action:i.action,evidence,reason:i.reason},row.run_id,row.id);refreshRun(row.run_id);return {status:'recorded',message:i.action==='link'?'Existing movements linked. No second stock change.':'Verified correction recorded once in Adjustment Audit.'};},
-    condition(a,i){actorNow(a,'approve');const c=db.prepare("SELECT * FROM stocktake_condition_reviews WHERE id=? AND state='open'").get(Number(i.conditionId));if(!c)throw new Error('Condition review is already closed or missing.');if(!String(i.evidence||'').trim()||i.confirmed!==true)throw new Error('Verify the disposition or usability and explain the evidence.');if(baseline(c.cell_id).pending.length||baseline(c.cell_id).reports.length)throw new Error('Resolve already-issued work and pending movement evidence first.');db.prepare("UPDATE stocktake_condition_reviews SET state='resolved',resolved_by=?,resolved_at=?,evidence=? WHERE id=?").run(a.id,now(),i.evidence,c.id);db.prepare("UPDATE stocktake_observations SET status='recheck',revision=revision+1 WHERE id=? AND status NOT IN ('approved','linked','matched')").run(c.observation_id);db.prepare("UPDATE stocktake_items SET state='recheck',generation=generation+1 WHERE latest_observation=?").run(c.observation_id);event(a,'condition_resolved',{conditionId:c.id,evidence:i.evidence});return {status:'recorded',message:'Controlled review released. No goods were subtracted. Request a fresh count; physical removal must have its own verified movement.'};},
+    condition(a,i){actorNow(a,'condition');const c=db.prepare("SELECT * FROM stocktake_condition_reviews WHERE id=? AND state='open'").get(Number(i.conditionId));if(!c)throw new Error('Condition review is already closed or missing.');if(!String(i.evidence||'').trim()||i.confirmed!==true)throw new Error('Verify the disposition or usability and explain the evidence.');if(baseline(c.cell_id).pending.length||baseline(c.cell_id).reports.length)throw new Error('Resolve already-issued work and pending movement evidence first.');db.prepare("UPDATE stocktake_condition_reviews SET state='resolved',resolved_by=?,resolved_at=?,evidence=? WHERE id=?").run(a.id,now(),i.evidence,c.id);db.prepare("UPDATE stocktake_observations SET status='recheck',revision=revision+1 WHERE id=? AND status NOT IN ('approved','linked','matched')").run(c.observation_id);db.prepare("UPDATE stocktake_items SET state='recheck',generation=generation+1 WHERE latest_observation=?").run(c.observation_id);event(a,'condition_resolved',{conditionId:c.id,evidence:i.evidence});return {status:'recorded',message:'Controlled review released. No goods were subtracted. Request a fresh count; physical removal must have its own verified movement.'};},
     close(a,i){actorNow(a,'manage');const r=run(a,i.runId);if(r.revision!==Number(i.revision))throw new Error('Run changed. Refresh.');if(!String(i.reason||'').trim())throw new Error('Explain why coverage is incomplete.');db.prepare("UPDATE stocktake_runs SET status='closed',closed_at=?,close_reason=?,revision=revision+1 WHERE id=?").run(now(),i.reason,r.id);event(a,'closed_incomplete',{reason:i.reason},r.id);return {status:'recorded',message:'Closed with incomplete coverage. Observations, corrections and pending reviews remain.'};},
     deadline(a,i){actorNow(a,'manage');const r=run(a,i.runId);if(r.revision!==Number(i.revision)||!String(i.reason||'').trim())throw new Error('Refresh this run and supply a reason for the deadline change.');db.prepare('UPDATE stocktake_runs SET due_date=?,revision=revision+1 WHERE id=?').run(validDate(i.dueDate),r.id);event(a,'deadline_changed',{previous:r.due_date,next:i.dueDate,reason:i.reason},r.id);return {status:'recorded',message:'Count deadline updated and audited.'};},
     scope(a,i){actorNow(a,'manage');const r=run(a,i.runId);if(!String(i.reason||'').trim())throw new Error('Explain this scope change.');if(i.addCellId){const id=scope({mode:'selected',cellIds:[i.addCellId]})[0];db.prepare('INSERT INTO stocktake_items(run_id,cell_id,location_json) VALUES(?,?,?)').run(r.id,id,json(describeLocation(db,id)));}else {const row=item(a,i,{manage:true});if(row.latest_observation)throw new Error('Preserve the counted location and its reviews; close incomplete coverage explicitly if needed.');db.prepare("UPDATE stocktake_items SET state='excluded',note=?,generation=generation+1 WHERE id=?").run(i.reason,row.id);}event(a,'scope_changed',i,r.id);return {status:'recorded',message:'Scope change recorded. Excluded locations are not counted as checked.'};}
@@ -157,31 +159,35 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
   function command(actor,action,input) {
     if(!actions[action])throw new Error('Unknown stocktaking action.');
     const result=withTransaction(db,()=>{
-      const a=actorNow(actor,'count');if(input.actorId!=null&&Number(input.actorId)!==a.id)throw new Error('This saved count belongs to another account.');if(input.site&&input.site!==identity().site)throw new Error('This count belongs to another warehouse.');
+      const a=operationsService.actorNow(actor);if(input.actorId!=null&&Number(input.actorId)!==a.id)throw new Error('This saved count belongs to another account.');if(input.site&&input.site!==identity().site)throw new Error('This count belongs to another warehouse.');
       const id=String(input.requestId||'');if(id.length<8||id.length>160)throw new Error('A stable request identity is required.');const fingerprint=createHash('sha256').update(canonical({action,input})).digest('hex');
       const receipt=db.prepare('SELECT * FROM stocktake_receipts WHERE actor_id=? AND request_id=?').get(a.id,id);if(receipt){if(receipt.fingerprint!==fingerprint)throw new Error('This request was already received with different contents.');return {...parse(receipt.result_json),replayed:true};}
       if(input.dataset&&input.dataset!==identity().dataset&&action!=='observe')throw new Error('The warehouse dataset changed. Refresh.');
+      const permissions={create:can(a,'count.manage')?'count.manage':'count.create',schedule:'count.schedule',assign:'count.manage',start:'count.perform',decline:'count.perform',begin:'count.perform',observe:'count.perform',skip:'count.perform',review:input.action==='recount'?'count.recount':'count.approve',condition:'count.condition',close:'count.manage',deadline:'count.manage',scope:'count.manage'};
+      if(action!=='observe')assertCan(a,permissions[action]);
       const value=actions[action](a,input);db.prepare('INSERT INTO stocktake_receipts VALUES(?,?,?,?,?)').run(a.id,id,fingerprint,json(value),now());return value;
     });return result;
   }
   function snapshot(actor) {
-    const a=actorNow(actor);tick();
+    const a=operationsService.actorNow(actor);
+    if(!can(a,'count.view'))return {...identity(),user:a,capabilities:countCapabilities(a),generatedAt:now(),schedule:null,runs:[],badge:0,cells:[],products:[],counters:[],conditions:[],events:[]};
+    tick();
     const runs=db.prepare('SELECT * FROM stocktake_runs ORDER BY id DESC').all().filter(r=>{try{run(a,r.id);return true;}catch{return false;}}).map(r=>{
-      const items=db.prepare(`SELECT i.*,c.active,c.logical_code,c.display_name,u.name AS counter_name FROM stocktake_items i JOIN cells c ON c.id=i.cell_id LEFT JOIN users u ON u.id=i.assignee_id WHERE i.run_id=?`).all(r.id).filter(i=>a.role==='admin'||i.assignee_id===a.id||db.prepare('SELECT 1 FROM stocktake_attempts WHERE item_id=? AND counter_id=?').get(i.id,a.id));
-      const ids=new Set(items.map(i=>i.id));const observations=db.prepare(`SELECT o.*,u.name AS counter_name,v.name AS reviewer_name,a.baseline_json,a.method,a.started_at FROM stocktake_observations o JOIN stocktake_attempts a ON a.id=o.attempt_id JOIN users u ON u.id=o.counter_id LEFT JOIN users v ON v.id=o.reviewer_id JOIN stocktake_items i ON i.id=o.item_id WHERE i.run_id=? ORDER BY o.received_at`).all(r.id).filter(o=>ids.has(o.item_id)&&(a.role==='admin'||o.counter_id===a.id));
+      const items=db.prepare(`SELECT i.*,c.active,c.logical_code,c.display_name,u.name AS counter_name FROM stocktake_items i JOIN cells c ON c.id=i.cell_id LEFT JOIN users u ON u.id=i.assignee_id WHERE i.run_id=?`).all(r.id).filter(i=>can(a,'count.team')||i.assignee_id===a.id||db.prepare('SELECT 1 FROM stocktake_attempts WHERE item_id=? AND counter_id=?').get(i.id,a.id));
+      const ids=new Set(items.map(i=>i.id));const observations=db.prepare(`SELECT o.*,u.name AS counter_name,v.name AS reviewer_name,a.baseline_json,a.method,a.started_at FROM stocktake_observations o JOIN stocktake_attempts a ON a.id=o.attempt_id JOIN users u ON u.id=o.counter_id LEFT JOIN users v ON v.id=o.reviewer_id JOIN stocktake_items i ON i.id=o.item_id WHERE i.run_id=? ORDER BY o.received_at`).all(r.id).filter(o=>ids.has(o.item_id)&&(can(a,'count.team')||o.counter_id===a.id));
       const pending=items.filter(i=>i.assignee_id===a.id&&['pending','counting','skipped','recheck'].includes(i.state)).length;
       const reviews=observations.filter(o=>['review','recheck','unverified'].includes(o.status)).length;
       return {...r,items:items.map(i=>({...i,description:describeLocation(db,i.cell_id),originalDescription:parse(i.location_json),controlled:controlledCell(db,i.cell_id)})),observations:observations.map(o=>({...o,lines:parse(o.lines_json),unknown:parse(o.unknown_json),baseline:parse(o.baseline_json),linkedMovements:parse(o.linked_movements),correctionTransactions:parse(db.prepare('SELECT transaction_ids FROM stocktake_settlements WHERE observation_id=?').get(o.id)?.transaction_ids||'[]')})),
         attempts:db.prepare('SELECT a.* FROM stocktake_attempts a JOIN stocktake_items i ON i.id=a.item_id WHERE i.run_id=? AND a.counter_id=? AND a.observation_id IS NULL').all(r.id,a.id).map(v=>({...v,baseline:parse(v.baseline_json)})),
-        overdue:Boolean(r.due_date&&r.due_date<dateInZone(clock(),r.timezone)&&!['completed','closed'].includes(r.status)),actionable:a.role==='admin'?(!['completed','closed'].includes(r.status)||reviews>0):pending>0&&!['completed','closed'].includes(r.status),pending,reviews,
-        scopeChanges:a.role==='admin'?db.prepare('SELECT id,logical_code,display_name FROM cells WHERE active=1 AND id NOT IN (SELECT cell_id FROM stocktake_items WHERE run_id=?)').all(r.id):[]};
+        overdue:Boolean(r.due_date&&r.due_date<dateInZone(clock(),r.timezone)&&!['completed','closed'].includes(r.status)),actionable:(can(a,'count.manage')&&!['completed','closed'].includes(r.status))||((can(a,'count.approve')||can(a,'count.recount'))&&reviews>0)||(can(a,'count.perform')&&pending>0&&!['completed','closed'].includes(r.status)),pending,reviews,
+        scopeChanges:can(a,'count.team')?db.prepare('SELECT id,logical_code,display_name FROM cells WHERE active=1 AND id NOT IN (SELECT cell_id FROM stocktake_items WHERE run_id=?)').all(r.id):[]};
     });
     return {...identity(),user:a,capabilities:countCapabilities(a),generatedAt:now(),schedule:db.prepare('SELECT * FROM stocktake_schedules WHERE id=1').get()||null,runs,badge:runs.filter(r=>r.actionable).length,
       cells:db.prepare('SELECT id,logical_code,display_name FROM cells WHERE active=1 ORDER BY logical_code').all().map(c=>({...c,description:describeLocation(db,c.id)})),products:db.prepare('SELECT id,name,sku,unit_of_measure FROM products WHERE active=1 ORDER BY name').all(),
-      counters:a.role==='admin'?db.prepare("SELECT id,name FROM users WHERE status='active' AND role IN ('admin','operator') ORDER BY name").all():[],
-      conditions:a.role==='admin'?db.prepare("SELECT c.*,i.run_id FROM stocktake_condition_reviews c JOIN stocktake_observations o ON o.id=c.observation_id JOIN stocktake_items i ON i.id=o.item_id WHERE c.state='open'").all():[],
-      events:a.role==='admin'?db.prepare('SELECT * FROM stocktake_events ORDER BY id DESC LIMIT 500').all():[]};
+      counters:can(a,'count.team')?db.prepare("SELECT * FROM users WHERE status='active' ORDER BY name").all().filter(u=>can(effectiveUser(db,u),"count.perform")).map(u=>({id:u.id,name:u.name})):[],
+      conditions:can(a,'count.team')?db.prepare("SELECT c.*,i.run_id FROM stocktake_condition_reviews c JOIN stocktake_observations o ON o.id=c.observation_id JOIN stocktake_items i ON i.id=o.item_id WHERE c.state='open'").all():[],
+      events:can(a,'count.team')?db.prepare('SELECT * FROM stocktake_events ORDER BY id DESC LIMIT 500').all():[]};
   }
-  function movements(actor,observationId,q='') {actorNow(actor,'approve');const row=db.prepare('SELECT i.cell_id,a.baseline_json FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_attempts a ON a.id=o.attempt_id WHERE o.id=?').get(observationId);if(!row)throw new Error('Count not found.');return db.prepare(`SELECT tr.*,p.name FROM transactions tr JOIN products p ON p.id=tr.product_id WHERE tr.cell_id=? AND tr.id>? AND (tr.reason LIKE ? OR p.name LIKE ? OR tr.created_at LIKE ?) ORDER BY tr.id DESC LIMIT 100`).all(row.cell_id,parse(row.baseline_json).ledgerId,...Array(3).fill('%'+String(q).slice(0,160)+'%'));}
+  function movements(actor,observationId,q='') {actorNow(actor,'team');const row=db.prepare('SELECT i.cell_id,a.baseline_json FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_attempts a ON a.id=o.attempt_id WHERE o.id=?').get(observationId);if(!row)throw new Error('Count not found.');return db.prepare(`SELECT tr.*,p.name FROM transactions tr JOIN products p ON p.id=tr.product_id WHERE tr.cell_id=? AND tr.id>? AND (tr.reason LIKE ? OR p.name LIKE ? OR tr.created_at LIKE ?) ORDER BY tr.id DESC LIMIT 100`).all(row.cell_id,parse(row.baseline_json).ledgerId,...Array(3).fill('%'+String(q).slice(0,160)+'%'));}
   return {command,snapshot,tick,baseline,movements};
 }

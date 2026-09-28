@@ -1,3 +1,4 @@
+import {currentActor,effectiveUser,protectLastAdmin,auditAccess} from "../modules/access/service.js";
 import { guardSetupChange, guardLegacyTask } from "../modules/operations/guards.js";
 import { historicalFactor } from "../modules/operations/corrections.js";
 import { randomBytes } from "node:crypto";
@@ -1197,6 +1198,9 @@ export function listRegistrationKeys(db) {
 }
 
 export function issueRegistrationKey(db, { keyValue, role, userId, usagePolicy = "single_use" }) {
+  const actor=currentActor(db,{id:userId},'access.manage');
+  const chosen=db.prepare('SELECT * FROM access_roles WHERE id=?').get(role);
+  if(!chosen)throw new Error('Choose an existing role.');
   const normalizedRole = role === "admin" ? "admin" : "operator";
   const normalized = String(keyValue || "").trim() || generateRegistrationKeyValue(normalizedRole);
   const normalizedUsagePolicy =
@@ -1220,9 +1224,9 @@ export function issueRegistrationKey(db, { keyValue, role, userId, usagePolicy =
     nowIso(),
   );
 
-  return db
-    .prepare("SELECT * FROM registration_keys WHERE id = ?")
-    .get(result.lastInsertRowid);
+  db.prepare('UPDATE registration_keys SET role_id=? WHERE id=?').run(chosen.id,result.lastInsertRowid);
+  auditAccess(db,actor,'invitation_issued',result.lastInsertRowid,{roleId:chosen.id,usagePolicy:normalizedUsagePolicy});
+  return db.prepare("SELECT * FROM registration_keys WHERE id = ?").get(result.lastInsertRowid);
 }
 
 export function revokeRegistrationKey(db, { keyId }) {
@@ -1294,6 +1298,8 @@ export function registerUser(db, { registrationKey, name, username, password, ha
         nowIso(),
       );
 
+    db.prepare('UPDATE users SET role_id=? WHERE id=?').run(key.role_id||key.role,result.lastInsertRowid);
+    auditAccess(db,{id:Number(result.lastInsertRowid)},'onboarded',result.lastInsertRowid,{roleId:key.role_id||key.role,invitationId:key.id});
     if (key.usage_policy === "global") {
       db.prepare(
         `
@@ -1341,6 +1347,7 @@ export function authenticateUser(db, { username, password, verifyPassword }) {
 }
 
 export function setUserStatus(db, { userId, status, actingUserId }) {
+ return withTransaction(db,()=>{
   const nextStatus = String(status || "").trim().toLowerCase();
   if (!["active", "inactive"].includes(nextStatus)) {
     throw new Error("User status must be active or inactive.");
@@ -1358,28 +1365,17 @@ export function setUserStatus(db, { userId, status, actingUserId }) {
       throw new Error("You cannot suspend your own account.");
     }
 
-    if (targetUser.role === "admin") {
-      const remainingActiveAdmins = db
-        .prepare(
-          `
-            SELECT COUNT(*) AS count
-            FROM users
-            WHERE role = 'admin' AND status = 'active' AND id != ?
-          `,
-        )
-        .get(targetUser.id).count;
-
-      if (Number(remainingActiveAdmins) < 1) {
-        throw new Error("At least one active admin account is required.");
-      }
-    }
+    protectLastAdmin(db,effectiveUser(db,targetUser),effectiveUser(db,targetUser).role_id,nextStatus);
   }
+  const actor=currentActor(db,{id:actingUserId},'people.manage');
+  auditAccess(db,actor,'user_status',targetUser.id,{before:targetUser.status,after:nextStatus});
 
   db.prepare("UPDATE users SET status = ? WHERE id = ?").run(nextStatus, targetUser.id);
 
   return db
     .prepare("SELECT id, name, username, role, status FROM users WHERE id = ?")
     .get(targetUser.id);
+ });
 }
 
 export function listCells(db) {

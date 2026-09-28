@@ -61,3 +61,26 @@
 #work-app .review-case{margin:16px 0}#work-app .review-case>summary{font-size:17px;line-height:1.5}#work-app .work-options>summary{min-height:44px}#work-app .work-grid .work-panel>h3{margin-top:0}
 .qr-dialog{box-sizing:border-box;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto}.qr-dialog button{margin:4px 0;width:100%}.qr-dialog .scan-feedback{color:#a12a2a}.qr-dialog video{max-height:40dvh;object-fit:contain}
 @media(max-width:400px){.allocation,.work-panel,.work-task,.work-empty{padding:16px}.work-card-heading{flex-wrap:wrap}.work-badge{max-width:100%}.work-views{gap:5px 14px}#work-app .work-quantity strong{font-size:40px}}
+
+/* Consistent task rows on every screen; the table scrolls within the page. */
+#work-app .work-table-wrap{max-width:100%;overflow:auto;overscroll-behavior-x:contain;border:1px solid var(--work-border);border-radius:12px;margin:16px 0;background:white}
+#work-app .work-task-table{width:100%;min-width:1060px;border-collapse:collapse;font-size:14px}
+#work-app .work-task-table th,#work-app .work-task-table td{text-align:left;vertical-align:top;padding:14px;border-bottom:1px solid var(--work-border);min-width:115px;white-space:normal}
+#work-app .work-task-table th[scope=row]{min-width:170px;font-weight:650}
+#work-app .work-task-table thead{background:#eef5f1}
+#work-app .work-task-table small{display:block;margin-top:6px;font-weight:400;line-height:1.45}
+#work-app .task-row-actions{min-width:240px;max-width:300px}
+#work-app .task-row-actions form{padding:8px 0;margin:0;border:0;gap:8px}
+#work-app .task-row-actions :is(button,a,summary){min-height:44px}
+#work-app .task-row-actions .form-feedback:empty{display:none}
+#work-app .work-pagination{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:16px 0;font-size:14px}
+#work-app .work-pagination a{padding:10px 0;min-height:44px}
+#work-app .review-people{display:block;font-size:14px;font-weight:400;line-height:1.6;margin:8px 0}
+#work-app .review-case summary>small{display:block;font-size:13px;font-weight:400}
+#work-app tr.work-row-changed{animation:work-row-change 2s ease-out}
+@keyframes work-row-change{from{background:#d9efe4}to{background:transparent}}
+@media(prefers-reduced-motion:reduce){#work-app tr.work-row-changed{animation:none;box-shadow:inset 4px 0 #438568}}
+@media(max-width:600px){#work-app .work-task-table{font-size:13px}#work-app .work-task-table th,#work-app .work-task-table td{padding:10px}#work-app .work-table-wrap:focus-visible{outline:3px solid #458977;outline-offset:2px}}
+.role-capability{display:grid!important;grid-template-columns:20px minmax(0,1fr);gap:10px;align-items:start;margin:14px 0!important;line-height:1.5}
+.role-capability input[type=checkbox]{width:18px!important;height:18px!important;margin:3px 0 0!important}
+.role-capability>span{display:grid;gap:4px}.role-capability small{font-size:12px;color:#53675e;font-weight:400}

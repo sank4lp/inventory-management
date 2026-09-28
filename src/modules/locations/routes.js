@@ -1,12 +1,12 @@
 import QRCode from 'qrcode';
 import {page,escapeHtml as e} from '../../render.js';
-import {ensureAdmin,ensureApiAuth} from '../../server/http/auth-guards.js';
+import {ensureAuth,ensureApiAuth} from '../../server/http/auth-guards.js';
 import {sendHtml,sendJson} from '../../server/http/responses.js';
 export async function locationSetupRoutes(request,response,url,user,state){
  const service=state.locationSetupService;
  if(url.pathname.startsWith('/api/location-setup/')){if(!ensureApiAuth(response,user))return true;const action=url.pathname.split('/').pop();if(request.method==='GET'&&action==='snapshot')sendJson(response,service.snapshot(user));else if(request.method==='POST')sendJson(response,service.command(user,action,request.parsedForm));else sendJson(response,{error:'Unknown action'},404);return true;}
  if(request.method!=='GET'||!url.pathname.startsWith('/location-setup'))return false;
- if(!ensureAdmin(response,user))return true;
+ if(!ensureAuth(response,user))return true;
  const s=service.snapshot(user);
  if(url.pathname==='/location-setup/print'){
    const tokens=(url.searchParams.get('tokens')||'').split(',');const labels=s.labels.filter(l=>l.state!=='revoked'&&tokens.includes(l.token));

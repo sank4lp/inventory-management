@@ -1,3 +1,7 @@
+import {taskSelection,reviewSelection,workloads} from './queries.js';
+import {postMovement} from "../inventory/ledger.js";
+import {currentActor,effectiveUser} from "../access/service.js";
+import {can,assertCan} from "../access/catalog.js";
 import { describeLocation, validLocationLabel, saveLocationDescription } from "./location-contract.js";
 import { workCapabilities } from "./access.js";
 import { readPendingReviewTimeoutSettings, savePendingReviewTimeoutSettings } from "../../services/task-timeout-settings.js";
@@ -30,13 +34,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     "INSERT INTO work_events(line_id,report_id,actor_id,event_type,payload,created_at) VALUES(?,?,?,?,?,?)",
   ).run(lineId || null, reportId, actor?.id || null, type, JSON.stringify(payload), now());
 
-  function actorNow(actor, admin = false) {
-    const current = db.prepare("SELECT id,name,username,role,status,session_version FROM users WHERE id=?").get(Number(actor?.id));
-    if (!current || current.status !== "active" || (actor.session_version != null && current.session_version !== actor.session_version)) {
-      throw new Error("Your session is no longer active. Sign in again; pending reports remain available for review.");
-    }
-    if (admin && current.role !== "admin") throw new Error("Admin access is required.");
-    return current;
+  function actorNow(actor, permission = false) {
+    return currentActor(db,actor,permission === true ? 'review.resolve' : permission || undefined);
   }
   function line(id) {
     const value = db.prepare(`SELECT l.*, t.created_by, t.type, t.workflow_version, t.status AS task_status,
@@ -49,7 +48,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return value;
   }
   function own(actor, allocation) {
-    if (actor.role !== "admin" && actor.id !== allocation.assignee_id) throw new Error("You can act only on your own allocations.");
+    if (!can(actor,"work.teamStop") && actor.id !== allocation.assignee_id) throw new Error("You can act only on your own allocations.");
   }
   function held(cellId, productId, kind, excluding = 0) {
     return rounded(Number(db.prepare(`SELECT COALESCE(SUM(r.quantity),0) AS qty FROM work_reservations r
@@ -116,15 +115,9 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       ON CONFLICT(cell_id,product_id) DO UPDATE SET reason=excluded.reason,updated_at=excluded.updated_at`)
       .run(cellId, productId, reason, now());
   }
-  function movement({ actor, performer, productId, cellId, quantity, type, taskId = null, lineId = null, origin, reason, unit }) {
-    db.prepare("INSERT OR IGNORE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,0,0)").run(productId, cellId);
-    db.prepare("UPDATE inventory_balances SET available_quantity=ROUND(available_quantity+?,6) WHERE product_id=? AND cell_id=?").run(quantity, productId, cellId);
-    if (quantity !== 0) db.prepare(`INSERT INTO transactions(type,product_id,cell_id,quantity_delta,user_id,task_id,task_line_id,
-      origin_ref,performed_by,reason,unit_of_measure,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(type, productId, cellId, quantity, actor.id, taskId, lineId, origin, performer || null, reason, unit, now());
-  }
+  const movement=input=>postMovement(db,input);
   function performerFor(actor, input, fallback = null) {
-    if (actor.role !== 'admin') {
+    if (!can(actor,'review.resolve')) {
       if (Object.hasOwn(input, 'performerId') && String(input.performerId) !== String(actor.id)) throw new Error('Operators can report only their own performance. Ask an admin to attribute somebody else’s work.');
       return actor.id;
     }
@@ -268,7 +261,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       inactivityMinutes:readPendingReviewTimeoutSettings(db).timeoutMinutes};
   }
   function saveTiming(actor,input) {
-    actorNow(actor,true);
+    actorNow(actor,"work.timing");
     const minutes=Number(input.minutes)*(input.timeUnit==='hours'?60:1);
     if(input.enabled!==false && (!Number.isFinite(minutes)||minutes<=0||minutes>525600))throw new Error('Choose a positive warning duration up to one year.');
     const value=input.enabled===false?'disabled':String(minutes);
@@ -278,15 +271,15 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return {status:'recorded',message:'Timing saved. Existing task deadlines are unchanged. Inactivity review remains a separate rule.'};
   }
   function validatedDue(actor,value) {
-    actorNow(actor,true);
+    actorNow(actor,"work.deadline");
     if(!value)return null;
     const time=Date.parse(value);if(!Number.isFinite(time))throw new Error('Choose a valid due date and time.');
     return new Date(time).toISOString();
   }
   function eligibleAssignee(actor,id) {
-    actorNow(actor,true);
+    actorNow(actor,"work.assign");
     const person=db.prepare('SELECT * FROM users WHERE id=?').get(Number(id));
-    if(!workCapabilities(person).execute)throw new Error('Choose an active operator eligible to execute work.');
+    if(!workCapabilities(effectiveUser(db,person)).execute)throw new Error('Choose an active operator eligible to execute work.');
     return person;
   }
   function assignmentEvent(actor,taskId,type,previous,payload={}) {
@@ -295,10 +288,10 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       .run(taskId,actor.id,type,t.assignment_generation,previous,t.assignee_id,JSON.stringify(payload),now());
   }
   function currentTask(actor,input,admin=false) {
-    if(admin)actorNow(actor,true);
+    if(admin)actorNow(actor,typeof admin==="string"?admin:"work.assign");
     const t=db.prepare('SELECT * FROM tasks WHERE id=? AND workflow_version=2').get(Number(input.taskId));
     if(!t)throw new Error('Task not found.');
-    if(!admin && actor.role!=='admin' && t.assignee_id!==actor.id)throw new Error('Only your assigned work can be changed.');
+    if(!admin && !can(actor,'work.teamStop') && t.assignee_id!==actor.id)throw new Error('Only your assigned work can be changed.');
     if(Number(input.generation)!==t.assignment_generation)throw new Error('This assignment changed. Refresh before trying again.');
     return t;
   }
@@ -314,7 +307,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return {status:'recorded',taskId:t.id,message:'Task started. Go to a location; arrival requests your turn.'};
   }
   function deadline(actor,input) {
-    const t=currentTask(actor,input,true),due=validatedDue(actor,input.dueAt);
+    const t=currentTask(actor,input,"work.deadline"),due=validatedDue(actor,input.dueAt);
     if(!String(input.reason||'').trim())throw new Error('Give a reason for changing the deadline.');
     db.prepare('UPDATE tasks SET due_at=?,assignment_generation=assignment_generation+1 WHERE id=?').run(due,t.id);
     // Deadline edits do not alter physical instructions; generation protects concurrent admin changes.
@@ -330,17 +323,24 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function askReview(actor,input) {
     const l=line(input.lineId);
-    if(actor.role!=='admin' && actor.id!==l.assignee_id && !db.prepare('SELECT 1 FROM work_instruction_history WHERE line_id=? AND assignee_id=?').get(l.id,actor.id))throw new Error('Only your current or earlier assigned work can be reported.');
+    if(!can(actor,'work.teamStop') && actor.id!==l.assignee_id && !db.prepare('SELECT 1 FROM work_instruction_history WHERE line_id=? AND assignee_id=?').get(l.id,actor.id))throw new Error('Only your current or earlier assigned work can be reported.');
     event('uncertainty_reported',actor,l.id,input);
     if(hasEvidence(l.id))return {status:'review',message:'This location is already awaiting review. Do not repeat the movement.'};
     const r=insertReport(actor,{...input,quantity:0,unknown:true,origin:`attention:${l.id}`,reason:input.reason||'Operator is unsure what moved'},l);
     return review(r,'Actual movement is unknown. A supervisor must verify before this work is released.');
   }
+  function retireUntouchedTimerCase(actor,l) {
+    if(l.execution_state!=='ready'||db.prepare("SELECT assignment_source FROM tasks WHERE id=?").get(l.task_id)?.assignment_source==='legacy'||l.started_at||l.device_id||db.prepare("SELECT 1 FROM work_events WHERE line_id=? AND event_type IN ('location_ready','uncertainty_reported')").get(l.id)||db.prepare('SELECT 1 FROM cell_turns WHERE line_id=?').get(l.id))return;
+    const reports=db.prepare("SELECT * FROM work_reports WHERE line_id=? AND status IN ('review','received')").all(l.id);
+    if(!reports.length||reports.some(r=>r.origin_ref!==`attention:${l.id}`||r.quantity_known!==0||r.reason!=="Inactivity needs verification. Expected quantity is shown for context; enter an actual quantity or keep pending."||JSON.parse(r.payload).reason!=="Actual quantity is unknown; zero is not a verified answer."))return;
+    for(const r of reports){db.prepare("UPDATE work_reports SET status='resolved',resolver_id=?,resolved_at=?,verification=?,case_revision=case_revision+1 WHERE id=?").run(actor.id,now(),'Untouched instruction cancelled/returned; automatic inactivity case retired. No actual quantity was inferred or stock posted.',r.id);event('untouched_inactivity_retired',actor,l.id,{reportId:r.id},r.id);}
+  }
   function stopTask(actor,input) {
     const t=currentTask(actor,input);
+    if(t.assignee_id!==actor.id)assertCan(actor,"work.teamStop");
     let uncertain=false;
     for(const item of db.prepare("SELECT id FROM task_lines WHERE task_id=? AND execution_state IN ('ready','working')").all(t.id)) {
-      const l=line(item.id);
+      const l=line(item.id);retireUntouchedTimerCase(actor,l);
       if(l.execution_state==='ready'&&!hasEvidence(l.id))releaseUntouched(actor,l);
       else {askReview(actor,{lineId:l.id,reason:'Stop requested; verify physical work and confirm the original worker has stopped.'});uncertain=true;}
     }
@@ -354,7 +354,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(t.completed_at)throw new Error('This task is already closed.');
     let uncertain=false;
     for(const item of db.prepare("SELECT id FROM task_lines WHERE task_id=? AND execution_state IN ('ready','working')").all(t.id)) {
-      const l=line(item.id);
+      const l=line(item.id);retireUntouchedTimerCase(actor,l);
       if(l.execution_state==='ready'&&!hasEvidence(l.id))releaseUntouched(actor,l,'superseded');
       else {askReview(actor,{lineId:l.id,reason:'Operator handed back work; verify actual and confirm physical work has stopped.'});uncertain=true;}
     }
@@ -445,8 +445,9 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function reportActual(actor, input) {
     const allocation = line(input.lineId);
     const previousOwner = db.prepare('SELECT 1 FROM work_instruction_history WHERE line_id=? AND assignee_id=?').get(allocation.id,actor.id);
-    if(actor.id!==allocation.assignee_id && !previousOwner && actor.role!=='admin') throw new Error('You can report only your own allocations or earlier assigned work.');
+    if(actor.id!==allocation.assignee_id && !previousOwner && !can(actor,'review.resolve')) throw new Error('You can report only your own allocations or earlier assigned work.');
     const report = insertReport(actor, {...input,unknown:false}, allocation);
+    if(!can(actor,"work.execute"))return review(report,"Permissions changed. Earlier physical evidence retained for authorized review; no inventory was posted.");
     if (input.dataset && input.dataset !== identity().dataset) return review(report, 'Report comes from an earlier restored dataset. Verify the original physical work.');
     if(actor.id!==allocation.assignee_id || input.assignmentGeneration!=null && Number(input.assignmentGeneration)!==allocation.current_generation) return review(report,'Ownership changed. Earlier physical evidence is retained under its original reporter; do not repeat the movement.');
     const settled = db.prepare('SELECT 1 FROM work_settlements WHERE line_id=?').get(allocation.id);
@@ -464,7 +465,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return {status:'verified',revision:l.revision,message:'Location checked. Press Finish only after moving the items.'};
   }
   function resolve(actor, input) {
-    actorNow(actor, true);
+    actorNow(actor, input.dismissDuplicate?"review.link":"review.resolve");
+    if(input.stopRemaining)assertCan(actor,"review.stop");
     const report = db.prepare("SELECT * FROM work_reports WHERE id=?").get(input.reportId);
     if (!report) throw new Error("Report not found.");
     if (input.caseRevision!=null && Number(input.caseRevision)!==report.case_revision) throw new Error('Another supervisor changed this case. Refresh before resolving.');
@@ -592,7 +594,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return {status:'recorded',message:'Nothing moved — location cancelled. Only its reservation was released.'};
   }
   function correct(actor, input, verified = false) {
-    const allocation = line(input.lineId); own(actor, allocation);
+    const allocation = line(input.lineId); if(allocation.assignee_id!==actor.id)assertCan(actor,"review.resolve");
+    if(!verified&&!can(actor,'work.correct'))return review(insertReport(actor,{...input,correction:true,reason:input.verification||input.reason||'Earlier record correction received after permissions changed'},allocation),'Permission changed. Earlier correction retained for supervisor verification; no stock was posted.');
     if (allocation.execution_state !== "settled" || Number(input.revision) !== allocation.revision) throw new Error("This recorded allocation changed. Refresh before correcting it.");
     if (db.prepare("SELECT 1 FROM work_events WHERE line_id=? AND event_type IN ('allocation_accounted_elsewhere','movement_accounted_by_stocktake')").get(allocation.id)) throw new Error('This allocation is covered by an existing movement. Correct the original movement record so stock is adjusted only once.');
     const verification = String(input.verification || "").trim();
@@ -649,10 +652,10 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       event('recommendation_observed',actor,null,{...input,reports});
       return {status:'review',reportIds:reports,message:'Actual movements saved for supervisor verification, including any partial or interrupted move. No suggested quantity was posted automatically.'};
     },
-    locationDetails(actor,input) {actorNow(actor,true);const result=saveLocationDescription(db,actor,input);event("location_description_changed",actor,null,input);return result;},
+    locationDetails(actor,input) {actorNow(actor,"locations.manage");const result=saveLocationDescription(db,actor,input);event("location_description_changed",actor,null,input);return result;},
     replan, verify, start: startTask, decline: returnTask, reassign, stop: stopTask, deadline, timing: saveTiming, askReview,
     reconcile(actor,input) {
-      actorNow(actor,true);
+      actorNow(actor,"review.reconcile");
       const cell=Number(input.cellId),product=Number(input.productId),quantity=workQuantity(input.quantity);
       if(!input.verification)throw new Error('Record how you verified the reconciled location.');
       if(held(cell,null,'pick')||held(cell,null,'put')||db.prepare("SELECT 1 FROM work_reports WHERE cell_id=? AND status IN ('received','review')").get(cell))throw new Error('Resolve outstanding allocations and reports at this location first.');
@@ -664,7 +667,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     create, acquire, report: reportActual, resolve, cancel, correct,
     manual(actor, input) { const report = insertReport(actor, {...input,unknown:false}); return review(report, input.direction === "count" ? "Count observation during ongoing work; no balance replacement was made." : "Completed movement received for supervisor verification. No new instructions were activated."); },
     mode(actor, input) {
-      actorNow(actor, true);
+      actorNow(actor, "locations.mode");
       if (!["exclusive", "shared"].includes(input.mode)) throw new Error("Choose exclusive or shared guidance.");
       if (db.prepare(`SELECT 1 FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.cell_id=? AND r.state='held'`).get(Number(input.cellId))) throw new Error("Settle outstanding allocations before changing this location's guidance mode.");
       db.prepare("UPDATE cells SET guidance_mode=? WHERE id=?").run(input.mode, Number(input.cellId));
@@ -687,6 +690,9 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
+      const permissions={create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
+      const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
+      if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       const value = actions[action](current, input);
       db.prepare("INSERT INTO operation_receipts(actor_id,request_id,fingerprint,result_json,created_at) VALUES(?,?,?,?,?)")
         .run(current.id, id, fingerprint, JSON.stringify(value), now());
@@ -721,9 +727,10 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const history=db.prepare(`SELECT e.*,u.name AS actor_name,a.name AS assignee_name,prev.name AS previous_name FROM task_assignment_events e
       JOIN users u ON u.id=e.actor_id LEFT JOIN users a ON a.id=e.assignee_id LEFT JOIN users prev ON prev.id=e.previous_assignee WHERE task_id=? ORDER BY e.id`).all(result.id);
     const wasAssigned=result.created_by===current.id||history.some(e=>e.assignee_id===current.id||e.previous_assignee===current.id);
-    if(current.role!=='admin'&&result.assignee_id!==current.id&&!wasAssigned)throw new Error('This task belongs to another operator.');
-    result.canAct=result.assignee_id===current.id;
-    result.assignee_name=db.prepare('SELECT name FROM users WHERE id=?').get(result.assignee_id)?.name||null;
+    assertCan(current,'work.view');
+    if(!can(current,'work.team')&&!(can(current,'review.view')&&db.prepare("SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.status IN ('review','received')").get(result.id))&&result.assignee_id!==current.id&&!wasAssigned)throw new Error('This task belongs to another operator.');
+    result.canAct=can(current,"work.execute")&&result.assignee_id===current.id;
+    const assignee=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assignee_id);result.assignee_name=assignee?.name||null;result.assignee_username=assignee?.username||null;
     result.assigned_by_name=db.prepare('SELECT name FROM users WHERE id=?').get(result.assigned_by)?.name||null;
     result.assignment_history=history;
     result.lines=result.lines.map(item=>({...line(item.id),canAct:result.canAct&&result.assignment_state!=='offered',
@@ -732,6 +739,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         LEFT JOIN users p ON p.id=w.performer_id LEFT JOIN users r ON r.id=w.reporter_id LEFT JOIN users v ON v.id=w.resolver_id WHERE s.line_id=?`).get(item.id)||null,
       reserved:db.prepare("SELECT quantity FROM work_reservations WHERE line_id=? AND state='held'").get(item.id)?.quantity||0,
       reports:db.prepare('SELECT id,status,quantity,quantity_known,reason,created_at FROM work_reports WHERE line_id=? ORDER BY created_at DESC').all(item.id)}));
+    if(result.lines[0])result.summary=`${result.type==='pick'?'Pick':'Put'} ${result.requested_quantity} ${result.lines[0].unit_of_measure} of ${result.lines[0].product_name}`;
     result.recorded_quantity=rounded(result.lines.filter(l=>l.execution_state==='settled').reduce((n,l)=>n+l.actual_quantity,0));
     result.remaining_quantity=Math.max(0,rounded(result.requested_quantity-result.recorded_quantity));
     result.outcome=result.attention?'needs_review':result.assignment_state==='returned'&&!result.stop_requested?'needs_assignment':result.outcome==='open'&&result.completed_at?(result.recorded_quantity>=result.requested_quantity?'completed':result.recorded_quantity>0?'stopped':'cancelled'):result.outcome;
@@ -741,36 +749,33 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     result.overdue_minutes=result.overdue?Math.floor((time-due)/60000):0;
     return result;
   }
-  function snapshot(actor) {
+  function snapshot(actor,query={}) {
     const current=actorNow(actor);
-    const mine=db.prepare(`SELECT id FROM tasks t WHERE workflow_version=2 AND (?='admin' OR assignee_id=? OR created_by=? OR EXISTS(
-      SELECT 1 FROM task_assignment_events e WHERE e.task_id=t.id AND (e.assignee_id=? OR e.previous_assignee=?))) ORDER BY CASE WHEN completed_at IS NULL THEN 0 ELSE 1 END,id DESC`).all(current.role,current.id,current.id,current.id,current.id);
-    const taskList=mine.map(t=>task(current,t.id));
+    if(!can(current,'work.view'))return {...identity(),user:current,capabilities:workCapabilities(current),timing:{},operators:[],performers:[],reports:db.prepare('SELECT id,status FROM work_reports WHERE reporter_id=?').all(current.id),tasks:[],products:[],cells:can(current,'locations.labels')?db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1').all().map(c=>({...c,description:describeLocation(db,c.id)})):[],pending:[],postedReports:[],contents:[],discrepancies:[],generatedAt:now()};
+    const selection=taskSelection(db,current,query),taskList=query.taskId?[task(current,Number(query.taskId))].filter(Boolean):selection.ids.map(id=>task(current,id));
+    const watchedTasks=[...new Set(String(query.watch||'').split(',').map(Number).filter(id=>id>0&&!selection.ids.includes(id)))].slice(0,100).flatMap(id=>{try{const value=task(current,id);return value?[value]:[];}catch{return [];}});
     const products=db.prepare('SELECT id,sku,name,unit_of_measure,items_per_cell FROM products WHERE active=1 ORDER BY name').all();
     const cells=db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1 ORDER BY row_number,column_number').all().map(c=>({...c,description:describeLocation(db,c.id)}));
-    const pending=current.role==='admin'?db.prepare(`SELECT r.*,p.name AS product_name,p.sku,c.logical_code,
-      u.name AS operator_name,reporter.name AS reporter_name,l.planned_quantity,l.actual_quantity,l.execution_state,l.revision,l.task_id,t.assignee_id,a.name AS assignee_name
-      FROM work_reports r JOIN products p ON p.id=r.product_id JOIN cells c ON c.id=r.cell_id
-      LEFT JOIN users u ON u.id=r.performer_id JOIN users reporter ON reporter.id=r.reporter_id LEFT JOIN task_lines l ON l.id=r.line_id
-      LEFT JOIN tasks t ON t.id=l.task_id LEFT JOIN users a ON a.id=t.assignee_id WHERE r.status IN ('review','received') ORDER BY r.created_at`).all():[];
-    const operators=current.role==='admin'?db.prepare('SELECT id,name,username,status,role FROM users ORDER BY name').all().map(u=>{
-      const owned=taskList.filter(t=>t.assignee_id===u.id&&!['completed','stopped','cancelled'].includes(t.outcome));
-      return {...u,eligible:workCapabilities(u).execute,open:owned.length,inProgress:owned.filter(t=>t.lines.some(l=>l.execution_state==='working')).length,overdue:owned.filter(t=>t.overdue).length,review:owned.filter(t=>t.attention).length};
+    const reviews=reviewSelection(db,current,query),pending=reviews.rows,loads=workloads(db);
+    const planner=['work.pick','work.put','work.report'].some(cap=>can(current,cap)),productIds=new Set([...taskList.flatMap(t=>t.lines.map(l=>l.product_id)),...pending.map(r=>r.product_id)]),cellIds=new Set([...taskList.flatMap(t=>t.lines.map(l=>l.cell_id)),...pending.map(r=>r.cell_id)]);
+    const visibleProducts=can(current,'products.view')||planner?products:products.filter(p=>productIds.has(p.id)),visibleCells=can(current,'locations.view')||planner?cells:cells.filter(c=>cellIds.has(c.id));
+    const operators=(can(current,'work.team')||can(current,'review.view'))?db.prepare('SELECT id,name,username,status,role FROM users ORDER BY name').all().map(u=>{
+      return {...u,eligible:workCapabilities(effectiveUser(db,u)).execute,...loads.find(v=>v.id===u.id)};
     }):[];
     return {...identity(),user:current,capabilities:workCapabilities(current),timing:timingSettings(),operators,performers:operators,
-      reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(current.role,current.id,current.id),
-      tasks:taskList,products,cells,pending:pending.map(r=>({...r,accounting:!r.line_id&&r.direction!=='count'?manualAccounting(r):null})),generatedAt:now(),
-      postedReports:current.role==='admin'?db.prepare(`SELECT r.*,p.name AS product_name,c.logical_code,u.name AS performer_name FROM work_reports r
+      reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(can(current,"review.view")?"admin":"own",current.id,current.id),
+      tasks:taskList,watchedTasks,taskPage:selection.page,taskCounts:selection.counts,reviewPage:reviews.page,reviewTotal:reviews.total,reviewGroups:reviews.groups,products:visibleProducts,cells:visibleCells,pending:pending.map(r=>({...r,countOverlap:Boolean(countBoundary(db,r,r.line_id?line(r.line_id):null)),countEvidence:countBoundary(db,r,r.line_id?line(r.line_id):null)?countCandidates(current,{reportId:r.id})[0]||null:null,accounting:!r.line_id&&r.direction!=='count'?manualAccounting(r):null})),generatedAt:now(),
+      postedReports:can(current,'review.view')?db.prepare(`SELECT r.*,p.name AS product_name,c.logical_code,u.name AS performer_name FROM work_reports r
         JOIN products p ON p.id=r.product_id JOIN cells c ON c.id=r.cell_id LEFT JOIN users u ON u.id=r.performer_id WHERE r.status='posted' ORDER BY r.created_at DESC LIMIT 500`).all():[],
-      contents:db.prepare(`SELECT b.cell_id,b.product_id,b.available_quantity,p.name,p.unit_of_measure FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.available_quantity!=0`).all(),
-      discrepancies:current.role==='admin'?db.prepare('SELECT d.*,c.logical_code,p.name AS product_name FROM work_discrepancies d JOIN cells c ON c.id=d.cell_id JOIN products p ON p.id=d.product_id').all():[]};
+      contents:db.prepare(`SELECT b.cell_id,b.product_id,b.available_quantity,p.name,p.unit_of_measure FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.available_quantity!=0`).all().filter(c=>visibleCells.some(v=>v.id===c.cell_id)&&visibleProducts.some(v=>v.id===c.product_id)),
+      discrepancies:can(current,'review.view')?db.prepare('SELECT d.*,c.logical_code,p.name AS product_name FROM work_discrepancies d JOIN cells c ON c.id=d.cell_id JOIN products p ON p.id=d.product_id').all():[]};
   }
   function flagInactivity({ at = new Date(), timeoutMs = 5 * 60000 } = {}) {
     const staleIds = withTransaction(db, () => {
-      const stale = db.prepare("SELECT id FROM tasks WHERE workflow_version=2 AND status='pending_review' AND attention=0 AND last_touched_at<=? AND EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=tasks.id AND l.execution_state IN ('ready','working'))").all(new Date(at.getTime() - timeoutMs).toISOString());
+      const stale = db.prepare("SELECT id FROM tasks WHERE workflow_version=2 AND status='pending_review' AND attention=0 AND last_touched_at<=? AND EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=tasks.id AND (l.execution_state='working' OR tasks.assignment_source='legacy' AND l.execution_state='ready'))").all(new Date(at.getTime() - timeoutMs).toISOString());
       for (const task of stale) {
         db.prepare("UPDATE tasks SET attention=1,outcome='needs_review',completed_at=NULL WHERE id=?").run(task.id);
-        for (const item of db.prepare("SELECT id FROM task_lines WHERE task_id=? AND execution_state IN ('ready','working')").all(task.id)) {
+        for (const item of db.prepare("SELECT l.id FROM task_lines l JOIN tasks t ON t.id=l.task_id WHERE l.task_id=? AND (l.execution_state='working' OR t.assignment_source='legacy' AND l.execution_state='ready')").all(task.id)) {
           const allocation = line(item.id);
           const owner = db.prepare("SELECT * FROM users WHERE id=?").get(allocation.assignee_id || allocation.created_by);
           const report = insertReport(owner, { quantity: 0, unknown: true, origin: `attention:${allocation.id}`, reason: "Actual quantity is unknown; zero is not a verified answer." }, allocation);
@@ -791,8 +796,14 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     try { flushGuidance(); } catch (error) { logger?.warn?.('work.guidance.deferred', { error:error.message }); }
     return staleIds;
   }
+  function countCandidates(actor,input) {
+    actorNow(actor,'review.view');
+    const report=db.prepare('SELECT * FROM work_reports WHERE id=?').get(input.reportId);if(!report)throw new Error('Review report not found.');
+    const q=String(input.q||'').toLowerCase().slice(0,160);
+    return db.prepare(`SELECT o.id,o.lines_json,o.received_at,o.counted_at,u.name counter_name,v.name reviewer_name,r.title,c.logical_code FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_runs r ON r.id=i.run_id JOIN cells c ON c.id=i.cell_id JOIN stocktake_settlements s ON s.observation_id=o.id JOIN users u ON u.id=o.counter_id LEFT JOIN users v ON v.id=o.reviewer_id WHERE i.cell_id=? AND EXISTS(SELECT 1 FROM json_each(o.lines_json) j WHERE json_extract(j.value,'$.productId')=?) AND instr(lower(r.title||' '||c.logical_code||' '||u.name||' '||o.received_at),?)>0 ORDER BY o.received_at DESC LIMIT 100`).all(report.cell_id,report.product_id,q).map(o=>({...o,lines:JSON.parse(o.lines_json).filter(l=>l.productId===report.product_id)}));
+  }
   function searchMovements(actor, input) {
-    actorNow(actor,true);
+    actorNow(actor,"review.view");
     const report=db.prepare('SELECT * FROM work_reports WHERE id=?').get(String(input.reportId||''));
     if(!report)throw new Error('Review report not found.');
     const query=String(input.q||'').trim().slice(0,180);
@@ -802,5 +813,5 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       AND (?='' OR instr(lower(r.origin_ref||' '||r.id||' '||r.created_at||' '||COALESCE(u.name,'')||' '||r.quantity),lower(?))>0)
       ORDER BY r.created_at DESC,r.id LIMIT 100`).all(report.product_id,report.cell_id,report.direction,query,query);
   }
-  return { command, task, snapshot, identity, actorNow, line, held, flushGuidance, flagInactivity, searchMovements };
+  return { command, task, snapshot, identity, actorNow, line, held, flushGuidance, flagInactivity, searchMovements, countCandidates };
 }
