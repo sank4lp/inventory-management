@@ -474,6 +474,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (input.keepOpen) { db.prepare("UPDATE work_reports SET case_revision=case_revision+1 WHERE id=?").run(report.id); event("verification_deferred", actor, report.line_id, { reason: input.verification || "Unable to verify" }, report.id); return { status: "review", message: "Kept pending. No quantity was assumed." }; }
     const verification = String(input.verification || "").trim();
     if (!verification) throw new Error("Choose how you verified the actual quantity.");
+    if (/^Other evidence \(describe below\)(?::\s*)?$/.test(verification)) throw new Error("Describe the verification evidence.");
     const boundary=report.direction!=='count'?countBoundary(db,report,report.line_id?line(report.line_id):null):null;
     if(input.countCorrectionId) {
       const o=db.prepare(`SELECT o.*,i.cell_id FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_settlements s ON s.observation_id=o.id WHERE o.id=?`).get(input.countCorrectionId);

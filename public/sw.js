@@ -1,4 +1,4 @@
-const CACHE='lytguide-public-v11';
+const CACHE='lytguide-public-v12';
 const ASSETS=['/offline','/stocktaking/offline','/styles.css','/client/stocktaking.js','/client/stocktake-status.js','/theme.css','/work.css','/responsive.css','/client/work.js','/client/work-outbox-status.js','/client/vendor/jsQR.js','/brand/lytguide-icon.svg'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));

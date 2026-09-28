@@ -1,0 +1,17 @@
+[
+  {
+    "detailsOpen": true,
+    "method": "Other evidence (describe below)",
+    "noteRequired": true,
+    "noteValid": false,
+    "performer": "unknown",
+    "quantity": ""
+  },
+  {
+    "method": "Spoke with operator",
+    "note": "Checked the signed original slip",
+    "noteRequired": false,
+    "performer": "unknown",
+    "quantity": ""
+  }
+]

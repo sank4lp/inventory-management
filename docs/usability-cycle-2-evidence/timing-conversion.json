@@ -1,0 +1,17 @@
+[
+  {
+    "duration": "120",
+    "inactivity": "5",
+    "unit": "minutes"
+  },
+  {
+    "duration": "120",
+    "inactivity": "5",
+    "unit": "minutes"
+  },
+  {
+    "duration": "2",
+    "inactivity": "5",
+    "unit": "hours"
+  }
+]
