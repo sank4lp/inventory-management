@@ -5,7 +5,7 @@ import test from 'node:test';
 
 // Exercise the actual rendering functions without booting storage or a network poll.
 const source = readFileSync(new URL('../public/client/work.js', import.meta.url), 'utf8').split('let syncing=false;')[0];
-function view({online = true, role = 'operator', tasks = []} = {}) {
+function view({online = true, role = 'operator', tasks = [], active = false} = {}) {
   const root = {innerHTML: '', querySelectorAll: () => []};
   const context = vm.createContext({
     document: {querySelector: selector => selector === '#work-app' ? root : null},
@@ -13,14 +13,14 @@ function view({online = true, role = 'operator', tasks = []} = {}) {
     URLSearchParams, location: {pathname: '/work', search: ''},
   });
   vm.runInContext(source, context);
-  context.state = {site:'warehouse-a',user:{id:1,name:'Operator',role},generatedAt:'2026-09-25T10:00:00Z',products:[],cells:[],tasks};
-  vm.runInContext(`snapshot=state;online=${online};`, context);
+  context.state = {site:'warehouse-a',user:{id:1,name:'Operator',role},generatedAt:'2026-09-25T10:00:00Z',products:[],cells:[],tasks:active&&!tasks.length?[{id:1,assignment_generation:1,assignee_id:1,assignment_state:'started',lines:[]}]:tasks};
+  vm.runInContext(`snapshot=state;online=${online};${active?"activeWork={taskId:1,generation:1,identity:key(),dataset:snapshot.dataset};":""}`, context);
   return {root, context, run: code => vm.runInContext(code, context)};
 }
-const line = {id:1,revision:2,cell_id:3,logical_code:'A3',unit_of_measure:'pieces',planned_quantity:5,product_name:'Part',product_id:1,type:'pick',execution_state:'ready',created_by:1};
+const line = {id:1,task_id:1,current_generation:1,revision:2,cell_id:3,logical_code:'A3',unit_of_measure:'pieces',planned_quantity:5,product_name:'Part',product_id:1,type:'pick',execution_state:'ready',created_by:1};
 
 test('arrival, camera and summary remain separate; only explicit Finish declares the displayed actual', () => {
-  const ui=view();ui.context.line=line;
+  const ui=view({active:true});ui.context.line=line;
   const ready=ui.run('lineCard(line)');assert.match(ready,/I'm at this location/);
   assert.doesNotMatch(ready,/Finish pick at this cell/);
   const working=ui.run("lineCard({...line,execution_state:'working'})");
@@ -162,7 +162,7 @@ test('compact personal rows keep actions conditional and FIFO metadata never com
  let html=ui.run('home()');for(const title of ['Product name','Quantity','Progress','Assigned by','Assigned time','Action','Deadline'])assert.match(html,new RegExp('>'+title+'<'));
  assert.match(html,/5 pairs/);assert.match(html,/0 \/ 5 recorded/);assert.match(html,/data-my-next-content/);assert.match(html,/my-work-footer/);assert.match(html,/5 pairs remaining/);assert.match(html,/data-work-action="start"/);assert.match(html,/data-my-actions="10"/);assert.doesNotMatch(html,/data-work-action="reassign"|<details|Continue working|Recent work/);
  assert.equal(ui.run('myTaskChoice(task).label'),'Decline');
- ui.run("task.assignment_state='started';task.recorded_quantity=2;task.lines[0].execution_state='working'");html=ui.run('myTaskRow(task)');assert.match(html,/>Continue</);assert.doesNotMatch(html,/data-work-action="start"/);assert.equal(ui.run('myTaskChoice(task).label'),'Stop remaining work');
+ ui.run("task.assignment_state='started';task.recorded_quantity=2;task.lines[0].execution_state='working'");html=ui.run('myTaskRow(task)');assert.match(html,/data-work-action="resume"/);assert.match(html,/>Resume task</);assert.doesNotMatch(html,/data-work-action="start"/);assert.equal(ui.run('myTaskChoice(task).label'),'Stop remaining work');
  ui.run("task.assignment_source='self';task.recorded_quantity=0;task.lines[0].execution_state='ready'");assert.equal(ui.run('myTaskChoice(task).label'),'Cancel task');
  ui.run("outbox=[{partition:key(),state:'local',input:{taskId:10}}]");assert.equal(ui.run('myTaskChoice(task)'),null);assert.doesNotMatch(ui.run('myTaskRow(task)'),/Do next|data-my-actions/);
  ui.run("outbox=[];snapshot.myWorkPriority={id:99,productName:'Gloves'}");ui.run("snapshot.myWorkNextTask={...task,id:99,summary:'Gloves',lines:[{product_name:'Gloves',unit_of_measure:'pairs'}]}");assert.match(ui.run('myNextContent()'),/Gloves/);assert.doesNotMatch(ui.run('myNextContent()'),/#99|creation time/);
@@ -185,12 +185,12 @@ test('My work live patch inserts arrivals first, preserves focused row and horiz
 });
 
 test('focused Start, next-task and action-dialog controls disable stale actions without replacing drafts or generation',()=>{
- const ui=view();const task={id:1,assignee_id:1,assignment_generation:4,assignment_state:'offered',assignment_source:'assigned',outcome:'open',canAct:true,lines:[{...line}],requested_quantity:5,recorded_quantity:0};
+ const ui=view();const task={id:1,progress_token:'fresh',assignee_id:1,assignment_generation:4,assignment_state:'offered',assignment_source:'assigned',outcome:'open',canAct:true,lines:[{...line}],requested_quantity:5,recorded_quantity:0};
  ui.context.task=task;ui.run("snapshot.tasks=[task];snapshot.taskPage={view:'mine'};snapshot.myWorkNextTask=task");
- const start={disabled:false},feedback={textContent:''},form={querySelectorAll:()=>[start],querySelector:()=>feedback};
+ const start={disabled:false},feedback={textContent:''},form={elements:{progressToken:{value:'fresh'}},querySelectorAll:()=>[start],querySelector:()=>feedback};
  const row={dataset:{taskRow:'1',generation:'4'},children:[],contains:()=>true,querySelector:()=>null,querySelectorAll:()=>[form],getBoundingClientRect:()=>({top:10})};
  const body={querySelectorAll:()=>[row],querySelector:()=>row,get firstElementChild(){return row;}};
- const nextButton={disabled:false},nextWarning={},nextContent={contains:()=>true,querySelector:()=>({dataset:{nextId:'1',nextGeneration:'4'}}),querySelectorAll:()=>[nextButton]};
+ const nextButton={disabled:false},nextWarning={},nextContent={contains:()=>true,querySelector:s=>s==='form'?form:({dataset:{nextId:'1',nextGeneration:'4'}}),querySelectorAll:()=>[nextButton]};
  const dialogButton={disabled:false},dialogWarning={},dialog={open:true,dataset:{taskId:'1',generation:'4',choice:'Decline'},querySelector:()=>dialogWarning,querySelectorAll:()=>[dialogButton]};
  ui.root.querySelector=s=>({'[data-my-work-table]':body,'[data-my-work-dialog]':dialog,'[data-my-next-content]':nextContent,'[data-my-next-warning]':nextWarning}[s]);
  ui.context.document.createElement=()=>({content:{firstElementChild:{children:[]}}});
@@ -237,7 +237,7 @@ test('successful assignment stays on the form, clears its draft, and a pending a
 });
 
 test('pre-arrival light status refreshes while the operator keeps focus and a draft, without implying arrival or actual movement',()=>{
- const ui=view();ui.context.line={...line,guidance:{state:'sent',message:'Quantity guidance sent — check its label on arrival.'}};let html=ui.run('lineCard(line)');assert.match(html,/data-guidance-line="1"/);assert.match(html,/Quantity guidance sent/);assert.match(html,/I'm at this location/);assert.doesNotMatch(html,/Finish pick at this cell/);
+ const ui=view({active:true});ui.context.line={...line,guidance:{state:'sent',message:'Quantity guidance sent — check its label on arrival.'}};let html=ui.run('lineCard(line)');assert.match(html,/data-guidance-line="1"/);assert.match(html,/Quantity guidance sent/);assert.match(html,/I'm at this location/);assert.doesNotMatch(html,/Finish pick at this cell/);
  const hint={dataset:{guidanceLine:'1'},textContent:'old sent'},draft={value:'Keep my note'},focused=draft;ui.context.document.activeElement=focused;ui.root.querySelectorAll=s=>s==='[data-guidance-line]'?[hint]:[];
  ui.run("snapshot.tasks=[{id:1,lines:[{...line,guidance:{state:'waiting',message:'Light waiting — another operator is at this cell.'}}]}];patchGuidanceHints()");assert.match(hint.textContent,/Light waiting/);assert.equal(draft.value,'Keep my note');assert.equal(ui.context.document.activeElement,focused);
  ui.run('online=false;patchGuidanceHints()');assert.match(hint.textContent,/Offline/);ui.run("online=true;snapshot.tasks[0].lines[0].guidance={state:'shared',message:'Shared locator sent — use your own quantity.'};patchGuidanceHints()");assert.match(hint.textContent,/Shared locator/);
@@ -250,7 +250,7 @@ test('returned work has per-task actions, retained completed cells, remaining de
  const dialog=ui.run('returnedDialogContent(task)');assert.match(dialog,/Completed movements/);assert.match(dialog,/Original operator/);assert.match(dialog,/name="remainingQuantity"[^>]+value="3"/);assert.match(dialog,/name="progressToken" value="version-a"/);assert.match(dialog,/name="dueAt"[^>]+disabled/);assert.doesNotMatch(dialog,/href="\/work\/overview/);
 });
 test('task return remains visible for self and needs-review work; location subtitle removes repeated code',()=>{
- const ui=view();ui.context.task={id:65,assignee_id:1,assignment_source:'self',assignment_state:'started',assignment_generation:2,attention:1,remaining_quantity:3,lines:[line]};assert.match(ui.run('assignmentActions(task)'),/Stop and hand back remaining work/);assert.match(ui.run('returnDialogContent(task)'),/Send back for reassignment/);
+ const ui=view({active:true});ui.context.task={id:65,assignee_id:1,assignment_source:'self',assignment_state:'started',assignment_generation:2,attention:1,remaining_quantity:3,lines:[line]};assert.match(ui.run('assignmentActions(task)'),/Stop and hand back remaining work/);assert.match(ui.run('returnDialogContent(task)'),/Send back for reassignment/);
  ui.context.line={...line,logical_code:'Z1-R1-C01',directions:{directions:'Z1-R1-C01, Shed A, Shelf 2'}};const html=ui.run('lineCard(line)');assert.match(html,/>Go to Z1-R1-C01<\/h2>/);assert.match(html,/<p class="cell-code">Shed A, Shelf 2<\/p>/);ui.context.line.directions.directions='Z1-R1-C01';assert.doesNotMatch(ui.run('lineCard(line)'),/class="cell-code"/);
 });
 test('review assignment offers responsibility transfer and recipient observation without movement instructions',()=>{
@@ -263,12 +263,19 @@ test('live returned dialog detects changed progress without replacing focused dr
 
 test('older review task dialog lookup is bounded and refuses account or warehouse mixing',async()=>{
  const ui=view({role:'admin'});let called;ui.context.AbortSignal={timeout:ms=>({timeout:ms})};ui.context.fetch=async(url,options)=>{called={url,options};return {ok:true,json:async()=>({user:{id:1},site:'warehouse-a',tasks:[{id:101}]})};};assert.equal((await ui.run('fetchDialogTask(101)')).id,101);assert.match(called.url,/taskId=101/);assert.equal(called.options.signal.timeout,15000);
- for(const fresh of [{user:{id:2},site:'warehouse-a',tasks:[{id:101}]},{user:{id:1},site:'other',tasks:[{id:101}]}]){ui.context.fetch=async()=>({ok:true,json:async()=>fresh});await assert.rejects(ui.run('fetchDialogTask(101)'),/account or warehouse changed/);}
+ for(const fresh of [{user:{id:2},site:'warehouse-a',tasks:[{id:101}]},{user:{id:1},site:'other',tasks:[{id:101}]},{user:{id:1},site:'warehouse-a',dataset:'changed',tasks:[{id:101}]}]){ui.context.fetch=async()=>({ok:true,json:async()=>fresh});await assert.rejects(ui.run('fetchDialogTask(101)'),/account, warehouse or dataset changed/);}
  ui.context.fetch=async()=>({ok:true,json:async()=>({user:{id:1},site:'warehouse-a',tasks:[]})});await assert.rejects(ui.run('fetchDialogTask(101)'),/no longer available/);assert.equal(ui.run('snapshot.watchedTasks'),undefined);
 });
 
 test('blocked Go-to heading changes live without replacing a focused manual draft',()=>{
- const ui=view(),heading={textContent:'Go to A3'},button={disabled:false},draft={value:'Existing physical note'},card={dataset:{line:'1',lightRevision:'2',lightGeneration:'3',lightBinding:'4'},querySelector:()=>heading,querySelectorAll:()=>[button]};ui.context.document.activeElement=draft;ui.root.querySelectorAll=s=>s==='[data-line][data-light-revision]'?[card]:[];ui.context.current={...line,current_generation:3,binding_revision:4,canAct:true};ui.run('snapshot.tasks=[{lines:[current]}];patchGuidanceHints()');assert.equal(heading.textContent,'Go to A3');assert.equal(button.disabled,false);
+ const ui=view({active:true}),heading={textContent:'Go to A3'},button={disabled:false},draft={value:'Existing physical note'},card={dataset:{line:'1',lightRevision:'2',lightGeneration:'3',lightBinding:'4'},querySelector:()=>heading,querySelectorAll:()=>[button]};ui.context.document.activeElement=draft;ui.root.querySelectorAll=s=>s==='[data-line][data-light-revision]'?[card]:[];ui.context.current={...line,current_generation:3,binding_revision:4,canAct:true};ui.run('snapshot.tasks[0].lines=[current];patchGuidanceHints()');assert.equal(heading.textContent,'Go to A3');assert.equal(button.disabled,false);
  ui.run("current.reports=[{status:'review'}];patchGuidanceHints()");assert.equal(heading.textContent,'Check A3');assert.equal(button.disabled,true);assert.equal(draft.value,'Existing physical note');assert.equal(ui.context.document.activeElement,draft);
  ui.run('current.reports=[];current.canAct=false;patchGuidanceHints()');assert.equal(heading.textContent,'Location A3');ui.run('current.revision=9;patchGuidanceHints()');assert.equal(heading.textContent,'Location instructions changed');
+});
+
+test('passive task details offer Resume with collapsed recovery and no arrival or Refresh light controls',()=>{
+ const task={id:1,type:'pick',assignment_generation:1,assignee_id:1,assignment_state:'started',progress_token:'fresh',lines:[line]},ui=view({tasks:[task]});
+ ui.context.task=task;ui.run("path='/tasks/1'");const passive=ui.run('taskPage(1)');assert.match(passive,/Task details/);assert.match(passive,/data-work-action="resume"/);assert.match(passive,/Location A3/);assert.doesNotMatch(passive,/I'm at this location|data-refresh-light|Go to A3/);assert.match(passive,/data-disclosure="manual-1" ><summary>/);
+ ui.run('activeWork={taskId:1,generation:1,identity:key(),dataset:snapshot.dataset}');const active=ui.run('taskPage(1)');assert.match(active,/Active work/);assert.match(active,/Go to A3/);assert.match(active,/I'm at this location/);assert.doesNotMatch(active,/data-work-action="resume"/);
+ ui.run("activeWork=null;task.assignment_state='offered'");const offered=ui.run('taskPage(1)');assert.match(offered,/data-work-action="start"/);assert.doesNotMatch(offered,/I'm at this location|data-refresh-light/);
 });

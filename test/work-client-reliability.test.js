@@ -74,27 +74,46 @@ test('an unresolved camera permission prompt does not keep arrival submission lo
  await handler({target:{closest:()=>f},preventDefault(){}});assert.equal(run('submitting'),false);
 });
 
-function resumeClient(){
- const c=client(),card={dataset:{line:'7',lightRevision:'2',lightGeneration:'3',lightBinding:'4'}};c.context.document.querySelector('#work-app').querySelector=()=>card;c.context.card=card;c.context.calls=[];
- c.run(`snapshot.tasks=[{id:65,assignee_id:1,assignment_state:'started',assignment_generation:3,lines:[{id:7,revision:2,current_generation:3,binding_revision:4,execution_state:'ready',canAct:true,reports:[]},{id:8,revision:1,current_generation:3,binding_revision:4,execution_state:'ready',canAct:true,reports:[]}]}];path='/tasks/65';online=true;immediate=async(action,input)=>{calls.push({action,input});};refresh=async()=>{};`);
- return c;
-}
-test('task opening requests only the displayed location once; selected-location visits and intentional resume can refresh again',async()=>{
- const {context,run}=resumeClient();await run('refreshResumeLight()');assert.equal(context.calls.length,1);assert.equal(context.calls[0].action,'guide');assert.equal(context.calls[0].input.lineId,7);assert.equal(context.calls[0].input.bindingRevision,4);
- for(let i=0;i<3;i++)await run('refreshResumeLight()');assert.equal(context.calls.length,1);
- run("location.search='?line=8';card.dataset.line='8';card.dataset.lightRevision='1';resumeLightPending=true");await run('refreshResumeLight()');assert.equal(context.calls.length,2);assert.equal(context.calls[1].input.lineId,8);
- assert.doesNotMatch(JSON.stringify(context.calls),/"action":"(?:acquire|report|start)"/);
-});
-test('offline or hidden task waits for reconnect/resume, and failed delivery does not spam on polling',async()=>{
- const {context,run}=resumeClient();run('online=false');await run('refreshResumeLight()');assert.equal(context.calls.length,0);run('online=true;document.visibilityState="hidden"');await run('refreshResumeLight()');assert.equal(context.calls.length,0);run('document.visibilityState="visible"');await run('refreshResumeLight()');assert.equal(context.calls.length,1);
- run("resumeLightPending=true;immediate=async()=>{calls.push('failed');throw new Error('offline');}");await run('refreshResumeLight()');assert.match(run('resumeLightWarning'),/not confirmed/);await run('refreshResumeLight()');assert.equal(context.calls.length,2);
-});
-test('view-only, offered, review follow-up, blocked and stale rendered instructions cannot automatically request lights',async()=>{
- for(const change of ["snapshot.tasks[0].assignee_id=2","snapshot.tasks[0].assignment_state='offered'","snapshot.tasks[0].review_followup=1","snapshot.tasks[0].completed_at='done'","snapshot.tasks[0].stop_requested=1","snapshot.tasks[0].lines[0].reports=[{status:'review'}]","snapshot.tasks[0].lines[0].revision=3","card.dataset.lightBinding='old'","snapshot.capabilities={execute:false}","outbox=[{partition:'test:1',state:'local',action:'report',input:{lineId:7}}]"]){const {context,run}=resumeClient();run(change);await run('refreshResumeLight()');assert.equal(context.calls.length,0,change);}
- const {context,run}=resumeClient();run("snapshot.tasks[0].attention=1;snapshot.tasks[0].lines[1].reports=[{status:'review'}]");await run('refreshResumeLight()');assert.equal(context.calls.length,1,'healthy displayed sibling remains eligible');
-});
 
-test('background polls never re-arm delivered light intent; a successful reconnect does',async()=>{
- const {context,run}=resumeClient();context.window={scrollY:0,scrollTo(){}};context.document.visibilityState='visible';run('let monitoring=false,submitting=false,pollDelay=5000;canRefresh=()=>false;patchLiveRows=()=>{};sync=async()=>{online=true;};');run(source.slice(source.indexOf('async function backgroundRefresh(){'),source.indexOf("window.addEventListener('online'")));
- await run('backgroundRefresh()');assert.equal(context.calls.length,1);for(let i=0;i<3;i++)await run('backgroundRefresh()');assert.equal(context.calls.length,1);run('online=false');await run('backgroundRefresh()');assert.equal(context.calls.length,2);await run('backgroundRefresh()');assert.equal(context.calls.length,2);
+function activationClient(){
+ const c=client(),records=new Map(),sent=[],visits=[];c.context.records=records;c.context.sent=sent;
+ c.context.window={history:{pushState:(state,title,url)=>visits.push(url)}};
+ c.context.fetch=async(url,options)=>{sent.push({url,body:options.body});return {ok:true,json:async()=>({status:'recorded',taskId:65,generation:3,message:'Ready'})};};
+ c.run(`snapshot.tasks=[{id:65,assignee_id:1,assignment_state:'started',assignment_generation:3,progress_token:'progress',lines:[{id:7,task_id:65,revision:2,current_generation:3,binding_revision:4,planned_quantity:3,execution_state:'ready',canAct:true,reports:[]}]}];online=true;store=async(name,mode,fn)=>fn({getAll:()=>[...records.values()],put:o=>records.set(o.id,o)});refresh=async()=>{};render=()=>{};fetchDialogTask=async()=>snapshot.tasks[0];`);
+ return {...c,records,sent,visits};
+}
+test('Start, Resume and self-create each enter active work in the same document after one explicit POST',async()=>{
+ for(const action of ['start','resume','create']){const c=activationClient();assert.equal(c.run('workActive(snapshot.tasks[0])'),false);await c.run(`beginActivation('${action}',{taskId:65})`);assert.equal(c.sent.length,1);assert.equal(c.sent[0].url,'/api/work/'+action);assert.equal(c.run('workActive(snapshot.tasks[0])'),true);assert.match(c.visits[0],/^\/tasks\/65/);assert.equal(c.run('activationPending()'),undefined);}
+ assert.equal(activationClient().run('activeWork'),null,'a new document starts passive');
+});
+test('unknown activation is never background replayed; explicit retry preserves exact request bytes',async()=>{
+ const c=activationClient();let lost=true;c.context.fetch=async(url,options)=>{c.sent.push({url,body:options.body});if(lost)throw new TypeError('lost response');return {ok:true,json:async()=>({status:'recorded',taskId:65,generation:3,message:'Ready'})};};
+ await assert.rejects(c.run("beginActivation('resume',{taskId:65})"),/lost response/);assert.equal([...c.records.values()][0].state,'activation-unknown');assert.equal(c.run('activeWork'),null);
+ await c.run('sync()');assert.equal(c.sent.length,1);await assert.rejects(c.run("beginActivation('create',{})"),/saved Start/);
+ lost=false;await c.run('deliverActivation(outbox[0])');assert.equal(c.sent.length,2);assert.equal(c.sent[0].body,c.sent[1].body);assert.equal(c.run('workActive(snapshot.tasks[0])'),true);
+});
+test('definitive activation rejection frees the task for a corrected new request',async()=>{
+ const c=activationClient();c.context.fetch=async()=>({ok:false,status:400,json:async()=>({error:'Stale instructions'})});await assert.rejects(c.run("beginActivation('resume',{taskId:65})"),/Stale/);assert.equal([...c.records.values()][0].state,'not-applied');assert.equal(c.run('activationPending()'),undefined);assert.equal(c.run('taskHasSavedUpdate(snapshot.tasks[0])'),false);
+});
+test('old-dataset unknown activation is preserved without blocking current work or rewriting retry identity',async()=>{
+ const c=activationClient();c.context.old={id:'old',partition:'test:1',action:'create',state:'activation-unknown',input:{site:'test',dataset:'old-data',actorId:1,requestId:'old'}};c.run('records.set(old.id,old);outbox=[old]');const frozen=JSON.stringify(c.context.old.input);
+ await assert.rejects(c.run('deliverActivation(old)'),/another account, warehouse or dataset/);assert.equal(c.sent.length,0);assert.equal(JSON.stringify(c.context.old.input),frozen);assert.equal(c.run('activationPending()'),undefined);
+ await c.run("beginActivation('create',{})");assert.equal(c.sent.length,1);assert.equal(c.records.get('old').state,'activation-unknown');assert.match(c.run('queueEntry(old)'),/Preserved from another warehouse dataset/);assert.doesNotMatch(c.run('queueEntry(old)'),/data-retry-activation/);
+});
+test('account and warehouse mismatches cannot deliver a saved activation',async()=>{
+ for(const patch of ["actorId:2","site:'other'"]){const c=activationClient();c.run(`outbox=[{id:'saved',partition:key(),action:'resume',state:'activation-unknown',input:{site:'test',dataset:'data',actorId:1,${patch}}}]`);const frozen=c.run('JSON.stringify(outbox[0].input)');await assert.rejects(c.run('deliverActivation(outbox[0])'),/another account/);assert.equal(c.sent.length,0);assert.equal(c.run('JSON.stringify(outbox[0].input)'),frozen);}
+});
+test('offline activation saves no new intent and passive Refresh light is rejected',async()=>{
+ const c=activationClient();c.run('online=false');await assert.rejects(c.run("beginActivation('resume',{taskId:65})"),/Reconnect/);assert.equal(c.records.size,0);c.run("online=true;path='/tasks/65'");await assert.rejects(c.run('refreshActiveLight()'),/Resume this task/);assert.equal(c.sent.length,0);
+});
+test('legacy queued start/create require explicit retry while saved physical evidence still syncs',async()=>{
+ const c=activationClient();for(const action of ['start','create','report'])c.records.set(action,{id:action,partition:'test:1',action,state:'local',input:{site:'test',dataset:'data',actorId:1,requestId:action}});
+ await c.run('sync()');assert.equal(c.records.get('start').state,'activation-unknown');assert.equal(c.records.get('create').state,'activation-unknown');assert.deepEqual(c.sent.map(x=>x.url),['/api/work/report']);
+});
+test('passive polls and reconnects never send a light or activation request',async()=>{
+ const c=activationClient();c.context.window.scrollY=0;c.context.window.scrollTo=()=>{};c.run('let monitoring=false,submitting=false,pollDelay=5000;canRefresh=()=>false;patchLiveRows=()=>{};');c.run(source.slice(source.indexOf('async function backgroundRefresh(){'),source.indexOf("window.addEventListener('online'")));
+ for(let i=0;i<3;i++)await c.run('backgroundRefresh()');c.run('online=false');await c.run('backgroundRefresh()');assert.equal(c.sent.length,0);assert.equal(c.run('activeWork'),null);
+});
+test('clear local data refuses to erase an unconfirmed activation receipt',async()=>{
+ for(const state of ['activation-pending','activation-unknown']){const c=activationClient();let handler;c.context.capture=(name,fn)=>{if(name==='click')handler=fn;};c.run(`root.addEventListener=capture;outbox=[{id:'uncertain',partition:key(),state:'${state}',input:{}}]`);const a=source.indexOf("root.addEventListener('click'"),b=source.indexOf('let stopCamera=null;',a);c.run(source.slice(a,b));await handler({target:{closest:s=>s==='[data-forget]'?{}:null}});assert.match(c.run('notice'),/Unreceived updates remain/);assert.equal(c.run('outbox.length'),1);}
 });

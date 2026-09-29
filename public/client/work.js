@@ -37,7 +37,7 @@ async function refresh(){
 }
 const allowed=key=>snapshot?.capabilities?Boolean(snapshot.capabilities[key]):(snapshot?.user?.role==='admin'||['view','execute','pick','put','stop','correct','report','labels'].includes(key));
 function form(action,body,attrs=''){
- const permission={assign:'assign',create:body.includes('value="put"')?'put':'pick',acquire:'execute',verify:'execute',start:'execute',decline:'execute',handBack:'execute',assignReview:'assign',observeReview:'execute',resumeFollowup:'execute',acknowledgeReturn:'assign',updateReturned:'assign',reassign:'assign',deadline:'deadline',timing:'timing',askReview:'report',report:'execute',manual:'report',recommendation:'report',cancel:'stop',correct:'correct',replan:'execute',mode:'mode',reconcile:'reconcile',resolve:body.includes('name="dismissDuplicate"')?'link':'resolve',stop:'stop'}[action];
+ const permission={assign:'assign',create:body.includes('value="put"')?'put':'pick',acquire:'execute',verify:'execute',start:'execute',resume:'execute',decline:'execute',handBack:'execute',assignReview:'assign',observeReview:'execute',resumeFollowup:'execute',acknowledgeReturn:'assign',updateReturned:'assign',reassign:'assign',deadline:'deadline',timing:'timing',askReview:'report',report:'execute',manual:'report',recommendation:'report',cancel:'stop',correct:'correct',replan:'execute',mode:'mode',reconcile:'reconcile',resolve:body.includes('name="dismissDuplicate"')?'link':'resolve',stop:'stop'}[action];
  if(permission&&!allowed(permission)&&!(action==='stop'&&allowed('teamStop')))return '';
  return `<form data-work-action="${action}" ${attrs}>${body}<p class="form-feedback" role="status"></p></form>`;
 }
@@ -58,27 +58,66 @@ const stages=new Map(), drafts=new Map();
 const stageKey=l=>`${key()}:summary:${l.id}:${l.revision}:${l.current_generation}`;
 const dueText=t=>t.clock_invalid?'Warehouse clock needs checking':t.overdue?`Overdue by ${t.overdue_minutes} min`:t.due_at?`Due ${new Date(t.due_at).toLocaleString([], {timeZone:snapshot.timing?.timezone})}`:'No deadline';
 const outcome=t=>({open:t.assignment_state==='offered'?'Not started':'In progress',needs_assignment:'Needs assignment',needs_review:'Needs review',stopped:'Stopped — partly completed',cancelled:'Cancelled — nothing moved',completed:'Completed'})[t.outcome]||status(t.status);
-let resumeLightPending=true, resumeLightWarning='';
-function resumeLightInput(){
- if(!online||!allowed('execute')||!/^\/tasks\/\d+$/.test(path))return null;
- const t=snapshot.tasks.find(t=>t.id===Number(path.split('/')[2]));
- if(!t||t.assignee_id!==snapshot.user.id||t.assignment_state!=='started'||t.review_followup||t.stop_requested||t.completed_at||taskHasSavedUpdate(t))return null;
- const card=root.querySelector?.('[data-line][data-light-revision]');if(!card)return null;
- const l=t.lines.find(l=>String(l.id)===card.dataset.line);
- if(!l||!['ready','working'].includes(l.execution_state)||l.canAct===false||(l.reports||[]).some(r=>['review','received'].includes(r.status)))return null;
- if(String(l.revision)!==card.dataset.lightRevision||String(t.assignment_generation)!==card.dataset.lightGeneration||String(l.binding_revision)!==card.dataset.lightBinding){resumeLightWarning='Location instructions changed. Reopen the task before refreshing its light.';return null;}
- return {taskId:t.id,generation:t.assignment_generation,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision};
+// This execution context exists only after an explicit successful action in this document.
+// It is neither persisted nor inferred from a URL, snapshot, reload, reconnect or history entry.
+let activeWork=null, resumeLightWarning='';
+function workActive(t){return !!t&&!!activeWork&&activeWork.taskId===t.id&&activeWork.generation===t.assignment_generation&&activeWork.identity===key()&&activeWork.dataset===snapshot.dataset&&!t.review_followup&&!t.completed_at&&!t.stop_requested&&t.assignee_id===snapshot.user.id;}
+function lineActive(l){const t=snapshot.tasks.find(t=>t.id===l.task_id);return workActive(t);}
+function executionLines(t){return (t.lines||[]).filter(l=>['ready','working'].includes(l.execution_state)&&l.planned_quantity>0&&!(l.reports||[]).some(r=>['review','received'].includes(r.status)));}
+function activationFields(t){return hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('instructions',JSON.stringify(executionLines(t).map(l=>({lineId:l.id,revision:l.revision,bindingRevision:l.directions?.bindingRevision??l.binding_revision}))));}
+function activationForm(t,label=null,attrs=''){
+ const action=t.assignment_state==='offered'||t.assignment_state==='legacy'?'start':'resume';
+ return form(action,activationFields(t)+`<button ${online?'':'disabled'}>${esc(label|| (action==='start'?'Start task':'Resume task'))}</button>`,attrs);
 }
-async function refreshResumeLight(){
- if(!resumeLightPending||!online||document.visibilityState==='hidden')return;resumeLightPending=false;resumeLightWarning='';
- const input=resumeLightInput();if(!input){patchGuidanceHints();return;}
- try{await immediate('guide',{...input,requestId:uid()});await refresh();}
- catch{resumeLightWarning='Light refresh not confirmed. Follow the cell and quantity on screen; reconnect or refresh the light.';}
- patchGuidanceHints();
+function isActivation(action,input={}){return ['start','resume'].includes(action)||action==='create'&&!input.assigneeId;}
+function currentActivation(o){return o.input.dataset===snapshot.dataset&&o.input.site===snapshot.site&&Number(o.input.actorId)===snapshot.user.id;}
+function currentSavedUpdate(o){return o.partition===key()&&(!['activation-pending','activation-unknown'].includes(o.state)||currentActivation(o));}
+function activationPending(t=null){return outbox.find(o=>currentSavedUpdate(o)&&['activation-pending','activation-unknown'].includes(o.state)&&(!t||Number(o.input.taskId)===t.id));}
+async function enterActiveTask(result){
+ const t=await fetchDialogTask(Number(result.taskId));
+ if(t.assignment_generation!==Number(result.generation)||t.assignee_id!==snapshot.user.id||t.canAct===false||t.assignment_state!=='started'||t.review_followup||t.completed_at||t.stop_requested)throw new Error('The task changed after this request. Open its details before continuing.');
+ snapshot.tasks=[t,...snapshot.tasks.filter(x=>x.id!==t.id)];
+ activeWork={taskId:t.id,generation:t.assignment_generation,identity:key(),dataset:snapshot.dataset};resumeLightWarning='';
+ const returnTo=workReturn(),query=returnTo?'?return_to='+encodeURIComponent(returnTo):'';
+ path='/tasks/'+t.id;window.history.pushState({},'',path+query);
+ const title=`Task #${t.id} - ${t.type==='put'?'Put':'Pick'} ${taskName(t)}`;const heading=document.querySelector('h1');if(heading)heading.textContent=title;document.title=title+' · LytGuide IMS';render();
+}
+async function deliverActivation(o){
+ if(!online)throw new Error('Reconnect, then explicitly retry this task action.');
+ if(o.input.site!==snapshot.site||o.input.dataset!==snapshot.dataset||Number(o.input.actorId)!==snapshot.user.id)throw new Error('This saved request belongs to another account, warehouse or dataset. Its original details will not be changed.');
+ o.state='activation-pending';await store('outbox','readwrite',s=>s.put(o));
+ try{
+  const response=await fetch('/api/work/'+o.action,{method:'POST',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(o.input)});
+  const result=await response.json();if(!response.ok){const error=new Error(result.error||'Task action was not confirmed.');error.definite=[400,401,403,404,409,422].includes(response.status);throw error;}
+  o.result=result;o.state=result.status;o.message=result.message;
+  await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');notice=result.message;
+  await enterActiveTask(result);
+ }catch(error){
+  if(!o.result){o.state=error.definite?'not-applied':'activation-unknown';o.message=error.definite?error.message:'Start / Resume not confirmed. Retry this saved request explicitly; background sync will not start it.';await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');}
+  throw error;
+ }
+}
+async function beginActivation(action,values){
+ if(!online)throw new Error('Reconnect before starting or resuming work.');
+ if(activationPending())throw new Error('Check the saved Start / Resume request before starting another task.');
+ const t=snapshot.tasks.find(t=>t.id===Number(values.taskId))||snapshot.myWorkNextTask;
+ if(action!=='create'&&t&&taskHasSavedUpdate(t))throw new Error('Send saved physical updates before starting or resuming this task.');
+ const id=uid(),input={...values,requestId:id,site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id,deviceId};
+ const o={id,partition:key(),action,input,state:'activation-pending',message:'Waiting for task confirmation.',createdAt:new Date().toISOString()};
+ await deliverActivation(o);
+}
+async function refreshActiveLight(){
+ if(!online)throw new Error('Reconnect before refreshing a light.');
+ const t=snapshot.tasks.find(t=>t.id===Number(path.split('/')[2]));if(!workActive(t))throw new Error('Resume this task before refreshing its light.');
+ const card=root.querySelector('[data-line][data-light-revision]'),l=t.lines.find(l=>String(l.id)===card?.dataset.line);
+ if(!l||!executionLines(t).some(x=>x.id===l.id)||String(l.revision)!==card.dataset.lightRevision||String(t.assignment_generation)!==card.dataset.lightGeneration||String(l.binding_revision)!==card.dataset.lightBinding)throw new Error('Instructions changed. Open task details before continuing.');
+ try{await immediate('guide',{taskId:t.id,generation:t.assignment_generation,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision,requestId:uid()});await refresh();resumeLightWarning='';}
+ catch(error){resumeLightWarning='Light refresh not confirmed. Follow the screen and explicitly retry when connected.';throw error;}
+ finally{patchGuidanceHints();}
 }
 function locationHeading(l){
  const active=['ready','working'].includes(l.execution_state),check=l.review_followup||(l.reports||[]).some(r=>['review','received'].includes(r.status));
- return (active&&check?'Check ':active&&l.canAct!==false&&l.guidance?.state!=='waiting'?'Go to ':active?'Location ':'')+l.logical_code;
+ return (active&&check?'Check ':active&&lineActive(l)&&l.canAct!==false&&l.guidance?.state!=='waiting'?'Go to ':active?'Location ':'')+l.logical_code;
 }
 function guidanceText(l){
  if(!online)return 'Offline — light status may have changed. Follow your saved cell instructions.';
@@ -88,11 +127,12 @@ function guidanceText(l){
  return l.guidance?.message||'Follow the cell name and quantity on your screen.';
 }
 function patchGuidanceHints(){
+ for(const f of root.querySelectorAll('form[data-work-action="start"],form[data-work-action="resume"]')){const t=[...snapshot.tasks,...(snapshot.watchedTasks||[]),snapshot.myWorkNextTask].find(t=>t&&String(t.id)===f.elements.taskId?.value);const stale=!online||!t||t.assignee_id!==snapshot.user.id||t.completed_at||t.stop_requested||t.review_followup||String(t.assignment_generation)!==f.elements.generation?.value||t.progress_token!==f.elements.progressToken?.value||taskHasSavedUpdate(t);for(const b of f.querySelectorAll('button'))b.disabled=!!stale;}
  for(const card of root.querySelectorAll('[data-line][data-light-revision]')){
   const l=[...snapshot.tasks,...(snapshot.watchedTasks||[])].flatMap(t=>t.lines||[]).find(l=>String(l.id)===card.dataset.line);
   const stale=!l||String(l.revision)!==card.dataset.lightRevision||String(l.current_generation)!==card.dataset.lightGeneration||String(l.binding_revision)!==card.dataset.lightBinding;
   const heading=card.querySelector('.directions');if(heading)heading.textContent=stale?'Location instructions changed':locationHeading(l);
-  const blocked=stale||l.canAct===false||l.review_followup||!['ready','working'].includes(l.execution_state)||(l.reports||[]).some(r=>['review','received'].includes(r.status));
+  const blocked=stale||!lineActive(l)||l.canAct===false||l.review_followup||!['ready','working'].includes(l.execution_state)||(l.reports||[]).some(r=>['review','received'].includes(r.status));
   for(const button of card.querySelectorAll('[data-refresh-guidance],form[data-work-action="acquire"] button'))button.disabled=!online||blocked;
  }
  for(const hint of root.querySelectorAll('[data-guidance-line]')){
@@ -136,7 +176,7 @@ async function fetchDialogTask(id){
  const r=await fetch('/api/work/snapshot?taskId='+id,{headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(15000)});
  if(!r.ok)throw new Error('Unable to open this task. Refresh your permissions and try again.');
  const fresh=await r.json();
- if(fresh.user.id!==snapshot.user.id||fresh.site!==snapshot.site)throw new Error('The signed-in account or warehouse changed. Reopen My work before updating this task.');
+ if(fresh.user.id!==snapshot.user.id||fresh.site!==snapshot.site||fresh.dataset!==snapshot.dataset)throw new Error('The signed-in account, warehouse or dataset changed. Reopen My work before updating this task.');
  const t=fresh.tasks.find(t=>t.id===id);if(!t)throw new Error('This task is no longer available. Refresh My work.');
  return t;
 }
@@ -165,7 +205,7 @@ function patchReturnedRows(){
  const pages=root.querySelector('[data-returned-pages]');if(pages&&!pages.contains(active))pages.innerHTML=pageLinks(snapshot.returnedPage,'returnedPage');
 }
 function lineCard(l){
- const active=['ready','working'].includes(l.execution_state),working=l.execution_state==='working';
+ const active=['ready','working'].includes(l.execution_state),working=l.execution_state==='working',executing=lineActive(l);
  const waiting=l.reports?.filter(r=>['review','received'].includes(r.status))||[];
  const saved=outbox.some(o=>o.partition===key()&&Number(o.input.lineId)===l.id&&['local','sending','error','rejected'].includes(o.state));
  const stage=stages.get(stageKey(l));
@@ -173,7 +213,7 @@ function lineCard(l){
  let actions='';
  if(active&&l.canAct!==false){
   if(saved)actions='<button disabled>Update saved — waiting for warehouse confirmation</button>';
-  else if(waiting.length||!online)actions=disclosure('manual-'+l.id,'Record what I moved',`<p>Enter only work already done. Do not repeat the movement.</p>${recovery}`,true);
+  else if(waiting.length||!online||!executing)actions=disclosure('manual-'+l.id,'Record what I moved',`<p>Enter only work already done. Do not repeat the movement.</p>${recovery}`,Boolean(waiting.length||!online));
   else {
    if(!working)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${esc(guidanceText(l))}</p><button type="button" class="secondary" data-refresh-guidance>Refresh light</button>`+form('acquire',allocationFields(l)+hidden('method','arrival')+"<button>I'm at this location</button>");
    else if(!stage)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${esc(guidanceText(l))}</p><button type="button" class="secondary" data-refresh-guidance>Refresh light</button><button type="button" data-scan-line="${l.id}">Resume camera</button><button type="button" class="secondary" data-manual-summary="${l.id}">Complete without scanning</button>`;
@@ -189,8 +229,8 @@ function lineCard(l){
 function untouchedOffer(t){return t.assignment_source!=='self'&&t.assignment_state==='offered'&&!t.attention&&!(t.recorded_quantity>0)&&(t.lines||[]).every(l=>['ready','cancelled','superseded'].includes(l.execution_state)&&!l.started_at&&!l.reports?.length);}
 function assignmentActions(t){
  if(!allowed('execute')||t.assignee_id!==snapshot.user.id||t.completed_at)return '';
- const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation);
- return `${t.assignment_state==='offered'&&!t.review_followup?form('start',fields+'<button>Start task</button>'):''}<button type="button" class="secondary" data-hand-back="${t.id}">${untouchedOffer(t)?'Decline task':'Stop and hand back remaining work'}</button>`;
+ const canEnter=!workActive(t)&&!t.review_followup&&!t.stop_requested&&executionLines(t).length&&!taskHasSavedUpdate(t);
+ return `${canEnter?activationForm(t):''}<button type="button" class="secondary" data-hand-back="${t.id}">${untouchedOffer(t)?'Decline task':'Stop and hand back remaining work'}</button>`;
 }
 function workReturn(){const value=new URLSearchParams(location.search).get("return_to")||"";return /^\/(products|cells)([/?#]|$)/.test(value)?value:"";}
 function taskPage(id){
@@ -202,7 +242,7 @@ function taskPage(id){
  const closed=!t.attention&&(['completed','stopped','cancelled'].includes(t.outcome)||Boolean(t.completed_at));
  const reassignment=reassignForm(t);
  const history=t.assignment_history?.length?t.assignment_history.map(e=>{const data=JSON.parse(e.payload);return `<li>${esc(new Date(e.created_at).toLocaleString())} · ${esc(e.event_type.replaceAll('_',' '))} · ${esc(e.actor_name)}${e.assignee_name?' → '+esc(e.assignee_name):''}<p>${esc([data.reason,data.note,data.dueAt?'Due '+new Date(data.dueAt).toLocaleString():'',data.remaining!=null?'Remaining requested '+data.remaining:''].filter(Boolean).join(' · '))}</p></li>`;}).join(''):'<li>Assignment history unavailable for this legacy task.</li>';
- return `<section class="work-intro"><a href="${esc(workReturn()||'/work')}">← ${workReturn()?'Back to stock':'My work'}</a><p class="task-product-summary">${esc(taskName(t))}</p><p><strong>${esc(outcome(t))}</strong>${closed?'':' · '+esc(dueText(t))}</p>${closed?'<p><a class="work-primary" href="/work">Back to My work</a></p>':''}<p>Recorded ${esc(t.recorded_quantity)} · Remaining requested ${esc(t.remaining_quantity)} ${esc(t.lines[0]?.unit_of_measure)}</p>${t.instruction_note?`<p>${esc(t.instruction_note)}</p>`:''}</section>${assignmentActions(t)}${followupPanel(t)}${primary?lineCard(primary):''}${ready.length>1?disclosure('other-locations','Other locations',ready.filter(l=>l!==primary).map(l=>`<a class="work-secondary" href="/tasks/${t.id}?line=${l.id}">${esc(l.directions?.name||l.logical_code)} · ${esc(l.planned_quantity)} ${esc(l.unit_of_measure)}</a>`).join(''),true):''}${live.some(l=>!['ready','working'].includes(l.execution_state))?disclosure('recorded-locations','Recorded / closed locations',live.filter(l=>!['ready','working'].includes(l.execution_state)).map(lineCard).join(''),!primary):''}${!t.completed_at&&((t.canAct&&!untouchedOffer(t))||(allowed('teamStop')&&t.assignee_id!==snapshot.user.id))?disclosure('stop-task','Stop remaining work',form('stop',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+`<p>Stops untouched locations: ${esc(ready.filter(l=>l.execution_state==='ready').map(l=>l.logical_code).join(', ')||'none')}. A supervisor must check locations already started or awaiting a quantity check. Recorded movements stay in history.</p><label class="work-check"><input type="checkbox" required>I want to stop the remaining work.</label><button class="secondary">Stop remaining work</button>`)):''}${reassignment?disclosure('detail-reassign','Reassign remaining work',reassignment):''}${disclosure('task-history','Task details and assignment history',`<p>Original deadline: ${t.due_at?esc(new Date(t.due_at).toLocaleString([], {timeZone:snapshot.timing?.timezone})):'No deadline'}</p><p>Created by ${esc(t.created_by_name)} · Assigned to ${esc(t.assignee_name||'Needs assignment')} · Assigned by ${esc(t.assigned_by_name||'History unavailable')}</p><ol>${history}</ol>`)}${t.lines.some(l=>l.execution_state==='superseded')?disclosure('old-plans','Earlier plans — do not execute',t.lines.filter(l=>l.execution_state==='superseded').map(lineCard).join('')):''}`;
+ return `<section class="work-intro"><a href="${esc(workReturn()||'/work')}">← ${workReturn()?'Back to stock':'My work'}</a><p class="task-product-summary">${workActive(t)?'Active work':'Task details'} · ${esc(taskName(t))}</p><p><strong>${esc(outcome(t))}</strong>${closed?'':' · '+esc(dueText(t))}</p>${closed?'<p><a class="work-primary" href="/work">Back to My work</a></p>':''}<p>Recorded ${esc(t.recorded_quantity)} · Remaining requested ${esc(t.remaining_quantity)} ${esc(t.lines[0]?.unit_of_measure)}</p>${t.instruction_note?`<p>${esc(t.instruction_note)}</p>`:''}</section>${assignmentActions(t)}${followupPanel(t)}${primary?lineCard(primary):''}${ready.length>1?disclosure('other-locations','Other locations',ready.filter(l=>l!==primary).map(l=>`<a class="work-secondary" ${workActive(t)?'data-active-location="'+l.id+'"':''} href="/tasks/${t.id}?line=${l.id}">${esc(l.directions?.name||l.logical_code)} · ${esc(l.planned_quantity)} ${esc(l.unit_of_measure)}</a>`).join(''),true):''}${live.some(l=>!['ready','working'].includes(l.execution_state))?disclosure('recorded-locations','Recorded / closed locations',live.filter(l=>!['ready','working'].includes(l.execution_state)).map(lineCard).join(''),!primary):''}${!t.completed_at&&((t.canAct&&!untouchedOffer(t))||(allowed('teamStop')&&t.assignee_id!==snapshot.user.id))?disclosure('stop-task','Stop remaining work',form('stop',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+`<p>Stops untouched locations: ${esc(ready.filter(l=>l.execution_state==='ready').map(l=>l.logical_code).join(', ')||'none')}. A supervisor must check locations already started or awaiting a quantity check. Recorded movements stay in history.</p><label class="work-check"><input type="checkbox" required>I want to stop the remaining work.</label><button class="secondary">Stop remaining work</button>`)):''}${reassignment?disclosure('detail-reassign','Reassign remaining work',reassignment):''}${disclosure('task-history','Task details and assignment history',`<p>Original deadline: ${t.due_at?esc(new Date(t.due_at).toLocaleString([], {timeZone:snapshot.timing?.timezone})):'No deadline'}</p><p>Created by ${esc(t.created_by_name)} · Assigned to ${esc(t.assignee_name||'Needs assignment')} · Assigned by ${esc(t.assigned_by_name||'History unavailable')}</p><ol>${history}</ol>`)}${t.lines.some(l=>l.execution_state==='superseded')?disclosure('old-plans','Earlier plans — do not execute',t.lines.filter(l=>l.execution_state==='superseded').map(lineCard).join('')):''}`;
 }
 function pageLinks(info,key='page') {
  if(!info)return '';const q=new URLSearchParams(location.search),url=n=>{const v=new URLSearchParams(q);v.set(key,n);return path+'?'+v;};
@@ -213,7 +253,7 @@ function reassignForm(t){return !allowed('assign')||t.attention||(t.completed_at
 function taskRow(t){
  const mine=t.assignee_id===snapshot.user.id,closed=['completed','stopped','cancelled'].includes(t.outcome)||t.completed_at;
  const untouched=(t.lines||[]).every(l=>['ready','cancelled','superseded'].includes(l.execution_state)&&!l.started_at&&!l.reports?.length);
- const saved=outbox.some(o=>o.partition===key()&&['local','sending','error','rejected'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));
+ const saved=outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected','activation-pending','activation-unknown'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));
  const reasons=[...new Set((t.lines||[]).flatMap(l=>(l.reports||[]).filter(r=>['received','review'].includes(r.status)).map(r=>r.quantity_known===0?'Quantity not confirmed':r.reason)))];
  const label=t.attention?'Waiting for supervisor — '+(reasons[0]||'reported quantity needs checking'):outcome(t);
  const actualPeople=[...new Set((t.lines||[]).filter(l=>l.attribution).map(l=>l.attribution.performer||'Unknown'))];
@@ -222,12 +262,12 @@ function taskRow(t){
  const stop=mine&&!closed&&!saved&&!untouchedOffer(t)&&allowed('stop')?(untouched&&t.assignment_source==='self'?form('stop',fields+'<button class="secondary">Cancel task</button>'):disclosure('row-stop-'+t.id,'Stop remaining work',form('stop',fields+'<p>Recorded quantities stay. Untouched work can stop; uncertain physical work stays in review.</p><button class="secondary">Stop remaining work</button>'))):'';
  const assignment=reassignForm(t);
  const reassignment=!assignment?'':t.outcome==='needs_assignment'?assignment:!closed?disclosure('row-reassign-'+t.id,'Reassign remaining work',assignment):'';
- const next=closed?'View result':saved?'Check saved update':t.attention?'View quantity check':t.outcome==='needs_assignment'&&allowed('assign')?'Assign task':mine&&t.assignment_state!=='offered'?'Continue task':'Open task';
+ const next=closed?'View result':saved?'Check saved update':t.attention?'View quantity check':t.outcome==='needs_assignment'&&allowed('assign')?'Assign task':'Task details';
  return `<tr data-task-row="${t.id}"><th scope="row"><a href="/tasks/${t.id}">${esc(taskName(t))}</a><small>${esc(t.type)} · ${esc(t.lines?.[0]?.sku||'')} · Task #${t.id}</small><div class="task-primary-actions">${mine&&!closed&&t.assignment_state==='offered'&&allowed('execute')?'':`<a class="work-secondary" href="/tasks/${t.id}">${next}</a>`}${assignmentActions(t)}${stop}${saved?'<p>Saved request awaiting confirmation.</p>':''}</div></th><td>${esc(t.remaining_quantity??t.requested_quantity??'—')} ${esc(t.lines?.[0]?.unit_of_measure)}<small>${esc(t.requested_quantity??'—')} requested</small></td><td>${badge(label,t.attention||t.overdue?'warning':t.outcome==='completed'?'good':'')}<small>${esc(dueText(t))}</small></td><td>${esc(t.recorded_quantity??0)} recorded<small>${(t.lines||[]).filter(l=>l.execution_state==='settled').length} locations recorded</small></td><td>Assigned to <strong>${esc(t.assignee_name||'Needs assignment')}${t.assignee_username?' · '+esc(t.assignee_username):''}</strong>${t.assignment_state==='returned'?`<small>Last assigned: ${esc(t.assignment_history?.filter(e=>e.event_type==='returned').at(-1)?.previous_name||'See history')}</small>`:''}<small>Performed by ${esc(actualPeople.join(', ')||'Not recorded')}</small><small>Entered by ${esc(reporters.join(', ')||'Not recorded')}</small></td><td>${t.assigned_at?esc(new Date(t.assigned_at).toLocaleString()):'Not assigned'}<small>Assigned by ${esc(t.assigned_by_name||'—')}</small></td><td class="task-row-actions"><a href="/tasks/${t.id}">Details</a>${reassignment}${!closed&&allowed('deadline')?disclosure('deadline-'+t.id,'Change deadline',form('deadline',fields+input('dueAt','New due time (blank disables deadline)','datetime-local')+input('reason','Reason','text','required')+'<button>Save deadline</button>')):''}</td></tr>`;
 }
 function taskCards(tasks){return `<div class="work-table-wrap" tabindex="0" role="region" aria-label="Task table; scroll horizontally for actions"><table class="work-task-table"><thead><tr><th scope="col">Task / product</th><th scope="col">Remaining</th><th scope="col">Status / due</th><th scope="col">Progress</th><th scope="col">People</th><th scope="col">Assigned</th><th scope="col">Actions</th></tr></thead><tbody data-task-table>${tasks.map(taskRow).join('')||'<tr><td colspan="7">No matching tasks.</td></tr>'}</tbody></table></div>`;}
 function myTasks(){return snapshot.tasks.filter(t=>t.assignee_id===snapshot.user.id&&!t.completed_at&&!['completed','stopped','cancelled'].includes(t.outcome)&&t.assignment_state!=='returned').sort((a,b)=>(Date.parse(b.assigned_at||b.started_at)||0)-(Date.parse(a.assigned_at||a.started_at)||0)||b.id-a.id);}
-function taskHasSavedUpdate(t){return outbox.some(o=>o.partition===key()&&['local','sending','error','rejected'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));}
+function taskHasSavedUpdate(t){return outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected','activation-pending','activation-unknown'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));}
 function myTaskChoice(t){
  if(t.assignee_id!==snapshot.user.id||t.completed_at||['completed','stopped','cancelled'].includes(t.outcome)||taskHasSavedUpdate(t))return null;
  if(untouchedOffer(t)&&allowed('execute'))return {action:'decline',label:'Decline',explanation:'Return this unstarted assignment for reassignment. Its deadline stays unchanged.'};
@@ -240,7 +280,7 @@ function myTaskRow(t){
  const saved=taskHasSavedUpdate(t),mine=t.assignee_id===snapshot.user.id,closed=!!t.completed_at||['completed','stopped','cancelled'].includes(t.outcome),review=t.attention||(t.lines||[]).some(l=>(l.reports||[]).some(r=>['review','received'].includes(r.status)));
  const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation),canStart=myTaskActionable(t),offered=t.assignment_state==='offered';
  const underway=(t.recorded_quantity>0)||(t.lines||[]).some(l=>l.execution_state==='working'||l.started_at);
- const action=canStart&&offered?form('start',fields+'<button>Start</button>','class="my-work-start"'):`<a class="${canStart?'work-primary':'work-secondary'}" href="/tasks/${t.id}">${saved?'Saved update':review?'View check':canStart?(underway?'Continue':'Start'):'View'}</a>`;
+ const action=canStart?activationForm(t,offered?'Start task':'Resume task','class="my-work-start"'):`<a class="work-secondary" href="/tasks/${t.id}">${saved?'Saved update':review?'View check':'Details'}</a>`;
   const date=value=>value?esc(new Date(value).toLocaleString([], {timeZone:snapshot.timing?.timezone,dateStyle:'short',timeStyle:'short'})):'Not recorded';
  return `<tr data-task-row="${t.id}" data-generation="${t.assignment_generation}"><td><a href="/tasks/${t.id}">${esc(taskName(t))}</a> <span class="my-work-type">${esc(t.type)}</span></td><td>${esc(t.requested_quantity??'—')} ${esc(t.lines?.[0]?.unit_of_measure)}</td><td>${esc(t.recorded_quantity??'—')} / ${esc(t.requested_quantity??'—')} recorded${saved?' · Update pending':review?' · Needs review':closed?' · '+esc(outcome(t)):''}</td><td title="${esc(t.assigned_by_username||'')}">${esc(t.assigned_by_name||'Not recorded')}</td><td>${date(t.assigned_at)}</td><td><div class="my-work-actions">${action}${myTaskChoice(t)?`<button type="button" class="secondary" data-my-actions="${t.id}" aria-haspopup="dialog" aria-label="More actions for task ${t.id}">More ▾</button>`:''}</div></td><td${t.overdue?' class="my-work-overdue"':''}>${t.clock_invalid?'Check warehouse clock':t.due_at?date(t.due_at)+(t.overdue?' · Overdue':''):'No deadline'}</td></tr>`;
 }
@@ -250,7 +290,7 @@ function myNextContent(){
  const saved=taskHasSavedUpdate(t),ready=myTaskActionable(t);
  const started=(t.recorded_quantity>0)||(t.lines||[]).some(l=>l.execution_state==='working'||l.started_at);
  const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation);
- const action=ready&&t.assignment_state==='offered'?form('start',fields+'<button>Start</button>','class="my-work-start" data-draft-kind="my-next"'):`<a class="${ready?'work-primary':'work-secondary'}" href="/tasks/${t.id}">${saved?'Check saved update':!online?'View saved task':ready?(started?'Continue':'Start'):'View task'}</a>`;
+ const action=ready?activationForm(t,null,'class="my-work-start" data-draft-kind="my-next"'):`<a class="work-secondary" href="/tasks/${t.id}">${saved?'Check saved update':!online?'View saved task':'View task'}</a>`;
  return `<div class="my-work-next-task" data-next-id="${t.id}" data-next-generation="${t.assignment_generation}"><div><a class="my-work-next-product" href="/tasks/${t.id}">${esc(taskName(t))}</a><p>${esc(t.type==='put'?'Put':'Pick')} · ${esc(t.remaining_quantity??t.requested_quantity??'—')} ${esc(t.lines?.[0]?.unit_of_measure)} remaining · ${esc(t.recorded_quantity??'—')} recorded</p></div>${action}</div>`;
 }
 function home(){
@@ -262,7 +302,7 @@ function patchMyNext(){
  const warning=root.querySelector('[data-my-next-warning]');
  if(content.contains(document.activeElement)){
   const shown=content.querySelector('[data-next-id]'),t=snapshot.myWorkNextTask;
-  const stale=!myTaskActionable(t)||String(t.id)!==shown?.dataset.nextId||String(t.assignment_generation)!==shown?.dataset.nextGeneration;
+  const stale=!myTaskActionable(t)||String(t.id)!==shown?.dataset.nextId||String(t.assignment_generation)!==shown?.dataset.nextGeneration||t.progress_token!==content.querySelector('form')?.elements.progressToken?.value;
   warning.hidden=!stale;warning.textContent=stale?'This task changed or has an unconfirmed update. Check its details before continuing.':'';
   for(const button of content.querySelectorAll('form button'))button.disabled=stale;
  }else{content.innerHTML=myNextContent();warning.hidden=true;}
@@ -289,7 +329,7 @@ function draftContext(f){if(!['create','manual'].includes(f.dataset.workAction))
 function createPage(direction){
  if(!online)return manualPage(direction);
  const params=new URLSearchParams(location.search);
- const pending=outbox.some(o=>o.partition===key()&&o.action==='create'&&['local','error','sending'].includes(o.state));
+ const pending=outbox.some(o=>currentSavedUpdate(o)&&o.action==='create'&&['local','error','sending','activation-pending','activation-unknown'].includes(o.state));
  return `<section class="work-intro"><span class="work-eyebrow">New ${direction}</span><h2>${direction==='pick'?'What are you picking?':'What are you putting away?'}</h2><p>Choose a product and quantity. We’ll find the locations for you.</p><ol class="work-steps" aria-label="Work steps"><li aria-current="step">1 · Plan</li><li>2 · Go to location</li><li>3 · Confirm actual</li></ol></section><section class="work-panel narrow">${form('create',hidden('direction',direction)+hidden('returnTo',workReturn())+productPicker(params.get('product_id'))+input('quantity','Quantity to '+direction,'number',`min="0.000001" step="0.000001" inputmode="decimal" required value="${esc(params.get('quantity')||'')}"`)+disclosure('preferred-location','Choose a preferred location (optional)',`<label>Preferred location<select name="preferredCellId"><option value="">Choose automatically</option>${options(snapshot.cells,'id',c=>c.logical_code,params.get('cell_id'))}</select></label>`,Boolean(params.get('cell_id')))+`<p class="work-plan-help">This reserves stock for your task. You’ll confirm the actual at each location.</p><button ${pending?'disabled':''}>${pending?'Waiting for warehouse confirmation':'Find '+direction+' locations'}</button>`)}${disclosure('already-moved','Already moved the stock?',`<a data-recovery-link href="${esc(recoveryHref(direction))}">Record a completed movement for verification</a>`)}</section>`;
 }
 const provisionalReferences=new Map();
@@ -376,6 +416,7 @@ function savedAction(o){
  return t?.summary||'Save warehouse update';
 }
 function queueEntry(o){
+ if(['activation-pending','activation-unknown'].includes(o.state))return `<tr><td>Start / Resume awaiting confirmation</td><td><p>${esc(o.message)}</p>${currentActivation(o)?`<button type="button" class="secondary" data-retry-activation="${esc(o.id)}">Retry saved Start / Resume</button>`:'<p>Preserved from another warehouse dataset. Cannot retry in this dataset.</p>'}</td></tr>`;
  const physical=['report','manual','correct','askReview'].includes(o.action),waiting=['local','sending','error'].includes(o.state);
  const label=o.state==='review'?(physical?'Quantity needs supervisor check':'Received — needs supervisor check'):o.state==='rejected'?'Entry could not be accepted':o.state==='not-applied'?'Change could not be saved':waiting?'Waiting for warehouse confirmation':status(o.state);
  const next=o.state==='review'?'Received by the warehouse. Ask a supervisor to check the actual quantity; do not repeat the movement.':waiting?'Saved on this device; the warehouse has not confirmed it yet. Reconnect and send saved updates. Do not repeat the movement.':o.state==='rejected'?'Keep this evidence and ask a supervisor to check it. Do not repeat the movement.':o.state==='not-applied'?'Check the reason, refresh the task, and retry the intended change only if still needed.':'Saved by the warehouse.';
@@ -415,9 +456,9 @@ function patchMyWorkRows(){
   const fresh=observed.get(row.dataset.taskRow),keep=protectedRow(row);
   if(!wanted.has(row.dataset.taskRow)&&!keep){row.remove();existing.delete(row.dataset.taskRow);continue;}
   if(keep){
-   const stale=!wanted.has(row.dataset.taskRow)||!myTaskActionable(fresh)||String(fresh?.assignment_generation)!==row.dataset.generation||fresh.assignment_state!=='offered';
-   for(const form of row.querySelectorAll('form[data-work-action="start"]')){
-    for(const button of form.querySelectorAll('button'))button.disabled=stale;
+   const stale=!wanted.has(row.dataset.taskRow)||!myTaskActionable(fresh)||String(fresh?.assignment_generation)!==row.dataset.generation;
+   for(const form of row.querySelectorAll('form[data-work-action="start"],form[data-work-action="resume"]')){
+    for(const button of form.querySelectorAll('button'))button.disabled=stale||fresh?.progress_token!==form.elements.progressToken?.value;
     const feedback=form.querySelector('.form-feedback');if(feedback)feedback.textContent=stale?'Task unavailable. View its details.':'';
    }
   }
@@ -453,6 +494,7 @@ async function sync(){
   await refresh();
   outbox=await all('outbox');
   for(const o of outbox.filter(o=>o.partition===key()&&['local','sending','error'].includes(o.state))){
+   if(isActivation(o.action,o.input)){o.state='activation-unknown';o.message='This saved Start / Resume needs an explicit retry.';await store('outbox','readwrite',s=>s.put(o));continue;}
    // The frozen request is retried byte-for-byte under its original user/site identity.
    const r=await fetch('/api/work/'+o.action,{method:'POST',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(o.input)});
    const result=await r.json();
@@ -507,7 +549,8 @@ root.addEventListener('submit',async e=>{
   if('verificationNote' in values)values.verification=verifiedDescription(values);
   if(values.note&&action==='decline')values.reason=[values.reason,values.note].filter(Boolean).join(' — ');
   if(action==='manual'&&!values.unit?.trim())values.unit=snapshot.products.find(p=>p.id===Number(values.productId))?.unit_of_measure;
-  if(action==='acquire'){
+  if(isActivation(action,values)){await beginActivation(action,values);await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));}
+  else if(action==='acquire'){if(!lineActive(findLine(values.lineId)))throw new Error('Resume this task before arriving.');
    if(!online)throw new Error('Reconnect to request a turn. You may still report physical work already done.');
    f._input||={...values,requestId:uid()};const result=await immediate(action,f._input);notice=result.message;
    await refresh();render();if(result.status==='ready')void scanQR(findLine(values.lineId));
@@ -522,15 +565,16 @@ root.addEventListener('submit',async e=>{
    if(action==='manual')provisionalReference(true);
    await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));
    outbox=await all('outbox');notice=message;render();await sync();const received=outbox.find(o=>o.id===id);
-   if((action==='create'||action==='start')&&received?.result?.taskId){location.href='/tasks/'+received.result.taskId+(workReturn()?'?return_to='+encodeURIComponent(workReturn()):'');return;}
    render();
   }
- }catch(error){feedback.textContent=workText(error.message);feedback.classList.add('error');button.disabled=action==='assign'&&(assignmentPending()||!online);notice=error.message;if(!f.isConnected)render();}
+ }catch(error){feedback.textContent=workText(error.message);feedback.classList.add('error');button.disabled=action==='assign'&&(assignmentPending()||!online);notice=error.message;if(!f.isConnected||isActivation(action))render();}
  finally{submitting=false;}
 });
 root.addEventListener('click',async e=>{
  try{
-  if(e.target.closest('[data-refresh-guidance]')){resumeLightPending=true;await backgroundRefresh();return;}
+  const nextLocation=e.target.closest('[data-active-location]');if(nextLocation){const t=snapshot.tasks.find(t=>t.id===Number(path.split('/')[2]));if(workActive(t)){e.preventDefault();window.history.pushState({},'',nextLocation.getAttribute('href'));render();return;}}
+  if(e.target.closest('[data-refresh-guidance]')){await refreshActiveLight();return;}
+  const retryActivation=e.target.closest('[data-retry-activation]');if(retryActivation){if(submitting)return;submitting=true;try{const o=outbox.find(o=>o.id===retryActivation.dataset.retryActivation&&o.partition===key());if(o)await deliverActivation(o);}finally{submitting=false;}return;}
   if(e.target.closest('[data-task-dialog-close]')){root.querySelector('[data-task-dialog]')?.close();return;}
   const taskAction=e.target.closest('[data-update-returned],[data-hand-back]');if(taskAction){const id=Number(taskAction.dataset.updateReturned||taskAction.dataset.handBack),found=[...(snapshot.returnedTasks||[]),...snapshot.tasks,...(snapshot.watchedTasks||[])].find(t=>t.id===id);let t=found;if(!t&&online){t=await fetchDialogTask(id);snapshot.watchedTasks=[...(snapshot.watchedTasks||[]),t];}if(!t)throw new Error('Reconnect to open the latest task.');if(t)openTaskDialog(t,taskAction.dataset.updateReturned?'update':'return');return;}
   const myMore=e.target.closest('[data-my-actions]');if(myMore){const t=[...snapshot.tasks,...(snapshot.watchedTasks||[])].find(t=>t.id===Number(myMore.dataset.myActions));if(t)myActionDialog(t);return;}
@@ -554,7 +598,7 @@ root.addEventListener('click',async e=>{
    const reports=outbox.filter(o=>o.partition===key()),blob=new Blob([JSON.stringify({warehouse:snapshot.site,account:snapshot.user.username,reports},null,2)],{type:'application/json'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='warehouse-saved-updates.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);return;
   }
   if(e.target.closest('[data-forget]')){
-   if(outbox.some(o=>['local','sending','error','rejected'].includes(o.state))){notice='Unreceived updates remain. Send or download them before clearing local data.';render();return;}
+   if(outbox.some(o=>['local','sending','error','rejected','activation-pending','activation-unknown'].includes(o.state))){notice='Unreceived updates remain. Send or download them before clearing local data.';render();return;}
    // Clear only this account; another account's cache and evidence stay partitioned.
    for(const row of await all('cache'))if(row.id.startsWith(key()+':')||row.id===key())await store('cache','readwrite',s=>s.delete(row.id));
    for(const row of outbox.filter(o=>o.partition===key()))await store('outbox','readwrite',s=>s.delete(row.id));
@@ -562,7 +606,7 @@ root.addEventListener('click',async e=>{
   }
   const manual=e.target.closest('[data-manual-summary]');if(manual)await showSummary(findLine(manual.dataset.manualSummary),'manual');
   const scan=e.target.closest('[data-scan-line]');if(scan)await scanQR(findLine(scan.dataset.scanLine));
-  const link=e.target.closest('a');if(link&&!online&&link.getAttribute('href')?.startsWith('/')){const target=link.getAttribute('href');if(['/work','/pick','/put','/record-movement'].includes(target)||/^\/tasks\/\d+$/.test(target)){e.preventDefault();path=target;resumeLightPending=true;render();}}
+  const link=e.target.closest('a');if(link&&!online&&link.getAttribute('href')?.startsWith('/')){const target=link.getAttribute('href');if(['/work','/pick','/put','/record-movement'].includes(target)||/^\/tasks\/\d+$/.test(target)){e.preventDefault();path=target;activeWork=null;render();}}
  }catch(error){notice=error.message;render();}
 });
 let stopCamera=null;
@@ -588,6 +632,7 @@ async function scanQR(l){
  }catch(error){stop();notice='Camera unavailable. Choose Complete without scanning; no movement has been recorded.';render();}
 }
 window.addEventListener('pagehide',()=>stopCamera?.());
+window.addEventListener('popstate',()=>{activeWork=null;location.reload();});
 window.addEventListener('offline',()=>{online=false;patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
 const canRefresh=()=>!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open&&!dirty&&!root.contains(document.activeElement)&&!cameraStream?.active&&!submitting;
 let monitoring=false,pollDelay=5000;
@@ -623,13 +668,13 @@ function patchLiveRows(){
 }
 async function backgroundRefresh(){
  if(monitoring||submitting||cameraStream?.active)return;monitoring=true;
- try{const wasOffline=!online;await sync();if(wasOffline&&online)resumeLightPending=true;pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
+ try{await sync();pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
   const positions=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el.scrollLeft,el.scrollTop]);const top=window.scrollY;render();[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].forEach((el,i)=>{if(positions[i]){el.scrollLeft=positions[i][0];el.scrollTop=positions[i][1];}});window.scrollTo({top,behavior:'instant'});
- }else patchLiveRows();await refreshResumeLight();}finally{monitoring=false;}
+ }else patchLiveRows();}finally{monitoring=false;}
 }
-window.addEventListener('online',()=>{resumeLightPending=true;void backgroundRefresh();});
-window.addEventListener('pageshow',e=>{if(e.persisted){resumeLightPending=true;void backgroundRefresh();}});
-document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='hidden')stopCamera?.();else {resumeLightPending=true;await backgroundRefresh();}});
+window.addEventListener('online',backgroundRefresh);
+window.addEventListener('pageshow',e=>{if(e.persisted){activeWork=null;void backgroundRefresh();}});
+document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='hidden')stopCamera?.();else await backgroundRefresh();});
 try{
  db=await openDB();
  if(snapshot)await cacheSnapshot();else{const active=await store('cache','readonly',s=>s.get('active'));snapshot=(await store('cache','readonly',s=>s.get(active?.key||'')))?.snapshot;}

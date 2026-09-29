@@ -318,6 +318,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function startTask(actor,input) {
     const t=currentTask(actor,input);
+    if(input.progressToken&&input.progressToken!==progressToken(t.id))throw new Error('Task instructions changed. Refresh before starting.');
     if(t.review_followup)throw new Error('Check moved quantity first. Resume verified remaining work after the check.');
     if(t.assignee_id!==actor.id)throw new Error('Only the assigned operator can start this task.');
     if(!['offered','legacy','started'].includes(t.assignment_state)||t.completed_at)throw new Error('This task is no longer available to start.');
@@ -326,7 +327,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       for(const l of db.prepare("SELECT id FROM task_lines WHERE task_id=? AND execution_state='ready'").all(t.id)) {db.prepare('UPDATE task_lines SET revision=revision+1 WHERE id=?').run(l.id);captureInstruction(l.id);}
       assignmentEvent(actor,t.id,'started',t.assignee_id);
     }
-    return {status:'recorded',taskId:t.id,message:'Task started. Go to a location; arrival requests your turn.'};
+    return {status:'recorded',taskId:t.id,generation:db.prepare('SELECT assignment_generation FROM tasks WHERE id=?').get(t.id).assignment_generation,message:'Task started. Go to a location; arrival requests your turn.'};
   }
   function deadline(actor,input) {
     const t=currentTask(actor,input,"work.deadline"),due=validatedDue(actor,input.dueAt);
@@ -510,7 +511,18 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     for (const allocation of task.lines) captureInstruction(allocation.id);
     syncReservations();
     event("task_reserved", actor, null, { taskId: task.id, lines: task.lines.map(l => l.id) });
-    return { status: "reserved", taskId: task.id, message: assignmentForm?`Task assigned to ${assignee.name}.`:"Quantities reserved. Follow the location guidance, then tap I’m at this location on arrival." };
+    return { status: "reserved", taskId: task.id, generation:1, message: assignmentForm?`Task assigned to ${assignee.name}.`:"Quantities reserved. Follow the location guidance, then tap I’m at this location on arrival." };
+  }
+  function resumeTask(actor,input) {
+    const t=currentTask(actor,input);
+    if(t.assignee_id!==actor.id||t.assignment_state!=='started'||t.review_followup||t.stop_requested||t.completed_at)throw new Error('Only your started, open execution task can be resumed.');
+    if(input.progressToken!==progressToken(t.id))throw new Error('Task instructions changed. Refresh before resuming.');
+    const eligible=db.prepare("SELECT id FROM task_lines WHERE task_id=? AND execution_state IN ('ready','working') AND planned_quantity>0").all(t.id).map(r=>line(r.id)).filter(l=>!hasEvidence(l.id));
+    if(!eligible.length)throw new Error('No location is ready to resume. Check the outstanding movement or task result.');
+    const supplied=typeof input.instructions==='string'?JSON.parse(input.instructions):input.instructions;
+    if(!Array.isArray(supplied)||supplied.length!==eligible.length||new Set(supplied.map(x=>Number(x.lineId))).size!==eligible.length||eligible.some(l=>!supplied.some(x=>Number(x.lineId)===l.id&&Number(x.revision)===l.revision&&Number(x.bindingRevision)===l.binding_revision)))throw new Error('Location instructions changed. Refresh before resuming.');
+    const claims=eligible.flatMap(l=>guide(actor,{...input,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision}).guidanceClaims);
+    return {status:'recorded',taskId:t.id,generation:t.assignment_generation,guidanceClaims:claims,guidanceCells:claims.map(c=>c.cellId),message:'Task resumed. Follow the location guidance; arrival is a separate action.'};
   }
   function guide(actor,input) {
     const t=currentTask(actor,input),l=line(input.lineId);
@@ -521,7 +533,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(metadata('firmware_busy'))throw new Error('Controller maintenance is in progress. Follow your screen.');
     reconcileGuidance();
     const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(l.cell_id),desired=row?JSON.parse(row.desired):null;
-    // A fresh view may resend its own elected display, never claim another worker’s display or physical turn.
+    // An explicit action may resend its own elected display, never claim another worker’s display or physical turn.
     const owned=l.controller_id&&l.hardware_channel&&desired?.lineId===l.id&&['quantity','locate'].includes(desired.action)&&desired.binding===guidanceBinding(db,l.cell_id);
     if(owned)db.prepare('UPDATE work_guidance SET delivered=0 WHERE cell_id=? AND generation=?').run(l.cell_id,row.generation);
     return {status:'recorded',guidanceCells:owned?[l.cell_id]:[],guidanceClaims:owned?[{cellId:l.cell_id,generation:row.generation,lineId:l.id}]:[],message:owned?'Light refresh requested. Check the cell and quantity on screen.':'Light is unavailable or in use. Follow the cell and quantity on screen.'};
@@ -776,7 +788,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       event('location_reconciled',actor,null,input);
       return {status:'recorded',message:'Verified location reconciled and available for new plans.'};
     },
-    create, guide, acquire, report: reportActual, resolve, cancel, correct,
+    create, resume:resumeTask, guide, acquire, report: reportActual, resolve, cancel, correct,
     manual(actor, input) { const report = insertReport(actor, {...input,unknown:false}); return review(report, input.direction === "count" ? "Count observation during ongoing work; no balance replacement was made." : "Completed movement received for supervisor verification. No new instructions were activated."); },
     mode(actor, input) {
       actorNow(actor, "locations.mode");
@@ -802,7 +814,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
-      const permissions={guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
+      const permissions={resume:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       const value = actions[action](current, input);
@@ -811,8 +823,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         .run(current.id, id, fingerprint, JSON.stringify(value), now());
       return value;
     });
-    if(action==='guide'&&result.replayed)return result;
-    try { flushGuidance(action==='guide'?{claims:result.guidanceClaims}:{}); } catch (error) { logger?.warn?.("work.guidance.deferred", { error: error.message }); }
+    if(['guide','resume','start','create'].includes(action)&&result.replayed)return result;
+    try { flushGuidance(['guide','resume'].includes(action)?{claims:result.guidanceClaims}:{}); } catch (error) { logger?.warn?.("work.guidance.deferred", { error: error.message }); }
     return result;
   }
   function flushGuidance({restore=false,claims=null}={}) {

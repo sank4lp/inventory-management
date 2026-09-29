@@ -73,7 +73,7 @@ test('an older adapter locator timer cannot clear newly started quantity guidanc
 
 const guideInput=(t,l=t.lines[0])=>({taskId:t.id,generation:t.assignment_generation,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision});
 const physicalState=f=>({tasks:f.db.prepare('SELECT * FROM tasks').all(),lines:f.db.prepare('SELECT * FROM task_lines').all(),ledger:f.db.prepare('SELECT * FROM transactions').all(),reservations:f.db.prepare('SELECT * FROM work_reservations').all(),turns:f.db.prepare('SELECT * FROM cell_turns').all(),reports:f.db.prepare('SELECT * FROM work_reports').all()});
-for(const direction of ['pick','put'])for(const assigned of [false,true])test(`${direction} ${assigned?'assigned':'self'}: reopen resends an already-delivered selected quantity without arrival, stock changes or poll replay`,()=>{
+for(const direction of ['pick','put'])for(const assigned of [false,true])test(`${direction} ${assigned?'assigned':'self'}: explicit Refresh light resends an already-delivered selected quantity without arrival, stock changes or poll replay`,()=>{
  const f=fixture();if(direction==='pick'){f.stock(f.cells[0],3);f.stock(f.cells[1],2);}let t=f.work.task(f.op,f.create(assigned?f.admin:f.op,direction,5,assigned?{assigneeId:f.op.id}:{}).taskId);
  if(assigned){assert.throws(()=>f.command(f.op,'guide',guideInput(t)),/Start eligible/);assert.equal(f.writes.length,0);f.command(f.op,'start',{taskId:t.id,generation:t.assignment_generation});t=f.work.task(f.op,t.id);}
  const before=physicalState(f),count=f.writes.length,input={...guideInput(t),requestId:randomUUID()};assert.equal(f.db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(t.lines[0].cell_id).delivered,1);
@@ -82,13 +82,13 @@ for(const direction of ['pick','put'])for(const assigned of [false,true])test(`$
  for(let i=0;i<3;i++){f.work.task(f.op,t.id);f.work.snapshot(f.op,{taskId:t.id});f.work.flushGuidance();}assert.equal(f.writes.length,count+1);
  f.command(f.op,'guide',guideInput(t,t.lines[1]));assert.equal(f.writes.length,count+2);assert.match(f.writes.at(-1),new RegExp(`digit 2 "2" ${direction==='pick'?'green':'red'} 120`));assert.deepEqual(physicalState(f),before);f.end();
 });
-test('resume light is scoped even with other pending delivery; other-user views, stale instructions and closed work cannot relight',()=>{
+test('explicit Refresh light is scoped even with other pending delivery; other-user views, stale instructions and closed work cannot relight',()=>{
  const f=fixture();f.stock(f.cells[0],3);f.stock(f.cells[1],3);const a=f.work.task(f.op,f.create(f.op,'pick',2).taskId),b=f.work.task(f.admin,f.create(f.admin,'pick',2,{preferredCellId:f.cells[1].id}).taskId);const count=f.writes.length;
  f.db.prepare('UPDATE work_guidance SET delivered=0 WHERE cell_id=?').run(b.lines[0].cell_id);f.command(f.op,'guide',guideInput(a));assert.equal(f.writes.length,count+1);assert.match(f.writes.at(-1),/digit 1/);assert.equal(f.db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(b.lines[0].cell_id).delivered,0);
  const before=f.writes.length;for(const [actor,patch] of [[f.admin,{}],[f.op,{generation:99}],[f.op,{revision:99}],[f.op,{bindingRevision:99}],[f.op,{lineId:b.lines[0].id}]])assert.throws(()=>f.command(actor,'guide',{...guideInput(a),...patch}));assert.equal(f.writes.length,before);
  f.command(f.op,'stop',{taskId:a.id,generation:a.assignment_generation});const stopped=f.work.task(f.op,a.id),n=f.writes.length;assert.throws(()=>f.command(f.op,'guide',guideInput(stopped)),/Start eligible/);assert.equal(f.writes.length,n);f.end();
 });
-test('resume does not steal contention, blocked uncertainty stays dark, healthy siblings and shared locators retain their rules',()=>{
+test('explicit Refresh light does not steal contention, blocked uncertainty stays dark, healthy siblings and shared locators retain their rules',()=>{
  const f=fixture();f.stock(f.cells[0],10);f.stock(f.cells[1],5);const a=f.work.task(f.op,f.create(f.op,'pick',5).taskId),b=f.work.task(f.admin,f.create(f.admin,'pick',1,{preferredCellId:f.cells[0].id}).taskId);f.arrive(f.admin,b.lines[0]);const before=physicalState(f),n=f.writes.length;
  const result=f.command(f.op,'guide',guideInput(a));assert.equal(result.guidanceCells.length,0);assert.equal(f.writes.length,n);assert.deepEqual(physicalState(f),before);
  f.command(f.admin,'askReview',{lineId:b.lines[0].id,reason:'Unknown physical work'});const n2=f.writes.length;f.command(f.op,'guide',guideInput(a));assert.equal(f.writes.length,n2);f.end();
@@ -97,7 +97,25 @@ test('resume does not steal contention, blocked uncertainty stays dark, healthy 
  const h=fixture();h.command(h.admin,'mode',{cellId:h.cells[0].id,mode:'shared'});h.stock(h.cells[0],3);const shared=h.work.task(h.op,h.create(h.op,'pick',1).taskId),nh=h.writes.length;h.command(h.op,'guide',guideInput(shared));assert.ok(h.writes.length>nh);assert.ok(h.writes.slice(nh).every(s=>/text 1 "LOC" yellow/.test(s)));assert.equal(h.db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0);h.end();
 });
 
-test('working-task resume keeps the original exclusive turn; failed delivery stays unconfirmed and GETs do not retry',()=>{
+test('working-task Refresh light keeps the original exclusive turn; failed delivery stays unconfirmed and GETs do not retry',()=>{
  const f=fixture();f.stock(f.cells[0],3);let t=f.work.task(f.op,f.create(f.op,'pick',2).taskId);f.arrive(f.op,t.lines[0]);t=f.work.task(f.op,t.id);const before=physicalState(f),n=f.writes.length;f.command(f.op,'guide',guideInput(t));assert.equal(f.writes.length,n+1);assert.deepEqual(physicalState(f),before);
  let failures=0;const offline=createOperationsService({db:f.db,hardwareService:{activateGuidance(){failures++;return {ok:false,degraded:true};}}});offline.command(f.op,'guide',{...guideInput(t),requestId:randomUUID()});assert.equal(failures,1);assert.equal(offline.task(f.op,t.id).lines[0].guidance.state,'manual');offline.snapshot(f.op,{taskId:t.id});assert.equal(failures,1);assert.deepEqual(physicalState(f),before);f.end();
+});
+
+const resumeInput=t=>({taskId:t.id,generation:t.assignment_generation,progressToken:t.progress_token,instructions:t.lines.filter(l=>['ready','working'].includes(l.execution_state)&&l.planned_quantity>0&&!l.reports.some(r=>['review','received'].includes(r.status))).map(l=>({lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision}))});
+for(const direction of ['pick','put'])for(const assigned of [false,true])test(`${direction} ${assigned?'assigned':'self'}: explicit Resume refreshes all eligible locations while inspection and receipt replay stay passive`,()=>{
+ const f=fixture();try{if(direction==='pick'){f.stock(f.cells[0],3);f.stock(f.cells[1],2);}let t=f.work.task(f.op,f.create(assigned?f.admin:f.op,direction,5,assigned?{assigneeId:f.op.id}:{}).taskId);
+ if(assigned){assert.throws(()=>f.command(f.op,'resume',resumeInput(t)));assert.equal(f.writes.length,0);f.command(f.op,'start',{taskId:t.id,generation:t.assignment_generation,progressToken:t.progress_token});t=f.work.task(f.op,t.id);}
+ const before=physicalState(f),count=f.writes.length;for(let i=0;i<3;i++){f.work.task(f.op,t.id);f.work.snapshot(f.op,{taskId:t.id});}assert.equal(f.writes.length,count);
+ const input={...resumeInput(t),requestId:randomUUID()},result=f.work.command(f.op,'resume',input);assert.equal(result.generation,t.assignment_generation);assert.equal(f.writes.length,count+2);for(const [ch,q] of [[1,3],[2,2]])assert.ok(f.writes.slice(count).some(s=>s.includes(`digit ${ch} "${q}" ${direction==='pick'?'green':'red'} 120`)));assert.deepEqual(physicalState(f),before);
+ assert.equal(f.work.command(f.op,'resume',input).replayed,true);assert.equal(f.writes.length,count+2);assert.deepEqual(physicalState(f),before);
+ const n=f.writes.length;for(const [actor,patch] of [[f.admin,{}],[f.op,{generation:99}],[f.op,{progressToken:'stale'}],[f.op,{instructions:[]}],[f.op,{instructions:input.instructions.map(x=>({...x,revision:99}))}],[f.op,{instructions:input.instructions.map(x=>({...x,bindingRevision:99}))}]])assert.throws(()=>f.command(actor,'resume',{...resumeInput(t),...patch}));assert.equal(f.writes.length,n);
+ f.command(f.op,'stop',{taskId:t.id,generation:t.assignment_generation});t=f.work.task(f.op,t.id);const closed=f.writes.length;assert.throws(()=>f.command(f.op,'resume',resumeInput(t)));assert.equal(f.writes.length,closed);
+ }finally{f.end();}
+});
+test('Resume excludes uncertain cells, rejects review follow-up, and cannot take another owner’s display',()=>{
+ const f=fixture();try{f.stock(f.cells[0],3);f.stock(f.cells[1],3);let t=f.work.task(f.op,f.create(f.op,'pick',5).taskId);f.command(f.op,'askReview',{lineId:t.lines[0].id,reason:'Unknown actual'});t=f.work.task(f.op,t.id);const n=f.writes.length,before=physicalState(f);f.command(f.op,'resume',resumeInput(t));assert.equal(f.writes.length,n+1);assert.match(f.writes.at(-1),/digit 2 "2" green/);assert.deepEqual(physicalState(f),before);
+ f.command(f.admin,'assignReview',{taskId:t.id,generation:t.assignment_generation,progressToken:t.progress_token,assigneeId:f.op.id});t=f.work.task(f.op,t.id);const n2=f.writes.length;assert.throws(()=>f.command(f.op,'resume',resumeInput(t)));assert.equal(f.writes.length,n2);
+ }finally{f.end();}
+ const g=fixture();try{g.stock(g.cells[0],10);const a=g.work.task(g.op,g.create(g.op,'pick',2).taskId),b=g.work.task(g.admin,g.create(g.admin,'pick',2).taskId);g.arrive(g.admin,b.lines[0]);const before=physicalState(g),n=g.writes.length;assert.equal(g.command(g.op,'resume',resumeInput(a)).guidanceCells.length,0);assert.equal(g.writes.length,n);assert.deepEqual(physicalState(g),before);}finally{g.end();}
 });
