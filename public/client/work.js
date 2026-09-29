@@ -58,12 +58,43 @@ const stages=new Map(), drafts=new Map();
 const stageKey=l=>`${key()}:summary:${l.id}:${l.revision}:${l.current_generation}`;
 const dueText=t=>t.clock_invalid?'Warehouse clock needs checking':t.overdue?`Overdue by ${t.overdue_minutes} min`:t.due_at?`Due ${new Date(t.due_at).toLocaleString([], {timeZone:snapshot.timing?.timezone})}`:'No deadline';
 const outcome=t=>({open:t.assignment_state==='offered'?'Not started':'In progress',needs_assignment:'Needs assignment',needs_review:'Needs review',stopped:'Stopped — partly completed',cancelled:'Cancelled — nothing moved',completed:'Completed'})[t.outcome]||status(t.status);
+let resumeLightPending=true, resumeLightWarning='';
+function resumeLightInput(){
+ if(!online||!allowed('execute')||!/^\/tasks\/\d+$/.test(path))return null;
+ const t=snapshot.tasks.find(t=>t.id===Number(path.split('/')[2]));
+ if(!t||t.assignee_id!==snapshot.user.id||t.assignment_state!=='started'||t.review_followup||t.stop_requested||t.completed_at||taskHasSavedUpdate(t))return null;
+ const card=root.querySelector?.('[data-line][data-light-revision]');if(!card)return null;
+ const l=t.lines.find(l=>String(l.id)===card.dataset.line);
+ if(!l||!['ready','working'].includes(l.execution_state)||l.canAct===false||(l.reports||[]).some(r=>['review','received'].includes(r.status)))return null;
+ if(String(l.revision)!==card.dataset.lightRevision||String(t.assignment_generation)!==card.dataset.lightGeneration||String(l.binding_revision)!==card.dataset.lightBinding){resumeLightWarning='Location instructions changed. Reopen the task before refreshing its light.';return null;}
+ return {taskId:t.id,generation:t.assignment_generation,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision};
+}
+async function refreshResumeLight(){
+ if(!resumeLightPending||!online||document.visibilityState==='hidden')return;resumeLightPending=false;resumeLightWarning='';
+ const input=resumeLightInput();if(!input){patchGuidanceHints();return;}
+ try{await immediate('guide',{...input,requestId:uid()});await refresh();}
+ catch{resumeLightWarning='Light refresh not confirmed. Follow the cell and quantity on screen; reconnect or refresh the light.';}
+ patchGuidanceHints();
+}
+function locationHeading(l){
+ const active=['ready','working'].includes(l.execution_state),check=l.review_followup||(l.reports||[]).some(r=>['review','received'].includes(r.status));
+ return (active&&check?'Check ':active&&l.canAct!==false&&l.guidance?.state!=='waiting'?'Go to ':active?'Location ':'')+l.logical_code;
+}
 function guidanceText(l){
  if(!online)return 'Offline — light status may have changed. Follow your saved cell instructions.';
+ if(resumeLightWarning)return resumeLightWarning;
+ if(l&&(l.review_followup||(l.reports||[]).some(r=>['review','received'].includes(r.status))))return 'Check what moved before continuing. Do not repeat the movement.';
  if(!l||!['ready','working'].includes(l.execution_state))return 'This location’s work changed. Check the latest task before continuing.';
  return l.guidance?.message||'Follow the cell name and quantity on your screen.';
 }
 function patchGuidanceHints(){
+ for(const card of root.querySelectorAll('[data-line][data-light-revision]')){
+  const l=[...snapshot.tasks,...(snapshot.watchedTasks||[])].flatMap(t=>t.lines||[]).find(l=>String(l.id)===card.dataset.line);
+  const stale=!l||String(l.revision)!==card.dataset.lightRevision||String(l.current_generation)!==card.dataset.lightGeneration||String(l.binding_revision)!==card.dataset.lightBinding;
+  const heading=card.querySelector('.directions');if(heading)heading.textContent=stale?'Location instructions changed':locationHeading(l);
+  const blocked=stale||l.canAct===false||l.review_followup||!['ready','working'].includes(l.execution_state)||(l.reports||[]).some(r=>['review','received'].includes(r.status));
+  for(const button of card.querySelectorAll('[data-refresh-guidance],form[data-work-action="acquire"] button'))button.disabled=!online||blocked;
+ }
  for(const hint of root.querySelectorAll('[data-guidance-line]')){
   const l=[...snapshot.tasks,...(snapshot.watchedTasks||[])].flatMap(t=>t.lines||[]).find(l=>String(l.id)===hint.dataset.guidanceLine);
   hint.textContent=guidanceText(l);
@@ -135,7 +166,7 @@ function patchReturnedRows(){
 }
 function lineCard(l){
  const active=['ready','working'].includes(l.execution_state),working=l.execution_state==='working';
- const waiting=l.reports?.filter(r=>r.status==='review')||[];
+ const waiting=l.reports?.filter(r=>['review','received'].includes(r.status))||[];
  const saved=outbox.some(o=>o.partition===key()&&Number(o.input.lineId)===l.id&&['local','sending','error','rejected'].includes(o.state));
  const stage=stages.get(stageKey(l));
  const recovery=form('report',allocationFields(l)+hidden('manual','true')+qty('Actual quantity ('+l.unit_of_measure+')')+`<label>Actual location<select name="cellId">${options(snapshot.cells,'id',c=>c.description?.name||c.logical_code,l.cell_id)}</select></label>`+input('reason','What happened?','text','required')+'<button>Save physical movement for review</button>','data-draft-kind="difference"');
@@ -144,8 +175,8 @@ function lineCard(l){
   if(saved)actions='<button disabled>Update saved — waiting for warehouse confirmation</button>';
   else if(waiting.length||!online)actions=disclosure('manual-'+l.id,'Record what I moved',`<p>Enter only work already done. Do not repeat the movement.</p>${recovery}`,true);
   else {
-   if(!working)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${esc(guidanceText(l))}</p>`+form('acquire',allocationFields(l)+hidden('method','arrival')+"<button>I'm at this location</button>");
-   else if(!stage)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${esc(guidanceText(l))}</p><button type="button" data-scan-line="${l.id}">Resume camera</button><button type="button" class="secondary" data-manual-summary="${l.id}">Complete without scanning</button>`;
+   if(!working)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${esc(guidanceText(l))}</p><button type="button" class="secondary" data-refresh-guidance>Refresh light</button>`+form('acquire',allocationFields(l)+hidden('method','arrival')+"<button>I'm at this location</button>");
+   else if(!stage)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${esc(guidanceText(l))}</p><button type="button" class="secondary" data-refresh-guidance>Refresh light</button><button type="button" data-scan-line="${l.id}">Resume camera</button><button type="button" class="secondary" data-manual-summary="${l.id}">Complete without scanning</button>`;
    else actions=`<section class="cell-summary" aria-label="Cell summary"><h3>${esc(l.product_name)} · ${esc(l.logical_code)}</h3><p>${stage.method==='camera'?'QR checked':'Manual completion — no QR verification'}</p>${form('report',allocationFields(l)+hidden('method',stage.method)+hidden('location',stage.location||'')+`<label>Quantity ${l.type==='pick'?'picked':'put'} (${esc(l.unit_of_measure)})<input name="quantity" type="number" min="0" max="1000000000" step="0.000001" inputmode="decimal" required value="${esc(l.planned_quantity)}"></label><p class="work-help">Change quantity above if needed. Use 0 only when nothing moved.</p>`+(stage.method==='manual'?'<label>Reason<select name="manualReason" required><option value="No camera / camera unavailable">No camera / camera unavailable</option><option value="Label unreadable">Label unreadable</option><option value="Checked printed cell name">Checked printed cell name</option></select></label>':'')+`<p>Press Finish only after moving the items. This records only this cell and stops its unperformed remainder.</p><button>Finish ${esc(l.type)} at this cell</button>`)}<button type="button" class="secondary" data-scan-line="${l.id}">Scan again</button></section>`;
    actions+=disclosure('difference-'+l.id,'Record a difference',recovery+form('askReview',allocationFields(l)+input('reason','What is uncertain?')+'<button class="secondary">Ask supervisor to resolve</button>'));
    actions+=disclosure('cancel-'+l.id,'Cancel this location',form('cancel',allocationFields(l)+hidden('zeroConfirmed','true')+'<p>This declares zero movement. If anything moved, record that actual using Finish first. A partial actual closes this cell’s remaining plan.</p><label class="work-check"><input type="checkbox" required>Nothing moved at this location.</label><button class="secondary">Nothing moved — cancel</button>'));
@@ -153,7 +184,7 @@ function lineCard(l){
   }
  } else if(l.execution_state==='settled'&&l.canAct!==false)actions=disclosure('correct-'+l.id,'Correct earlier quantity',form('correct',allocationFields(l)+qty('Correct actual quantity')+input('verification','Correction reason','text','required')+'<button>Save correction</button>'));
  const others=(snapshot.contents||[]).filter(c=>c.cell_id===l.cell_id&&c.product_id!==l.product_id);
- return `<article class="allocation" data-line="${l.id}"><div class="work-card-heading"><span class="work-eyebrow">${esc(l.type)}</span>${badge(status(l.execution_state),l.execution_state==='settled'?'good':'')}</div><h2 class="directions">${l.review_followup&&active?'Check ':active?'Go to ':''}${esc(l.logical_code)}</h2>${locationDetails(l)?`<p class="cell-code">${esc(locationDetails(l))}</p>`:''}<p class="work-product">${esc(l.product_name)} <span>${esc(l.sku)}</span></p><div class="work-quantity"><strong>${esc(l.execution_state==='settled'?l.actual_quantity:l.planned_quantity)}</strong><span>${esc(l.unit_of_measure)}<small>${l.execution_state==='settled'?'actual recorded':active?(l.review_followup?'originally planned':'planned at this cell'):'closed plan — do not execute'}</small></span></div>${l.attribution?`<p class="work-help">Performed by ${esc(l.attribution.performer||'Unknown')} · Entered by ${esc(l.attribution.reporter)}${l.attribution.reviewer?' · Verified by '+esc(l.attribution.reviewer):''}</p>`:''}${waiting.map(r=>`<p class="work-callout warning">Needs review: ${esc(reviewInstruction(r))}</p>`).join('')}${saved?'<p class="work-callout">Saved on this phone. Do not repeat the movement.</p>':''}${l.review_followup?'<p class="work-callout">Observation only. Save what you checked above; do not repeat the movement.</p>':l.canAct===false?'<p class="work-callout">View only. Start the assignment if it belongs to you; another operator’s work cannot be executed here.</p>':''}${actions}${others.length?disclosure('contents-'+l.id,'Other items here',others.map(c=>`<p>${esc(c.name)} · ${esc(c.available_quantity)} ${esc(c.unit_of_measure)}</p>`).join('')):''}</article>`;
+ return `<article class="allocation" data-line="${l.id}" data-light-revision="${l.revision}" data-light-generation="${l.current_generation}" data-light-binding="${l.directions?.bindingRevision??l.binding_revision}"><div class="work-card-heading"><span class="work-eyebrow">${esc(l.type)}</span>${badge(status(l.execution_state),l.execution_state==='settled'?'good':'')}</div><h2 class="directions">${esc(locationHeading(l))}</h2>${locationDetails(l)?`<p class="cell-code">${esc(locationDetails(l))}</p>`:''}<p class="work-product">${esc(l.product_name)} <span>${esc(l.sku)}</span></p><div class="work-quantity"><strong>${esc(l.execution_state==='settled'?l.actual_quantity:l.planned_quantity)}</strong><span>${esc(l.unit_of_measure)}<small>${l.execution_state==='settled'?'actual recorded':active?(l.review_followup?'originally planned':'planned at this cell'):'closed plan — do not execute'}</small></span></div>${l.attribution?`<p class="work-help">Performed by ${esc(l.attribution.performer||'Unknown')} · Entered by ${esc(l.attribution.reporter)}${l.attribution.reviewer?' · Verified by '+esc(l.attribution.reviewer):''}</p>`:''}${waiting.map(r=>`<p class="work-callout warning">Needs review: ${esc(reviewInstruction(r))}</p>`).join('')}${saved?'<p class="work-callout">Saved on this phone. Do not repeat the movement.</p>':''}${l.review_followup?'<p class="work-callout">Observation only. Save what you checked above; do not repeat the movement.</p>':l.canAct===false?'<p class="work-callout">View only. Start the assignment if it belongs to you; another operator’s work cannot be executed here.</p>':''}${actions}${others.length?disclosure('contents-'+l.id,'Other items here',others.map(c=>`<p>${esc(c.name)} · ${esc(c.available_quantity)} ${esc(c.unit_of_measure)}</p>`).join('')):''}</article>`;
 }
 function untouchedOffer(t){return t.assignment_source!=='self'&&t.assignment_state==='offered'&&!t.attention&&!(t.recorded_quantity>0)&&(t.lines||[]).every(l=>['ready','cancelled','superseded'].includes(l.execution_state)&&!l.started_at&&!l.reports?.length);}
 function assignmentActions(t){
@@ -499,6 +530,7 @@ root.addEventListener('submit',async e=>{
 });
 root.addEventListener('click',async e=>{
  try{
+  if(e.target.closest('[data-refresh-guidance]')){resumeLightPending=true;await backgroundRefresh();return;}
   if(e.target.closest('[data-task-dialog-close]')){root.querySelector('[data-task-dialog]')?.close();return;}
   const taskAction=e.target.closest('[data-update-returned],[data-hand-back]');if(taskAction){const id=Number(taskAction.dataset.updateReturned||taskAction.dataset.handBack),found=[...(snapshot.returnedTasks||[]),...snapshot.tasks,...(snapshot.watchedTasks||[])].find(t=>t.id===id);let t=found;if(!t&&online){t=await fetchDialogTask(id);snapshot.watchedTasks=[...(snapshot.watchedTasks||[]),t];}if(!t)throw new Error('Reconnect to open the latest task.');if(t)openTaskDialog(t,taskAction.dataset.updateReturned?'update':'return');return;}
   const myMore=e.target.closest('[data-my-actions]');if(myMore){const t=[...snapshot.tasks,...(snapshot.watchedTasks||[])].find(t=>t.id===Number(myMore.dataset.myActions));if(t)myActionDialog(t);return;}
@@ -530,7 +562,7 @@ root.addEventListener('click',async e=>{
   }
   const manual=e.target.closest('[data-manual-summary]');if(manual)await showSummary(findLine(manual.dataset.manualSummary),'manual');
   const scan=e.target.closest('[data-scan-line]');if(scan)await scanQR(findLine(scan.dataset.scanLine));
-  const link=e.target.closest('a');if(link&&!online&&link.getAttribute('href')?.startsWith('/')){const target=link.getAttribute('href');if(['/work','/pick','/put','/record-movement'].includes(target)||/^\/tasks\/\d+$/.test(target)){e.preventDefault();path=target;render();}}
+  const link=e.target.closest('a');if(link&&!online&&link.getAttribute('href')?.startsWith('/')){const target=link.getAttribute('href');if(['/work','/pick','/put','/record-movement'].includes(target)||/^\/tasks\/\d+$/.test(target)){e.preventDefault();path=target;resumeLightPending=true;render();}}
  }catch(error){notice=error.message;render();}
 });
 let stopCamera=null;
@@ -591,12 +623,13 @@ function patchLiveRows(){
 }
 async function backgroundRefresh(){
  if(monitoring||submitting||cameraStream?.active)return;monitoring=true;
- try{await sync();pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
+ try{const wasOffline=!online;await sync();if(wasOffline&&online)resumeLightPending=true;pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
   const positions=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el.scrollLeft,el.scrollTop]);const top=window.scrollY;render();[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].forEach((el,i)=>{if(positions[i]){el.scrollLeft=positions[i][0];el.scrollTop=positions[i][1];}});window.scrollTo({top,behavior:'instant'});
- }else patchLiveRows();}finally{monitoring=false;}
+ }else patchLiveRows();await refreshResumeLight();}finally{monitoring=false;}
 }
-window.addEventListener('online',backgroundRefresh);
-document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='hidden')stopCamera?.();else await backgroundRefresh();});
+window.addEventListener('online',()=>{resumeLightPending=true;void backgroundRefresh();});
+window.addEventListener('pageshow',e=>{if(e.persisted){resumeLightPending=true;void backgroundRefresh();}});
+document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='hidden')stopCamera?.();else {resumeLightPending=true;await backgroundRefresh();}});
 try{
  db=await openDB();
  if(snapshot)await cacheSnapshot();else{const active=await store('cache','readonly',s=>s.get('active'));snapshot=(await store('cache','readonly',s=>s.get(active?.key||'')))?.snapshot;}

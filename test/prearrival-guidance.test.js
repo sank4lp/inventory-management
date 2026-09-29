@@ -70,3 +70,34 @@ test('an older adapter locator timer cannot clear newly started quantity guidanc
  t.mock.timers.enable({apis:['setTimeout']});const f=fixture();f.stock(f.cells[0],3);const cell=f.db.prepare('SELECT c.*,ctrl.address controller_address FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(f.cells[0].id);
  f.hardware.setCellLocate(cell,true);f.create(f.op,'pick',2);const after=f.writes.filter(s=>s.includes('clear 1')).length;t.mock.timers.tick(121000);assert.equal(f.writes.filter(s=>s.includes('clear 1')).length,after);assert.ok(f.writes.some(s=>s.includes('digit 1 "2" green')));f.end();
 });
+
+const guideInput=(t,l=t.lines[0])=>({taskId:t.id,generation:t.assignment_generation,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision});
+const physicalState=f=>({tasks:f.db.prepare('SELECT * FROM tasks').all(),lines:f.db.prepare('SELECT * FROM task_lines').all(),ledger:f.db.prepare('SELECT * FROM transactions').all(),reservations:f.db.prepare('SELECT * FROM work_reservations').all(),turns:f.db.prepare('SELECT * FROM cell_turns').all(),reports:f.db.prepare('SELECT * FROM work_reports').all()});
+for(const direction of ['pick','put'])for(const assigned of [false,true])test(`${direction} ${assigned?'assigned':'self'}: reopen resends an already-delivered selected quantity without arrival, stock changes or poll replay`,()=>{
+ const f=fixture();if(direction==='pick'){f.stock(f.cells[0],3);f.stock(f.cells[1],2);}let t=f.work.task(f.op,f.create(assigned?f.admin:f.op,direction,5,assigned?{assigneeId:f.op.id}:{}).taskId);
+ if(assigned){assert.throws(()=>f.command(f.op,'guide',guideInput(t)),/Start eligible/);assert.equal(f.writes.length,0);f.command(f.op,'start',{taskId:t.id,generation:t.assignment_generation});t=f.work.task(f.op,t.id);}
+ const before=physicalState(f),count=f.writes.length,input={...guideInput(t),requestId:randomUUID()};assert.equal(f.db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(t.lines[0].cell_id).delivered,1);
+ f.work.command(f.op,'guide',input);assert.equal(f.writes.length,count+1);assert.match(f.writes.at(-1),new RegExp(`digit 1 "3" ${direction==='pick'?'green':'red'} 120`));assert.deepEqual(physicalState(f),before);
+ assert.equal(f.work.command(f.op,'guide',input).replayed,true);assert.equal(f.writes.length,count+1);
+ for(let i=0;i<3;i++){f.work.task(f.op,t.id);f.work.snapshot(f.op,{taskId:t.id});f.work.flushGuidance();}assert.equal(f.writes.length,count+1);
+ f.command(f.op,'guide',guideInput(t,t.lines[1]));assert.equal(f.writes.length,count+2);assert.match(f.writes.at(-1),new RegExp(`digit 2 "2" ${direction==='pick'?'green':'red'} 120`));assert.deepEqual(physicalState(f),before);f.end();
+});
+test('resume light is scoped even with other pending delivery; other-user views, stale instructions and closed work cannot relight',()=>{
+ const f=fixture();f.stock(f.cells[0],3);f.stock(f.cells[1],3);const a=f.work.task(f.op,f.create(f.op,'pick',2).taskId),b=f.work.task(f.admin,f.create(f.admin,'pick',2,{preferredCellId:f.cells[1].id}).taskId);const count=f.writes.length;
+ f.db.prepare('UPDATE work_guidance SET delivered=0 WHERE cell_id=?').run(b.lines[0].cell_id);f.command(f.op,'guide',guideInput(a));assert.equal(f.writes.length,count+1);assert.match(f.writes.at(-1),/digit 1/);assert.equal(f.db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(b.lines[0].cell_id).delivered,0);
+ const before=f.writes.length;for(const [actor,patch] of [[f.admin,{}],[f.op,{generation:99}],[f.op,{revision:99}],[f.op,{bindingRevision:99}],[f.op,{lineId:b.lines[0].id}]])assert.throws(()=>f.command(actor,'guide',{...guideInput(a),...patch}));assert.equal(f.writes.length,before);
+ f.command(f.op,'stop',{taskId:a.id,generation:a.assignment_generation});const stopped=f.work.task(f.op,a.id),n=f.writes.length;assert.throws(()=>f.command(f.op,'guide',guideInput(stopped)),/Start eligible/);assert.equal(f.writes.length,n);f.end();
+});
+test('resume does not steal contention, blocked uncertainty stays dark, healthy siblings and shared locators retain their rules',()=>{
+ const f=fixture();f.stock(f.cells[0],10);f.stock(f.cells[1],5);const a=f.work.task(f.op,f.create(f.op,'pick',5).taskId),b=f.work.task(f.admin,f.create(f.admin,'pick',1,{preferredCellId:f.cells[0].id}).taskId);f.arrive(f.admin,b.lines[0]);const before=physicalState(f),n=f.writes.length;
+ const result=f.command(f.op,'guide',guideInput(a));assert.equal(result.guidanceCells.length,0);assert.equal(f.writes.length,n);assert.deepEqual(physicalState(f),before);
+ f.command(f.admin,'askReview',{lineId:b.lines[0].id,reason:'Unknown physical work'});const n2=f.writes.length;f.command(f.op,'guide',guideInput(a));assert.equal(f.writes.length,n2);f.end();
+ const g=fixture();g.stock(g.cells[0],3);g.stock(g.cells[1],2);let t=g.work.task(g.op,g.create(g.op,'pick',5).taskId);g.command(g.op,'askReview',{lineId:t.lines[0].id,reason:'Uncertain'});t=g.work.task(g.op,t.id);assert.throws(()=>g.command(g.op,'guide',guideInput(t)),/quantity check/);const n3=g.writes.length;g.command(g.op,'guide',guideInput(t,t.lines[1]));assert.equal(g.writes.length,n3+1);assert.match(g.writes.at(-1),/digit 2 "2" green/);
+ g.command(g.admin,'assignReview',{taskId:t.id,generation:t.assignment_generation,progressToken:t.progress_token,assigneeId:g.op.id});t=g.work.task(g.op,t.id);const n4=g.writes.length;assert.throws(()=>g.command(g.op,'guide',guideInput(t,t.lines[1])),/Quantity-check/);assert.equal(g.writes.length,n4);g.end();
+ const h=fixture();h.command(h.admin,'mode',{cellId:h.cells[0].id,mode:'shared'});h.stock(h.cells[0],3);const shared=h.work.task(h.op,h.create(h.op,'pick',1).taskId),nh=h.writes.length;h.command(h.op,'guide',guideInput(shared));assert.ok(h.writes.length>nh);assert.ok(h.writes.slice(nh).every(s=>/text 1 "LOC" yellow/.test(s)));assert.equal(h.db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0);h.end();
+});
+
+test('working-task resume keeps the original exclusive turn; failed delivery stays unconfirmed and GETs do not retry',()=>{
+ const f=fixture();f.stock(f.cells[0],3);let t=f.work.task(f.op,f.create(f.op,'pick',2).taskId);f.arrive(f.op,t.lines[0]);t=f.work.task(f.op,t.id);const before=physicalState(f),n=f.writes.length;f.command(f.op,'guide',guideInput(t));assert.equal(f.writes.length,n+1);assert.deepEqual(physicalState(f),before);
+ let failures=0;const offline=createOperationsService({db:f.db,hardwareService:{activateGuidance(){failures++;return {ok:false,degraded:true};}}});offline.command(f.op,'guide',{...guideInput(t),requestId:randomUUID()});assert.equal(failures,1);assert.equal(offline.task(f.op,t.id).lines[0].guidance.state,'manual');offline.snapshot(f.op,{taskId:t.id});assert.equal(failures,1);assert.deepEqual(physicalState(f),before);f.end();
+});

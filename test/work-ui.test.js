@@ -266,3 +266,9 @@ test('older review task dialog lookup is bounded and refuses account or warehous
  for(const fresh of [{user:{id:2},site:'warehouse-a',tasks:[{id:101}]},{user:{id:1},site:'other',tasks:[{id:101}]}]){ui.context.fetch=async()=>({ok:true,json:async()=>fresh});await assert.rejects(ui.run('fetchDialogTask(101)'),/account or warehouse changed/);}
  ui.context.fetch=async()=>({ok:true,json:async()=>({user:{id:1},site:'warehouse-a',tasks:[]})});await assert.rejects(ui.run('fetchDialogTask(101)'),/no longer available/);assert.equal(ui.run('snapshot.watchedTasks'),undefined);
 });
+
+test('blocked Go-to heading changes live without replacing a focused manual draft',()=>{
+ const ui=view(),heading={textContent:'Go to A3'},button={disabled:false},draft={value:'Existing physical note'},card={dataset:{line:'1',lightRevision:'2',lightGeneration:'3',lightBinding:'4'},querySelector:()=>heading,querySelectorAll:()=>[button]};ui.context.document.activeElement=draft;ui.root.querySelectorAll=s=>s==='[data-line][data-light-revision]'?[card]:[];ui.context.current={...line,current_generation:3,binding_revision:4,canAct:true};ui.run('snapshot.tasks=[{lines:[current]}];patchGuidanceHints()');assert.equal(heading.textContent,'Go to A3');assert.equal(button.disabled,false);
+ ui.run("current.reports=[{status:'review'}];patchGuidanceHints()");assert.equal(heading.textContent,'Check A3');assert.equal(button.disabled,true);assert.equal(draft.value,'Existing physical note');assert.equal(ui.context.document.activeElement,draft);
+ ui.run('current.reports=[];current.canAct=false;patchGuidanceHints()');assert.equal(heading.textContent,'Location A3');ui.run('current.revision=9;patchGuidanceHints()');assert.equal(heading.textContent,'Location instructions changed');
+});

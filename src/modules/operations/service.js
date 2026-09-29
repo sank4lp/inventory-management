@@ -42,7 +42,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const value = db.prepare(`SELECT l.*, t.created_by, t.type, t.workflow_version, t.status AS task_status,
       t.plan_revision, t.attention,t.review_followup, t.completed_at, t.assignee_id, t.assignment_state, t.assignment_generation AS current_generation, t.requested_quantity, p.name AS product_name, p.sku, p.items_per_cell,
       p.unit_of_measure AS current_unit, c.logical_code, c.guidance_mode, c.active AS cell_active,
-      c.controller_id, c.hardware_channel, c.label_id, c.label_revision, ctrl.address AS controller_address
+      c.controller_id, c.hardware_channel, c.binding_revision, c.label_id, c.label_revision, ctrl.address AS controller_address
       FROM task_lines l JOIN tasks t ON t.id=l.task_id JOIN products p ON p.id=l.product_id
       JOIN cells c ON c.id=l.cell_id LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE l.id=?`).get(Number(id));
     if (!value) throw new Error("Allocation not found.");
@@ -512,6 +512,20 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     event("task_reserved", actor, null, { taskId: task.id, lines: task.lines.map(l => l.id) });
     return { status: "reserved", taskId: task.id, message: assignmentForm?`Task assigned to ${assignee.name}.`:"Quantities reserved. Follow the location guidance, then tap I’m at this location on arrival." };
   }
+  function guide(actor,input) {
+    const t=currentTask(actor,input),l=line(input.lineId);
+    if(t.assignee_id!==actor.id||l.task_id!==t.id)throw new Error('Only the assigned operator can refresh this task’s light.');
+    if(t.assignment_state!=='started'||t.review_followup||t.stop_requested||t.completed_at)throw new Error('Start eligible work before requesting its light. Quantity-check assignments cannot execute work.');
+    if(l.revision!==Number(input.revision)||l.binding_revision!==Number(input.bindingRevision))throw new Error('Location instructions changed. Refresh the task before requesting its light.');
+    if(!['ready','working'].includes(l.execution_state)||l.planned_quantity<=0||hasEvidence(l.id))throw new Error('This location is closed or needs a quantity check. Follow the current task.');
+    if(metadata('firmware_busy'))throw new Error('Controller maintenance is in progress. Follow your screen.');
+    reconcileGuidance();
+    const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(l.cell_id),desired=row?JSON.parse(row.desired):null;
+    // A fresh view may resend its own elected display, never claim another worker’s display or physical turn.
+    const owned=l.controller_id&&l.hardware_channel&&desired?.lineId===l.id&&['quantity','locate'].includes(desired.action)&&desired.binding===guidanceBinding(db,l.cell_id);
+    if(owned)db.prepare('UPDATE work_guidance SET delivered=0 WHERE cell_id=? AND generation=?').run(l.cell_id,row.generation);
+    return {status:'recorded',guidanceCells:owned?[l.cell_id]:[],guidanceClaims:owned?[{cellId:l.cell_id,generation:row.generation,lineId:l.id}]:[],message:owned?'Light refresh requested. Check the cell and quantity on screen.':'Light is unavailable or in use. Follow the cell and quantity on screen.'};
+  }
   function acquire(actor, input) {
     if(metadata("firmware_busy")) throw new Error("Controller maintenance is in progress. No new guidance is available.");
     const allocation = line(input.lineId); executeOwner(actor, allocation, input);
@@ -762,7 +776,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       event('location_reconciled',actor,null,input);
       return {status:'recorded',message:'Verified location reconciled and available for new plans.'};
     },
-    create, acquire, report: reportActual, resolve, cancel, correct,
+    create, guide, acquire, report: reportActual, resolve, cancel, correct,
     manual(actor, input) { const report = insertReport(actor, {...input,unknown:false}); return review(report, input.direction === "count" ? "Count observation during ongoing work; no balance replacement was made." : "Completed movement received for supervisor verification. No new instructions were activated."); },
     mode(actor, input) {
       actorNow(actor, "locations.mode");
@@ -788,7 +802,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
-      const permissions={assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
+      const permissions={guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       const value = actions[action](current, input);
@@ -797,10 +811,11 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         .run(current.id, id, fingerprint, JSON.stringify(value), now());
       return value;
     });
-    try { flushGuidance(); } catch (error) { logger?.warn?.("work.guidance.deferred", { error: error.message }); }
+    if(action==='guide'&&result.replayed)return result;
+    try { flushGuidance(action==='guide'?{claims:result.guidanceClaims}:{}); } catch (error) { logger?.warn?.("work.guidance.deferred", { error: error.message }); }
     return result;
   }
-  function flushGuidance({restore=false}={}) {
+  function flushGuidance({restore=false,claims=null}={}) {
     withTransaction(db,()=>{
       reconcileGuidance();
       if(restore){db.prepare("UPDATE work_guidance SET delivered=0 WHERE json_extract(desired,'$.action') IN ('quantity','locate')").run();}
@@ -808,6 +823,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (!hardwareService) return;
     for (const row of db.prepare("SELECT * FROM work_guidance WHERE delivered=0").all()) {
       const desired = JSON.parse(row.desired);
+      if(claims&&!claims.some(c=>c.cellId===row.cell_id&&c.generation===row.generation&&c.lineId===desired.lineId))continue;
       const cell = db.prepare("SELECT c.*,ctrl.address AS controller_address FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?").get(row.cell_id);
       if (!cell || desired.binding!==guidanceBinding(db,row.cell_id)) continue;
       let result;

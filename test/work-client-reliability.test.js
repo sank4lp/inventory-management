@@ -73,3 +73,28 @@ test('an unresolved camera permission prompt does not keep arrival submission lo
  const f={dataset:{workAction:'acquire'},querySelector:s=>s==='.form-feedback'?feedback:button};
  await handler({target:{closest:()=>f},preventDefault(){}});assert.equal(run('submitting'),false);
 });
+
+function resumeClient(){
+ const c=client(),card={dataset:{line:'7',lightRevision:'2',lightGeneration:'3',lightBinding:'4'}};c.context.document.querySelector('#work-app').querySelector=()=>card;c.context.card=card;c.context.calls=[];
+ c.run(`snapshot.tasks=[{id:65,assignee_id:1,assignment_state:'started',assignment_generation:3,lines:[{id:7,revision:2,current_generation:3,binding_revision:4,execution_state:'ready',canAct:true,reports:[]},{id:8,revision:1,current_generation:3,binding_revision:4,execution_state:'ready',canAct:true,reports:[]}]}];path='/tasks/65';online=true;immediate=async(action,input)=>{calls.push({action,input});};refresh=async()=>{};`);
+ return c;
+}
+test('task opening requests only the displayed location once; selected-location visits and intentional resume can refresh again',async()=>{
+ const {context,run}=resumeClient();await run('refreshResumeLight()');assert.equal(context.calls.length,1);assert.equal(context.calls[0].action,'guide');assert.equal(context.calls[0].input.lineId,7);assert.equal(context.calls[0].input.bindingRevision,4);
+ for(let i=0;i<3;i++)await run('refreshResumeLight()');assert.equal(context.calls.length,1);
+ run("location.search='?line=8';card.dataset.line='8';card.dataset.lightRevision='1';resumeLightPending=true");await run('refreshResumeLight()');assert.equal(context.calls.length,2);assert.equal(context.calls[1].input.lineId,8);
+ assert.doesNotMatch(JSON.stringify(context.calls),/"action":"(?:acquire|report|start)"/);
+});
+test('offline or hidden task waits for reconnect/resume, and failed delivery does not spam on polling',async()=>{
+ const {context,run}=resumeClient();run('online=false');await run('refreshResumeLight()');assert.equal(context.calls.length,0);run('online=true;document.visibilityState="hidden"');await run('refreshResumeLight()');assert.equal(context.calls.length,0);run('document.visibilityState="visible"');await run('refreshResumeLight()');assert.equal(context.calls.length,1);
+ run("resumeLightPending=true;immediate=async()=>{calls.push('failed');throw new Error('offline');}");await run('refreshResumeLight()');assert.match(run('resumeLightWarning'),/not confirmed/);await run('refreshResumeLight()');assert.equal(context.calls.length,2);
+});
+test('view-only, offered, review follow-up, blocked and stale rendered instructions cannot automatically request lights',async()=>{
+ for(const change of ["snapshot.tasks[0].assignee_id=2","snapshot.tasks[0].assignment_state='offered'","snapshot.tasks[0].review_followup=1","snapshot.tasks[0].completed_at='done'","snapshot.tasks[0].stop_requested=1","snapshot.tasks[0].lines[0].reports=[{status:'review'}]","snapshot.tasks[0].lines[0].revision=3","card.dataset.lightBinding='old'","snapshot.capabilities={execute:false}","outbox=[{partition:'test:1',state:'local',action:'report',input:{lineId:7}}]"]){const {context,run}=resumeClient();run(change);await run('refreshResumeLight()');assert.equal(context.calls.length,0,change);}
+ const {context,run}=resumeClient();run("snapshot.tasks[0].attention=1;snapshot.tasks[0].lines[1].reports=[{status:'review'}]");await run('refreshResumeLight()');assert.equal(context.calls.length,1,'healthy displayed sibling remains eligible');
+});
+
+test('background polls never re-arm delivered light intent; a successful reconnect does',async()=>{
+ const {context,run}=resumeClient();context.window={scrollY:0,scrollTo(){}};context.document.visibilityState='visible';run('let monitoring=false,submitting=false,pollDelay=5000;canRefresh=()=>false;patchLiveRows=()=>{};sync=async()=>{online=true;};');run(source.slice(source.indexOf('async function backgroundRefresh(){'),source.indexOf("window.addEventListener('online'")));
+ await run('backgroundRefresh()');assert.equal(context.calls.length,1);for(let i=0;i<3;i++)await run('backgroundRefresh()');assert.equal(context.calls.length,1);run('online=false');await run('backgroundRefresh()');assert.equal(context.calls.length,2);await run('backgroundRefresh()');assert.equal(context.calls.length,2);
+});
