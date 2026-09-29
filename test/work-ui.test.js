@@ -201,3 +201,37 @@ test('focused Start, next-task and action-dialog controls disable stale actions 
   if(change.includes('generation')||change.includes('assignee')||change.includes('completed')||change.includes('online'))assert.equal(dialogButton.disabled,true,change);
  }
 });
+
+test('Assign Work is a single open form with eight-hour default, actual-direction permissions and all account choices',()=>{
+ for(const direction of ['pick','put']){
+  const ui=view({role:'custom'});ui.run(`snapshot.capabilities={view:true,assign:true,${direction}:true};snapshot.products=[{id:1,name:'Boots',sku:'B1',unit_of_measure:'pairs'}];snapshot.operators=[{id:1,name:'Admin',username:'admin',eligible:true,status:'active'},{id:2,name:'Custom',username:'custom',eligible:true,status:'active'},{id:3,name:'Reader',username:'reader',eligible:false,status:'active'},{id:4,name:'Inactive',username:'inactive',eligible:false,status:'inactive'}];path='/work/overview';render()`);
+  const html=ui.root.innerHTML;assert.match(html,/>Assign Work</);assert.match(html,/data-work-action="assign"/);assert.match(html,new RegExp('value="'+direction+'" checked'));assert.match(html,new RegExp('value="'+(direction==='pick'?'put':'pick')+'"  disabled'));assert.match(html,/name="dueDuration"[^>]+value="8"/);assert.match(html,/value="hours" selected/);assert.match(html,/value="days">Days/);assert.match(html,/value="3" disabled>Reader · reader — Cannot take tasks/);assert.match(html,/value="4" disabled>Inactive · inactive — Inactive/);assert.match(html,/>Assigned to<select/);assert.match(html,/>Assign Task</);
+  assert.doesNotMatch(html,/data-task-table|Team task status|Workloads|productSearch|operatorSearch|name="dueAt"|name="note"|work-toolbar|work-footer/);
+  ui.run("outbox=[{partition:key(),action:'assign',state:'error',input:{}}]");assert.match(ui.run('assignmentPage()'),/<button disabled>Waiting for warehouse confirmation/);
+  ui.run('outbox=[];snapshot.products=[]');assert.match(ui.run('assignmentPage()'),/No active products available/);
+  ui.run("snapshot.products=[{id:1}];snapshot.operators=[]");assert.match(ui.run('assignmentPage()'),/No users are eligible/);
+ }
+ const ui=view();ui.run('render()');assert.doesNotMatch(ui.root.innerHTML,/>Assign Work</);
+ ui.run("snapshot.capabilities={timing:true};snapshot.timing={enabled:true,minutes:120,inactivityMinutes:15}");assert.match(ui.run('timingPage()'),/Assign Work uses the duration chosen on its form/);assert.match(ui.run('timingPage()'),/Missing updates during work/);
+ ui.run("snapshot.capabilities={view:true,teamView:true};path='/work/history';location.search='?scope=team';render()");assert.match(ui.root.innerHTML,/Team history|Workloads by person/);assert.match(ui.root.innerHTML,/name="scope" value="team"/);assert.doesNotMatch(ui.root.innerHTML,/data-work-action="assign"/);
+});
+
+test('assignment controls match duration bounds and lock unknown outcomes without disabling the permitted direction',()=>{
+ const ui=view();ui.run("snapshot.capabilities={assign:true,pick:true};snapshot.products=[{id:1}];snapshot.operators=[{eligible:true}]");
+ const button={},radios=[{value:'pick'},{value:'put'}],f={dataset:{workAction:'assign'},elements:{dueUnit:{value:'hours'},dueDuration:{},direction:{value:'pick'}},querySelectorAll:()=>radios,querySelector:()=>button};ui.context.f=f;
+ ui.run('updateAssignmentForm(f)');assert.equal(button.disabled,false);assert.equal(radios[0].disabled,false);assert.equal(radios[1].disabled,true);assert.equal(f.elements.dueDuration.max,8760);assert.equal(Number(f.elements.dueDuration.min)*60,1);
+ for(const [unit,max,factor] of [['minutes',525600,1],['days',365,1440]]){f.elements.dueUnit.value=unit;ui.run('updateAssignmentForm(f)');assert.equal(f.elements.dueDuration.max,max);assert.equal(Number(f.elements.dueDuration.min)*factor,1);}
+ ui.run("outbox=[{partition:key(),action:'assign',state:'sending'}];updateAssignmentForm(f)");assert.equal(button.disabled,true);assert.equal(button.textContent,'Waiting for warehouse confirmation');
+ ui.run("outbox=[{partition:key(),action:'create',input:{assigneeId:2},state:'error'}];updateAssignmentForm(f)");assert.equal(button.disabled,true);
+ ui.run("outbox=[];online=false;updateAssignmentForm(f)");assert.equal(button.disabled,true);
+});
+
+test('successful assignment stays on the form, clears its draft, and a pending assignment cannot be duplicated',async()=>{
+ const ui=view();const full=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8');let handler;
+ ui.root.addEventListener=(event,fn)=>{handler=fn;};ui.context.FormData=class{constructor(f){return Object.entries(f.values);}};ui.context.feedback={textContent:'',classList:{add(){}}};ui.context.button={disabled:false};ui.context.saved=[];
+ ui.run("path='/work/overview';snapshot.capabilities={assign:true,pick:true};saveDraft=async()=>{};store=async(name,mode,fn)=>fn({put:o=>saved.push(o),delete:()=>{},getAll:()=>saved});sync=async()=>{saved[0].state='reserved';saved[0].result={taskId:77};notice='Task assigned to Alex.'};render=()=>{};");
+ ui.run(full.slice(full.indexOf('let submitting=false;'),full.indexOf("root.addEventListener('click',async e=>")));
+ const f={dataset:{workAction:'assign'},values:{direction:'pick',productId:'1',quantity:'2',assigneeId:'2',dueDuration:'8',dueUnit:'hours'},elements:{},querySelector:s=>s.includes('button')?ui.context.button:ui.context.feedback};const event={target:{closest:()=>f},preventDefault(){}};
+ await handler(event);assert.equal(ui.context.saved.length,1);assert.equal(ui.context.location.href,undefined);assert.equal(ui.run('notice'),'Task assigned to Alex.');assert.equal(ui.context.saved[0].input.dueDuration,'8');
+ ui.context.saved[0].state='error';await handler(event);assert.equal(ui.context.saved.length,1);assert.match(ui.context.feedback.textContent,/Wait for confirmation/);assert.equal(ui.context.button.disabled,true);
+});

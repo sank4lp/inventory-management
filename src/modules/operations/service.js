@@ -291,6 +291,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(admin)actorNow(actor,typeof admin==="string"?admin:"work.assign");
     const t=db.prepare('SELECT * FROM tasks WHERE id=? AND workflow_version=2').get(Number(input.taskId));
     if(!t)throw new Error('Task not found.');
+    if((admin===true||admin==='work.assign')&&!can(actor,'work.team'))task(actor,t.id);
     if(!admin && !can(actor,'work.teamStop') && t.assignee_id!==actor.id)throw new Error('Only your assigned work can be changed.');
     if(Number(input.generation)!==t.assignment_generation)throw new Error('This assignment changed. Refresh before trying again.');
     return t;
@@ -397,7 +398,21 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       captureInstruction(l.id);event('remaining_plan_updated',null,l.id,{previous:l.planned_quantity,quantity:next});
     }
   }
-  function create(actor, input) {
+  function assignmentDuration(input) {
+    const defaulted=input.dueDuration===undefined&&input.dueUnit===undefined;
+    const value=defaulted?8:input.dueDuration,unit=defaulted?'hours':input.dueUnit;
+    const factor={minutes:1,hours:60,days:1440}[unit];
+    const minutes=Number(value)*factor;
+    if(!['string','number'].includes(typeof value)||!String(value).trim()||!factor||!Number.isFinite(minutes)||minutes<1||minutes>525600)throw new Error('Choose a due duration from 1 minute to 365 days.');
+    return minutes;
+  }
+  function create(actor, input, assignmentForm=false) {
+    if(assignmentForm){
+      actorNow(actor,'work.assign');
+      if(!input.assigneeId)throw new Error('Choose a person to assign this task to.');
+      if(input.dueAt!=null)throw new Error('Use a due duration for a new assignment.');
+    }
+    assertCan(actor,input.direction==='put'?'work.put':'work.pick');
     if(metadata("firmware_busy")) throw new Error("Controller maintenance is in progress. Report physical work manually; reserve new work after maintenance finishes.");
     const product = db.prepare("SELECT * FROM products WHERE id=? AND active=1").get(Number(input.productId));
     if (!product) throw new Error("Choose an active product.");
@@ -407,10 +422,11 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const task = tasks.createPendingReviewTask({ type: input.direction, summary: `${input.direction === "pick" ? "Pick" : "Put"} ${input.quantity} ${product.unit_of_measure} of ${product.sku}`, createdBy: actor.id, lines: allocations });
     const assignee = input.assigneeId ? eligibleAssignee(actor, input.assigneeId) : actor;
     const assignedAt=now(), timing=timingSettings();
-    const dueAt=input.dueAt ? validatedDue(actor,input.dueAt) : timing.enabled ? new Date(Date.parse(assignedAt)+timing.minutes*60000).toISOString() : null;
+    const duration=assignmentForm?assignmentDuration(input):null;
+    const dueAt=assignmentForm?new Date(Date.parse(assignedAt)+duration*60000).toISOString():input.dueAt ? validatedDue(actor,input.dueAt) : timing.enabled ? new Date(Date.parse(assignedAt)+timing.minutes*60000).toISOString() : null;
     db.prepare("UPDATE tasks SET workflow_version=2,assignee_id=?,assigned_by=?,assigned_at=?,assignment_state=?,assignment_source=?,due_at=?,requested_quantity=?,instruction_note=? WHERE id=?")
       .run(assignee.id,actor.id,assignedAt,input.assigneeId?'offered':'started',input.assigneeId?'assigned':'self',dueAt,workQuantity(input.quantity,true),String(input.note||'').slice(0,2000),task.id);
-    assignmentEvent(actor,task.id,'assigned',null,{dueAt,source:input.assigneeId?'assigned':'self'});
+    assignmentEvent(actor,task.id,'assigned',null,{dueAt,...(assignmentForm?{durationMinutes:duration}:{}),source:input.assigneeId?'assigned':'self'});
     for (const allocation of task.lines) {
       db.prepare("UPDATE task_lines SET execution_state='ready',unit_of_measure=(SELECT unit_of_measure FROM products WHERE id=task_lines.product_id) WHERE id=?").run(allocation.id);
       db.prepare("INSERT INTO work_reservations(line_id,kind,quantity) VALUES(?,?,?)").run(allocation.id, input.direction, allocation.planned_quantity);
@@ -418,7 +434,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     for (const allocation of task.lines) captureInstruction(allocation.id);
     syncReservations();
     event("task_reserved", actor, null, { taskId: task.id, lines: task.lines.map(l => l.id) });
-    return { status: "reserved", taskId: task.id, message: "Quantities reserved. Go to a location and tap I’m at this location; future displays remain free." };
+    return { status: "reserved", taskId: task.id, message: assignmentForm?`Task assigned to ${assignee.name}.`:"Quantities reserved. Go to a location and tap I’m at this location; future displays remain free." };
   }
   function acquire(actor, input) {
     if(metadata("firmware_busy")) throw new Error("Controller maintenance is in progress. No new guidance is available.");
@@ -654,7 +670,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       return {status:'review',reportIds:reports,message:'Actual movements saved for supervisor verification, including any partial or interrupted move. No suggested quantity was posted automatically.'};
     },
     locationDetails(actor,input) {actorNow(actor,"locations.manage");const result=saveLocationDescription(db,actor,input);event("location_description_changed",actor,null,input);return result;},
-    replan, verify, start: startTask, decline: returnTask, reassign, stop: stopTask, deadline, timing: saveTiming, askReview,
+    assign:(actor,input)=>create(actor,input,true), replan, verify, start: startTask, decline: returnTask, reassign, stop: stopTask, deadline, timing: saveTiming, askReview,
     reconcile(actor,input) {
       actorNow(actor,"review.reconcile");
       const cell=Number(input.cellId),product=Number(input.productId),quantity=workQuantity(input.quantity);
@@ -691,7 +707,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
-      const permissions={create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
+      const permissions={assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       const value = actions[action](current, input);
@@ -752,6 +768,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function snapshot(actor,query={}) {
     const current=actorNow(actor);
+    if(query.view==='assign')assertCan(current,'work.assign');
     if(!can(current,'work.view'))return {...identity(),user:current,capabilities:workCapabilities(current),timing:{},operators:[],performers:[],reports:db.prepare('SELECT id,status FROM work_reports WHERE reporter_id=?').all(current.id),tasks:[],products:[],cells:can(current,'locations.labels')?db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1').all().map(c=>({...c,description:describeLocation(db,c.id)})):[],pending:[],postedReports:[],contents:[],discrepancies:[],generatedAt:now()};
     const selection=taskSelection(db,current,query),taskList=query.taskId?[task(current,Number(query.taskId))].filter(Boolean):selection.ids.map(id=>task(current,id));
     const watchedTasks=[...new Set(String(query.watch||'').split(',').map(Number).filter(id=>id>0&&!selection.ids.includes(id)))].slice(0,100).flatMap(id=>{try{const value=task(current,id);return value?[value]:[];}catch{return [];}});
@@ -760,8 +777,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const reviews=reviewSelection(db,current,query),pending=reviews.rows,loads=workloads(db);
     const planner=['work.pick','work.put','work.report'].some(cap=>can(current,cap)),productIds=new Set([...taskList.flatMap(t=>t.lines.map(l=>l.product_id)),...pending.map(r=>r.product_id)]),cellIds=new Set([...taskList.flatMap(t=>t.lines.map(l=>l.cell_id)),...pending.map(r=>r.cell_id)]);
     const visibleProducts=can(current,'products.view')||planner?products:products.filter(p=>productIds.has(p.id)),visibleCells=can(current,'locations.view')||planner?cells:cells.filter(c=>cellIds.has(c.id));
-    const operators=(can(current,'work.team')||can(current,'review.view'))?db.prepare('SELECT id,name,username,status,role FROM users ORDER BY name').all().map(u=>{
-      return {...u,eligible:workCapabilities(effectiveUser(db,u)).execute,...loads.find(v=>v.id===u.id)};
+    const operators=(can(current,'work.assign')||can(current,'work.team')||can(current,'review.view'))?db.prepare('SELECT id,name,username,status,role FROM users ORDER BY name').all().map(u=>{
+      return {...u,eligible:workCapabilities(effectiveUser(db,u)).execute,...((can(current,'work.team')||can(current,'review.view'))?loads.find(v=>v.id===u.id):{})};
     }):[];
     return {...identity(),user:current,capabilities:workCapabilities(current),timing:timingSettings(),operators,performers:operators,
       reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(can(current,"review.view")?"admin":"own",current.id,current.id),

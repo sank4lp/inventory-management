@@ -42,5 +42,14 @@ test('direct HTTP requests and role UI share permissions, including cross-user t
  const restricted=JSON.parse((await call('GET','/api/work/snapshot',op)).body);assert.equal(restricted.capabilities.view,true);assert.equal(restricted.capabilities.countView,false);assert.equal(restricted.capabilities.locationsView,false);
  for(const path of ['/stocktaking','/stocktaking/results','/quantities','/cells','/labels','/pending-confirmations','/work/overview']){const denied=await call('GET',path,op);assert.equal(denied.statusCode,302,path);assert.match(denied.headers.Location,/role.*permitting/);}
  for(const path of ['/','/recommended-actions','/work','/work/history'])assert.equal((await call('GET',path,op)).statusCode,200,path);
+ const assignmentRole=access.saveRole(admin,{name:'Pick assignment only',capabilities:['work.view','work.assign','work.pick']});access.assign(admin,{userId:op.id,roleId:assignmentRole});
+ assert.equal((await call('GET','/work/overview',op)).statusCode,200);
+ const assignmentSnapshot=await call('GET','/api/work/snapshot?view=assign',op);assert.equal(assignmentSnapshot.statusCode,200);assert.equal(JSON.parse(assignmentSnapshot.body).capabilities.teamView,false);
+ assert.equal((await call('GET','/api/work/snapshot?view=team',op)).statusCode,403);
+ assert.equal((await call('GET','/api/work/snapshot?view=history&scope=team',op)).statusCode,403);
+ const createdAssignment=await call('POST','/api/work/assign',op,{requestId:randomUUID(),direction:'pick',productId:1,quantity:1,assigneeId:admin.id,dueDuration:8,dueUnit:'hours'});assert.equal(createdAssignment.statusCode,200);assert.match(JSON.parse(createdAssignment.body).message,/Task assigned to/);
+ assert.equal((await call('POST','/api/work/assign',op,{requestId:randomUUID(),direction:'put',productId:1,quantity:1,assigneeId:admin.id})).statusCode,403);
+ const legacyLink=await call('GET','/work/overview?state=overdue&operator=2',admin);assert.equal(legacyLink.statusCode,302);assert.match(legacyLink.headers.Location,/work\/history\?state=overdue&operator=2&scope=team/);
+ access.assign(admin,{userId:op.id,roleId:workOnly});assert.equal((await call('GET','/api/work/snapshot?view=assign',op)).statusCode,403);assert.equal((await call('POST','/api/work/assign',op,{requestId:randomUUID()})).statusCode,403);
  const editor=await call('GET','/settings/roles?copy=operator',admin);assert.equal(editor.statusCode,200);assert.match(editor.body,/data-capability="hardware.view"/);assert.match(editor.body,/Access preview/);
 });

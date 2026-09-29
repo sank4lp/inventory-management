@@ -341,3 +341,19 @@
   }
 }
 @media print { .my-work-footer, .my-work-utility, .my-work-action-dialog { display: none !important; } }
+
+/* The assignment form shares normal Work controls, with no monitoring furniture. */
+@media screen {
+  #work-app .assignment-panel { max-width: 40rem; margin-top: 24px; }
+  #work-app .assignment-panel form { margin: 0; padding: 0; border: 0; }
+  #work-app .assignment-direction { display: flex; gap: 8px; padding: 0; border: 0; margin: 0 0 16px; }
+  #work-app .assignment-direction legend { font-weight: 650; margin-bottom: 8px; }
+  #work-app .assignment-direction label { position: relative; flex: 1; margin: 0; padding: 0; align-items: stretch; }
+  #work-app .assignment-direction input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  #work-app .assignment-direction span { width: 100%; display: flex; justify-content: center; align-items: center; min-height: 44px; padding: 8px 16px; border: 1px solid var(--work-border); border-radius: 8px; background: white; }
+  #work-app .assignment-direction input:checked+span { background: var(--work-accent, #285f50); color: white; border-color: var(--work-accent, #285f50); }
+  #work-app .assignment-direction input:focus-visible+span { outline: 3px solid #71ad99; outline-offset: 3px; }
+  #work-app .assignment-direction input:disabled+span { opacity: .5; cursor: not-allowed; }
+  #work-app .assignment-duration { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+  #work-app .assignment-panel select { width: 100%; min-width: 0; }
+}

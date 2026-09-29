@@ -4,7 +4,8 @@ const closed="t.outcome IN ('completed','stopped','cancelled')";
 const overdue="t.completed_at IS NULL AND t.due_at IS NOT NULL AND julianday(t.due_at)<julianday('now')";
 export function taskSelection(db,user,input={}) {
   const view=input.view||'accessible',where=['t.workflow_version=2'],params=[];
-  if(view==='team')assertCan(user,'work.team');
+  if(view==='assign'){assertCan(user,'work.assign');return {priority:null,ids:[],page:{number:1,pages:1,total:0,limit:100,view,state:'open'},counts:{}};}
+  if(view==='team'||view==='history'&&input.scope==='team')assertCan(user,'work.team');
   if(view==='mine'){where.push('t.assignee_id=?');params.push(user.id);}
   else if(!can(user,'work.team')||view==='history'&&input.scope!=='team'){
     where.push('(t.assignee_id=? OR t.created_by=? OR EXISTS(SELECT 1 FROM task_assignment_events e WHERE e.task_id=t.id AND (e.assignee_id=? OR e.previous_assignee=?)))');params.push(user.id,user.id,user.id,user.id);

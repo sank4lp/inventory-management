@@ -9,7 +9,7 @@ const groups = {
     ['work.stop','Stop own remaining work',true,['work.view']],
     ['work.correct','Report corrections to own records',true,['work.view']],
     ['work.report','Record earlier physical movement for review',true,['work.view']],
-    ['work.assign','Assign and reassign team work',false,['work.team']],
+    ['work.assign','Assign and reassign team work',false,['work.view']],
     ['work.deadline','Change task deadlines',false,['work.team']],
     ['work.teamStop','Stop team work with existing evidence safeguards',false,['work.team']],
     ['work.timing','Change work timing rules',false,['work.team']],

@@ -31,7 +31,8 @@ test('role editor previews transitive requirements and adds them only after expl
  const boxes=CAPABILITIES.map(c=>({dataset:{capability:c.id},checked:OPERATOR_CAPABILITIES.includes(c.id)})),nodes={'[data-role-preview]':{},'[data-role-prerequisites]':{},'[data-include-required]':{addEventListener(_,f){this.click=f;}}};let change;
  const form={querySelector:s=>nodes[s],querySelectorAll:s=>s.includes(':checked')?boxes.filter(b=>b.checked):boxes,addEventListener(_,f){change=f;}};
  vm.runInNewContext(readFileSync(new URL('../public/client/roles.js',import.meta.url),'utf8'),{document:{querySelector:s=>s==='[data-role-editor]'?form:{textContent:JSON.stringify({catalog:CAPABILITIES,settings:SETTINGS})}}});
- boxes.find(b=>b.dataset.capability==='work.assign').checked=true;change();assert.match(nodes['[data-role-prerequisites]'].textContent,/View team work/);assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,false);
+ boxes.find(b=>b.dataset.capability==='work.assign').checked=true;change();assert.equal(nodes['[data-include-required]'].hidden,true);assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,false);
+ boxes.find(b=>b.dataset.capability==='work.timing').checked=true;change();assert.match(nodes['[data-role-prerequisites]'].textContent,/View team work/);assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,false);
  nodes['[data-include-required]'].click();assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,true);assert.equal(boxes.find(b=>b.dataset.capability==='hardware.flash').checked,false);assert.equal(nodes['[data-include-required]'].hidden,true);
  boxes.find(b=>b.dataset.capability==='access.manage').checked=true;change();assert.match(nodes['[data-role-prerequisites]'].textContent,/Required additional access/);assert.equal(boxes.find(b=>b.dataset.capability==='hardware.flash').checked,false);
 });

@@ -88,7 +88,7 @@ export function createHomePages({ db }) {
       user,
       flash,
       content: `
-        ${can(user,'work.team')?'<p><a class="action-cta-button" href="/work/overview">Team work — assignments and workloads</a></p>':''}
+        ${can(user,'work.assign')?'<p><a class="action-cta-button" href="/work/overview">Assign Work</a></p>':can(user,'work.team')?'<p><a class="action-cta-button" href="/work/history?scope=team">Team history & workloads</a></p>':''}
         <section class="overview-action-grid" aria-label="Primary workflows">
           <a class="overview-action-tile overview-action-pick" href="/pick" aria-label="Pick">
             ${overviewActionIcon("pick")}
