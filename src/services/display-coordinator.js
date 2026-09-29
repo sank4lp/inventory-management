@@ -1,8 +1,9 @@
+import {activeWorkGuidance} from '../modules/operations/guidance.js';
 import {assertCan,can} from "../modules/access/catalog.js";
 import {randomUUID,createHash} from 'node:crypto';
 import {withTransaction} from '../db.js';
 export function createDisplayCoordinator({db,hardwareService,operationsService,clock=()=>new Date()}) {
-  const activeWork=()=>!!db.prepare("SELECT 1 FROM task_lines WHERE execution_state='working' LIMIT 1").get();
+  const activeWork=()=>activeWorkGuidance(db);
   const cell=id=>db.prepare('SELECT c.*,ctrl.address AS controller_address,ctrl.heartbeat_status,ctrl.active AS controller_active,ctrl.configured_at AS controller_configured_at FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(id);
   const workGeneration=id=>db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(id)?.generation||null;
   function clear(row) {

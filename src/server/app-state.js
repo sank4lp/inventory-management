@@ -122,8 +122,7 @@ function buildAppState() {
     hardwareService,
     getTask,
   });
-  operationsService.flagInactivity({timeoutMs:0});
-  operationsService.flushGuidance();
+  operationsService.flagInactivity({timeoutMs:0,restoreGuidance:true});
   const startup = systemService.runStartupChecks();
   startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
   startStalePendingTaskMaintenance(systemService);

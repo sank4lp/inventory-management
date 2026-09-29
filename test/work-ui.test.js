@@ -235,3 +235,11 @@ test('successful assignment stays on the form, clears its draft, and a pending a
  await handler(event);assert.equal(ui.context.saved.length,1);assert.equal(ui.context.location.href,undefined);assert.equal(ui.run('notice'),'Task assigned to Alex.');assert.equal(ui.context.saved[0].input.dueDuration,'8');
  ui.context.saved[0].state='error';await handler(event);assert.equal(ui.context.saved.length,1);assert.match(ui.context.feedback.textContent,/Wait for confirmation/);assert.equal(ui.context.button.disabled,true);
 });
+
+test('pre-arrival light status refreshes while the operator keeps focus and a draft, without implying arrival or actual movement',()=>{
+ const ui=view();ui.context.line={...line,guidance:{state:'sent',message:'Quantity guidance sent — check its label on arrival.'}};let html=ui.run('lineCard(line)');assert.match(html,/data-guidance-line="1"/);assert.match(html,/Quantity guidance sent/);assert.match(html,/I'm at this location/);assert.doesNotMatch(html,/Finish pick at this cell/);
+ const hint={dataset:{guidanceLine:'1'},textContent:'old sent'},draft={value:'Keep my note'},focused=draft;ui.context.document.activeElement=focused;ui.root.querySelectorAll=s=>s==='[data-guidance-line]'?[hint]:[];
+ ui.run("snapshot.tasks=[{id:1,lines:[{...line,guidance:{state:'waiting',message:'Light waiting — another operator is at this cell.'}}]}];patchGuidanceHints()");assert.match(hint.textContent,/Light waiting/);assert.equal(draft.value,'Keep my note');assert.equal(ui.context.document.activeElement,focused);
+ ui.run('online=false;patchGuidanceHints()');assert.match(hint.textContent,/Offline/);ui.run("online=true;snapshot.tasks[0].lines[0].guidance={state:'shared',message:'Shared locator sent — use your own quantity.'};patchGuidanceHints()");assert.match(hint.textContent,/Shared locator/);
+ ui.run("snapshot.tasks[0].lines[0].execution_state='settled';patchGuidanceHints()");assert.doesNotMatch(hint.textContent,/sent/);assert.equal(draft.value,'Keep my note');
+});

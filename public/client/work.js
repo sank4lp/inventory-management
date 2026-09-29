@@ -58,6 +58,17 @@ const stages=new Map(), drafts=new Map();
 const stageKey=l=>`${key()}:summary:${l.id}:${l.revision}:${l.current_generation}`;
 const dueText=t=>t.clock_invalid?'Warehouse clock needs checking':t.overdue?`Overdue by ${t.overdue_minutes} min`:t.due_at?`Due ${new Date(t.due_at).toLocaleString([], {timeZone:snapshot.timing?.timezone})}`:'No deadline';
 const outcome=t=>({open:t.assignment_state==='offered'?'Not started':'In progress',needs_assignment:'Needs assignment',needs_review:'Needs review',stopped:'Stopped — partly completed',cancelled:'Cancelled — nothing moved',completed:'Completed'})[t.outcome]||status(t.status);
+function guidanceText(l){
+ if(!online)return 'Offline — light status may have changed. Follow your saved cell instructions.';
+ if(!l||!['ready','working'].includes(l.execution_state))return 'This location’s work changed. Check the latest task before continuing.';
+ return l.guidance?.message||'Follow the cell name and quantity on your screen.';
+}
+function patchGuidanceHints(){
+ for(const hint of root.querySelectorAll('[data-guidance-line]')){
+  const l=[...snapshot.tasks,...(snapshot.watchedTasks||[])].flatMap(t=>t.lines||[]).find(l=>String(l.id)===hint.dataset.guidanceLine);
+  hint.textContent=guidanceText(l);
+ }
+}
 function lineCard(l){
  const active=['ready','working'].includes(l.execution_state),working=l.execution_state==='working';
  const waiting=l.reports?.filter(r=>r.status==='review')||[];
@@ -69,8 +80,8 @@ function lineCard(l){
   if(saved)actions='<button disabled>Update saved — waiting for warehouse confirmation</button>';
   else if(waiting.length||!online)actions=disclosure('manual-'+l.id,'Record what I moved',`<p>Enter only work already done. Do not repeat the movement.</p>${recovery}`,true);
   else {
-   if(!working)actions=form('acquire',allocationFields(l)+hidden('method','arrival')+"<button>I'm at this location</button>");
-   else if(!stage)actions=`<p class="work-callout">${l.controller_id?'Look for the lit cell. Guidance command sent.':'Manual location — check the cell name.'} ${l.guidance_mode==='shared'?'Follow your own quantity; this light is shared.':''}</p><button type="button" data-scan-line="${l.id}">Resume camera</button><button type="button" class="secondary" data-manual-summary="${l.id}">Complete without scanning</button>`;
+   if(!working)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${esc(guidanceText(l))}</p>`+form('acquire',allocationFields(l)+hidden('method','arrival')+"<button>I'm at this location</button>");
+   else if(!stage)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${esc(guidanceText(l))}</p><button type="button" data-scan-line="${l.id}">Resume camera</button><button type="button" class="secondary" data-manual-summary="${l.id}">Complete without scanning</button>`;
    else actions=`<section class="cell-summary" aria-label="Cell summary"><h3>${esc(l.product_name)} · ${esc(l.logical_code)}</h3><p>${stage.method==='camera'?'QR checked':'Manual completion — no QR verification'}</p>${form('report',allocationFields(l)+hidden('method',stage.method)+hidden('location',stage.location||'')+`<label>Quantity ${l.type==='pick'?'picked':'put'} (${esc(l.unit_of_measure)})<input name="quantity" type="number" min="0" max="1000000000" step="0.000001" inputmode="decimal" required value="${esc(l.planned_quantity)}"></label><p class="work-help">Change quantity above if needed. Use 0 only when nothing moved.</p>`+(stage.method==='manual'?'<label>Reason<select name="manualReason" required><option value="No camera / camera unavailable">No camera / camera unavailable</option><option value="Label unreadable">Label unreadable</option><option value="Checked printed cell name">Checked printed cell name</option></select></label>':'')+`<p>Press Finish only after moving the items. This records only this cell and stops its unperformed remainder.</p><button>Finish ${esc(l.type)} at this cell</button>`)}<button type="button" class="secondary" data-scan-line="${l.id}">Scan again</button></section>`;
    actions+=disclosure('difference-'+l.id,'Record a difference',recovery+form('askReview',allocationFields(l)+input('reason','What is uncertain?')+'<button class="secondary">Ask supervisor to resolve</button>'));
    actions+=disclosure('cancel-'+l.id,'Cancel this location',form('cancel',allocationFields(l)+hidden('zeroConfirmed','true')+'<p>This declares zero movement. If anything moved, record that actual using Finish first. A partial actual closes this cell’s remaining plan.</p><label class="work-check"><input type="checkbox" required>Nothing moved at this location.</label><button class="secondary">Nothing moved — cancel</button>'));
@@ -479,10 +490,11 @@ async function scanQR(l){
  }catch(error){stop();notice='Camera unavailable. Choose Complete without scanning; no movement has been recorded.';render();}
 }
 window.addEventListener('pagehide',()=>stopCamera?.());
-window.addEventListener('offline',()=>{online=false;connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-my-work-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
+window.addEventListener('offline',()=>{online=false;patchGuidanceHints();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-my-work-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
 const canRefresh=()=>!root.querySelector('[data-my-work-dialog]')?.open&&!dirty&&!root.contains(document.activeElement)&&!cameraStream?.active&&!submitting;
 let monitoring=false,pollDelay=5000;
 function patchLiveRows(){
+ patchGuidanceHints();
  const pageTop=window.scrollY,scrolls=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el,el.scrollLeft,el.scrollTop]);
  let anchorShift=0;
  if(path==='/work')anchorShift=patchMyWorkRows()||0;else {

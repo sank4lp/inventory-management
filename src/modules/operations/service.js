@@ -1,3 +1,4 @@
+import {guidanceBinding} from './guidance.js';
 import {taskSelection,reviewSelection,workloads} from './queries.js';
 import {postMovement} from "../inventory/ledger.js";
 import {currentActor,effectiveUser} from "../access/service.js";
@@ -106,9 +107,27 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       .run(cellId, randomUUID(), JSON.stringify(desired), now());
   }
   function releaseTurn(allocation) {
-    const deleted = db.prepare("DELETE FROM cell_turns WHERE line_id=?").run(allocation.id).changes;
-    const otherShared = db.prepare(`SELECT 1 FROM task_lines WHERE cell_id=? AND id!=? AND execution_state='working'`).get(allocation.cell_id, allocation.id);
-    if (deleted || (allocation.guidance_mode === "shared" && !otherShared)) setGuidance(allocation.cell_id, { action: "clear" });
+    db.prepare("DELETE FROM cell_turns WHERE line_id=?").run(allocation.id);
+    // Reconciliation after the transaction elects the next display without clearing a newer owner.
+  }
+  function reconcileGuidance() {
+    const cells=db.prepare("SELECT cell_id FROM work_guidance UNION SELECT cell_id FROM task_lines WHERE execution_state IN ('ready','working')").all();
+    for(const {cell_id:cellId} of cells){
+      const previous=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(cellId),old=previous?JSON.parse(previous.desired):null;
+      const c=db.prepare('SELECT * FROM cells WHERE id=?').get(cellId);if(!c)continue;
+      const binding=guidanceBinding(db,cellId),turn=db.prepare('SELECT * FROM cell_turns WHERE cell_id=?').get(cellId);
+      const candidates=db.prepare(`SELECT l.id FROM task_lines l JOIN tasks t ON t.id=l.task_id JOIN work_reservations r ON r.line_id=l.id
+        WHERE l.cell_id=? AND l.execution_state IN ('ready','working') AND l.planned_quantity>0 AND r.state='held'
+        AND t.workflow_version=2 AND t.assignment_state='started' AND t.completed_at IS NULL AND t.stop_requested=0
+        AND NOT EXISTS(SELECT 1 FROM work_reports w WHERE w.line_id=l.id AND w.status IN ('review','received'))
+        ORDER BY t.started_at,l.id`).all(cellId).map(({id})=>line(id)).filter(l=>can(effectiveUser(db,db.prepare('SELECT * FROM users WHERE id=?').get(l.assignee_id)),'work.execute'));
+      const blocked=!c.active||controlledCell(db,cellId)||(c.guidance_mode==='exclusive'&&(turn?.uncertain||db.prepare("SELECT 1 FROM work_reports WHERE cell_id=? AND status IN ('review','received')").get(cellId)));
+      // Arrival has priority over a display-only claim. A ready light never takes a cell_turn.
+      const owner=blocked?null:turn?candidates.find(l=>l.id===turn.line_id):candidates.filter(l=>l.execution_state==='working').sort((a,b)=>String(b.started_at).localeCompare(String(a.started_at))||b.id-a.id)[0]||candidates.find(l=>l.id===old?.lineId)||candidates[0];
+      const desired=owner?{action:c.guidance_mode==='shared'?'locate':'quantity',lineId:owner.id,quantity:owner.planned_quantity,binding}:
+        old?{action:'clear',binding:old.binding||binding}:null;
+      if(desired&&JSON.stringify(desired)!==JSON.stringify(old))setGuidance(cellId,desired);
+    }
   }
   function markDiscrepancy(cellId, productId, reason) {
     db.prepare(`INSERT INTO work_discrepancies(cell_id,product_id,reason,updated_at) VALUES(?,?,?,?)
@@ -434,7 +453,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     for (const allocation of task.lines) captureInstruction(allocation.id);
     syncReservations();
     event("task_reserved", actor, null, { taskId: task.id, lines: task.lines.map(l => l.id) });
-    return { status: "reserved", taskId: task.id, message: assignmentForm?`Task assigned to ${assignee.name}.`:"Quantities reserved. Go to a location and tap I’m at this location; future displays remain free." };
+    return { status: "reserved", taskId: task.id, message: assignmentForm?`Task assigned to ${assignee.name}.`:"Quantities reserved. Follow the location guidance, then tap I’m at this location on arrival." };
   }
   function acquire(actor, input) {
     if(metadata("firmware_busy")) throw new Error("Controller maintenance is in progress. No new guidance is available.");
@@ -454,7 +473,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (allocation.execution_state === "ready") db.prepare("UPDATE task_lines SET execution_state='working',device_id=?,started_at=?,revision=revision+1 WHERE id=?").run(input.deviceId, now(), allocation.id);
     captureInstruction(allocation.id);
     db.prepare("UPDATE tasks SET last_touched_at=? WHERE id=?").run(now(), allocation.task_id);
-    setGuidance(allocation.cell_id, { action: allocation.guidance_mode === "shared" ? "locate" : "quantity", lineId: allocation.id });
+
     event("location_ready", actor, allocation.id, { method: input.method || "typed", device: input.deviceId, mode: allocation.guidance_mode });
     return { status: "ready", revision: line(allocation.id).revision, message: allocation.guidance_mode === "shared" ? "Shared location. Follow your phone's action and quantity; the light is only a locator." : "Your turn at this location. Confirm the actual quantity when finished." };
   }
@@ -711,6 +730,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       const value = actions[action](current, input);
+      reconcileGuidance();
       db.prepare("INSERT INTO operation_receipts(actor_id,request_id,fingerprint,result_json,created_at) VALUES(?,?,?,?,?)")
         .run(current.id, id, fingerprint, JSON.stringify(value), now());
       return value;
@@ -718,26 +738,37 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     try { flushGuidance(); } catch (error) { logger?.warn?.("work.guidance.deferred", { error: error.message }); }
     return result;
   }
-  function flushGuidance() {
+  function flushGuidance({restore=false}={}) {
+    withTransaction(db,()=>{
+      reconcileGuidance();
+      if(restore){db.prepare("UPDATE work_guidance SET delivered=0 WHERE json_extract(desired,'$.action') IN ('quantity','locate')").run();}
+    });
     if (!hardwareService) return;
     for (const row of db.prepare("SELECT * FROM work_guidance WHERE delivered=0").all()) {
       const desired = JSON.parse(row.desired);
       const cell = db.prepare("SELECT c.*,ctrl.address AS controller_address FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?").get(row.cell_id);
-      if (!cell) continue;
+      if (!cell || desired.binding!==guidanceBinding(db,row.cell_id)) continue;
       let result;
-      const context = { workGeneration: row.generation, workCellId: row.cell_id, source: "work_coordinator" };
+      const context = { workGeneration: row.generation, workCellId: row.cell_id, workBinding:desired.binding, source: "work_coordinator" };
       if (desired.action === "clear") {
-        if (db.prepare("SELECT 1 FROM cell_turns WHERE cell_id=? AND uncertain=0").get(cell.id)) continue;
         result = hardwareService.clearGuidance({ id: null, type: "pick" }, [cell], context);
       } else {
         const allocation = line(desired.lineId);
-        if (allocation.execution_state !== "working") continue;
+        if (!["ready","working"].includes(allocation.execution_state)) continue;
         result = desired.action === "locate"
           ? hardwareService.showCellQuantity(cell, "LOC", "yellow", context)
           : hardwareService.activateGuidance({ id: allocation.task_id, type: allocation.type }, [allocation], context);
       }
       if (result?.ok && !result.degraded) db.prepare("UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?").run(row.cell_id, row.generation);
     }
+  }
+  function guidanceStatus(l){
+    if(l.assignment_state!=='started'||!['ready','working'].includes(l.execution_state))return null;
+    if(!l.controller_id||!l.hardware_channel)return {state:'manual',message:'Manual location — follow the cell name and quantity on your screen.'};
+    const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(l.cell_id),d=row?JSON.parse(row.desired):null;
+    if(!d||d.action==='clear'||(d.action!=='locate'&&d.lineId!==l.id))return {state:'waiting',message:'Light waiting — this cell is busy or needs a check. Follow your screen; arrival still requests your turn.'};
+    if(!row.delivered||d.binding!==guidanceBinding(db,l.cell_id))return {state:'manual',message:'Light not confirmed sent — follow the cell name and quantity on your screen.'};
+    return d.action==='locate'?{state:'shared',message:'Shared locator sent — use your own action and quantity on screen.'}:{state:'sent',message:`Quantity guidance sent: ${l.planned_quantity} ${l.unit_of_measure}. Check the cell label on arrival.`};
   }
   function task(actor, id) {
     const current=actorNow(actor),result=tasks.get(Number(id));if(!result)return null;
@@ -750,7 +781,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const assignee=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assignee_id);result.assignee_name=assignee?.name||null;result.assignee_username=assignee?.username||null;
     const assigner=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assigned_by);result.assigned_by_name=assigner?.name||null;result.assigned_by_username=assigner?.username||null;
     result.assignment_history=history;
-    result.lines=result.lines.map(item=>({...line(item.id),canAct:result.canAct&&result.assignment_state!=='offered',
+    result.lines=result.lines.map(item=>({...line(item.id),guidance:guidanceStatus(line(item.id)),canAct:result.canAct&&result.assignment_state!=='offered',
       directions:JSON.parse(item.instruction_snapshot||'null')||describeLocation(db,item.cell_id),
       attribution:db.prepare(`SELECT p.name AS performer,r.name AS reporter,v.name AS reviewer FROM work_settlements s JOIN work_reports w ON w.id=s.report_id
         LEFT JOIN users p ON p.id=w.performer_id LEFT JOIN users r ON r.id=w.reporter_id LEFT JOIN users v ON v.id=w.resolver_id WHERE s.line_id=?`).get(item.id)||null,
@@ -788,7 +819,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       contents:db.prepare(`SELECT b.cell_id,b.product_id,b.available_quantity,p.name,p.unit_of_measure FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.available_quantity!=0`).all().filter(c=>visibleCells.some(v=>v.id===c.cell_id)&&visibleProducts.some(v=>v.id===c.product_id)),
       discrepancies:can(current,'review.view')?db.prepare('SELECT d.*,c.logical_code,p.name AS product_name FROM work_discrepancies d JOIN cells c ON c.id=d.cell_id JOIN products p ON p.id=d.product_id').all():[]};
   }
-  function flagInactivity({ at = new Date(), timeoutMs = 5 * 60000 } = {}) {
+  function flagInactivity({ at = new Date(), timeoutMs = 5 * 60000, restoreGuidance=false } = {}) {
     const staleIds = withTransaction(db, () => {
       const stale = db.prepare("SELECT id FROM tasks WHERE workflow_version=2 AND status='pending_review' AND attention=0 AND last_touched_at<=? AND EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=tasks.id AND (l.execution_state='working' OR tasks.assignment_source='legacy' AND l.execution_state='ready'))").all(new Date(at.getTime() - timeoutMs).toISOString());
       for (const task of stale) {
@@ -798,20 +829,14 @@ export function createOperationsService({ db, hardwareService = null, logger = n
           const owner = db.prepare("SELECT * FROM users WHERE id=?").get(allocation.assignee_id || allocation.created_by);
           const report = insertReport(owner, { quantity: 0, unknown: true, origin: `attention:${allocation.id}`, reason: "Actual quantity is unknown; zero is not a verified answer." }, allocation);
           review(report, "Inactivity needs verification. Expected quantity is shown for context; enter an actual quantity or keep pending.");
-          const guidance = db.prepare('SELECT desired FROM work_guidance WHERE cell_id=?').get(allocation.cell_id);
-          const desired = guidance ? JSON.parse(guidance.desired) : null;
-          // A waiting or older allocation must not replace another operator's guidance.
-          if (!desired || desired.lineId === allocation.id) {
-            const activeShared = allocation.guidance_mode === 'shared' && db.prepare(`SELECT l.id FROM task_lines l JOIN tasks t ON t.id=l.task_id
-              WHERE l.cell_id=? AND l.id!=? AND l.execution_state='working' AND t.attention=0 ORDER BY l.started_at DESC LIMIT 1`).get(allocation.cell_id, allocation.id);
-            setGuidance(allocation.cell_id, activeShared ? { action:'locate', lineId:activeShared.id } : { action:'clear' });
-          }
+          if(!db.prepare('SELECT 1 FROM work_guidance WHERE cell_id=?').get(allocation.cell_id))setGuidance(allocation.cell_id,{action:'clear',binding:guidanceBinding(db,allocation.cell_id)});
+
         }
       }
       return stale.map(t => t.id);
     });
     // The maintenance timer also retries pending deliveries when no new task is stale.
-    try { flushGuidance(); } catch (error) { logger?.warn?.('work.guidance.deferred', { error:error.message }); }
+    try { flushGuidance({restore:restoreGuidance}); } catch (error) { logger?.warn?.('work.guidance.deferred', { error:error.message }); }
     return staleIds;
   }
   function countCandidates(actor,input) {
