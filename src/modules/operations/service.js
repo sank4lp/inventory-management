@@ -732,7 +732,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(!can(current,'work.team')&&!(can(current,'review.view')&&db.prepare("SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.status IN ('review','received')").get(result.id))&&result.assignee_id!==current.id&&!wasAssigned)throw new Error('This task belongs to another operator.');
     result.canAct=can(current,"work.execute")&&result.assignee_id===current.id;
     const assignee=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assignee_id);result.assignee_name=assignee?.name||null;result.assignee_username=assignee?.username||null;
-    result.assigned_by_name=db.prepare('SELECT name FROM users WHERE id=?').get(result.assigned_by)?.name||null;
+    const assigner=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assigned_by);result.assigned_by_name=assigner?.name||null;result.assigned_by_username=assigner?.username||null;
     result.assignment_history=history;
     result.lines=result.lines.map(item=>({...line(item.id),canAct:result.canAct&&result.assignment_state!=='offered',
       directions:JSON.parse(item.instruction_snapshot||'null')||describeLocation(db,item.cell_id),
@@ -765,7 +765,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     }):[];
     return {...identity(),user:current,capabilities:workCapabilities(current),timing:timingSettings(),operators,performers:operators,
       reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(can(current,"review.view")?"admin":"own",current.id,current.id),
-      tasks:taskList,watchedTasks,taskPage:selection.page,taskCounts:selection.counts,reviewPage:reviews.page,reviewTotal:reviews.total,reviewGroups:reviews.groups,products:visibleProducts,cells:visibleCells,pending:pending.map(r=>({...r,countOverlap:Boolean(countBoundary(db,r,r.line_id?line(r.line_id):null)),countEvidence:countBoundary(db,r,r.line_id?line(r.line_id):null)?countCandidates(current,{reportId:r.id})[0]||null:null,accounting:!r.line_id&&r.direction!=='count'?manualAccounting(r):null})),generatedAt:now(),
+      tasks:taskList,watchedTasks,myWorkPriority:selection.priority,myWorkNextTask:selection.priority?task(current,selection.priority.id):null,taskPage:selection.page,taskCounts:selection.counts,reviewPage:reviews.page,reviewTotal:reviews.total,reviewGroups:reviews.groups,products:visibleProducts,cells:visibleCells,pending:pending.map(r=>({...r,countOverlap:Boolean(countBoundary(db,r,r.line_id?line(r.line_id):null)),countEvidence:countBoundary(db,r,r.line_id?line(r.line_id):null)?countCandidates(current,{reportId:r.id})[0]||null:null,accounting:!r.line_id&&r.direction!=='count'?manualAccounting(r):null})),generatedAt:now(),
       postedReports:can(current,'review.view')?db.prepare(`SELECT r.*,p.name AS product_name,c.logical_code,u.name AS performer_name FROM work_reports r
         JOIN products p ON p.id=r.product_id JOIN cells c ON c.id=r.cell_id LEFT JOIN users u ON u.id=r.performer_id WHERE r.status='posted' ORDER BY r.created_at DESC LIMIT 500`).all():[],
       contents:db.prepare(`SELECT b.cell_id,b.product_id,b.available_quantity,p.name,p.unit_of_measure FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.available_quantity!=0`).all().filter(c=>visibleCells.some(v=>v.id===c.cell_id)&&visibleProducts.some(v=>v.id===c.product_id)),

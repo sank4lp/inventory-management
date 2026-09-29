@@ -121,13 +121,53 @@ function taskRow(t){
  return `<tr data-task-row="${t.id}"><th scope="row"><a href="/tasks/${t.id}">${esc(taskName(t))}</a><small>${esc(t.type)} · ${esc(t.lines?.[0]?.sku||'')} · Task #${t.id}</small><div class="task-primary-actions">${mine&&!closed&&t.assignment_state==='offered'&&allowed('execute')?'':`<a class="work-secondary" href="/tasks/${t.id}">${next}</a>`}${assignmentActions(t)}${stop}${saved?'<p>Saved request awaiting confirmation.</p>':''}</div></th><td>${esc(t.remaining_quantity??t.requested_quantity??'—')} ${esc(t.lines?.[0]?.unit_of_measure)}<small>${esc(t.requested_quantity??'—')} requested</small></td><td>${badge(label,t.attention||t.overdue?'warning':t.outcome==='completed'?'good':'')}<small>${esc(dueText(t))}</small></td><td>${esc(t.recorded_quantity??0)} recorded<small>${(t.lines||[]).filter(l=>l.execution_state==='settled').length} locations recorded</small></td><td>Assigned to <strong>${esc(t.assignee_name||'Needs assignment')}${t.assignee_username?' · '+esc(t.assignee_username):''}</strong>${t.assignment_state==='returned'?`<small>Last assigned: ${esc(t.assignment_history?.filter(e=>e.event_type==='returned').at(-1)?.previous_name||'See history')}</small>`:''}<small>Performed by ${esc(actualPeople.join(', ')||'Not recorded')}</small><small>Entered by ${esc(reporters.join(', ')||'Not recorded')}</small></td><td>${t.assigned_at?esc(new Date(t.assigned_at).toLocaleString()):'Not assigned'}<small>Assigned by ${esc(t.assigned_by_name||'—')}</small></td><td class="task-row-actions"><a href="/tasks/${t.id}">Details</a>${reassignment}${!closed&&allowed('deadline')?disclosure('deadline-'+t.id,'Change deadline',form('deadline',fields+input('dueAt','New due time (blank disables deadline)','datetime-local')+input('reason','Reason','text','required')+'<button>Save deadline</button>')):''}</td></tr>`;
 }
 function taskCards(tasks){return `<div class="work-table-wrap" tabindex="0" role="region" aria-label="Task table; scroll horizontally for actions"><table class="work-task-table"><thead><tr><th scope="col">Task / product</th><th scope="col">Remaining</th><th scope="col">Status / due</th><th scope="col">Progress</th><th scope="col">People</th><th scope="col">Assigned</th><th scope="col">Actions</th></tr></thead><tbody data-task-table>${tasks.map(taskRow).join('')||'<tr><td colspan="7">No matching tasks.</td></tr>'}</tbody></table></div>`;}
+function myTasks(){return snapshot.tasks.filter(t=>t.assignee_id===snapshot.user.id&&!t.completed_at&&!['completed','stopped','cancelled'].includes(t.outcome)&&t.assignment_state!=='returned').sort((a,b)=>(Date.parse(b.assigned_at||b.started_at)||0)-(Date.parse(a.assigned_at||a.started_at)||0)||b.id-a.id);}
+function taskHasSavedUpdate(t){return outbox.some(o=>o.partition===key()&&['local','sending','error','rejected'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));}
+function myTaskChoice(t){
+ if(t.assignee_id!==snapshot.user.id||t.completed_at||['completed','stopped','cancelled'].includes(t.outcome)||taskHasSavedUpdate(t))return null;
+ if(untouchedOffer(t)&&allowed('execute'))return {action:'decline',label:'Decline',explanation:'Return this unstarted assignment for reassignment. Its deadline stays unchanged.'};
+ const untouched=!t.attention&&!(t.recorded_quantity>0)&&(t.lines||[]).every(l=>['ready','cancelled','superseded'].includes(l.execution_state)&&!l.started_at&&!l.reports?.length);
+ if(allowed('stop')&&!untouchedOffer(t))return t.assignment_source==='self'&&untouched?{action:'stop',label:'Cancel task',explanation:'Cancel your untouched task. Confirm that nothing moved.'}:{action:'stop',label:'Stop remaining work',explanation:'Record any actual movement first. Recorded quantities remain; uncertain physical work stays in review.'};
+ return null;
+}
+function myTaskActionable(t){return !!t&&online&&allowed('execute')&&t.canAct!==false&&t.assignee_id===snapshot.user.id&&!t.completed_at&&!['completed','stopped','cancelled'].includes(t.outcome)&&['offered','started','legacy'].includes(t.assignment_state)&&!t.attention&&!taskHasSavedUpdate(t)&&!(t.lines||[]).some(l=>(l.reports||[]).some(r=>['review','received'].includes(r.status)));}
+function myTaskRow(t){
+ const saved=taskHasSavedUpdate(t),mine=t.assignee_id===snapshot.user.id,closed=!!t.completed_at||['completed','stopped','cancelled'].includes(t.outcome),review=t.attention||(t.lines||[]).some(l=>(l.reports||[]).some(r=>['review','received'].includes(r.status)));
+ const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation),canStart=myTaskActionable(t),offered=t.assignment_state==='offered';
+ const underway=(t.recorded_quantity>0)||(t.lines||[]).some(l=>l.execution_state==='working'||l.started_at);
+ const action=canStart&&offered?form('start',fields+'<button>Start</button>','class="my-work-start"'):`<a class="${canStart?'work-primary':'work-secondary'}" href="/tasks/${t.id}">${saved?'Saved update':review?'View check':canStart?(underway?'Continue':'Start'):'View'}</a>`;
+  const date=value=>value?esc(new Date(value).toLocaleString([], {timeZone:snapshot.timing?.timezone,dateStyle:'short',timeStyle:'short'})):'Not recorded';
+ return `<tr data-task-row="${t.id}" data-generation="${t.assignment_generation}"><td><a href="/tasks/${t.id}">${esc(taskName(t))}</a> <span class="my-work-type">${esc(t.type)}</span></td><td>${esc(t.requested_quantity??'—')} ${esc(t.lines?.[0]?.unit_of_measure)}</td><td>${esc(t.recorded_quantity??'—')} / ${esc(t.requested_quantity??'—')} recorded${saved?' · Update pending':review?' · Needs review':closed?' · '+esc(outcome(t)):''}</td><td title="${esc(t.assigned_by_username||'')}">${esc(t.assigned_by_name||'Not recorded')}</td><td>${date(t.assigned_at)}</td><td><div class="my-work-actions">${action}${myTaskChoice(t)?`<button type="button" class="secondary" data-my-actions="${t.id}" aria-haspopup="dialog" aria-label="More actions for task ${t.id}">More ▾</button>`:''}</div></td><td${t.overdue?' class="my-work-overdue"':''}>${t.clock_invalid?'Check warehouse clock':t.due_at?date(t.due_at)+(t.overdue?' · Overdue':''):'No deadline'}</td></tr>`;
+}
+function myNextContent(){
+ const t=snapshot.taskPage?.view==='mine'?snapshot.myWorkNextTask:null;
+ if(!t||t.assignee_id!==snapshot.user.id)return `<p>${!online?'Reconnect to load your next task.':allowed('pick')||allowed('put')?'No task is ready to start. Choose Pick stock or Put stock below.':'No task is ready to start.'}</p>`;
+ const saved=taskHasSavedUpdate(t),ready=myTaskActionable(t);
+ const started=(t.recorded_quantity>0)||(t.lines||[]).some(l=>l.execution_state==='working'||l.started_at);
+ const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation);
+ const action=ready&&t.assignment_state==='offered'?form('start',fields+'<button>Start</button>','class="my-work-start" data-draft-kind="my-next"'):`<a class="${ready?'work-primary':'work-secondary'}" href="/tasks/${t.id}">${saved?'Check saved update':!online?'View saved task':ready?(started?'Continue':'Start'):'View task'}</a>`;
+ return `<div class="my-work-next-task" data-next-id="${t.id}" data-next-generation="${t.assignment_generation}"><div><a class="my-work-next-product" href="/tasks/${t.id}">${esc(taskName(t))}</a><p>${esc(t.type==='put'?'Put':'Pick')} · ${esc(t.remaining_quantity??t.requested_quantity??'—')} ${esc(t.lines?.[0]?.unit_of_measure)} remaining · ${esc(t.recorded_quantity??'—')} recorded</p></div>${action}</div>`;
+}
 function home(){
- const mine=snapshot.tasks.filter(t=>t.assignee_id===snapshot.user.id||t.assignee_id==null&&t.created_by===snapshot.user.id||t.created_by===undefined);
- const closed=t=>!t.attention&&(['completed','stopped','cancelled'].includes(t.outcome)||['completed','cancelled'].includes(t.status));
- const active=mine.filter(t=>!closed(t)&&!t.attention&&t.assignment_state!=='returned');
- const review=mine.filter(t=>t.attention&&t.assignment_state!=='returned');
- const history=mine.filter(t=>closed(t)||t.assignment_state==='returned');
- return `<section class="work-intro"><h2>What’s your next move?</h2><div class="work-actions">${allowed('pick')?'<a class="work-primary" href="/pick">Pick stock</a>':''}${allowed('put')?'<a class="work-secondary" href="/put">Put stock</a>':''}</div></section><h3 data-work-active-count>Continue working · ${snapshot.taskCounts?.active??active.length+review.length}</h3>${taskCards([...active,...review])}${pageLinks(snapshot.taskPage)}${history.length?disclosure('completed-work','Recent work and returned assignments',taskCards(history)):''}<p><a href="/work/history">Completed, cancelled and returned work / older history</a></p>${allowed('report')?'<p><a href="/record-movement">Record work already done</a></p>':''}`;
+ const tasks=myTasks();
+ return `<section class="work-intro my-work-next-area"><h2>What’s your next move?</h2><div data-my-next-content>${myNextContent()}</div><p data-my-next-warning class="work-callout warning" role="status" hidden></p></section><section class="my-work-list" aria-label="My tasks">${!online&&snapshot.taskPage?.view!=='mine'?'<p class="work-callout warning">This saved view may not include all your tasks. Reconnect to load current assignments.</p>':''}<div class="table-wrap my-work-table-wrap" tabindex="0" role="region" aria-label="My tasks; scroll horizontally for all columns"><table class="my-work-table"><thead><tr>${['Product name','Quantity','Progress','Assigned by','Assigned time','Action','Deadline'].map(c=>`<th scope="col">${c}</th>`).join('')}</tr></thead><tbody data-my-work-table>${tasks.map(myTaskRow).join('')||'<tr><td colspan="7" class="empty-cell">No current tasks.</td></tr>'}</tbody></table></div><div data-my-work-pagination>${snapshot.taskPage?.view==='mine'&&snapshot.taskPage?.pages>1?pageLinks(snapshot.taskPage):''}</div></section>${allowed('pick')||allowed('put')?`<footer class="my-work-footer" aria-label="Create stock work"><div class="work-actions">${allowed('pick')?'<a class="work-primary" href="/pick">Pick stock</a>':''}${allowed('put')?'<a class="work-secondary" href="/put">Put stock</a>':''}</div></footer>`:''}`;
+}
+function patchMyNext(){
+ const content=root.querySelector('[data-my-next-content]');if(!content)return;
+ const warning=root.querySelector('[data-my-next-warning]');
+ if(content.contains(document.activeElement)){
+  const shown=content.querySelector('[data-next-id]'),t=snapshot.myWorkNextTask;
+  const stale=!myTaskActionable(t)||String(t.id)!==shown?.dataset.nextId||String(t.assignment_generation)!==shown?.dataset.nextGeneration;
+  warning.hidden=!stale;warning.textContent=stale?'This task changed or has an unconfirmed update. Check its details before continuing.':'';
+  for(const button of content.querySelectorAll('form button'))button.disabled=stale;
+ }else{content.innerHTML=myNextContent();warning.hidden=true;}
+}
+function myActionDialog(t){
+ const choice=myTaskChoice(t);if(!choice)return;
+ const d=root.querySelector('[data-my-work-dialog]');if(!d)return;
+ d.dataset.taskId=t.id;d.dataset.generation=t.assignment_generation;d.dataset.choice=choice.label;
+ d.innerHTML=`<h2>${esc(choice.label)} · ${esc(taskName(t))}</h2><p>${esc(choice.explanation)}</p><p data-my-action-warning role="status" hidden></p>${form(choice.action,hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+(choice.action==='decline'?'<label>Reason (optional)<select name="reason"><option value="">No reason supplied</option><option>Busy with other work</option><option>Unable to do this task</option></select></label>'+input('note','Optional note'):'<label class="work-check"><input type="checkbox" required>'+ (choice.label==='Cancel task'?'Nothing moved under this task.':'I want to stop the remaining work.')+'</label>')+`<button>${esc(choice.label)}</button>`)}<button type="button" class="secondary" data-my-close>Keep task</button>`;
+ restoreDrafts();d.showModal();
 }
 function matchingProducts(query,selected){const term=String(query||'').trim().toLowerCase();return (snapshot.products||[]).filter(p=>String(p.id)===String(selected)||!term||`${p.name} ${p.sku}`.toLowerCase().includes(term));}
 function productPicker(selected=''){return input('productSearch','Find product by name or code','search','data-product-search autocomplete="off"')+`<label>Product<select name="productId" required><option value="">Choose a product</option>${options(snapshot.products,'id',p=>`${p.name} · ${p.sku} (${p.unit_of_measure})`,selected)}</select></label><p class="work-help" data-product-unit aria-live="polite"></p>`;}
@@ -222,19 +262,62 @@ function render(){
  dirty=false;
  if(!snapshot){root.innerHTML='<section class="work-empty"><h2>No saved work on this device</h2><p>Connect to the warehouse and sign in to save your allocations.</p><a href="/login">Sign in</a></section>';return;}
 
+ root.classList?.toggle('my-work',path==='/work');
  const queued=outbox.filter(o=>o.partition===key()&&!['recorded','duplicate','reserved','ready','verified','busy','acknowledged'].includes(o.state));
+ const deviceHelp=disclosure('device-recovery','Saved updates & device help','<p>Saved work stays on this device. Send all updates before handing it over.</p><div class="work-tools-links"><button type="button" class="text-button" data-export>Download saved updates</button><button type="button" class="text-button" data-forget>Clear local data (only after updates are received)</button></div>');
+ const utility=path==='/work'?disclosure('my-work-tools','Work tools',workShortcuts()+'<div id="device-help">'+deviceHelp+'</div><div class="work-connection">'+badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')+'</div>',false,'my-work-utility'):'';
  const body=path==='/work/overview'?teamPage():path==='/work/timing'?timingPage():path==='/work/history'?`<h2>Task history</h2><p><a href="/work/history">All personal history</a> · <a href="/work/history?state=closed">Completed and cancelled</a></p><p><a href="/movement-history">Stock movements</a> are separate records.</p>${pageLinks(snapshot.taskPage)}${taskCards(snapshot.tasks)}${pageLinks(snapshot.taskPage)}`:path==='/pick'?createPage('pick'):path==='/put'?createPage('put'):path==='/record-movement'?manualPage():path==='/pending-confirmations'?pendingPage():path==='/labels'?labelsPage():path==='/movement-history'?ledger():/^\/tasks\/\d+$/.test(path)?taskPage(path.split('/')[2]):home();
- root.innerHTML=`<nav class="work-views" aria-label="Work views"><a href="/work">My work</a>${allowed('teamView')?'<a href="/work/overview">Team work</a>':''}${allowed('review')?`<a href="/pending-confirmations">Needs review · ${snapshot.reviewTotal??snapshot.pending.length}</a>`:''}<a href="/work/history">History</a></nav><div class="work-toolbar"><div class="work-tools">${!online?'<a href="/work">My work</a><a href="/pick">Pick</a><a href="/put">Put</a>':''}${disclosure('work-tools','Work tools',workShortcuts(),false,'work-tools-details')}</div><div class="work-connection">${badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')}<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small></div></div><div id="work-notice" data-notice="${esc(notice)}" role="status" aria-live="polite">${notice?`<p class="work-callout">${esc(workText(notice))}</p>`:''}</div><p id="work-connection-warning" class="work-callout warning" role="status" ${connectionWarning?'':'hidden'}>${esc(connectionWarning)}</p>${!online?'<p class="work-callout warning">Offline: saved work and physical entries stay on this device. No new reservation or location turn is granted. Follow the warehouse manual procedure; use paper if needed.</p>':''}${queued.length?`<section class="work-queue"><h3>Updates needing attention · ${queued.length}</h3>${queued.map(queueEntry).join('')}<button type="button" class="secondary" data-retry>Send saved updates / refresh</button></section>`:''}${body}<footer class="work-footer" id="device-help">${disclosure('device-recovery','Saved updates & device help','<p>Saved work stays on this device. Use your own device account. Send all updates before handing it over.</p><div class="work-tools-links"><button type="button" class="text-button" data-export>Download saved updates</button><button type="button" class="text-button" data-forget>Clear local data (only after updates are received)</button></div>')}</footer>`;
+ root.innerHTML=`<nav class="work-views" aria-label="Work views"><a href="/work">My work</a>${allowed('teamView')?'<a href="/work/overview">Team work</a>':''}${allowed('review')?`<a href="/pending-confirmations">Needs review · ${snapshot.reviewTotal??snapshot.pending.length}</a>`:''}<a href="/work/history">History</a>${utility}</nav>${path==='/work'?'':`<div class="work-toolbar"><div class="work-tools">${!online?'<a href="/work">My work</a><a href="/pick">Pick</a><a href="/put">Put</a>':''}${disclosure('work-tools','Work tools',workShortcuts(),false,'work-tools-details')}</div><div class="work-connection">${badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')}<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small></div></div>`}<div id="work-notice" data-notice="${esc(notice)}" role="status" aria-live="polite">${notice?`<p class="work-callout">${esc(workText(notice))}</p>`:''}</div><p id="work-connection-warning" class="work-callout warning" role="status" ${connectionWarning?'':'hidden'}>${esc(connectionWarning)}</p>${!online?'<p class="work-callout warning">Offline: saved work and physical entries stay on this device. No new reservation or location turn is granted. Follow the warehouse manual procedure; use paper if needed.</p>':''}${queued.length?`<section class="work-queue"><h3>Updates needing attention · ${queued.length}</h3>${queued.map(queueEntry).join('')}<button type="button" class="secondary" data-retry>Send saved updates / refresh</button></section>`:''}${body}${path==='/work'?'<dialog class="my-work-action-dialog" data-my-work-dialog aria-label="Task actions"></dialog>':`<footer class="work-footer" id="device-help">${disclosure('device-recovery','Saved updates & device help','<p>Saved work stays on this device. Use your own device account. Send all updates before handing it over.</p><div class="work-tools-links"><button type="button" class="text-button" data-export>Download saved updates</button><button type="button" class="text-button" data-forget>Clear local data (only after updates are received)</button></div>')}</footer>`}`;
  for(const link of root.querySelectorAll('a[href]')){const href=(link.getAttribute?.('href')||'').split('?')[0];const cap=workLinkCapability(href);if(cap&&!allowed(cap))link.remove();}
  restoreDrafts();
  for(const f of root.querySelectorAll('form[data-work-action]')){updateProductPicker(f);updateRecoveryLink(f);updateTimingFields(f);}
- if(typeof location!=='undefined'&&new URLSearchParams(location.search).has('device_help'))root.querySelector('[data-disclosure="device-recovery"]')?.setAttribute('open','');
+ if(typeof location!=='undefined'&&new URLSearchParams(location.search).has('device_help'))for(const name of ['my-work-tools','device-recovery'])root.querySelector('[data-disclosure="'+name+'"]')?.setAttribute('open','');
  for(const d of root.querySelectorAll('details[data-disclosure]'))if(disclosures.has(d.dataset.disclosure))d.open=disclosures.get(d.dataset.disclosure);
  for(const f of root.querySelectorAll('form[data-work-action]'))updateVerificationFields(f);
 
 }
 function draftKey(f){return `${key()}:draft:${path}:${f.dataset.workAction}:${f.dataset.draftKind||'normal'}:${f.elements.lineId?.value||f.elements.reportId?.value||f.elements.taskId?.value||''}:${f.elements.revision?.value||f.elements.caseRevision?.value||f.elements.generation?.value||''}${draftContext(f)}`;}
 function restoreDrafts(){for(const f of root.querySelectorAll('form[data-work-action]')){const values=drafts.get(draftKey(f));if(values)for(const el of f.elements)if(el.name in values&&el.type!=='hidden'){if(el.type==='radio')el.checked=el.value===values[el.name].value;else{el.value=values[el.name].value;if(el.type==='checkbox')el.checked=values[el.name].checked;}}}}
+function patchMyWorkRows(){
+ const body=root.querySelector('[data-my-work-table]');if(!body)return;
+ const dialog=root.querySelector('[data-my-work-dialog]'),active=document.activeElement;
+ const rows=[...body.querySelectorAll('[data-task-row]')],observed=new Map([...(snapshot.watchedTasks||[]),...snapshot.tasks].map(t=>[String(t.id),t]));
+ const protectedRow=row=>row.contains(active)||row.querySelector('form[data-edited]')||dialog?.open&&String(dialog.dataset.taskId)===row.dataset.taskRow;
+ const anchor=rows.find(protectedRow),anchorTop=anchor?.getBoundingClientRect().top;
+ const desired=myTasks(),wanted=new Set(desired.map(t=>String(t.id))),existing=new Map(rows.map(row=>[row.dataset.taskRow,row]));
+ for(const row of rows){
+  const fresh=observed.get(row.dataset.taskRow),keep=protectedRow(row);
+  if(!wanted.has(row.dataset.taskRow)&&!keep){row.remove();existing.delete(row.dataset.taskRow);continue;}
+  if(keep){
+   const stale=!wanted.has(row.dataset.taskRow)||!myTaskActionable(fresh)||String(fresh?.assignment_generation)!==row.dataset.generation||fresh.assignment_state!=='offered';
+   for(const form of row.querySelectorAll('form[data-work-action="start"]')){
+    for(const button of form.querySelectorAll('button'))button.disabled=stale;
+    const feedback=form.querySelector('.form-feedback');if(feedback)feedback.textContent=stale?'Task unavailable. View its details.':'';
+   }
+  }
+  if(!fresh)continue;
+  const template=document.createElement('template');template.innerHTML=myTaskRow(fresh);const next=template.content.firstElementChild;
+  if(keep){for(let i=0;i<row.children.length;i++)if(i!==5&&!row.children[i].contains(active))row.children[i].innerHTML=next.children[i].innerHTML;}
+  else if(row.innerHTML!==next.innerHTML){row.replaceWith(next);existing.set(row.dataset.taskRow,next);next.classList.add('work-row-changed');}
+ }
+ if(!existing.size)body.innerHTML='';
+ if(anchor){
+  // Insert arrivals above the existing rows without moving an edited row's DOM node.
+  // Reordering/removal of that row waits until focus and the action dialog are released.
+  let before=body.firstElementChild;
+  for(const task of desired)if(!existing.has(String(task.id))){const template=document.createElement('template');template.innerHTML=myTaskRow(task);const row=template.content.firstElementChild;body.insertBefore(row,before);existing.set(String(task.id),row);}
+ }else{
+  for(const task of desired){let row=existing.get(String(task.id));if(!row){const template=document.createElement('template');template.innerHTML=myTaskRow(task);row=template.content.firstElementChild;}body.append(row);}
+ }
+ if(!body.querySelector('[data-task-row]'))body.innerHTML='<tr><td colspan="7" class="empty-cell">No current tasks.</td></tr>';
+ patchMyNext();
+ const pages=root.querySelector('[data-my-work-pagination]');if(pages)pages.innerHTML=snapshot.taskPage?.view==='mine'&&snapshot.taskPage.pages>1?pageLinks(snapshot.taskPage):'';
+ if(dialog?.open){const t=observed.get(String(dialog.dataset.taskId)),choice=t&&myTaskChoice(t),stale=!online||!t||!wanted.has(String(t.id))||String(t.assignment_generation)!==dialog.dataset.generation||choice?.label!==dialog.dataset.choice;
+  const warning=dialog.querySelector('[data-my-action-warning]');warning.hidden=!stale;warning.textContent=stale?'This task changed. Keep your note, close these actions and check the latest task before continuing.':'';
+  for(const button of dialog.querySelectorAll('form button:not([type="button"])'))button.disabled=stale;
+ }
+ return anchor?anchor.getBoundingClientRect().top-anchorTop:0;
+}
 let syncing=false;
 let syncDone=Promise.resolve();
 async function sync(){
@@ -320,6 +403,8 @@ root.addEventListener('submit',async e=>{
 });
 root.addEventListener('click',async e=>{
  try{
+  const myMore=e.target.closest('[data-my-actions]');if(myMore){const t=[...snapshot.tasks,...(snapshot.watchedTasks||[])].find(t=>t.id===Number(myMore.dataset.myActions));if(t)myActionDialog(t);return;}
+  if(e.target.closest('[data-my-close]')){root.querySelector('[data-my-work-dialog]')?.close();return;}
   const preview=e.target.closest('[data-view-saved]');if(preview){const f=preview.closest('form'),option=f.elements.duplicateOf.selectedOptions[0];f.querySelector('[data-saved-entry]').textContent=option?.value?option.textContent:'Choose a saved entry to inspect.';return;}
   const countSearch=e.target.closest('[data-search-counts]');if(countSearch){const f=countSearch.closest('form');countSearch.disabled=true;try{const response=await fetch('/api/work/countCandidates?'+new URLSearchParams({reportId:f.elements.reportId.value,q:f.elements.countSearch.value}),{cache:'no-store',signal:AbortSignal.timeout(15000)}),data=await response.json();if(!response.ok)throw new Error(data.error);f._countCandidates=data.counts;f.elements.countCorrectionId.innerHTML='<option value="">Choose a count</option>'+options(data.counts,'id',c=>`${countCandidateLabel(c)} · ${c.lines.map(l=>l.name+': actual '+l.actual+' / difference '+l.difference+' '+l.unit).join('; ')} · reviewed by ${c.reviewer_name||'Unknown'}`);f.querySelector('[data-count-results]').textContent=`${data.counts.length} count corrections found. Select only after checking physical evidence.`;}catch(error){f.querySelector('[data-count-results]').textContent=error.message;}finally{countSearch.disabled=false;}return;}
   const search=e.target.closest('[data-search-history]');if(search){
@@ -373,11 +458,13 @@ async function scanQR(l){
  }catch(error){stop();notice='Camera unavailable. Choose Complete without scanning; no movement has been recorded.';render();}
 }
 window.addEventListener('pagehide',()=>stopCamera?.());
-window.addEventListener('offline',()=>{online=false;connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty)render();else{const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
-const canRefresh=()=>!dirty&&!root.contains(document.activeElement)&&!cameraStream?.active&&!submitting;
+window.addEventListener('offline',()=>{online=false;connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-my-work-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
+const canRefresh=()=>!root.querySelector('[data-my-work-dialog]')?.open&&!dirty&&!root.contains(document.activeElement)&&!cameraStream?.active&&!submitting;
 let monitoring=false,pollDelay=5000;
 function patchLiveRows(){
- const pageTop=window.scrollY,scrolls=[...root.querySelectorAll('.work-table-wrap')].map(el=>[el,el.scrollLeft,el.scrollTop]);
+ const pageTop=window.scrollY,scrolls=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el,el.scrollLeft,el.scrollTop]);
+ let anchorShift=0;
+ if(path==='/work')anchorShift=patchMyWorkRows()||0;else {
  const visible=new Map((snapshot.tasks||[]).map(t=>[String(t.id),t]));
  const observed=new Map([...(snapshot.tasks||[]),...(snapshot.watchedTasks||[])].map(t=>[String(t.id),t]));
  for(const row of root.querySelectorAll('[data-task-row]')){
@@ -393,18 +480,19 @@ function patchLiveRows(){
   }
  }
  const body=root.querySelector('[data-task-table]');if(body){const shown=new Set([...root.querySelectorAll('[data-task-row]')].map(r=>r.dataset.taskRow));for(const [id,task] of visible)if(!shown.has(id)&&shown.size<100){if(!shown.size)body.innerHTML='';body.insertAdjacentHTML('beforeend',taskRow(task));body.lastElementChild.classList.add('work-row-changed');shown.add(id);}}
+ }
  const connection=root.querySelector('.work-connection');if(connection)connection.innerHTML=badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')+`<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString())}</small>`;
  const reviewLink=root.querySelector('.work-views a[href="/pending-confirmations"]');if(reviewLink)reviewLink.textContent='Needs review · '+(snapshot.reviewTotal??0);
  const live=root.querySelector('#work-notice');if(live&&live.dataset.notice!==notice){live.innerHTML=notice?`<p class="work-callout">${esc(notice)}</p>`:'';live.dataset.notice=notice;}
  const warning=root.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=!connectionWarning;}
  const activeCount=root.querySelector('[data-work-active-count]');if(activeCount)activeCount.textContent='Continue working · '+(snapshot.taskCounts?.active??0);
  for(const [href,count] of [['/work/overview',snapshot.taskCounts?.active],['/work/overview?state=needs_assignment',snapshot.taskCounts?.needsAssignment],['/work/overview?state=overdue',snapshot.taskCounts?.overdue]]){const link=root.querySelector(`.task-tabs a[href="${href}"]`);if(link&&count!=null)link.textContent=link.textContent.split(' · ')[0]+' · '+count;}
- for(const [el,x,y] of scrolls){el.scrollLeft=x;el.scrollTop=y;}window.scrollTo({top:pageTop,behavior:'instant'});
+ for(const [el,x,y] of scrolls){el.scrollLeft=x;el.scrollTop=y;}window.scrollTo({top:pageTop+anchorShift,behavior:'instant'});
 }
 async function backgroundRefresh(){
  if(monitoring||submitting||cameraStream?.active)return;monitoring=true;
  try{await sync();pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
-  const positions=[...root.querySelectorAll('.work-table-wrap')].map(el=>[el.scrollLeft,el.scrollTop]);const top=window.scrollY;render();[...root.querySelectorAll('.work-table-wrap')].forEach((el,i)=>{if(positions[i]){el.scrollLeft=positions[i][0];el.scrollTop=positions[i][1];}});window.scrollTo({top,behavior:'instant'});
+  const positions=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el.scrollLeft,el.scrollTop]);const top=window.scrollY;render();[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].forEach((el,i)=>{if(positions[i]){el.scrollLeft=positions[i][0];el.scrollTop=positions[i][1];}});window.scrollTo({top,behavior:'instant'});
  }else patchLiveRows();}finally{monitoring=false;}
 }
 window.addEventListener('online',backgroundRefresh);

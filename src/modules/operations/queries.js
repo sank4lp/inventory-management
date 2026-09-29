@@ -20,8 +20,12 @@ export function taskSelection(db,user,input={}) {
   if(input.date){where.push('date(t.started_at)>=date(?)');params.push(input.date);}
   const total=db.prepare(`SELECT COUNT(*) n FROM tasks t WHERE ${where.join(' AND ')}`).get(...params).n;
   const pages=Math.max(1,Math.ceil(total/100)),page=Math.min(pageNumber(input.page),pages);
-  const rows=db.prepare(`SELECT t.id FROM tasks t WHERE ${where.join(' AND ')} ORDER BY CASE WHEN ${closed} THEN 1 ELSE 0 END,CASE WHEN ${overdue} THEN 0 ELSE 1 END,t.id DESC LIMIT 100 OFFSET ?`).all(...params,(page-1)*100);
-  return {ids:rows.map(r=>r.id),page:{number:page,pages,total,limit:100,view,state},counts};
+  // My work displays new assignments first; execution priority uses original creation time.
+  // tasks.started_at is the immutable creation timestamp, unlike assigned_at on reassignment.
+  const order=view==='mine'?"COALESCE(julianday(t.assigned_at),julianday(t.started_at)) DESC,t.id DESC":`CASE WHEN ${closed} THEN 1 ELSE 0 END,CASE WHEN ${overdue} THEN 0 ELSE 1 END,t.id DESC`;
+  const rows=db.prepare(`SELECT t.id FROM tasks t WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 100 OFFSET ?`).all(...params,(page-1)*100);
+  const priority=view==='mine'&&can(user,'work.execute')?db.prepare(`SELECT t.id,t.started_at AS createdAt,(SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) AS productName FROM tasks t WHERE t.workflow_version=2 AND t.assignee_id=? AND t.completed_at IS NULL AND t.attention=0 AND t.outcome='open' AND t.assignment_state IN ('offered','started','legacy') AND EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=t.id AND l.execution_state IN ('ready','working')) AND NOT EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=t.id AND r.status IN ('review','received')) ORDER BY julianday(t.started_at),t.id LIMIT 1`).get(user.id)||null:null;
+  return {priority,ids:rows.map(r=>r.id),page:{number:page,pages,total,limit:100,view,state},counts};
 }
 export function reviewSelection(db,user,input={}) {
   if(!can(user,'review.view'))return {rows:[],page:{number:1,pages:1,total:0,limit:100},total:0};
