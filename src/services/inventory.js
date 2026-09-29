@@ -1941,8 +1941,10 @@ function detachCellsForManualOperation(db, cellIds) {
   return { detached, removed };
 }
 
-export function createCell(db, { logicalCode, capacity = 12, createdBy = null } = {}) {
+export function createCell(db, { logicalCode, capacity = 12, createdBy = null, travelInstructions } = {}) {
   const code = normalizeLogicalCode(logicalCode);
+  const details=travelInstructions==null?null:String(travelInstructions).trim();
+  if(details!=null&&details.length>1000)throw new Error('Shed / shelf details must be at most 1000 characters.');
   const cellCapacity = Number(capacity || 12);
   if (!Number.isFinite(cellCapacity) || cellCapacity <= 0) {
     throw new Error("Cell capacity must be a positive number.");
@@ -1962,6 +1964,7 @@ export function createCell(db, { logicalCode, capacity = 12, createdBy = null } 
           WHERE id = ?
         `,
       ).run(cellCapacity, createdBy, existing.id);
+      if(details)db.prepare('UPDATE cells SET travel_instructions=?,description_revision=description_revision+1 WHERE id=?').run(details,existing.id);
       return db.prepare("SELECT * FROM cells WHERE id = ?").get(existing.id);
     }
     throw new Error("A cell with this name already exists.");
@@ -1980,6 +1983,7 @@ export function createCell(db, { logicalCode, capacity = 12, createdBy = null } 
     )
     .run(code, zoneId, cellCapacity, createdBy);
 
+  if(details)db.prepare('UPDATE cells SET travel_instructions=? WHERE id=?').run(details,Number(result.lastInsertRowid));
   return db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(result.lastInsertRowid));
 }
 

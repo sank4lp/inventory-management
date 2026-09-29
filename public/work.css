@@ -99,3 +99,28 @@
 #work-app .task-primary-actions form{margin:0;padding:0;border:0;gap:8px}
 #work-app .task-primary-actions :is(a,button,summary){min-height:44px}
 #work-app .task-primary-actions details{margin-top:0}
+
+/* Returned work keeps stock facts and actions together, with horizontal scrolling on phones. */
+.returned-work { margin: 1.5rem 0; }
+.returned-work-table { min-width: 1120px; width: 100%; }
+.returned-work-table td { vertical-align: top; }
+.return-note { min-width: 180px; max-width: 280px; overflow-wrap: anywhere; }
+.return-actions { min-width: 170px; }
+.return-actions button, .return-actions a { margin: .2rem 0; }
+.return-actions form { margin: 0; }
+.task-edit-dialog { width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; box-sizing: border-box; }
+.task-edit-dialog form { display: grid; gap: 12px; }
+.task-edit-dialog label { min-width: 0; }
+.task-edit-dialog input, .task-edit-dialog select { width: 100%; box-sizing: border-box; }
+.task-edit-dialog input[type=checkbox] { width: auto; }
+.task-edit-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.task-edit-dialog > button { margin-top: 12px; }
+.work-queue td { vertical-align: top; }
+.task-edit-dialog table { min-width: 0; width: 100%; table-layout: fixed; }
+.task-edit-dialog td, .task-edit-dialog th { white-space: normal; overflow-wrap: anywhere; padding: 10px 8px; }
+#work-app .returned-work-table td, #work-app .returned-work-table th { min-width: 0; padding: 10px 12px; }
+#work-app .returned-work-table .return-actions { min-width: 280px; }
+#work-app .return-actions form { display: inline-flex; vertical-align: top; margin: 0 6px 0 0; padding: 0; border: 0; background: none; gap: 0; }
+#work-app .return-actions button { min-height: 44px; width: auto; padding: 8px 12px; margin: 0; }
+#work-app .return-actions a, #work-app .return-actions > span { display: block; margin-top: 6px; }
+#work-app .task-edit-dialog > [data-task-dialog-close] { display: block; margin: 16px 0 0; }

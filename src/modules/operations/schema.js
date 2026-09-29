@@ -10,6 +10,8 @@ export function migrateOperations(db) {
   add("users", "session_version", "INTEGER NOT NULL DEFAULT 1");
   add("tasks", "workflow_version", "INTEGER NOT NULL DEFAULT 1");
   add("tasks", "plan_revision", "INTEGER NOT NULL DEFAULT 1");
+  add("tasks", "review_followup", "INTEGER NOT NULL DEFAULT 0");
+  add("tasks", "review_handover_verified", "INTEGER NOT NULL DEFAULT 0");
   add("tasks", "attention", "INTEGER NOT NULL DEFAULT 0");
   add("task_lines", "revision", "INTEGER NOT NULL DEFAULT 1");
   add("task_lines", "execution_state", "TEXT NOT NULL DEFAULT 'legacy'");
@@ -111,6 +113,10 @@ function migrateWorkflowContracts(db, add) {
       id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), actor_id INTEGER NOT NULL REFERENCES users(id),
       event_type TEXT NOT NULL, generation INTEGER NOT NULL, previous_assignee INTEGER REFERENCES users(id),
       assignee_id INTEGER REFERENCES users(id), payload TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS work_return_acknowledgements (
+      return_event_id INTEGER PRIMARY KEY REFERENCES task_assignment_events(id),
+      actor_id INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS work_instruction_history (
       line_id INTEGER NOT NULL REFERENCES task_lines(id), revision INTEGER NOT NULL, assignee_id INTEGER REFERENCES users(id),

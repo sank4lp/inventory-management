@@ -373,7 +373,7 @@ export function createLocationPages({ db }) {
         ${can(user,'locations.manage')?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
           <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="descriptionRevision" value="${describeLocation(db,cell.id).descriptionRevision}">
           <label>Location name<input name="displayName" maxlength="160" value="${escapeHtml(cell.display_name||'')}"></label>
-          <label>Travel instructions<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second shelf on the left"></label>
+          <label>Shed / shelf details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second shelf on the left"></label>
           <p>The cell code, QR and stock history stay unchanged. </p><button>Save directions</button></form>`):''}
       `,
     });
@@ -574,6 +574,7 @@ export function createLocationPages({ db }) {
               required
             />
           </label>
+          <label>Shed / shelf details (optional)<input name="travelInstructions" maxlength="1000" placeholder="Shed A, second shelf on the left"></label>
           <button type="submit" class="ghost-button">Add Location</button>
         </form>
         ${
@@ -599,6 +600,13 @@ export function createLocationPages({ db }) {
                           required
                         />
                         <button type="submit" class="ghost-button">Rename</button>
+                      </form>
+                      <form method="post" action="/cells/${cell.id}/directions" class="inline-form">
+                        <input type="hidden" name="requestId" value="${randomUUID()}">
+                        <input type="hidden" name="descriptionRevision" value="${cell.description_revision}">
+                        <input type="hidden" name="displayName" value="${escapeHtml(cell.display_name||'')}">
+                        <label>Shed / shelf details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}"></label>
+                        <button type="submit" class="ghost-button">Save details</button>
                       </form>
                     `,
                     cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Unmapped</span>`,

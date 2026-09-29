@@ -2133,6 +2133,7 @@ export const requestHandler = async (request, response) => {
       const cell = locationService.createCell({
         actor:user,
         logicalCode: form.logical_code,
+        travelInstructions: form.travelInstructions,
         createdBy: user.id,
       });
       const backupResult = createCriticalBackup("cell-created");

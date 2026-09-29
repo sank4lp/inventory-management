@@ -34,6 +34,7 @@ export function reviewSelection(db,user,input={}) {
   const joins='FROM work_reports r JOIN products p ON p.id=r.product_id JOIN cells c ON c.id=r.cell_id LEFT JOIN users u ON u.id=r.performer_id JOIN users reporter ON reporter.id=r.reporter_id LEFT JOIN task_lines l ON l.id=r.line_id LEFT JOIN tasks t ON t.id=l.task_id LEFT JOIN users a ON a.id=t.assignee_id';
   const total=db.prepare("SELECT COUNT(*) n FROM work_reports WHERE status IN ('review','received')").get().n;
   for(const [key,column] of [['assigned','t.assignee_id'],['performed','r.performer_id']])if(input[key]){if(input[key]==='unknown')where.push(column+' IS NULL');else{where.push(column+'=?');params.push(Number(input[key]));}}
+  if(input.reportId){where.push('r.id=?');params.push(String(input.reportId));}
   const filtered=db.prepare(`SELECT COUNT(*) n ${joins} WHERE ${where.join(' AND ')}`).get(...params).n;
   const pages=Math.max(1,Math.ceil(filtered/100)),page=Math.min(pageNumber(input.reviewPage),pages);
   const order=input.group==='assigned'?"COALESCE(a.name,'Unassigned'),t.assignee_id,":input.group==='performed'?"COALESCE(u.name,'Unknown'),r.performer_id,":'';
@@ -44,4 +45,14 @@ export function reviewSelection(db,user,input={}) {
 }
 export function workloads(db) {
   return db.prepare(`SELECT u.id,COUNT(t.id) open,SUM(EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=t.id AND l.execution_state='working')) inProgress,SUM(${overdue}) overdue,SUM(t.attention=1) review FROM users u LEFT JOIN tasks t ON t.assignee_id=u.id AND t.workflow_version=2 AND NOT (${closed}) GROUP BY u.id`).all();
+}
+
+// Assignment-only delegates see their existing task scope; team access is explicit.
+export function returnedSelection(db,user,input={}) {
+  if(!can(user,'work.assign')&&!can(user,'work.team'))return {ids:[],page:{number:1,pages:1,total:0,limit:100}};
+  const where=["t.workflow_version=2","((t.assignment_state='returned' AND t.stop_requested=0 AND t.completed_at IS NULL) OR t.attention=1)"],params=[];
+  if(!can(user,'work.team')){where.push('(t.created_by=? OR EXISTS(SELECT 1 FROM task_assignment_events e WHERE e.task_id=t.id AND (e.assignee_id=? OR e.previous_assignee=?)))');params.push(user.id,user.id,user.id);}
+  const total=db.prepare(`SELECT COUNT(*) n FROM tasks t WHERE ${where.join(' AND ')}`).get(...params).n;
+  const pages=Math.max(1,Math.ceil(total/100)),number=Math.min(pageNumber(input.returnedPage),pages);
+  return {ids:db.prepare(`SELECT t.id FROM tasks t WHERE ${where.join(' AND ')} ORDER BY (SELECT MAX(e.id) FROM task_assignment_events e WHERE e.task_id=t.id AND e.event_type='returned') DESC,t.id DESC LIMIT 100 OFFSET ?`).all(...params,(number-1)*100).map(r=>r.id),page:{number,pages,total,limit:100}};
 }
