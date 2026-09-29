@@ -315,7 +315,55 @@ function myActionDialog(t){
  restoreDrafts();d.showModal();
 }
 function matchingProducts(query,selected){const term=String(query||'').trim().toLowerCase();return (snapshot.products||[]).filter(p=>String(p.id)===String(selected)||!term||`${p.name} ${p.sku}`.toLowerCase().includes(term));}
-function productPicker(selected=''){return input('productSearch','Find product by name or code','search','data-product-search autocomplete="off"')+`<label>Product<select name="productId" required><option value="">Choose a product</option>${options(snapshot.products,'id',p=>`${p.name} · ${p.sku} (${p.unit_of_measure})`,selected)}</select></label><p class="work-help" data-product-unit aria-live="polite"></p>`;}
+function productPicker(selected='',searchable=true){return (searchable?input('productSearch','Find product by name or code','search','data-product-search autocomplete="off"'):'')+`<div class="work-product-field"><label>Product<select name="productId" required><option value="">Choose a product</option>${options(snapshot.products,'id',p=>`${p.name} · ${p.sku} (${p.unit_of_measure})`,selected)}</select></label><div class="product-stock" data-product-stock hidden><div data-stock-status role="status" aria-live="polite"></div><div data-stock-details></div></div></div>${searchable?'<p class="work-help" data-product-unit aria-live="polite"></p>':''}`;}
+// In-memory advisory reads only. Never persisted as a current stock figure or used to authorize a plan.
+const productStockReads=new Map();
+const stockRights=()=>['view','pick','put','assign','teamView'].map(p=>Number(allowed(p))).join('');
+const stockReadKey=productId=>`${key()}:${snapshot.dataset}:${stockRights()}:${productId}`;
+function stockSummaryHtml(s,direction){
+ const q=n=>esc(Number(n).toLocaleString(undefined,{maximumFractionDigits:6})),unit=esc(s.unit);
+ return `[Recorded ${q(s.recorded)} · Pick reserved ${q(s.pickReserved)} · Available ${q(s.availableToPick)} · Incoming ${q(s.incomingReserved)}${direction==='put'?' · Put space '+q(s.putCapacity):''} ${unit}]`;
+}
+function stockDetailsHtml(s){
+ const reservations=s.reservations.length?'<ul>'+s.reservations.map(r=>`<li><a href="/tasks/${Number(r.taskId)}">Task #${Number(r.taskId)}</a> · ${r.kind==='pick'?'Pick reserved':'Incoming put'} ${esc(r.quantity)} ${esc(r.unit)} · ${esc(r.location)}${s.detailScope==='team'?' · '+esc(r.assignee||'Unassigned'):''}${r.attention?' · Needs check':''}</li>`).join('')+'</ul>':'<p>No reservations visible in your scope.</p>';
+ return `<details data-disclosure="product-stock-details"><summary>${esc(s.reservationCount)} location reservations · details</summary>${reservations}${s.moreReservations?'<p>First 100 reservations shown. See task history for more.</p>':''}${s.detailScope==='own'?'<p>Only your tasks shown. Totals include all reservations.</p>':''}${s.unavailableUnreserved?`<p>${esc(s.unavailableUnreserved)} ${esc(s.unit)} unreserved but unavailable: inactive locations or checks outstanding.</p>`:''}<details class="stock-definitions"><summary>What do these figures mean?</summary><p>All figures in ${esc(s.unit)}. Recorded stock includes pick reservations. Available means unreserved stock in usable locations without outstanding checks; a busy location may still require a turn. Incoming Put is not yet on hand. Put space is compatible free capacity after incoming reservations. The warehouse checks again when you submit.</p><p>Open a task to inspect, stop untouched work or reassign it where permitted. Started work needs quantity review before changes.</p></details></details>`;
+}
+function paintProductStock(f){
+ const box=f.querySelector('[data-product-stock]');if(!box)return;
+ const id=f.elements.productId?.value,eligible=['create','assign'].includes(f.dataset.workAction)&&allowed('view')&&['pick','put','assign'].some(allowed);box.hidden=!id||!eligible;if(box.hidden){box.querySelector('[data-stock-status]').textContent='';box.querySelector('[data-stock-details]').innerHTML='';box._stockPaint=null;return;}
+ const state=productStockReads.get(stockReadKey(id)),status=box.querySelector('[data-stock-status]'),details=box.querySelector('[data-stock-details]');
+ const signature=`${stockReadKey(id)}:${online}:${state?.version}:${state?.status}:${f.elements.direction?.value}`;if(box._stockPaint===signature)return;box._stockPaint=signature;
+ box._stockOpen=details.querySelector('details')?.open??box._stockOpen??false;
+ const loading=online&&state?.status==='loading';status.setAttribute('aria-busy',String(loading));
+ if(!online){status.textContent='[Offline · reconnect for current stock]';details.innerHTML='';return;}
+ if(loading){status.innerHTML='<span class="stock-spinner" aria-hidden="true"></span> [Loading current stock…]';details.innerHTML='';return;}
+ if(!state||state.status==='error'){status.innerHTML='[Stock unavailable] <button type="button" class="text-button" data-stock-retry>Retry stock check</button>';details.innerHTML='';return;}
+ status.innerHTML=stockSummaryHtml(state.data,f.elements.direction?.value)+` <small>Checked ${esc(new Date(state.data.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}))}</small>`;
+ details.innerHTML=stockDetailsHtml(state.data);details.querySelector('details').open=box._stockOpen;
+}
+async function loadProductStock(productId,force=false){
+ const requestKey=stockReadKey(productId),previous=productStockReads.get(requestKey);
+ if(!force&&previous?.status==='loading')return previous.promise;
+ if(!force&&previous&&Date.now()-previous.at<30000)return;
+ const identity={site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id};
+ const state={status:'loading',version:(previous?.version||0)+1,at:Date.now()};productStockReads.set(requestKey,state);
+ state.promise=(async()=>{
+  try{
+   const response=await fetch('/api/work/productStock?productId='+encodeURIComponent(productId),{headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(15000)});
+   if(!response.ok)throw new Error('Stock check failed');const data=await response.json();
+   if(data.detailScope==='team'&&!allowed('teamView'))throw new Error('Stock permissions changed');
+   if(data.site!==identity.site||data.dataset!==identity.dataset||data.actorId!==identity.actorId||String(data.productId)!==String(productId))throw new Error('Stock identity changed');
+   state.data=data;state.status='ready';
+  }catch{state.status='error';}finally{state.at=Date.now();if(productStockReads.get(requestKey)!==state)return;for(const f of root.querySelectorAll('form[data-work-action]'))paintProductStock(f);}
+ })();return state.promise;
+}
+function refreshProductStocks(force=false,onlyForm=null){
+ for(const f of onlyForm?[onlyForm]:root.querySelectorAll('form[data-work-action]')){
+  if(!['create','assign'].includes(f.dataset.workAction)||!f.querySelector('[data-product-stock]'))continue;
+  if(!allowed('view')||!['pick','put','assign'].some(allowed)){paintProductStock(f);continue;}
+  const id=f.elements.productId?.value;if(online&&id)void loadProductStock(id,force);paintProductStock(f);
+ }
+}
 function updateProductPicker(f){
  const select=f.elements.productId,search=f.elements.productSearch;if(!select||!search)return;
  const chosen=select.value,query=search.value,products=matchingProducts(query,chosen);
@@ -356,7 +404,7 @@ function assignmentPage(){
  const users=snapshot.operators||[],products=snapshot.products||[],direction=allowed('pick')?'pick':'put';
  const unavailable=!allowed('pick')&&!allowed('put')?'Your role cannot create Pick or Put work.':!products.length?'No active products available.':!users.some(u=>u.eligible)?'No users are eligible to execute work.':'';
  const toggle='<fieldset class="assignment-direction"><legend>Action</legend>'+['pick','put'].map(d=>`<label><input type="radio" name="direction" value="${d}" ${d===direction?'checked':''} ${allowed(d)?'':'disabled'}><span>${d==='pick'?'Pick':'Put'}</span></label>`).join('')+'</fieldset>';
- const product=`<label>Product<select name="productId" required><option value="">Choose product</option>${options(products,'id',p=>p.name+' · '+p.sku+' ('+p.unit_of_measure+')')}</select></label>`;
+ const product=productPicker('',false);
  const people=`<label>Assigned to<select name="assigneeId" required><option value="">Choose person</option>${users.map(u=>`<option value="${u.id}" ${u.eligible?'':'disabled'}>${esc(u.name+' · '+u.username+(!u.eligible?(u.status!=='active'?' — Inactive':' — Cannot take tasks'):''))}</option>`).join('')}</select></label>`;
  return `<section class="work-panel assignment-panel">${form('assign',toggle+product+input('quantity','Quantity','number','min="0.000001" max="1000000000" step="0.000001" inputmode="decimal" required')+people+'<div class="assignment-duration">'+input('dueDuration','Due in','number','min="0.016666666666666666" max="8760" step="any" inputmode="decimal" required value="8"')+'<label>Unit<select name="dueUnit"><option value="minutes">Minutes</option><option value="hours" selected>Hours</option><option value="days">Days</option></select></label></div>'+ (unavailable?'<p class="work-callout warning">'+esc(unavailable)+'</p>':'')+`<button ${unavailable||assignmentPending()||!online?'disabled':''}>${assignmentPending()?'Waiting for warehouse confirmation':'Assign Task'}</button>`,'data-assignment-form')} </section>`;
 }
@@ -439,6 +487,8 @@ function render(){
  restoreDrafts();
  for(const f of root.querySelectorAll('form[data-work-action]')){updateProductPicker(f);updateRecoveryLink(f);updateTimingFields(f);updateAssignmentForm(f);}
  if(typeof location!=='undefined'&&new URLSearchParams(location.search).has('device_help'))for(const name of ['my-work-tools','device-recovery'])root.querySelector('[data-disclosure="'+name+'"]')?.setAttribute('open','');
+ for(const box of root.querySelectorAll('[data-product-stock]'))box._stockOpen=disclosures.get('product-stock-details')||false;
+ refreshProductStocks();
  for(const d of root.querySelectorAll('details[data-disclosure]'))if(disclosures.has(d.dataset.disclosure))d.open=disclosures.get(d.dataset.disclosure);
  for(const f of root.querySelectorAll('form[data-work-action]'))updateVerificationFields(f);
 
@@ -529,7 +579,7 @@ root.addEventListener('input',e=>{
  const search=e.target.matches('[data-operator-search]')?'assigneeId':e.target.matches('[data-movement-search]')?'duplicateOf':e.target.matches('[data-count-search]')?'countCorrectionId':e.target.matches('[data-people-search]')?e.target.dataset.peopleSearch:null;
  if(search&&f?.elements[search])for(const option of f.elements[search].options)option.hidden=Boolean(option.value)&&!option.textContent.toLowerCase().includes(e.target.value.toLowerCase());
 });
-root.addEventListener('change',e=>{const changedForm=e.target.closest('form');if(changedForm){if(e.target.name==='changeDue')updateReturnedDue(changedForm);updateRecoveryLink(changedForm);updateAssignmentForm(changedForm);if(e.target.name==='verification')updateVerificationFields(changedForm);if(e.target.name==='timeUnit')updateTimingFields(changedForm,true);}if(e.target.name==='productId')updateProductPicker(e.target.closest('form'));if(e.target.name==='countCorrectionId'){const f=e.target.closest('form'),r=snapshot.pending.find(r=>r.id===f.elements.reportId?.value),candidate=(f._countCandidates||[r?.countEvidence]).find(c=>c&&String(c.id)===e.target.value);if(r)f.querySelector('[data-count-sequence]').textContent=countSequence(candidate,r);}dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{});});
+root.addEventListener('change',e=>{const changedForm=e.target.closest('form');if(changedForm){if(e.target.name==='changeDue')updateReturnedDue(changedForm);updateRecoveryLink(changedForm);updateAssignmentForm(changedForm);if(e.target.name==='verification')updateVerificationFields(changedForm);if(e.target.name==='timeUnit')updateTimingFields(changedForm,true);}if(e.target.name==='productId'){updateProductPicker(e.target.closest('form'));refreshProductStocks(true,e.target.closest('form'));}else if(e.target.name==='direction')refreshProductStocks(true,e.target.closest('form'));if(e.target.name==='countCorrectionId'){const f=e.target.closest('form'),r=snapshot.pending.find(r=>r.id===f.elements.reportId?.value),candidate=(f._countCandidates||[r?.countEvidence]).find(c=>c&&String(c.id)===e.target.value);if(r)f.querySelector('[data-count-sequence]').textContent=countSequence(candidate,r);}dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{});});
 let submitting=false;
 root.addEventListener('submit',async e=>{
  const f=e.target.closest('form[data-work-action]');if(!f)return;e.preventDefault();if(submitting)return;submitting=true;
@@ -572,6 +622,7 @@ root.addEventListener('submit',async e=>{
 });
 root.addEventListener('click',async e=>{
  try{
+  const stockRetry=e.target.closest('[data-stock-retry]');if(stockRetry){refreshProductStocks(true,stockRetry.closest('form'));return;}
   const nextLocation=e.target.closest('[data-active-location]');if(nextLocation){const t=snapshot.tasks.find(t=>t.id===Number(path.split('/')[2]));if(workActive(t)){e.preventDefault();window.history.pushState({},'',nextLocation.getAttribute('href'));render();return;}}
   if(e.target.closest('[data-refresh-guidance]')){await refreshActiveLight();return;}
   const retryActivation=e.target.closest('[data-retry-activation]');if(retryActivation){if(submitting)return;submitting=true;try{const o=outbox.find(o=>o.id===retryActivation.dataset.retryActivation&&o.partition===key());if(o)await deliverActivation(o);}finally{submitting=false;}return;}
@@ -633,11 +684,11 @@ async function scanQR(l){
 }
 window.addEventListener('pagehide',()=>stopCamera?.());
 window.addEventListener('popstate',()=>{activeWork=null;location.reload();});
-window.addEventListener('offline',()=>{online=false;patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
+window.addEventListener('offline',()=>{online=false;productStockReads.clear();refreshProductStocks();patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
 const canRefresh=()=>!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open&&!dirty&&!root.contains(document.activeElement)&&!cameraStream?.active&&!submitting;
 let monitoring=false,pollDelay=5000;
 function patchLiveRows(){
- patchGuidanceHints();patchReturnedRows();
+ refreshProductStocks();patchGuidanceHints();patchReturnedRows();
  const pageTop=window.scrollY,scrolls=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el,el.scrollLeft,el.scrollTop]);
  let anchorShift=0;
  if(path==='/work')anchorShift=patchMyWorkRows()||0;else {
@@ -668,7 +719,7 @@ function patchLiveRows(){
 }
 async function backgroundRefresh(){
  if(monitoring||submitting||cameraStream?.active)return;monitoring=true;
- try{await sync();pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
+ try{const wasOffline=!online;await sync();if(wasOffline&&online)refreshProductStocks(true);pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
   const positions=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el.scrollLeft,el.scrollTop]);const top=window.scrollY;render();[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].forEach((el,i)=>{if(positions[i]){el.scrollLeft=positions[i][0];el.scrollTop=positions[i][1];}});window.scrollTo({top,behavior:'instant'});
  }else patchLiveRows();}finally{monitoring=false;}
 }

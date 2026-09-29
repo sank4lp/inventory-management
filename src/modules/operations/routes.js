@@ -15,6 +15,7 @@ export async function operationsRoutes(request,response,url,user,state) {
     if (!ensureApiAuth(response,user)) return true;
     const action=url.pathname.slice('/api/work/'.length);
     if(request.method==='GET' && action==='snapshot') {const data=work.snapshot(user,Object.fromEntries(url.searchParams));const taskId=Number(url.searchParams.get('taskId'));if(taskId&&data.capabilities.view&&!data.tasks.some(t=>t.id===taskId)){const task=work.task(user,taskId);if(task)data.tasks.unshift(task);}sendJson(response,data);}
+    else if(request.method==='GET' && action==='productStock') sendJson(response,work.productStock(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='countCandidates') sendJson(response,{counts:work.countCandidates(user,Object.fromEntries(url.searchParams))});
     else if(request.method==='GET' && action==='movements') sendJson(response,{movements:work.searchMovements(user,Object.fromEntries(url.searchParams))});
     else if(request.method==='POST') sendJson(response,work.command(user,action,request.parsedForm));

@@ -891,6 +891,36 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     result.overdue_minutes=result.overdue?Math.floor((time-due)/60000):0;
     return result;
   }
+  // Advisory planning read: no reconciliation, reservations, receipts or hardware delivery.
+  function productStock(actor,query={}) {
+    const current=actorNow(actor,'work.view');
+    if(!['work.pick','work.put','work.assign'].some(p=>can(current,p)))throw new Error('Product planning is not available for your role.');
+    const product=db.prepare('SELECT id,unit_of_measure,items_per_cell FROM products WHERE id=? AND active=1').get(Number(query.productId));
+    if(!product)throw new Error('Choose an active product.');
+    const cells=db.prepare('SELECT id,active FROM cells').all();
+    let recorded=0,pickReserved=0,incomingReserved=0,availableToPick=0,putCapacity=0,unavailableUnreserved=0;
+    for(const cell of cells){
+      const stock=balance(product.id,cell.id),pick=held(cell.id,product.id,'pick'),incoming=held(cell.id,product.id,'put');
+      recorded+=stock;pickReserved+=pick;incomingReserved+=incoming;
+      const free=Math.max(0,rounded(stock-pick));
+      const blocked=!cell.active||controlledCell(db,cell.id)
+        ||db.prepare('SELECT 1 FROM work_discrepancies WHERE cell_id=? AND product_id=?').get(cell.id,product.id)
+        ||db.prepare("SELECT 1 FROM work_reports WHERE cell_id=? AND product_id=? AND status IN ('review','received')").get(cell.id,product.id)
+        ||db.prepare('SELECT 1 FROM cell_turns WHERE cell_id=? AND uncertain=1').get(cell.id);
+      if(blocked){unavailableUnreserved+=free;continue;}
+      availableToPick+=free;
+      if(compatible(cell.id,product.id))putCapacity+=Math.max(0,rounded(product.items_per_cell-occupancy(cell.id)-held(cell.id,null,'put')));
+    }
+    const team=can(current,'work.team');
+    const total=db.prepare("SELECT COUNT(*) n FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE r.state='held' AND l.product_id=?").get(product.id).n;
+    const visible=db.prepare(`SELECT r.kind,r.quantity,l.unit_of_measure AS unit,l.task_id AS taskId,c.logical_code AS location,t.assignment_state AS assignmentState,t.attention,
+      u.name AS assignee FROM work_reservations r JOIN task_lines l ON l.id=r.line_id JOIN tasks t ON t.id=l.task_id
+      JOIN cells c ON c.id=l.cell_id LEFT JOIN users u ON u.id=t.assignee_id
+      WHERE r.state='held' AND l.product_id=? AND (? OR t.assignee_id=?) ORDER BY t.id DESC,l.id LIMIT 101`).all(product.id,Number(team),current.id);
+    return {...identity(),actorId:current.id,productId:product.id,unit:product.unit_of_measure,generatedAt:now(),
+      recorded:rounded(recorded),pickReserved:rounded(pickReserved),incomingReserved:rounded(incomingReserved),availableToPick:rounded(availableToPick),putCapacity:rounded(putCapacity),unavailableUnreserved:rounded(unavailableUnreserved),
+      reservationCount:total,reservations:visible.slice(0,100),moreReservations:visible.length>100,detailScope:team?'team':'own'};
+  }
   function snapshot(actor,query={}) {
     const current=actorNow(actor);
     if(query.view==='assign')assertCan(current,'work.assign');
@@ -951,5 +981,5 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       AND (?='' OR instr(lower(r.origin_ref||' '||r.id||' '||r.created_at||' '||COALESCE(u.name,'')||' '||r.quantity),lower(?))>0)
       ORDER BY r.created_at DESC,r.id LIMIT 100`).all(report.product_id,report.cell_id,report.direction,query,query);
   }
-  return { command, task, snapshot, identity, actorNow, line, held, flushGuidance, flagInactivity, searchMovements, countCandidates };
+  return { command, task, snapshot, identity, actorNow, line, held, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock };
 }

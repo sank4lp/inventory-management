@@ -124,3 +124,15 @@
 #work-app .return-actions button { min-height: 44px; width: auto; padding: 8px 12px; margin: 0; }
 #work-app .return-actions a, #work-app .return-actions > span { display: block; margin-top: 6px; }
 #work-app .task-edit-dialog > [data-task-dialog-close] { display: block; margin: 16px 0 0; }
+
+/* Stock context stays within the product field, leaving the form's control columns intact. */
+.work-product-field{min-width:0}.work-product-field>label{margin-bottom:6px!important}
+.product-stock{font-size:12px;line-height:1.5;color:var(--work-muted);margin:0 0 14px;overflow-wrap:anywhere}
+.product-stock[hidden]{display:none}.product-stock small{display:block}.product-stock details{margin-top:4px}
+.product-stock summary{cursor:pointer;text-decoration:underline;text-underline-offset:3px}.product-stock p{font-size:12px;margin:8px 0}
+.product-stock ul{margin:8px 0;padding-left:18px}.product-stock li{margin:5px 0}.product-stock .text-button{font-size:12px;min-height:32px;padding:3px 6px}
+.stock-spinner{display:inline-block;width:12px;height:12px;border:2px solid #c4d4ce;border-top-color:var(--work-accent,#285f50);border-radius:50%;vertical-align:-2px;margin-right:4px;animation:stock-spin .7s linear infinite}
+@keyframes stock-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.stock-spinner{animation:none;border-style:dotted}}
+#work-app .product-stock details{border:0;margin-top:4px;padding-top:0}
+#work-app .product-stock summary{font-size:12px;font-weight:500;min-height:32px;padding:3px 0;align-content:center}
