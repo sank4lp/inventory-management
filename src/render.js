@@ -167,6 +167,7 @@ export function page({ title, user, flash, content }) {
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/work.css" />
     <link rel="stylesheet" href="/responsive.css" />
+    <script type="module" src="/client/searchable-select.js"></script>
     <script type="module" src="/app.js"></script>
     ${user ? '<script type="module" src="/client/work-outbox-status.js"></script><script type="module" src="/client/stocktake-status.js"></script>' : ''}
     <script type="module" src="/client/mobile-nav.js"></script>

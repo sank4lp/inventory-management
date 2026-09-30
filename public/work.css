@@ -146,3 +146,17 @@
 .task-bottom-actions{display:flex;flex-wrap:wrap;gap:10px;padding:20px 0}.task-bottom-actions button{flex:1;min-width:150px}
 #work-app .my-work-table{min-width:1160px}
 @media(max-width:480px){.task-context{padding:12px}.task-assignee-editor{gap:8px}.task-edit-dialog{padding:16px}}
+
+/* One visible search/selection field; the select retains form values and validation. */
+.searchable-select{position:relative;display:block;min-width:0;width:100%;font-weight:400}
+.searchable-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none;overflow:hidden;padding:0!important;border:0!important}
+.searchable-select .searchable-input{width:100%;min-width:0;padding-right:44px;margin:0;min-height:46px}
+#work-app .searchable-select .searchable-toggle,.searchable-select .searchable-toggle{position:absolute;right:2px;top:2px;width:40px;min-height:42px;height:42px;margin:0;padding:0;border:0;background:transparent;color:var(--text,#173f34);box-shadow:none}
+.searchable-input:focus-visible{outline:3px solid #80bdac;outline-offset:2px}
+.searchable-panel{position:absolute;top:100%;left:0;right:0;z-index:40;background:#fff;color:#173f34;border:1px solid #a8bbb6;border-radius:10px;box-shadow:0 8px 24px #12362d26;max-height:min(300px,40vh);overflow-y:auto;overscroll-behavior:contain;text-align:left;white-space:normal}
+.searchable-panel[hidden]{display:none}
+.searchable-option{display:block;padding:12px;min-height:44px;cursor:pointer;border-bottom:1px solid #e5eeeb;overflow-wrap:anywhere;line-height:1.4}
+.searchable-option:hover,.searchable-option.is-active{background:#e0f0e9}.searchable-option[aria-selected=true]{font-weight:700}
+.searchable-status{display:block;padding:10px 12px;font-size:13px;color:#526761;line-height:1.4}
+
+.searchable-select.opens-up .searchable-panel{top:auto;bottom:100%}
