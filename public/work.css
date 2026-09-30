@@ -191,3 +191,20 @@
  #work-app .task-edit-dialog.check-dialog{padding:14px}
 }
 #work-app .check-workspace label{font-size:14px}
+
+/* Final task movement totals stay distinct from whole-location stock counts. */
+#work-app .closure-movements{min-width:0;width:100%;margin:0;font-size:14px}
+#work-app .closure-movements th,#work-app .closure-movements td{padding:7px 8px;white-space:normal}
+#work-app .closure-choice{border:0;padding:0;margin:10px 0;display:flex;gap:24px;flex-wrap:wrap}
+#work-app .closure-choice legend{font-weight:650;line-height:1.5;margin-bottom:8px;font-size:15px}
+#work-app .closure-choice label{display:flex;align-items:center;gap:8px;min-height:44px}
+#work-app .closure-choice input{width:20px;min-height:20px;margin:0}
+#work-app .task-actual-row{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto;gap:10px;align-items:end;margin:12px 0}
+#work-app .task-actual-row label{min-width:0;margin:0}
+#work-app .actual-quantity-unit{display:flex;align-items:center;gap:8px;min-width:0}
+#work-app .actual-quantity-unit input{min-width:0;width:100%;flex:1}
+#work-app .actual-quantity-unit span{flex:0 0 auto;font-size:14px}
+#work-app .closure-actions{display:flex;gap:10px;margin-top:16px}
+#work-app .closure-actions button{flex:1;min-width:0}
+#work-app [data-custom-actuals][hidden]{display:none}
+@media(max-width:560px){#work-app .task-actual-row{grid-template-columns:minmax(0,1fr)}#work-app .task-actual-row>button{justify-self:start}#work-app .closure-actions button{padding:10px 8px;font-size:14px}}

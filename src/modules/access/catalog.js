@@ -6,7 +6,7 @@ const groups = {
     ['work.pick','Create Pick work',true,['work.view']],
     ['work.put','Create Put work',true,['work.view']],
     ['work.execute','Execute own assignments, start, decline and hand back',true,['work.view']],
-    ['work.stop','Stop own remaining work',true,['work.view']],
+    ['work.stop','Confirm actual totals and close own task',true,['work.view']],
     ['work.correct','Report corrections to own records',true,['work.view']],
     ['work.report','Record earlier physical movement for review',true,['work.view']],
     ['work.assign','Assign and reassign team work',false,['work.view']],

@@ -8,7 +8,7 @@ if(account && !document.querySelector('#work-app')) {
     const read=()=>{
       const tx=db.transaction('outbox'),get=tx.objectStore('outbox').getAll();
       get.onsuccess=()=>{
-        const pending=get.result.filter(o=>o.partition?.endsWith(':'+account)&&['local','sending','error','rejected','review','activation-pending','activation-unknown'].includes(o.state));
+        const pending=get.result.filter(o=>o.partition?.endsWith(':'+account)&&['local','sending','error','rejected','not-applied','activation-pending','activation-unknown'].includes(o.state));
         let strip=document.querySelector('#saved-work-status');
         if(!pending.length){strip?.remove();return;}
         if(!strip){strip=document.createElement('aside');strip.id='saved-work-status';strip.className='work-callout warning';strip.setAttribute('role','status');document.querySelector('main')?.prepend(strip);}

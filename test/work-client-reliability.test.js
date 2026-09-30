@@ -151,3 +151,30 @@ test('check reassignment/stop submission keeps a typed observation and never que
   await handler({target:{closest:()=>form},preventDefault(){}});assert.equal(writes,0);assert.match(feedback.textContent,/Save your observation first/);assert.equal(observation.elements.note.value,'Checked with Sam');assert.equal(observation.elements.quantity.value,'2');
  }
 });
+
+function closureSubmitClient({mode='yes',online=true,reply='recorded'}={}){
+ const c=client(),records=new Map(),sent=[];let handler,renders=0;
+ const values={taskId:'66',generation:'3',progressToken:'p',closureToken:'c',currentStatus:mode,actualCell0:'4',actualQuantity0:'3'};
+ const elements=Object.entries(values).map(([name,value])=>({name,value,type:name==='currentStatus'?'radio':name.startsWith('actual')?'text':'hidden',checked:name==='currentStatus'}));for(const el of elements)elements[el.name]=el;
+ const button={disabled:false},feedback={textContent:'',classList:{add(){}}},row={querySelector:s=>s==='select'?{value:'4'}:{value:'3'}},f={dataset:{workAction:'closeTask',draftKind:'task-closure'},_workIdentity:{site:'test',dataset:'data',actorId:1},_draftPath:'/tasks/66',elements,isConnected:true,querySelector:s=>s==='.form-feedback'?feedback:button,querySelectorAll:s=>s==='[data-actual-row]'?[row]:[],closest:()=>null};
+ c.context.f=f;c.context.records=records;c.context.capture=(name,fn)=>{if(name==='submit')handler=fn;};c.context.FormData=class{constructor(){return Object.entries(values);}};c.context.onRender=()=>renders++;
+ c.context.fetch=async(url,options)=>{sent.push(JSON.parse(options.body));if(reply==='lost')throw new TypeError('Connection lost');return {ok:reply!=='rejected',status:reply==='rejected'?400:200,json:async()=>reply==='rejected'?{error:'Actual totals conflict. Send for review.'}:{status:reply,message:reply==='review'?'Sent for review':'Task closed',closed:reply==='recorded',taskId:66}};};
+ c.run(`root.addEventListener=capture;online=${online};snapshot.tasks=[{id:66,assignment_generation:3,assignee_id:1,lines:[{id:7}]}];store=async(name,mode,fn)=>fn({getAll:()=>[...records.values()].filter(r=>r.partition),put:o=>records.set(o.id,o),delete:id=>records.delete(id)});refresh=async()=>{online=true;};render=onRender;`);
+ c.run(source.slice(source.indexOf('let submitting=false;'),source.indexOf("root.addEventListener('click'")));
+ return {...c,records,sent,f,feedback,renders:()=>renders,submit:send=>handler({target:{closest:()=>f},submitter:{hasAttribute:()=>!!send},preventDefault(){}})};
+}
+test('closure success waits for warehouse acceptance; Send for review submits the aggregate action and retains exact final totals',async()=>{
+ for(const send of [false,true]){const c=closureSubmitClient({mode:'no',reply:send?'review':'recorded'});await c.submit(send);assert.equal(c.sent.length,1);const saved=[...c.records.values()].find(o=>o.partition);assert.equal(saved.action,send?'sendTaskReview':'closeTask');assert.equal(saved.state,send?'review':'recorded');assert.deepEqual(JSON.parse(JSON.stringify(saved.input.actuals)),[{cellId:'4',quantity:'3'}]);assert.equal(saved.input.closureToken,'c');assert.equal(saved.input.actorId,1);assert.equal(saved.input.actualQuantity0,undefined);assert.equal(c.run('drafts.has(draftKey(f))'),false);assert.equal(c.renders(),1);}
+});
+test('rejected closure keeps editable actual draft and actionable error without reporting closed',async()=>{
+ const c=closureSubmitClient({mode:'no',reply:'rejected'});await c.submit();assert.equal(c.run('drafts.get(draftKey(f))._actuals[0].quantity'),'3');assert.match(c.feedback.textContent,/Send for review/);assert.equal(c.renders(),0);assert.equal([...c.records.values()].find(o=>o.partition).state,'not-applied');
+});
+test('lost closure receipt remains durable, keeps its draft, and retries the byte-identical frozen request',async()=>{
+ const c=closureSubmitClient({mode:'no',reply:'lost'});await c.submit();assert.equal(c.renders(),0);assert.equal(c.run('drafts.has(draftKey(f))'),true);const original=JSON.stringify(c.sent[0]);c.context.fetch=async(url,options)=>{assert.equal(options.body,original);return {ok:true,json:async()=>({status:'recorded',closed:true,taskId:66,message:'Task closed',replayed:true})};};await c.run('sync()');assert.equal([...c.records.values()].find(o=>o.partition).state,'recorded');
+});
+test('offline, unsynced movement and changed identities keep closure drafts without queuing an unsafe close',async()=>{
+ for(const kind of ['offline','movement','identity']){const c=closureSubmitClient({mode:'no',online:kind!=='offline'});if(kind==='movement')c.records.set('movement',{id:'movement',partition:'test:1',state:'local',action:'report',input:{lineId:7}});if(kind==='identity')c.run('snapshot.user.id=2');await c.submit();assert.equal(c.sent.length,0);assert.equal([...c.records.values()].some(o=>o.action==='closeTask'),false);assert.equal(c.run('drafts.get(draftKey(f))._actuals[0].quantity'),'3');}
+});
+test('aggregate supervisor rejection preserves final rows just like an operator closure',async()=>{
+ const c=closureSubmitClient({mode:'no',reply:'rejected'});c.f.dataset.workAction='resolve';c.f.dataset.draftKind='closure-review';await c.submit();assert.equal(c.run('drafts.get(draftKey(f))._actuals[0].quantity'),'3');assert.match(c.feedback.textContent,/Send for review/);assert.equal(c.renders(),0);assert.equal([...c.records.values()].find(o=>o.partition).action,'resolve');
+});
