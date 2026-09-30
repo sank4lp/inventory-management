@@ -163,20 +163,31 @@
 
 #work-app table.my-work-table{min-width:1260px}
 #work-app .task-edit-dialog.check-dialog{width:min(820px,calc(100vw - 32px))}
-.check-workspace h2{margin:0 0 8px}.check-only{margin:0 0 12px;font-size:13px;font-weight:650}.check-timezone{font-size:11px;color:var(--work-muted);margin:6px 0}
-.check-summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
-#work-app .check-summary-table{min-width:0;width:100%;border-collapse:collapse;font-size:14px;margin:0 0 10px;background:#fff}
-#work-app .check-summary-table th,#work-app .check-summary-table td{padding:6px 8px;line-height:1.4;text-align:left;vertical-align:top;white-space:normal;overflow-wrap:anywhere;border-bottom:1px solid var(--work-border)}
-#work-app .check-summary-table th{width:34%;font-size:14px;text-transform:none;letter-spacing:0;color:var(--work-muted);font-weight:650}
+#work-app .review-task-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+#work-app .review-task-header h2{margin:0;font-size:21px}
+#work-app .check-workspace .review-task-header form{flex:0 1 340px;min-width:0;margin:0;padding:0;border:0;gap:0}
+#work-app .check-summary-table{min-width:0;width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px;margin:0;background:#fff;box-shadow:none;border-radius:0;isolation:isolate}
+#work-app .check-summary-table caption{padding:0 0 6px;text-align:left;font-size:12px;color:var(--work-muted)}
+.check-summary-label{width:18%}.check-summary-value{width:32%}
+#work-app .check-summary-table th,#work-app .check-summary-table td{padding:6px 8px;line-height:1.4;text-align:left;vertical-align:middle;white-space:normal;overflow-wrap:anywhere;border-bottom:1px solid var(--work-border)}
+#work-app .check-summary-table th{font-size:14px;text-transform:none;letter-spacing:0;color:var(--work-muted);font-weight:650;overflow-wrap:normal;word-break:normal;background:#f0f4f7}
+#work-app .review-entry-heading{margin:16px 0 0;font-size:16px}
 #work-app .check-assignee-editor{grid-template-columns:minmax(0,1fr) 44px;max-width:450px;gap:8px}
 #work-app .check-save-assignee{width:44px;min-height:44px;padding:8px;font-size:20px}
 #work-app .check-workspace form{margin:12px 0 0;padding-top:12px;gap:10px}
-#work-app .check-workspace form h3{margin:0;font-size:14px}
+#work-app .check-workspace form h3,#work-app .check-workspace form h4{margin:0;font-size:14px}
 .check-observation-actions{display:flex;gap:8px;align-items:stretch}.check-observation-actions>button{flex:1;min-width:0}
 .check-stop-panel{margin-top:12px;padding:12px;border:1px solid var(--work-border);border-radius:10px;background:var(--work-tint)}
 .check-stop-panel[hidden]{display:none}.check-stop-panel h3{margin:0 0 8px;font-size:14px}.check-stop-panel p{margin:6px 0;font-size:14px}
-@media(max-width:560px){.check-summary-grid{grid-template-columns:1fr;gap:0}#work-app .check-summary-table th{width:32%}.check-observation-actions>button{padding:10px 8px;font-size:14px}#work-app .task-edit-dialog.check-dialog{padding:14px}}
-
-#work-app .check-workspace label{font-size:14px}.check-only{font-size:14px}.check-timezone{font-size:12px}
-#work-app .check-summary-table{table-layout:auto;border-collapse:separate;border-spacing:0;box-shadow:none;border-radius:0;isolation:isolate}
-#work-app .check-summary-table th{overflow-wrap:normal;word-break:normal;background:#f0f4f7}
+@media(max-width:560px){
+ #work-app .review-task-header{flex-wrap:wrap;gap:10px}
+ #work-app .check-workspace .review-task-header form{flex-basis:100%}
+ #work-app .check-summary-table,#work-app .check-summary-table tbody{display:block}
+ #work-app .check-summary-table caption{display:block;width:100%}
+ #work-app .check-summary-table colgroup{display:none}
+ #work-app .check-summary-table tr{display:grid;grid-template-columns:minmax(100px,34%) minmax(0,1fr)}
+ #work-app .check-summary-table th,#work-app .check-summary-table td{width:auto;min-width:0}
+ .check-observation-actions>button{padding:10px 8px;font-size:14px}
+ #work-app .task-edit-dialog.check-dialog{padding:14px}
+}
+#work-app .check-workspace label{font-size:14px}
