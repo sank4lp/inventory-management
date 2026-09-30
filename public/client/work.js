@@ -8,6 +8,10 @@ const reviewInstruction=r=>r.quantity_known===0?'Ask the person who did the work
 const taskName=t=>t.lines?.[0]?.product_name||t.summary;
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 let dirty=false;
+let selectingTasks=false, selectedTasks=new Set(), bulkTasks=[], bulkErrors=new Map(), bulkBusy=false;
+const modalSession=uid(), modalFrames=[];
+let modalDepth=0, modalMoving=false;
+let snapshotRead=0;
 let deviceId;
 try { deviceId=localStorage.getItem('warehouse-device')||uid();localStorage.setItem('warehouse-device',deviceId); } catch {deviceId=uid();}
 const key=()=>`${snapshot.site}:${snapshot.user.id}`;
@@ -21,11 +25,13 @@ function store(name,mode,fn){return new Promise((resolve,reject)=>{if(!db){rejec
 const all=name=>store(name,'readonly',s=>s.getAll());
 async function cacheSnapshot(){await store('cache','readwrite',s=>s.put({id:key(),snapshot}));await store('cache','readwrite',s=>s.put({id:'active',key:key()}));}
 async function refresh(){
- const query=new URLSearchParams(location.search);const watched=[root.querySelector?.('[data-task-dialog][open]')?.dataset.taskId,...[...root.querySelectorAll('[data-returned-row]')].map(r=>r.dataset.returnedRow),...[...root.querySelectorAll('[data-task-row]')].map(r=>r.dataset.taskRow)].filter(Boolean).slice(0,100);if(watched.length)query.set('watch',watched.join(','));query.set('view',path==='/work/overview'?'assign':path==='/work/history'?'history':path==='/work'?'mine':'accessible');if(/^\/tasks\/\d+$/.test(path))query.set('taskId',path.split('/')[2]);
+ const read=++snapshotRead,requestedPath=path,requestedSearch=location.search;
+ const query=new URLSearchParams(location.search);if(path==='/work')clearRetiredWorkFilters(query);const watched=[root.querySelector?.('[data-task-dialog][open]')?.dataset.taskId,...[...root.querySelectorAll('[data-returned-row]')].map(r=>r.dataset.returnedRow),...[...root.querySelectorAll('[data-task-row]')].map(r=>r.dataset.taskRow)].filter(Boolean).slice(0,100);if(watched.length)query.set('watch',watched.join(','));query.set('view',path==='/work/overview'?'assign':path==='/work/history'?'history':path==='/work'?'mine':'accessible');if(/^\/tasks\/\d+$/.test(path))query.set('taskId',path.split('/')[2]);
  const r=await fetch('/api/work/snapshot?'+query,{headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(15000)});
  if(!r.ok)throw new Error(r.status===401?'Sign in to send your saved updates.':'Could not refresh warehouse work.');
  const fresh=await r.json();
  if(snapshot&&(fresh.user.id!==snapshot.user.id||fresh.site!==snapshot.site))throw new Error('The signed-in account or warehouse changed. Reopen My work; saved updates stay with their original account and warehouse.');
+ if(read!==snapshotRead||requestedPath!==path||requestedSearch!==location.search)return;
  snapshot={...fresh,ledger:snapshot?.ledger};online=true;connectionWarning='';await cacheSnapshot();
  for(const o of await all('outbox')){
   const received=snapshot.reports?.find(r=>r.id===o.result?.reportId);
@@ -183,24 +189,30 @@ function checkStopContent(t){
  return canStopTask(t)?`<section id="check-stop-${t.id}" data-check-stop-panel class="check-stop-panel" tabindex="-1" hidden><h3>Stop remaining work</h3>${closureForm(t)}</section>`:'';
 }
 function reviewHeader(t,step='check'){return `<header class="review-task-header"><button type="button" class="secondary" ${step==='check'?'data-task-dialog-close':'data-review-back'}>← Back</button><h2 tabindex="-1" autofocus>Review task</h2></header>${checkTaskSummary(t)}`;}
+function reviewChoices(t,mode='check'){return `<div class="review-choices"><button type="button" data-review-align aria-pressed="${mode==='check-align'}">Align With Actual Physical Movement</button><button type="button" data-review-assignment ${allowed('assign')&&!t.closed_actuals&&!t.completed_at?'':'disabled'} aria-pressed="${mode==='check-assignment'}">Update Assignment of the task</button></div>`;}
+function reviewDiscard(t){return `<footer class="review-discard-footer"><button type="button" class="danger" data-review-discard ${canCloseReview(t)?'':'disabled'}>Discard</button></footer>`;}
 function checkDialogContent(t){
  if(!canCheckTask(t))return '';
- return `<section class="check-workspace">${reviewHeader(t)}<div class="review-choices"><button type="button" data-review-align>Align With Actual Physical Movement</button><button type="button" class="secondary" data-review-assignment ${allowed('assign')&&!t.closed_actuals&&!t.completed_at?'':'disabled'}>Update Assignment of the task</button></div>${t.review_followup&&t.review_handover_verified&&!t.completed_at&&!t.closed_actuals&&!pendingTaskEvidence(t)&&t.assignee_id===snapshot.user.id&&allowed('execute')?form('resumeFollowup',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+'<button>Plan verified remaining work</button>'):''}${t.review_followup||t.attention?'<p class="work-help">Check final movement before restarting work. Existing evidence and stock holds remain until reconciled.</p>':''}</section>`;
+ return `<section class="check-workspace">${reviewHeader(t)}${reviewChoices(t)}${t.review_followup&&t.review_handover_verified&&!t.completed_at&&!t.closed_actuals&&!pendingTaskEvidence(t)&&t.assignee_id===snapshot.user.id&&allowed('execute')?form('resumeFollowup',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+'<button>Plan verified remaining work</button>'):''}${t.review_followup||t.attention?'<p class="work-help">Check final movement before restarting work. Existing evidence and stock holds remain until reconciled.</p>':''}${reviewDiscard(t)}</section>`;
+}
+function discardContent(t){
+ const supervisor=reviewVerifier(t),fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('closureToken',t.closure_token)+hidden('currentStatus','yes')+(t.closure_review_id?hidden('reportId',t.closure_review_id)+hidden('caseRevision',t.closure_case_revision):supervisor?hidden('verifiedClosure','true'):'');
+ return `<section class="check-workspace">${reviewHeader(t,'discard')}${reviewChoices(t)}<h3>Discard task</h3><p>Keep ${esc(t.recorded_quantity||0)} ${esc(t.lines?.[0]?.unit_of_measure)} recorded. Close remaining work and release reserved stock.</p>${pendingTaskEvidence(t)?'<p class="work-callout warning">There is unverified movement. Review it before confirming these recorded totals as final.</p>':''}${form(t.closure_review_id?'resolve':'closeTask',fields+'<label class="work-check"><input type="checkbox" name="workerStopped" required>I confirm work has stopped and the recorded totals above are final.</label><button class="danger" data-close-task>Discard</button>','data-discard-task data-draft-kind="discard-task"')}</section>`;
 }
 function reviewVerifier(t){return allowed('resolve')&&allowed('resolveStop')&&(t.assignee_id===snapshot.user.id||allowed('teamStop')||!!t.closure_review_id);}
 function canCloseReview(t){return !!t&&!t.closed_actuals&&!t.completed_at&&(reviewVerifier(t)||!t.closure_review_id&&t.assignee_id===snapshot.user.id&&allowed('stop')&&!t.review_followup);}
 function reviewMovementContent(t){
- if(t.closed_actuals||t.completed_at)return `<section class="check-workspace">${reviewHeader(t,'align')}<p>This task is finalized. Late evidence must be reconciled separately; its original closure cannot be reopened.</p>${allowed('review')?`<a class="work-primary" href="${esc(reviewHref(t))}">Review late evidence</a>`:'<p>Ask an authorized verifier to reconcile the retained evidence.</p>'}</section>`;
+ if(t.closed_actuals||t.completed_at)return `<section class="check-workspace">${reviewHeader(t,'align')}${reviewChoices(t,'check-align')}<p>This task is finalized. Late evidence must be reconciled separately; its original closure cannot be reopened.</p>${allowed('review')?`<a class="work-primary" href="${esc(reviewHref(t))}">Review late evidence</a>`:'<p>Ask an authorized verifier to reconcile the retained evidence.</p>'}</section>`;
  const supervisor=reviewVerifier(t),canClose=canCloseReview(t);
  const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('closureToken',t.closure_token)+hidden('currentStatus','no');
  const counts=(t.closure_count_options||[]).filter(c=>JSON.parse(c.lines_json).some(l=>l.productId===t.lines[0]?.product_id));
  const accounting=supervisor?disclosure('review-stocktake-'+t.id,'Stocktake overlap',counts.map(c=>`<label>${esc(c.logical_code)} · ${esc(c.title)}<input type="radio" name="countLink${c.cell_id}" value="${esc(c.id)}">This count already includes the movement difference here</label>`).join('')+'<label class="work-check"><input type="checkbox" name="afterCountVerified">I verified these differences are separate from every overlapping stocktake correction.</label>'):'';
  const body=fields+(t.closure_review_id?hidden('reportId',t.closure_review_id)+hidden('caseRevision',t.closure_case_revision):supervisor?hidden('verifiedClosure','true'):'')+actualEditor(t,t.closure_actuals||recordedMovements(t))+(supervisor?'<label class="work-check"><input type="checkbox" name="workerStopped">I confirmed all workers have stopped and verified the actual totals.</label>':'')+accounting+(!canClose?'<p class="work-callout">An authorized verifier must reconcile this physical evidence before the task can close.</p>':'')+`<button data-close-task ${canClose?'':'disabled'}>Save Movement and Close Task</button>`+(!t.closure_review_id?'<button type="submit" class="secondary" data-send-task-review>Send for review</button>':'');
- return `<section class="check-workspace">${reviewHeader(t,'align')}${form(t.closure_review_id?'resolve':'closeTask',body,'data-review-movement data-draft-kind="'+(t.closure_review_id?'closure-review':'task-closure')+'"')}${allowed('review')?'<p><a href="'+esc(reviewHref(t))+'">Open original evidence and other reconciliation options</a></p>':''}</section>`;
+ return `<section class="check-workspace">${reviewHeader(t,'align')}${reviewChoices(t,'check-align')}${form(t.closure_review_id?'resolve':'closeTask',body,'data-review-movement data-draft-kind="'+(t.closure_review_id?'closure-review':'task-closure')+'"')}${allowed('review')?'<p><a href="'+esc(reviewHref(t))+'">Open original evidence and other reconciliation options</a></p>':''}${reviewDiscard(t)}</section>`;
 }
 function reviewAssignmentContent(t){
  const people=(snapshot.operators||[]).filter(u=>u.eligible&&u.status!=='inactive');
- return `<section class="check-workspace">${reviewHeader(t,'assignment')}${form('updateReviewTask',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+`<label>Assigned to<select data-searchable name="assigneeId" required>${options(people,'id',u=>u.name+' · '+u.username,t.assignee_id)}</select></label>`+input('remainingQuantity','Remaining quantity','number',`min="0.000001" max="1000000000" step="0.000001" required value="${esc(t.remaining_quantity)}"`)+`<p>Deadline: ${t.due_at?checkTime(t.due_at):'No deadline'}</p>`+(allowed('deadline')?'<label>Deadline<select name="deadlineChoice"><option value="keep">Keep current deadline</option><option value="duration">Set duration from now</option><option value="none">No deadline</option></select></label><div data-review-duration hidden><label>Duration<input type="number" name="duration" min="0.0007" step="any" value="8" disabled></label><label>Unit<select name="timeUnit" disabled><option value="minutes">Minutes</option><option value="hours" selected>Hours</option><option value="days">Days</option></select></label></div>':'')+(t.attention||t.review_followup?'<p class="work-callout">Changing responsibility or intended remaining work keeps this task in Needs Review. It does not restart physical work.</p>':'')+'<button>Save and Assign task</button>','data-review-assignment-form data-draft-kind="review-assignment"')}</section>`;
+ return `<section class="check-workspace">${reviewHeader(t,'assignment')}${reviewChoices(t,'check-assignment')}${form('updateReviewTask',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+`<label>Assigned to<select data-searchable name="assigneeId" required>${options(people,'id',u=>u.name+' · '+u.username,t.assignee_id)}</select></label>`+input('remainingQuantity','Remaining quantity','number',`min="0.000001" max="1000000000" step="0.000001" required value="${esc(t.remaining_quantity)}"`)+`<p>Deadline: ${t.due_at?checkTime(t.due_at):'No deadline'}</p>`+(allowed('deadline')?'<label>Deadline<select name="deadlineChoice"><option value="keep">Keep current deadline</option><option value="duration">Set duration from now</option><option value="none">No deadline</option></select></label><div data-review-duration hidden><label>Duration<input type="number" name="duration" min="0.0007" step="any" value="8" disabled></label><label>Unit<select name="timeUnit" disabled><option value="minutes">Minutes</option><option value="hours" selected>Hours</option><option value="days">Days</option></select></label></div>':'')+(t.attention||t.review_followup?'<p class="work-callout">Changing responsibility or intended remaining work keeps this task in Needs Review. It does not restart physical work.</p>':'')+'<button>Save and Assign task</button>','data-review-assignment-form data-draft-kind="review-assignment"')}${reviewDiscard(t)}</section>`;
 }
 function pendingTaskEvidence(t){return !!t&&(t.attention||(t.lines||[]).some(l=>(l.reports||[]).some(r=>['review','received'].includes(r.status))));}
 function canCheckTask(t){return !!t&&(!t.completed_at||pendingTaskEvidence(t))&&((t.assignee_id===snapshot.user.id&&(allowed('execute')||allowed('stop')))||allowed('review')||allowed('assign'));}
@@ -266,29 +278,134 @@ async function fetchDialogTask(id){
  snapshot={...snapshot,capabilities:fresh.capabilities||snapshot.capabilities,cells:fresh.cells||snapshot.cells,operators:fresh.operators||snapshot.operators,tasks:snapshot.tasks.map(x=>x.id===id?t:x),watchedTasks:[t,...(snapshot.watchedTasks||[]).filter(x=>x.id!==id)]};
  return t;
 }
-function openTaskDialog(t,mode,lineId=null){
+// Modal history contains only navigation. Every mutation still requires an explicit submit.
+function rememberModal(frame,navigation='push'){
+ if(typeof window==='undefined'||!window.history)return;
+ if(modalDepth===0){modalFrames.length=0;window.history.replaceState({...window.history.state,workModal:{session:modalSession,depth:0}},'');}
+ if(navigation==='replace'&&modalDepth){modalFrames[modalDepth-1]=frame;window.history.replaceState({...window.history.state,workModal:{session:modalSession,depth:modalDepth}},'');}
+ else{modalFrames.splice(modalDepth);modalFrames.push(frame);modalDepth++;window.history.pushState({...window.history.state,workModal:{session:modalSession,depth:modalDepth}},'');}
+}
+async function saveModalDrafts(){const d=root.querySelector('[data-task-dialog]');for(const f of d?.querySelectorAll('form[data-work-action]')||[])await saveDraft(f);}
+function modalError(error){const d=root.querySelector('[data-task-dialog]'),warning=d?.querySelector('[data-task-dialog-warning]');if(warning){warning.hidden=false;warning.textContent=error.message;}notice=error.message;}
+async function modalBack(){if(bulkBusy||submitting)return;try{await saveModalDrafts();if(modalDepth&&typeof window!=='undefined')window.history.back();else root.querySelector('[data-task-dialog]')?.close();}catch(error){modalError(error);}}
+async function handleModalPop(event){
+ if(modalMoving){modalMoving=false;return;}
+ const state=event.state?.workModal,target=state?.session===modalSession?state.depth:null;
+ if(target===null){activeWork=null;location.reload();return;}
+ if(bulkBusy||submitting){modalMoving=true;window.history.go(modalDepth-target);return;}
+ try{await saveModalDrafts();}catch(error){modalMoving=true;window.history.go(modalDepth-target);modalError(error);return;}
+ modalDepth=target;const frame=modalFrames[target-1],d=root.querySelector('[data-task-dialog]');
+ if(!frame){d?.close();dirty=false;patchMyWorkRows();patchSelection();return;}
+ // Never restore a popup from another account or dataset.
+ if(frame.identity&&frame.identity!==key()+':'+snapshot.dataset){d?.close();return;}
+ if(frame.mode==='bulk-discard'){openBulkDialog('restore');return;}
+ const mode=frame.mode.startsWith('check')&&!canCheckTask(frame.task)?'details':frame.mode;
+ openTaskDialog(frame.task,mode,frame.lineId,'restore');
+}
+async function afterReviewSave(taskId,action){
+ if(!modalDepth){render();if(action==='updateReviewTask')openTaskDialog(await fetchDialogTask(taskId),'check');return;}
+ const fresh=await fetchDialogTask(taskId);
+ for(const frame of modalFrames)if(frame.task?.id===taskId)frame.task=fresh;
+ bulkTasks=bulkTasks.map(t=>t.id===taskId?fresh:t);bulkErrors.delete(taskId);
+ let target=Math.max(0,modalDepth-1);
+ if(action!=='updateReviewTask'&&(fresh.completed_at||fresh.closed_actuals)){
+  selectedTasks.delete(taskId);bulkTasks=bulkTasks.filter(t=>t.id!==taskId);
+  target=modalFrames.slice(0,modalDepth).findLastIndex(f=>f.mode==='bulk-discard')+1;
+ }
+ dirty=false;patchMyWorkRows();patchSelection();
+ // Receipt is durable; remove the submitted form so Back cannot save it again.
+ const d=root.querySelector('[data-task-dialog]');for(const f of d?.querySelectorAll('form[data-work-action]')||[])f.remove();
+ if(modalDepth>target)window.history.go(target-modalDepth);else{d?.close();render();}
+}
+function canBulkDiscard(t){return !!t&&online&&allowed('teamStop')&&reviewVerifier(t)&&canCloseReview(t)&&!taskHasSavedUpdate(t);}
+function changeTaskSelection(input){
+ if(input.hasAttribute('data-select-all'))for(const t of myTasks().filter(canBulkDiscard)){if(input.checked)selectedTasks.add(t.id);else selectedTasks.delete(t.id);}
+ else{const id=Number(input.dataset.selectTask);if(input.checked&&canBulkDiscard(availableTask(id)))selectedTasks.add(id);else selectedTasks.delete(id);}
+ patchSelection();
+}
+function patchSelection(rebuild=false){
+ if(rebuild){const head=root.querySelector('.my-work-table thead tr');if(head)head.innerHTML=workTableHead();const body=root.querySelector('[data-my-work-table]');if(body)body.innerHTML=myTasks().map(myTaskRow).join('')||'<tr><td colspan="11">No matching tasks.</td></tr>';}
+ for(const box of root.querySelectorAll('[data-select-task]'))box.checked=selectedTasks.has(Number(box.dataset.selectTask));
+ const eligible=myTasks().filter(canBulkDiscard),all=root.querySelector('[data-select-all]');if(all){const n=eligible.filter(t=>selectedTasks.has(t.id)).length;all.checked=eligible.length>0&&n===eligible.length;all.indeterminate=n>0&&n<eligible.length;all.disabled=!eligible.length;}
+ const toggle=root.querySelector('[data-toggle-selection]');if(toggle){toggle.textContent=selectingTasks?'Done':'Select';toggle.setAttribute('aria-pressed',String(selectingTasks));}
+ const button=root.querySelector('[data-bulk-discard]');if(button){button.hidden=!selectedTasks.size;button.textContent=`Discard All (${selectedTasks.size})`;}
+}
+function bulkTaskStale(t){const current=availableTask(t.id);return !current||current.assignment_generation!==t.assignment_generation||current.progress_token!==t.progress_token||current.closure_token!==t.closure_token||current.closure_case_revision!==t.closure_case_revision||!canBulkDiscard(current);}
+async function startBulkDiscard(){
+ if(!selectedTasks.size||!online)return;bulkErrors.clear();const list=[];
+ for(const id of selectedTasks){try{const t=await fetchDialogTask(id);list.push(t);if(!canBulkDiscard(t))bulkErrors.set(id,'This task cannot be discarded. Review or remove it.');}catch(error){throw new Error(`Task #${id}: ${error.message}`);}}
+ bulkTasks=list;openBulkDialog();
+}
+function bulkRows(){return bulkTasks.map(t=>`<tr data-bulk-row="${t.id}" class="${t.recorded_quantity>0?'has-movement':''}"><td>${taskProductLink(t)}<span class="bulk-recorded">${esc(t.recorded_quantity||0)} ${esc(t.lines?.[0]?.unit_of_measure)} moved</span></td><td>#${t.id} · ${t.type==='put'?'Put':'Pick'}</td><td>${esc(t.assignee_name||'Unassigned')}</td><td><div class="bulk-row-actions"><button type="button" class="secondary" data-bulk-remove="${t.id}">Remove</button><button type="button" data-bulk-update="${t.id}" ${allowed('assign')&&!t.completed_at?'':'disabled'}>Update Task</button><button type="button" data-bulk-review="${t.id}">Review</button></div><span data-bulk-row-error role="status">${esc(bulkErrors.get(t.id)||'')}</span></td></tr>`).join('');}
+function openBulkDialog(navigation='push'){
+ const d=root.querySelector('[data-task-dialog]');if(!d)return;
+ if(navigation!=='restore')rememberModal({mode:'bulk-discard',identity:key()+':'+snapshot.dataset},navigation);
+ d._identity={site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id};d.dataset.mode='bulk-discard';delete d.dataset.taskId;d.classList.add('check-dialog','bulk-dialog');
+ d.innerHTML=`<section class="check-workspace"><header class="review-task-header"><button type="button" class="secondary" data-review-back>← Back</button><h2 tabindex="-1">Discard selected tasks</h2></header><div class="table-wrap bulk-table-wrap"><table class="bulk-discard-table"><thead><tr><th>Partially moved products</th><th>Task</th><th>Assigned to</th><th>Action</th></tr></thead><tbody>${bulkRows()||'<tr><td colspan="4">No tasks selected.</td></tr>'}</tbody></table></div><form data-bulk-discard-form><div ${bulkTasks.length?'':'hidden'}><label class="work-check"><input type="checkbox" name="confirmed" required>I confirm work has stopped and the shown totals are final for every selected task.</label><button class="danger" data-confirm-bulk ${bulkTasks.length?'':'disabled'}>Discard All (${bulkTasks.length})</button></div><p class="form-feedback" role="status"></p></form><p data-task-dialog-warning class="work-callout warning" role="status" hidden></p></section>`;
+ d.oncancel=e=>{e.preventDefault();void modalBack();};if(!d.open)d.showModal();d.querySelector('h2').focus();patchBulkDialog();
+}
+function patchBulkDialog(){
+ const d=root.querySelector('[data-task-dialog]');if(d?.dataset.mode!=='bulk-discard')return;
+ const identity=d._identity,wrong=identity&&(identity.site!==snapshot.site||identity.dataset!==snapshot.dataset||identity.actorId!==snapshot.user.id);
+ for(const t of bulkTasks){const row=d.querySelector(`[data-bulk-row="${t.id}"]`);if(!row)continue;const error=row.querySelector('[data-bulk-row-error]');error.textContent=bulkErrors.get(t.id)||(wrong?'Account changed. Reopen My Work.':bulkTaskStale(t)?'Task changed. Review or remove it before discarding.':'');}
+ const save=d.querySelector('[data-confirm-bulk]');if(save)save.disabled=bulkBusy||!online||wrong||!bulkTasks.length||bulkTasks.some(t=>bulkTaskStale(t)||bulkErrors.has(t.id));
+}
+function discardRequest(t){
+ const input={taskId:t.id,generation:t.assignment_generation,progressToken:t.progress_token,closureToken:t.closure_token,currentStatus:'yes',workerStopped:true};
+ if(t.closure_review_id)return {action:'resolve',input:{...input,reportId:t.closure_review_id,caseRevision:t.closure_case_revision}};
+ return {action:'closeTask',input:{...input,verifiedClosure:true}};
+}
+async function submitBulkDiscard(f){
+ if(bulkBusy||submitting||!f.elements.confirmed.checked)return;bulkBusy=true;const feedback=f.querySelector('.form-feedback');let closed=0;
+ try{
+  const d=f.closest('[data-task-dialog]'),identity=d._identity;
+  if(!online||identity.site!==snapshot.site||identity.dataset!==snapshot.dataset||identity.actorId!==snapshot.user.id)throw new Error('Reconnect with the same account before discarding.');
+  if(outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected'].includes(o.state)&&o.action==='manual'))throw new Error('Confirm saved movements before discarding.');
+  const tasks=[...bulkTasks];
+  if(tasks.some(bulkTaskStale))throw new Error('Some tasks changed. Review or remove them first.');
+  // Each confirmed task has its own durable receipt; a retry cannot close it twice.
+  for(const t of tasks){
+   if(identity.site!==snapshot.site||identity.dataset!==snapshot.dataset||identity.actorId!==snapshot.user.id)throw new Error('The account or warehouse changed. Remaining tasks were not submitted.');
+   if(bulkTaskStale(t)){bulkErrors.set(t.id,'Task changed. Review it again.');continue;}
+   const {action,input:values}=discardRequest(t),id=uid(),input={...values,requestId:id,site:identity.site,dataset:identity.dataset,actorId:identity.actorId,deviceId};
+   await store('outbox','readwrite',s=>s.put({id,partition:key(),action,input,state:'local',message:'Discard awaiting warehouse confirmation.',createdAt:new Date().toISOString()}));
+   outbox=await all('outbox');await sync();const received=outbox.find(o=>o.id===id);
+   if(received?.result?.closed){closed++;selectedTasks.delete(t.id);bulkTasks=bulkTasks.filter(x=>x.id!==t.id);bulkErrors.delete(t.id);}
+   else{bulkErrors.set(t.id,received?.message||'Not confirmed. Retry the saved request from Work tools.');if(!online)break;}
+   feedback.textContent=`${closed} task${closed===1?'':'s'} discarded.`;
+  }
+  notice=`${closed} task${closed===1?'':'s'} discarded.${bulkTasks.length?' Remaining tasks need attention.':''}`;
+ }catch(error){notice=error.message;}
+ finally{bulkBusy=false;openBulkDialog('replace');const output=root.querySelector('[data-bulk-discard-form] .form-feedback');if(output)output.textContent=notice;patchMyWorkRows();patchSelection();}
+}
+
+function openTaskDialog(t,mode,lineId=null,navigation='push'){
  const d=root.querySelector('[data-task-dialog]');if(!d)return;
  const l=t.lines.find(l=>l.id===Number(lineId));
- if(['check','check-align','check-assignment'].includes(mode)&&!canCheckTask(t)||mode==='stop'&&!canStopTask(t)||mode==='recovery'&&(!l||l.canAct===false))return;
+ if(['check','check-align','check-assignment','check-discard'].includes(mode)&&!canCheckTask(t)||mode==='stop'&&!canStopTask(t)||mode==='recovery'&&(!l||l.canAct===false))return;
+ if(navigation!=='restore')rememberModal({task:t,mode,lineId,identity:key()+':'+snapshot.dataset},navigation);
  if(!d.open){d._opener=document.activeElement;d._identity={site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id};}d._task=t;
- d.dataset.taskId=t.id;d.dataset.generation=t.assignment_generation;d.dataset.progressToken=t.progress_token;d.dataset.mode=mode;d.classList?.toggle('check-dialog',['check','check-align','check-assignment','stop'].includes(mode));d.dataset.closureToken=t.closure_token||'';d.dataset.lineId=l?.id||'';d.dataset.revision=l?.revision||'';
- const content=mode==='details'?taskHistoryContent(t):mode==='stop'?stopDialogContent(t):mode==='check'?checkDialogContent(t):mode==='check-align'?reviewMovementContent(t):mode==='check-assignment'?reviewAssignmentContent(t):mode==='recovery'?recoveryDialogContent(l):mode==='update'?returnedDialogContent(t):returnDialogContent(t);
+ d.dataset.taskId=t.id;d.dataset.generation=t.assignment_generation;d.dataset.progressToken=t.progress_token;d.dataset.mode=mode;d.classList?.remove?.('bulk-dialog');d.classList?.toggle('check-dialog',['check','check-align','check-assignment','check-discard','stop'].includes(mode));d.dataset.closureToken=t.closure_token||'';d.dataset.lineId=l?.id||'';d.dataset.revision=l?.revision||'';
+ let content=mode==='details'?taskHistoryContent(t):mode==='stop'?stopDialogContent(t):mode==='check'?checkDialogContent(t):mode==='check-align'?reviewMovementContent(t):mode==='check-assignment'?reviewAssignmentContent(t):mode==='check-discard'?discardContent(t):mode==='recovery'?recoveryDialogContent(l):mode==='update'?returnedDialogContent(t):returnDialogContent(t);
+ if(!['check','check-align','check-assignment','check-discard'].includes(mode)){if(mode==='stop')content=content.replace('<header class="review-task-header">','<header class="review-task-header"><button type="button" class="secondary" data-review-back>← Back</button>');else content=content.replace(/<h2>(.*?)<\/h2>/,'<header class="review-task-header"><button type="button" class="secondary" data-review-back>← Back</button><h2>$1</h2></header>');}
  d.innerHTML=content+'<p data-task-dialog-warning class="work-callout warning" role="status" hidden></p><button type="button" class="secondary" data-task-dialog-close>'+ (mode==='stop'?'Back':'Close')+'</button>';
- if(['check','check-align','check-assignment'].includes(mode))d.querySelector('[data-task-dialog-close]:last-child')?.remove();
- d.setAttribute?.('aria-label',mode==='recovery'?'Record what I moved':['check','check-align','check-assignment'].includes(mode)?'Review task':mode==='details'?'Task details and history':mode==='stop'?'Stop remaining work':'Task action');
+ if(['check','check-align','check-assignment','check-discard'].includes(mode))d.querySelector('[data-task-dialog-close]:last-child')?.remove();
+ d.setAttribute?.('aria-label',mode==='recovery'?'Record what I moved':['check','check-align','check-assignment','check-discard'].includes(mode)?'Review task':mode==='details'?'Task details and history':mode==='stop'?'Stop remaining work':'Task action');
  for(const f of d.querySelectorAll('form')){f._workIdentity={...d._identity};f._draftPath=path;}
- restoreDrafts();const f=d.querySelector('form');updateReturnedDue(f);if(f?.dataset.workAction==='updateReviewTask'&&f.elements.timeUnit)f.elements.duration.dataset.timeUnit=f.elements.timeUnit.value;
- d.onclose=()=>{d._opener?.focus?.();};if(!d.open)d.showModal();if(['check','check-align','check-assignment','stop'].includes(mode))d.querySelector('.review-task-header h2')?.focus?.();patchTaskDialog();
+ restoreDrafts();const f=d.querySelector('form');if(mode==='check-discard'&&f?.elements.workerStopped)f.elements.workerStopped.checked=false;updateReturnedDue(f);if(f?.dataset.workAction==='updateReviewTask'&&f.elements.timeUnit)f.elements.duration.dataset.timeUnit=f.elements.timeUnit.value;
+ d.oncancel=e=>{e.preventDefault();void modalBack();};d.onclose=()=>{d._opener?.focus?.();};if(!d.open)d.showModal();if(['check','check-align','check-assignment','check-discard','stop'].includes(mode))d.querySelector('.review-task-header h2')?.focus?.();patchTaskDialog();
 }
 function patchTaskDialog(){
  const d=root.querySelector('[data-task-dialog]');if(!d?.open)return;
+ if(d.dataset.mode==='bulk-discard'){patchBulkDialog();return;}
  const t=availableTask(d.dataset.taskId);
  const identityChanged=d._identity&&(d._identity.site!==snapshot.site||d._identity.dataset!==snapshot.dataset||d._identity.actorId!==snapshot.user.id);
- const changed=!t||String(t.assignment_generation)!==d.dataset.generation||t.progress_token!==d.dataset.progressToken||(['stop','check-align'].includes(d.dataset.mode)||d.querySelector('[data-task-closure]'))&&t.closure_token!==d.dataset.closureToken;
+ const changed=!t||String(t.assignment_generation)!==d.dataset.generation||t.progress_token!==d.dataset.progressToken||(['stop','check-align','check-discard'].includes(d.dataset.mode)||d.querySelector('[data-task-closure]'))&&t.closure_token!==d.dataset.closureToken;
  const recovery=d.dataset.mode==='recovery';
- const stale=identityChanged||(!recovery&&(!online||changed||t&&taskHasSavedUpdate(t)))||(d.dataset.mode==='check-assignment'&&!allowed('assign'))||(d.dataset.mode==='update'&&t&&(!allowed('assign')||t.assignment_state!=='returned'&&!returnBlocked(t)))||(['check','check-align','check-assignment'].includes(d.dataset.mode)&&t&&!canCheckTask(t))||(d.dataset.mode==='stop'&&t&&!canStopTask(t));
+ const stale=identityChanged||(!recovery&&(!online||changed||t&&taskHasSavedUpdate(t)))||(d.dataset.mode==='check-assignment'&&!allowed('assign'))||(d.dataset.mode==='update'&&t&&(!allowed('assign')||t.assignment_state!=='returned'&&!returnBlocked(t)))||(['check','check-align','check-assignment','check-discard'].includes(d.dataset.mode)&&t&&!canCheckTask(t))||(d.dataset.mode==='stop'&&t&&!canStopTask(t));
  const warning=d.querySelector('[data-task-dialog-warning]');warning.hidden=!(stale||recovery&&changed);warning.textContent=recovery&&!identityChanged?'These instructions changed. Your original draft stays attached to them; report only work already done.':'This task or account changed. Your draft is kept; close and check the latest task before saving.';
- for(const button of d.querySelectorAll('form button:not([type="button"])')){const f=button.closest?.('[data-task-assignee]');button.disabled=!!(stale||f&&assigneeFormStale(f,t)||button.hasAttribute?.('data-close-task')&&(d.dataset.mode==='check-align'?!canCloseReview(t):t?.assignee_id!==snapshot.user.id&&!(allowed('resolve')&&allowed('resolveStop'))));}
+ for(const button of d.querySelectorAll('form button:not([type="button"])')){const f=button.closest?.('[data-task-assignee]');button.disabled=!!(stale||f&&assigneeFormStale(f,t)||button.hasAttribute?.('data-close-task')&&(['check-align','check-discard'].includes(d.dataset.mode)?!canCloseReview(t):t?.assignee_id!==snapshot.user.id&&!(allowed('resolve')&&allowed('resolveStop'))));}
+ for(const button of d.querySelectorAll('[data-review-align],[data-review-assignment],[data-review-discard]'))button.disabled=!!(stale||button.hasAttribute?.('data-review-assignment')&&(!allowed('assign')||t?.closed_actuals||t?.completed_at)||button.hasAttribute?.('data-review-discard')&&!canCloseReview(t));
  for(const button of d.querySelectorAll('[data-check-stop]'))button.disabled=!!stale;
  patchTaskAssignees();
 }
@@ -395,15 +512,49 @@ function myWorkStatus(t){return t.work_status||(myWorkState(t)==='completed'?sta
 function myTaskRow(t){
  const state=myWorkState(t),progress=t.work_progress??(t.requested_quantity>0?Math.round((t.recorded_quantity||0)*1000/t.requested_quantity)/10:0),canStart=myTaskActionable(t);
  const action=canStart?activationForm(t,t.assignment_state==='offered'?'Start':'Resume','class="my-work-start"'):'';
- return `<tr data-task-row="${t.id}" data-generation="${t.assignment_generation}"><td data-my-actions-cell><a href="/tasks/${t.id}">#${t.id} · ${t.type==='put'?'Put':'Pick'}</a><div class="my-work-actions">${action}${checkButton(t)}</div></td><td>${taskProductLink(t)}<small>${esc(t.lines?.[0]?.unit_of_measure)}</small></td><td>${esc(t.requested_quantity??'—')}</td><td>${esc(t.recorded_quantity??0)}</td><td>${esc(t.remaining_quantity??'—')}</td><td>${esc(myWorkStatus(t))}${taskHasSavedUpdate(t)?'<small>Update pending</small>':''}</td><td>${esc(progress)}%</td><td>${esc(workStates[state])}</td></tr>`;
+ return `<tr data-task-row="${t.id}" data-generation="${t.assignment_generation}">${selectingTasks?`<td class="task-select-cell"><input type="checkbox" data-select-task="${t.id}" aria-label="Select task ${t.id}" ${selectedTasks.has(t.id)?'checked':''} ${canBulkDiscard(t)?'':'disabled'}></td>`:''}<td><a href="/tasks/${t.id}">#${t.id} · ${t.type==='put'?'Put':'Pick'}</a></td><td>${taskProductLink(t)}</td><td>${esc(t.lines?.[0]?.unit_of_measure)}</td><td>${esc(t.requested_quantity??'—')}</td><td>${esc(t.recorded_quantity??0)}</td><td>${esc(t.remaining_quantity??'—')}</td><td>${esc(myWorkStatus(t))}${taskHasSavedUpdate(t)?' · Update pending':''}</td><td>${esc(progress)}%</td><td>${esc(workStates[state])}</td><td data-my-actions-cell><div class="my-work-actions">${action}${checkButton(t)}</div></td></tr>`;
+}
+const workFilterColumns=[
+ {key:'task',label:'Task',names:['taskSearch']},{key:'product',label:'Product',names:['productSearch']},
+ {key:'status',label:'Status',names:['statusSearch']},{key:'progress',label:'Progress',names:['progressRange']},
+ {key:'state',label:'State',names:['workState']}
+];
+const workFilterNames=workFilterColumns.flatMap(c=>c.names);
+const retiredWorkFilters=['unitSearch',...['requested','completed','remaining','progress'].flatMap(k=>[k+'Min',k+'Max'])];
+function clearRetiredWorkFilters(q){for(const k of retiredWorkFilters)q.delete(k);return q;}
+let selectedFilterColumns;
+function workFilterChip(c,q){
+ const value=k=>esc(q.get(k)||''),label=esc(c.label),active=selectedFilterColumns.has(c.key);
+ const control=c.key==='progress'?`<select name="progressRange" aria-label="Progress"><option value="">Any</option>${['0-25','25-50','50-75','75-100'].map(k=>`<option value="${k}" ${q.get('progressRange')===k?'selected':''}>${k.replace('-', '–')}%</option>`).join('')}</select>`:c.key==='state'?`<select name="workState" aria-label="State">${Object.entries({current:'Current tasks',all:'All states',review:'Needs review',not_started:'Not started',in_progress:'In progress',completed:'Completed'}).map(([k,v])=>`<option value="${k}" ${k===(q.get('workState')||'current')?'selected':''}>${v}</option>`).join('')}</select>`:`<input name="${c.names[0]}" type="search" value="${value(c.names[0])}" aria-label="${label}" placeholder="Search…">`;
+ return `<div class="work-filter-chip" data-filter-column="${c.key}" ${active?'':'hidden'}><span class="work-filter-label">${label}</span>${control}<button type="button" class="filter-remove" data-remove-filter="${c.key}" aria-label="Remove ${label.toLowerCase()} filter" title="Remove ${label.toLowerCase()} filter">×</button></div>`;
 }
 function workTableFilters(){
- const q=new URLSearchParams(location.search),value=k=>esc(q.get(k)||''),state=q.get('workState')||'current';
- const text=(k,label)=>`<label>${label}<input name="${k}" type="search" value="${value(k)}"></label>`;
- const ranges=['requested','completed','remaining','progress'].map(k=>`<fieldset><legend>${k[0].toUpperCase()+k.slice(1)}${k==='progress'?' (%)':''}</legend><div><input type="number" min="0" step="any" name="${k}Min" value="${value(k+'Min')}" aria-label="${k} minimum" placeholder="Min"><span>–</span><input type="number" min="0" step="any" name="${k}Max" value="${value(k+'Max')}" aria-label="${k} maximum" placeholder="Max"></div></fieldset>`).join('');
- return `<form method="get" action="/work" class="my-work-filters" aria-label="Filter tasks"><label class="work-check"><input type="checkbox" name="reviewOnly" value="1" ${['1','true'].includes(q.get('reviewOnly'))?'checked':''}>See only review items</label><div class="my-work-filter-fields">${text('taskSearch','Task')}${text('productSearch','Product')}${text('statusSearch','Status')}<label>State<select name="workState">${Object.entries({current:'Current tasks',all:'All states',...workStates}).map(([k,v])=>`<option value="${k}" ${k===state?'selected':''}>${v}</option>`).join('')}</select></label></div><details ${['requested','completed','remaining','progress'].some(k=>q.get(k+'Min')||q.get(k+'Max'))?'open':''}><summary>Quantity and progress filters</summary><div class="my-work-filter-fields">${ranges}</div></details>${hidden('sort',q.get('sort')||'task')}${hidden('order',q.get('order')||'desc')}<div class="my-work-filter-actions"><button>Apply filters</button><a href="/work">Clear filters</a></div></form>`;
+ const q=new URLSearchParams(location.search);
+ if(!selectedFilterColumns)selectedFilterColumns=new Set(workFilterColumns.filter(c=>c.names.some(k=>q.has(k)&&q.get(k)!==''&&(k!=='workState'||q.get(k)!=='current'))).map(c=>c.key));
+ const columns=[...selectedFilterColumns].map(k=>workFilterColumns.find(c=>c.key===k)).concat(workFilterColumns.filter(c=>!selectedFilterColumns.has(c.key)));
+ const canSelect=allowed('resolve')&&allowed('resolveStop')&&allowed('teamStop');
+ return `<form method="get" action="/work" class="my-work-filters" aria-label="Filter tasks"><div class="work-filter-toolbar"><select class="work-filter-picker" data-add-filter aria-label="Add filter"><option value="">Filters</option>${workFilterColumns.map(c=>`<option value="${c.key}" ${selectedFilterColumns.has(c.key)?'disabled':''}>${esc(c.label)}</option>`).join('')}</select><button data-apply-work-filters disabled>Apply</button>${canSelect?`<button type="button" class="secondary" data-toggle-selection aria-pressed="${selectingTasks}">${selectingTasks?'Done':'Select'}</button>`:''}<label class="work-check"><input type="checkbox" name="reviewOnly" value="1" ${['1','true'].includes(q.get('reviewOnly'))?'checked':''}>See only review items</label></div><div class="work-filter-fields" data-filter-fields ${selectedFilterColumns.size?'':'hidden'}>${columns.map(c=>workFilterChip(c,q)).join('')}</div>${canSelect?`<button type="button" class="danger" data-bulk-discard ${selectedTasks.size?'':'hidden'}>Discard All (${selectedTasks.size})</button>`:''}<span data-filter-feedback role="status"></span></form>`;
 }
-function workColumn(key,label){const q=new URLSearchParams(location.search),sort=q.get('sort')||'task',order=q.get('order')||'desc',active=sort===key;q.set('sort',key);q.set('order',active&&order==='asc'?'desc':'asc');q.delete('page');return `<th scope="col" aria-sort="${active?(order==='asc'?'ascending':'descending'):'none'}"><a href="/work?${esc(q.toString())}" title="Sort ${label.toLowerCase()} ${active&&order==='asc'?'descending':'ascending'}">${label} ${active?(order==='asc'?'↑':'↓'):'↕'}</a></th>`;}
+function changeFilterColumn(f,key,add){
+ const column=workFilterColumns.find(c=>c.key===key);if(!column)return;
+ const chip=f.querySelector(`[data-filter-column="${key}"]`),picker=f.querySelector('[data-add-filter]');
+ if(add){selectedFilterColumns.add(key);chip.hidden=false;f.querySelector('[data-filter-fields]').append(chip);f.querySelector('[data-filter-fields]').hidden=false;chip.querySelector('input,select').focus();}
+ else{selectedFilterColumns.delete(key);for(const name of column.names)f.elements[name].value=name==='workState'?'current':'';chip.hidden=true;picker.focus();}
+ f.querySelector('[data-filter-fields]').hidden=!selectedFilterColumns.size;picker.querySelector(`option[value="${key}"]`).disabled=add;picker.value='';updateFilterApply(f);dirty=workFiltersChanged(f);
+}
+function workFiltersChanged(f){const q=new URLSearchParams(location.search);return workFilterNames.some(k=>(f.elements[k]?.value||'')!==(q.get(k)||(k==='workState'?'current':'')));}
+function updateFilterApply(f){const b=f?.querySelector('[data-apply-work-filters]');if(b)b.disabled=!workFiltersChanged(f);}
+async function applyWorkFilters(f,reviewOnly=false){
+ const before=location.search,q=clearRetiredWorkFilters(new URLSearchParams(before));q.delete('page');
+ if(!reviewOnly)for(const k of workFilterNames){const v=f.elements[k]?.value||'';if(v)q.set(k,v);else q.delete(k);}
+ if(f.elements.reviewOnly.checked)q.set('reviewOnly','1');else q.delete('reviewOnly');
+ window.history.replaceState(window.history.state,'','/work'+(q.size?'?'+q:''));
+ try{await refresh();if(location.search!==(q.size?'?'+q:''))return;const head=root.querySelector('.my-work-table thead tr');if(head)head.innerHTML=workTableHead();patchMyWorkRows();patchSelection();dirty=workFiltersChanged(f);updateFilterApply(f);f.querySelector('[data-filter-feedback]').textContent='';}
+ catch(error){if(location.search!==(q.size?'?'+q:''))return;window.history.replaceState(window.history.state,'','/work'+before);f.elements.reviewOnly.checked=['1','true'].includes(new URLSearchParams(before).get('reviewOnly'));f.querySelector('[data-filter-feedback]').textContent=error.message;updateFilterApply(f);}
+}
+function workTableHead(){return `${selectingTasks?'<th scope="col" class="task-select-cell"><input type="checkbox" data-select-all aria-label="Select all eligible tasks on this page"></th>':''}${[['task','Task'],['product','Product'],['unit','Unit'],['requested','Requested'],['completed','Completed'],['remaining','Remaining'],['status','Status'],['progress','Progress'],['state','State']].map(([k,v])=>workColumn(k,v)).join('')}<th scope="col">Action</th>`;}
+
+function workColumn(key,label){const q=clearRetiredWorkFilters(new URLSearchParams(location.search)),sort=q.get('sort')||'task',order=q.get('order')||'desc',active=sort===key;q.set('sort',key);q.set('order',active&&order==='asc'?'desc':'asc');q.delete('page');return `<th scope="col" aria-sort="${active?(order==='asc'?'ascending':'descending'):'none'}"><a href="/work?${esc(q.toString())}" title="Sort ${label.toLowerCase()} ${active&&order==='asc'?'descending':'ascending'}">${label} ${active?(order==='asc'?'↑':'↓'):'↕'}</a></th>`;}
 function myNextContent(){
  const t=snapshot.taskPage?.view==='mine'?snapshot.myWorkNextTask:null;
  if(!t||t.assignee_id!==snapshot.user.id)return `<p>${!online?'Reconnect to load your next task.':allowed('pick')||allowed('put')?'No task is ready to start. Choose Pick stock or Put stock below.':'No task is ready to start.'}</p>`;
@@ -415,7 +566,7 @@ function myNextContent(){
 }
 function home(){
  const tasks=myTasks();
- return `<section class="work-intro my-work-next-area"><h2>What’s your next move?</h2><div data-my-next-content>${myNextContent()}</div><p data-my-next-warning class="work-callout warning" role="status" hidden></p></section><section class="my-work-list" aria-label="My tasks">${!online&&snapshot.taskPage?.view!=='mine'?'<p class="work-callout warning">This saved view may not include all your tasks. Reconnect to load current assignments.</p>':''}${workTableFilters()}<div class="table-wrap my-work-table-wrap" tabindex="0" role="region" aria-label="My tasks; scroll horizontally for all columns"><table class="my-work-table"><thead><tr>${[['task','Task'],['product','Product'],['requested','Requested'],['completed','Completed'],['remaining','Remaining'],['status','Status'],['progress','Progress'],['state','State']].map(([k,v])=>workColumn(k,v)).join('')}</tr></thead><tbody data-my-work-table>${tasks.map(myTaskRow).join('')||'<tr><td colspan="8" class="empty-cell">No matching tasks.</td></tr>'}</tbody></table></div><p class="work-help">Remaining is unmet task quantity. Completed or stopped tasks have no executable work.</p><div data-my-work-pagination>${snapshot.taskPage?.view==='mine'&&snapshot.taskPage?.pages>1?pageLinks(snapshot.taskPage):''}</div></section>${allowed('pick')||allowed('put')?`<footer class="my-work-footer" aria-label="Create stock work"><div class="work-actions">${allowed('pick')?'<a class="work-primary" href="/pick">Pick stock</a>':''}${allowed('put')?'<a class="work-secondary" href="/put">Put stock</a>':''}</div></footer>`:''}`;
+ return `<section class="work-intro my-work-next-area"><h2>What’s your next move?</h2><div data-my-next-content>${myNextContent()}</div><p data-my-next-warning class="work-callout warning" role="status" hidden></p></section><section class="my-work-list" aria-label="My tasks">${!online&&snapshot.taskPage?.view!=='mine'?'<p class="work-callout warning">This saved view may not include all your tasks. Reconnect to load current assignments.</p>':''}${workTableFilters()}<div class="table-wrap my-work-table-wrap" tabindex="0" role="region" aria-label="My tasks; scroll horizontally for all columns"><table class="my-work-table"><thead><tr>${workTableHead()}</tr></thead><tbody data-my-work-table>${tasks.map(myTaskRow).join('')||`<tr><td colspan="${selectingTasks?11:10}" class="empty-cell">No matching tasks.</td></tr>`}</tbody></table></div><p class="work-help">Remaining is unmet task quantity. Completed or stopped tasks have no executable work.</p><div data-my-work-pagination>${snapshot.taskPage?.view==='mine'&&snapshot.taskPage?.pages>1?pageLinks(snapshot.taskPage):''}</div></section>${allowed('pick')||allowed('put')?`<footer class="my-work-footer" aria-label="Create stock work"><div class="work-actions">${allowed('pick')?'<a class="work-primary" href="/pick">Pick stock</a>':''}${allowed('put')?'<a class="work-secondary" href="/put">Put stock</a>':''}</div></footer>`:''}`;
 }
 function patchMyNext(){
  const content=root.querySelector('[data-my-next-content]');if(!content)return;
@@ -658,7 +809,7 @@ function patchMyWorkRows(){
  }else{
   for(const task of desired){let row=existing.get(String(task.id));if(!row){const template=document.createElement('template');template.innerHTML=myTaskRow(task);row=template.content.firstElementChild;}body.append(row);}
  }
- if(!body.querySelector('[data-task-row]'))body.innerHTML='<tr><td colspan="8" class="empty-cell">No matching tasks.</td></tr>';
+ if(!body.querySelector('[data-task-row]'))body.innerHTML=`<tr><td colspan="${selectingTasks?11:10}" class="empty-cell">No matching tasks.</td></tr>`;
  patchMyNext();
  const pages=root.querySelector('[data-my-work-pagination]');if(pages)pages.innerHTML=snapshot.taskPage?.view==='mine'&&snapshot.taskPage.pages>1?pageLinks(snapshot.taskPage):'';
  if(dialog?.open){const t=observed.get(String(dialog.dataset.taskId)),choice=t&&myTaskChoice(t),stale=!online||!t||!wanted.has(String(t.id))||String(t.assignment_generation)!==dialog.dataset.generation||choice?.label!==dialog.dataset.choice;
@@ -716,15 +867,18 @@ async function immediate(action,values){
 root.addEventListener('combobox:search',e=>{if(!e.target.matches('select[data-search-remote]'))return;e.preventDefault();searchCombo(e.target,e.detail.query,e.detail.signal).then(e.detail.resolve,error=>e.detail.reject(error.message));});
 root.addEventListener('invalid',e=>{for(let p=e.target.parentElement;p&&p!==root;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;},true);
 root.addEventListener('input',e=>{
+ const filter=e.target.closest('.my-work-filters');if(filter){updateFilterApply(filter);dirty=workFiltersChanged(filter);return;}
  dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{notice='Draft not saved: device storage failed. Use the manual recording procedure.';document.querySelector('#work-notice').textContent=workText(notice);});
  if(f)updateRecoveryLink(f);
  if(f&&e.target.name==='verificationNote')updateVerificationFields(f);
  if(f&&e.target.name==='unit')updateProductPicker(f);
 
 });
-root.addEventListener('change',e=>{const changedForm=e.target.closest('form');if(changedForm){updateClosureForm(changedForm);if(['changeDue','deadlineChoice'].includes(e.target.name))updateReturnedDue(changedForm);updateRecoveryLink(changedForm);updateAssignmentForm(changedForm);if(e.target.name==='verification')updateVerificationFields(changedForm);if(e.target.name==='timeUnit')updateTimingFields(changedForm,true);}if(e.target.name==='productId'){updateProductPicker(e.target.closest('form'));refreshProductStocks(true,e.target.closest('form'));}else if(e.target.name==='direction')refreshProductStocks(true,e.target.closest('form'));if(e.target.name==='assigneeId')patchTaskAssignees();if(e.target.name==='countCorrectionId'){const f=e.target.closest('form'),r=snapshot.pending.find(r=>r.id===f.elements.reportId?.value),candidate=(f._countCandidates||[r?.countEvidence]).find(c=>c&&String(c.id)===e.target.value);if(r)f.querySelector('[data-count-sequence]').textContent=countSequence(candidate,r);}dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{});});
+root.addEventListener('change',e=>{if(e.target.matches('[data-select-task],[data-select-all]')){changeTaskSelection(e.target);return;}const filter=e.target.closest('.my-work-filters');if(filter){if(e.target.matches('[data-add-filter]')){changeFilterColumn(filter,e.target.value,true);return;}if(e.target.name==='reviewOnly')void applyWorkFilters(filter,true);else updateFilterApply(filter);dirty=workFiltersChanged(filter);return;}const changedForm=e.target.closest('form');if(changedForm){updateClosureForm(changedForm);if(['changeDue','deadlineChoice'].includes(e.target.name))updateReturnedDue(changedForm);updateRecoveryLink(changedForm);updateAssignmentForm(changedForm);if(e.target.name==='verification')updateVerificationFields(changedForm);if(e.target.name==='timeUnit')updateTimingFields(changedForm,true);}if(e.target.name==='productId'){updateProductPicker(e.target.closest('form'));refreshProductStocks(true,e.target.closest('form'));}else if(e.target.name==='direction')refreshProductStocks(true,e.target.closest('form'));if(e.target.name==='assigneeId')patchTaskAssignees();if(e.target.name==='countCorrectionId'){const f=e.target.closest('form'),r=snapshot.pending.find(r=>r.id===f.elements.reportId?.value),candidate=(f._countCandidates||[r?.countEvidence]).find(c=>c&&String(c.id)===e.target.value);if(r)f.querySelector('[data-count-sequence]').textContent=countSequence(candidate,r);}dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{});});
 let submitting=false;
 root.addEventListener('submit',async e=>{
+ const filters=e.target.closest('.my-work-filters');if(filters?.matches?.('.my-work-filters')){e.preventDefault();if(workFiltersChanged(filters))await applyWorkFilters(filters);return;}
+ const bulk=e.target.closest('[data-bulk-discard-form]');if(bulk?.hasAttribute?.('data-bulk-discard-form')){e.preventDefault();await submitBulkDiscard(bulk);return;}
  const f=e.target.closest('form[data-work-action]');if(!f)return;e.preventDefault();if(submitting)return;submitting=true;
  const button=f.querySelector('button:not([type="button"])');button.disabled=true;
  const feedback=f.querySelector('.form-feedback'),action=e.submitter?.hasAttribute('data-send-task-review')?'sendTaskReview':f.dataset.workAction;
@@ -747,7 +901,7 @@ root.addEventListener('submit',async e=>{
   if('verificationNote' in values)values.verification=verifiedDescription(values);
   if(values.note&&action==='decline')values.reason=[values.reason,values.note].filter(Boolean).join(' — ');
   if(action==='manual'&&!values.unit?.trim())values.unit=snapshot.products.find(p=>p.id===Number(values.productId))?.unit_of_measure;
-  if(['closeTask','sendTaskReview','updateReviewTask'].includes(action)||f.dataset.draftKind==='closure-review'){
+  if(['closeTask','sendTaskReview','updateReviewTask'].includes(action)||f.dataset.draftKind==='closure-review'||f.dataset.draftKind==='discard-task'){
    if(!online)throw new Error('Reconnect before saving this task. Your entries remain saved as a draft.');
    if(action!=='updateReviewTask'&&!values.currentStatus)throw new Error('Choose Yes or No first.');
    const t=availableTask(values.taskId)||snapshot.pending?.find(r=>r.id===values.reportId)?.closureTask;if(!t||taskHasSavedUpdate(t)||outbox.some(o=>o.partition===key()&&['local','sending','error','rejected'].includes(o.state)&&o.action==='manual'))throw new Error('Send saved movement updates and wait for confirmation before closing this task.');
@@ -755,7 +909,7 @@ root.addEventListener('submit',async e=>{
    await store('outbox','readwrite',s=>s.put({id,partition:key(),action,input,label:savedAction({action,input}),state:'local',message:action==='updateReviewTask'?'Assignment awaiting warehouse confirmation.':'Closure awaiting warehouse confirmation. Task is not closed yet.',createdAt:new Date().toISOString()}));
    outbox=await all('outbox');await sync();const received=outbox.find(o=>o.id===id);
    if(!received?.result)throw new Error(received?.message||'Change not confirmed. Use saved update status to retry this same request; your draft is kept.');
-   await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));notice=received.message;render();if(action==='updateReviewTask'){const fresh=await fetchDialogTask(Number(values.taskId));openTaskDialog(fresh,'check');}
+   await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));notice=received.message;await afterReviewSave(Number(values.taskId),action);
   }else if(isActivation(action,values)){await beginActivation(action,values);await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));}
   else if(action==='acquire'){if(!lineActive(findLine(values.lineId)))throw new Error('Resume this task before arriving.');
    if(!online)throw new Error('Reconnect to request a turn. You may still report physical work already done.');
@@ -779,7 +933,12 @@ root.addEventListener('submit',async e=>{
 });
 root.addEventListener('click',async e=>{
  try{
-  if(e.target.closest('[data-review-align],[data-review-assignment],[data-review-back]')){const d=e.target.closest('[data-task-dialog]');for(const f of d.querySelectorAll('form[data-work-action]'))await saveDraft(f);openTaskDialog(d._task,e.target.closest('[data-review-align]')?'check-align':e.target.closest('[data-review-assignment]')?'check-assignment':'check');return;}
+  if(e.target.closest('[data-review-back],[data-task-dialog-close]')){await modalBack();return;}
+  const choice=e.target.closest('[data-review-align],[data-review-assignment],[data-review-discard]');if(choice){if(choice.disabled)return;const d=choice.closest('[data-task-dialog]');await saveModalDrafts();const mode=choice.hasAttribute('data-review-align')?'check-align':choice.hasAttribute('data-review-assignment')?'check-assignment':'check-discard';openTaskDialog(d._task,mode,null,d.dataset.mode==='check'?'push':'replace');return;}
+  if(e.target.closest('[data-toggle-selection]')){selectingTasks=!selectingTasks;if(!selectingTasks)selectedTasks.clear();patchSelection(true);return;}
+  const filterRemove=e.target.closest('[data-remove-filter]');if(filterRemove){changeFilterColumn(filterRemove.closest('form'),filterRemove.dataset.removeFilter,false);return;}
+  if(e.target.closest('[data-bulk-discard]')){await startBulkDiscard();return;}
+  const bulkAction=e.target.closest('[data-bulk-remove],[data-bulk-review],[data-bulk-update]');if(bulkAction){if(bulkBusy)return;const id=Number(bulkAction.dataset.bulkRemove||bulkAction.dataset.bulkReview||bulkAction.dataset.bulkUpdate);if(bulkAction.hasAttribute('data-bulk-remove')){selectedTasks.delete(id);bulkTasks=bulkTasks.filter(t=>t.id!==id);openBulkDialog('replace');patchSelection();return;}const t=await fetchDialogTask(id);bulkTasks=bulkTasks.map(x=>x.id===id?t:x);bulkErrors.delete(id);openTaskDialog(t,bulkAction.hasAttribute('data-bulk-review')?'check':'check-assignment');return;}
   if(e.target.closest('[data-show-saved]')){for(const name of ['my-work-tools','device-recovery'])root.querySelector('[data-disclosure="'+name+'"]')?.setAttribute('open','');root.querySelector('[data-disclosure="device-recovery"]')?.scrollIntoView({block:'nearest'});return;}
   const edit=e.target.closest('[data-add-actual],[data-remove-actual]');if(edit){await saveDraft(editActualRows(edit));return;}
   const checkStop=e.target.closest('[data-check-stop]');if(checkStop){toggleCheckStop(checkStop);return;}
@@ -788,7 +947,6 @@ root.addEventListener('click',async e=>{
   const nextLocation=e.target.closest('[data-active-location]');if(nextLocation){const t=snapshot.tasks.find(t=>t.id===Number(path.split('/')[2]));if(workActive(t)){e.preventDefault();window.history.pushState({},'',nextLocation.getAttribute('href'));render();return;}}
   if(e.target.closest('[data-refresh-guidance]')){await refreshActiveLight();return;}
   const retryActivation=e.target.closest('[data-retry-activation]');if(retryActivation){if(submitting)return;submitting=true;try{const o=outbox.find(o=>o.id===retryActivation.dataset.retryActivation&&o.partition===key());if(o)await deliverActivation(o);}finally{submitting=false;}return;}
-  if(e.target.closest('[data-task-dialog-close]')){root.querySelector('[data-task-dialog]')?.close();return;}
   const taskAction=e.target.closest('[data-update-returned],[data-hand-back]');if(taskAction){const id=Number(taskAction.dataset.updateReturned||taskAction.dataset.handBack),found=[...(snapshot.returnedTasks||[]),...snapshot.tasks,...(snapshot.watchedTasks||[])].find(t=>t.id===id);let t=found;if(!t&&online){t=await fetchDialogTask(id);snapshot.watchedTasks=[...(snapshot.watchedTasks||[]),t];}if(!t)throw new Error('Reconnect to open the latest task.');if(t)openTaskDialog(t,taskAction.dataset.updateReturned?'update':'return');return;}
   const myMore=e.target.closest('[data-my-actions]');if(myMore){const t=[...snapshot.tasks,...(snapshot.watchedTasks||[])].find(t=>t.id===Number(myMore.dataset.myActions));if(t)myActionDialog(t);return;}
   if(e.target.closest('[data-my-close]')){root.querySelector('[data-my-work-dialog]')?.close();return;}
@@ -835,9 +993,9 @@ async function scanQR(l){
  }catch(error){stop();notice='Camera unavailable. Choose Complete without scanning; no movement has been recorded.';render();}
 }
 window.addEventListener('pagehide',()=>stopCamera?.());
-window.addEventListener('popstate',()=>{activeWork=null;location.reload();});
+window.addEventListener('popstate',handleModalPop);
 window.addEventListener('offline',()=>{online=false;productStockReads.clear();refreshProductStocks();patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
-const canRefresh=()=>!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open&&!dirty&&!root.contains(document.activeElement)&&!cameraStream?.active&&!submitting;
+const canRefresh=()=>!bulkBusy&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open&&!dirty&&!root.contains(document.activeElement)&&!cameraStream?.active&&!submitting;
 let monitoring=false,pollDelay=5000;
 function patchLiveRows(){
  refreshProductStocks();patchGuidanceHints();patchReturnedRows();patchTaskAssignees();
@@ -870,7 +1028,7 @@ function patchLiveRows(){
  for(const [el,x,y] of scrolls){el.scrollLeft=x;el.scrollTop=y;}window.scrollTo({top:pageTop+anchorShift,behavior:'instant'});
 }
 async function backgroundRefresh(){
- if(monitoring||submitting||cameraStream?.active)return;monitoring=true;
+ if(monitoring||submitting||bulkBusy||cameraStream?.active)return;monitoring=true;
  try{const wasOffline=!online;await sync();if(wasOffline&&online)refreshProductStocks(true);pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
   const positions=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el.scrollLeft,el.scrollTop]);const top=window.scrollY;render();[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].forEach((el,i)=>{if(positions[i]){el.scrollLeft=positions[i][0];el.scrollTop=positions[i][1];}});window.scrollTo({top,behavior:'instant'});
  }else patchLiveRows();}finally{monitoring=false;}

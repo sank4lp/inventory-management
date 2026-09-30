@@ -35,7 +35,7 @@ export function taskSelection(db,user,input={}) {
   const returnedScope=can(user,'work.team')?'1':can(user,'work.assign')?'(t.created_by=? OR EXISTS(SELECT 1 FROM task_assignment_events e WHERE e.task_id=t.id AND (e.assignee_id=? OR e.previous_assignee=?)))':'0';
   if(returnedScope.includes('?'))params.push(user.id,user.id,user.id);
   const supervisor=can(user,'review.view')?`EXISTS(SELECT 1 FROM work_reports wr JOIN task_lines wl ON wl.id=wr.line_id WHERE wl.task_id=t.id AND wr.status IN ('review','received'))`:'0';
-  const cte=`WITH base AS (SELECT t.*, (SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) product,
+  const cte=`WITH base AS (SELECT t.*, (SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) product, (SELECT l.unit_of_measure FROM task_lines l WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) unit,
     ROUND(COALESCE((SELECT SUM(l.actual_quantity) FROM task_lines l WHERE l.task_id=t.id AND l.execution_state='settled'),0),6) completed,
     (t.attention=1 OR (t.completed_at IS NULL AND (t.review_followup=1 OR t.assignment_state='returned')) OR EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=t.id AND r.status IN ('review','received'))) needs_review,
     EXISTS(SELECT 1 FROM task_lines l JOIN work_guidance g ON g.cell_id=l.cell_id WHERE l.task_id=t.id AND l.execution_state IN ('ready','working') AND json_extract(g.desired,'$.action') IN ('count','quantity','locate') AND COALESCE(json_extract(g.desired,'$.lineId'),-1)!=l.id) waiting
@@ -48,10 +48,17 @@ export function taskSelection(db,user,input={}) {
   if(state==='current')where.push("lifecycle!='completed'");else if(['review','not_started','in_progress','completed'].includes(state)){where.push('lifecycle=?');filtered.push(state);}
   if(['1','true',true].includes(input.reviewOnly))where.push('needs_review=1');
   for(const [key,col] of [['taskSearch',"CAST(id AS TEXT)||' '||type"],['productSearch',"COALESCE(product,'')"],['statusSearch','display_status']])if(String(input[key]||'').trim()){where.push(`instr(lower(${col}),lower(?))>0`);filtered.push(String(input[key]).trim().slice(0,160));}
+  if(input.progressRange){
+    const ranges={'0-25':[0,25],'25-50':[25,50],'50-75':[50,75],'75-100':[75,100]};
+    if(!Object.hasOwn(ranges,input.progressRange))throw new Error('Choose a listed progress range.');
+    const [min,max]=ranges[input.progressRange];
+    // Adjacent ranges do not overlap; exactly 100% belongs to the final range.
+    where.push(`progress>=? AND progress${max===100?'<=':'<'}?`);filtered.push(min,max);
+  }
   for(const col of ['requested','completed','remaining','progress'])for(const [suffix,op] of [['Min','>='],['Max','<=']])if(input[col+suffix]!=null&&String(input[col+suffix]).trim()!==''){
     const n=Number(input[col+suffix]);if(!Number.isFinite(n)||n<0)throw new Error('Quantity and progress filters must be non-negative numbers.');where.push(`${col==='requested'?'requested_quantity':col}${op}?`);filtered.push(n);
   }
-  const columns={task:'id',product:'product COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
+  const columns={task:'id',product:'product COLLATE NOCASE',unit:'unit COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
   const sort=Object.hasOwn(columns,input.sort)?input.sort:'task',direction=input.order==='asc'?'ASC':'DESC';
   const total=db.prepare(`${cte} SELECT COUNT(*) n FROM rows WHERE ${where.join(' AND ')}`).get(...filtered).n,pages=Math.max(1,Math.ceil(total/100)),number=Math.min(pageNumber(input.page),pages);
   const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},id ${direction} LIMIT 100 OFFSET ?`).all(...filtered,(number-1)*100);

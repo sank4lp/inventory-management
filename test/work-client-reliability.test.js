@@ -179,14 +179,15 @@ test('aggregate supervisor rejection preserves final rows just like an operator 
  const c=closureSubmitClient({mode:'no',reply:'rejected'});c.f.dataset.workAction='resolve';c.f.dataset.draftKind='closure-review';await c.submit();assert.equal(c.run('drafts.get(draftKey(f))._actuals[0].quantity'),'3');assert.match(c.feedback.textContent,/Send for review/);assert.equal(c.renders(),0);assert.equal([...c.records.values()].find(o=>o.partition).action,'resolve');
 });
 
-test('review step Back saves drafts under their original task version; storage failure leaves the current step open',async()=>{
- const c=client();let click,opened=[],saved=0,renders=0;const original={id:66,assignment_generation:1,progress_token:'original',lines:[]},fresh={...original,assignment_generation:2,progress_token:'fresh'},warning={hidden:true},form={dataset:{workAction:'updateReviewTask'}};
- const dialog={_task:original,dataset:{taskId:'66',mode:'check-assignment'},querySelectorAll:()=>[form],querySelector:()=>warning},target={closest:s=>s==='[data-task-dialog]'?dialog:s==='[data-review-align],[data-review-assignment],[data-review-back]'?{}:null};
- c.context.capture=(name,fn)=>{if(name==='click')click=fn;};c.context.original=original;c.context.fresh=fresh;c.context.saved=()=>saved++;c.context.opened=(t,mode)=>opened.push({t,mode});c.context.rendered=()=>renders++;
- c.run("root.addEventListener=capture;snapshot.tasks=[fresh];saveDraft=async()=>saved();openTaskDialog=opened;render=rendered;");c.run(source.slice(source.indexOf("root.addEventListener('click'"),source.indexOf('let stopCamera=null;')));
- await click({target});assert.equal(saved,1);assert.equal(opened[0].t,original);assert.equal(opened[0].mode,'check');assert.equal(renders,0);
- c.run("saveDraft=async()=>{throw new Error('Storage unavailable');}");await click({target});assert.equal(opened.length,1);assert.equal(warning.hidden,false);assert.equal(warning.textContent,'Storage unavailable');assert.equal(renders,0);
+test('review Back saves the original draft before browser navigation; storage failure keeps it open',async()=>{
+ const c=client();let saved=0,backs=0;const warning={hidden:true},form={dataset:{workAction:'updateReviewTask'}};
+ const dialog={dataset:{mode:'check-assignment'},querySelectorAll:()=>[form],querySelector:()=>warning};
+ c.context.window={history:{back:()=>backs++}};c.context.saved=()=>saved++;c.context.dialog=dialog;
+ c.run("let submitting=false;root.querySelector=()=>dialog;modalDepth=2;saveDraft=async()=>saved();");
+ await c.run('modalBack()');assert.equal(saved,1);assert.equal(backs,1);
+ c.run("saveDraft=async()=>{throw new Error('Storage unavailable');}");await c.run('modalBack()');assert.equal(backs,1);assert.equal(warning.hidden,false);assert.equal(warning.textContent,'Storage unavailable');
 });
+
 function assignmentSubmitClient(reply='recorded'){
  const c=client(),records=new Map(),sent=[],opened=[];let handler;
  const values={taskId:'66',generation:'3',progressToken:'p',assigneeId:'2',remainingQuantity:'3',deadlineChoice:'duration',duration:'30',timeUnit:'minutes'};

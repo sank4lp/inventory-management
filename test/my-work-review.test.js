@@ -27,7 +27,7 @@ test('unified filters and numeric sorts apply before the 100-row boundary, dedup
   const reviewed=f.page(f.admin,{reviewOnly:1,sort:'task',order:'asc'});assert.equal(reviewed.taskPage.total,2);assert.deepEqual(reviewed.tasks.map(t=>t.work_state),['review','review']);assert.deepEqual(reviewed.tasks.map(t=>t.work_status),['Quantity check','Needs assignment']);assert.equal(new Set(reviewed.tasks.map(t=>t.id)).size,2);
   assert.equal(f.page(f.admin,{statusSearch:'assignment'}).tasks[0].id,ids[124]);assert.equal(f.page(f.op,{reviewOnly:true}).tasks.length,1);assert.equal(f.page(f.admin,{productSearch:'no match'}).taskPage.total,0);
   assert.throws(()=>f.page(f.op,{requestedMin:'not numeric'}),/non-negative/);assert.throws(()=>f.page(f.op,{progressMax:-1}),/non-negative/);
-  for(const key of ['completed','progress','state','status','product'])assert.equal(f.page(f.op,{sort:key,order:'asc'}).tasks.length,100);
+  for(const key of ['completed','progress','state','status','product','unit'])assert.equal(f.page(f.op,{sort:key,order:'asc'}).tasks.length,100);
   const access=createAccessService({db:f.db}),role=access.saveRole(f.admin,{name:'Scoped assigner',capabilities:['work.view','work.assign','work.pick']});access.assign(f.admin,{userId:f.second.id,roleId:role});const delegate=currentActor(f.db,f.second);assert.equal(f.page(delegate).taskPage.total,0);
   t=f.get(f.cmd(delegate,'create',{direction:'pick',productId:1,quantity:.001,assigneeId:f.op.id}).taskId);f.cmd(f.op,'decline',f.fields(t));assert.deepEqual(f.page(delegate).tasks.map(t=>t.id),[t.id]);
  }finally{f.db.close();}
@@ -72,5 +72,15 @@ test('State sorting follows displayed labels A–Z and Z–A across all four sta
   const descending=f.page(f.op,{workState:'all',sort:'state',order:'desc'}).tasks;
   assert.deepEqual(descending.map(t=>t.id),ascending.map(t=>t.id).reverse());
   assert.deepEqual(descending.map(t=>labels[t.work_state]),ascending.map(t=>labels[t.work_state]).reverse());
+ }finally{f.db.close();}
+});
+
+test('progress bands include each boundary once, include 100%, and preserve operator scope',()=>{
+ const f=fixture();try{
+  const values=[0,24.9,25,49.9,50,74.9,75,100,125],ids=values.map(progress=>{const t=f.create();f.db.prepare('UPDATE tasks SET requested_quantity=100 WHERE id=?').run(t.id);f.db.prepare("UPDATE task_lines SET execution_state='settled',actual_quantity=? WHERE id=?").run(progress,t.lines[0].id);return t.id;});
+  for(const [range,indexes] of [['0-25',[0,1]],['25-50',[2,3]],['50-75',[4,5]],['75-100',[6,7]]]){
+   const page=f.page(f.op,{progressRange:range,sort:'task',order:'asc'});assert.deepEqual(page.tasks.map(t=>t.id),indexes.map(i=>ids[i]));assert.equal(page.taskPage.total,2);assert.equal(f.page(f.second,{progressRange:range}).taskPage.total,0);
+  }
+  assert.equal(f.page(f.op).taskPage.total,9);assert.throws(()=>f.page(f.op,{progressRange:'0-100'}),/listed progress range/);
  }finally{f.db.close();}
 });
