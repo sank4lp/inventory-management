@@ -2,7 +2,7 @@ import {can} from '../access/catalog.js';
 
 const parse=value=>{try{return JSON.parse(value||'{}');}catch{return {};}};
 const labels={
- assigned:'Assigned',started:'Work started',resumed:'Work resumed',reassigned:'Reassigned',returned:'Work returned',
+ reopened:'Remaining work reopened',reopened_from:'Reopened from earlier task',assigned:'Assigned',started:'Work started',resumed:'Work resumed',reassigned:'Reassigned',returned:'Work returned',
  returned_task_updated:'Returned work updated',review_assigned:'Review assigned',review_intent_updated:'Review assignment updated',review_task_updated:'Assignment updated',
  verified_work_resumed:'Remaining work assigned',deadline_changed:'Deadline changed',stop_requested:'Remaining work stopped',return_acknowledged:'Return acknowledged',closure_review_requested:'Closure sent for review',closed_actuals:'Task closed',
  task_reserved:'Stock reserved',unissued_plan_replaced:'Locations replanned',location_ready:'Arrived at location',location_verified:'QR checked',
@@ -16,6 +16,8 @@ const labels={
 const time=value=>Number.isFinite(Date.parse(value))?new Date(value).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',dateStyle:'medium',timeStyle:'medium'})+' IST':String(value);
 const details=(v,people)=>[
  v.reason,v.note,v.verification,
+ v.nextTaskId?`New task: #${v.nextTaskId} · ${v.quantity} ${v.unit}`:null,
+ v.sourceTaskId?`Original task: #${v.sourceTaskId}`:null,
  v.previous!=null&&typeof v.previous==='number'&&v.actual!=null?`Previously recorded: ${v.previous}`:null,
  v.remaining!=null?`Remaining: ${v.remaining}`:null,
  v.dueAt?`Deadline: ${time(v.dueAt)}`:null,

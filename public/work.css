@@ -342,3 +342,21 @@
 .cell-timeline td:nth-child(7),.cell-timeline td:nth-child(8){min-width:120px}
 .task-timeline td:nth-child(3){min-width:130px}
 .task-timeline td:nth-child(4){min-width:110px}
+
+#work-app .reopen-duration{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+
+/* Task priority and compact recovery choices share existing table/dialog sizing. */
+#work-app tr[data-priority="high"]>td{background:var(--warning-soft,#fff7e6)}
+#work-app tr[data-priority="high"]>td:first-child{box-shadow:inset 3px 0 #a7670a}
+#work-app .planning-dialog{width:min(760px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto;padding:20px}
+#work-app .planning-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+#work-app .planning-choices button{min-height:48px;width:100%;white-space:normal}
+#work-app [data-plan-recovery]{display:grid;gap:14px}
+#work-app [data-plan-recovery] .table-wrap{overflow:auto}
+#work-app [data-plan-recovery] table{width:100%;min-width:460px}
+#work-app [data-plan-recovery] td{padding:7px;vertical-align:middle}
+#work-app [data-plan-recovery] td:nth-child(2){width:130px}
+#work-app [data-plan-recovery] td:nth-child(3){white-space:nowrap}
+#work-app [data-plan-recovery] input[type=number]{width:100%;min-width:85px}
+#work-app .planning-dialog .form-feedback{color:var(--danger,#b42318)}
+@media(max-width:600px){#work-app .planning-choices{grid-template-columns:1fr}#work-app .planning-dialog{padding:14px}}

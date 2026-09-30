@@ -65,12 +65,12 @@ test('wrong simulated QR stays in camera with error and cannot unlock Finish',as
 test('an unresolved camera permission prompt does not keep arrival submission locked or prevent manual Finish',async()=>{
  const {context,run}=client();let handler;
  context.rootCapture=(name,fn)=>{if(name==='submit')handler=fn;};
- run("root.addEventListener=rootCapture;saveDraft=async()=>{};store=async(name,mode,fn)=>fn({getAll:()=>[]});immediate=async()=>({status:'ready',message:'Ready'});refresh=async()=>{};render=()=>{};findLine=()=>({id:7});");
+ run("root.addEventListener=rootCapture;online=true;saveDraft=async()=>{};store=async(name,mode,fn)=>fn({getAll:()=>[]});immediate=async()=>({status:'ready',message:'Ready'});refresh=async()=>{};render=()=>{};findLine=()=>({id:7});lineActive=()=>true;");
  context.FormData=class{constructor(){return [['lineId','7'],['revision','1']];}};
  const a=source.indexOf('let submitting=false;'),b=source.indexOf("root.addEventListener('click'",a);run(source.slice(a,b));
  // Browser has not answered getUserMedia yet; the manual path must remain available.
  context.scanQR=()=>new Promise(()=>{});const button={disabled:false},feedback={classList:{add(){}},textContent:''};
- const f={dataset:{workAction:'acquire'},querySelector:s=>s==='.form-feedback'?feedback:button};
+ const f={dataset:{workAction:'acquire'},elements:{},querySelector:s=>s==='.form-feedback'?feedback:button};
  await handler({target:{closest:()=>f},preventDefault(){}});assert.equal(run('submitting'),false);
 });
 
@@ -82,6 +82,26 @@ function activationClient(){
  c.run(`snapshot.tasks=[{id:65,assignee_id:1,assignment_state:'started',assignment_generation:3,progress_token:'progress',lines:[{id:7,task_id:65,revision:2,current_generation:3,binding_revision:4,planned_quantity:3,execution_state:'ready',canAct:true,reports:[]}]}];online=true;store=async(name,mode,fn)=>fn({getAll:()=>[...records.values()],put:o=>records.set(o.id,o)});refresh=async()=>{};render=()=>{};fetchDialogTask=async()=>snapshot.tasks[0];`);
  return {...c,records,sent,visits};
 }
+test('a lost planning response only retries the original request and cannot create a second task',async()=>{
+ const c=activationClient();let lost=true;
+ c.context.fetch=async(url,options)=>{c.sent.push({url,body:options.body});if(lost)throw new TypeError('lost response');return {ok:true,json:async()=>({status:'reserved',taskId:65,generation:3,message:'Ready'})};};
+ await assert.rejects(c.run("submitPlan('create',{direction:'pick',productId:1,quantity:8,recovery:{mode:'count',confirmed:true,counts:[{cellId:1,quantity:10,token:'snapshot'}]}},'draft')"),/lost response/);
+ assert.equal(c.run('outbox[0].state'),'plan-unknown');const frozen=c.sent[0].body;
+ await c.run('sync()');assert.equal(c.sent.length,1);
+ await assert.rejects(c.run("submitPlan('create',{direction:'pick',productId:1,quantity:8},'draft')"),/waiting for confirmation/);assert.equal(c.sent.length,1);
+ lost=false;await c.run('deliverPlan(outbox[0])');assert.equal(c.sent.length,2);assert.equal(c.sent[1].body,frozen);assert.equal(c.run('planPending()'),undefined);
+});
+test('planning rejection is immediately editable while requests from another account cannot be retried',async()=>{
+ const c=activationClient();c.context.fetch=async()=>({ok:false,status:400,json:async()=>({error:'Not enough recorded stock',planning:{direction:'pick',code:'pick_count'}})});
+ await assert.rejects(c.run("submitPlan('create',{direction:'pick',productId:1,quantity:8},'draft')"),e=>e.planning.code==='pick_count');
+ assert.equal(c.run('outbox[0].state'),'acknowledged');assert.equal(c.run('planPending()'),undefined);
+ c.run('snapshot.user.id=2');await assert.rejects(c.run('deliverPlan(outbox[0])'),/original account/);
+});
+test('an accepted planning response stays accepted when refreshing the page fails',async()=>{
+ const c=activationClient();c.run("finishPlan=async()=>{throw new Error('refresh failed')};");
+ await c.run("submitPlan('assign',{direction:'pick',productId:1,quantity:8,assigneeId:2},'draft')");
+ assert.equal(c.run('outbox[0].state'),'recorded');assert.equal(c.run('planPending()'),undefined);assert.match(c.run('notice'),/Task #65 saved/);assert.equal(c.sent.length,1);
+});
 test('Start, Resume and self-create each enter active work in the same document after one explicit POST',async()=>{
  for(const action of ['start','resume','create']){const c=activationClient();assert.equal(c.run('workActive(snapshot.tasks[0])'),false);await c.run(`beginActivation('${action}',{taskId:65})`);assert.equal(c.sent.length,1);assert.equal(c.sent[0].url,'/api/work/'+action);assert.equal(c.run('workActive(snapshot.tasks[0])'),true);assert.match(c.visits[0],/^\/tasks\/65/);assert.equal(c.run('activationPending()'),undefined);}
  assert.equal(activationClient().run('activeWork'),null,'a new document starts passive');
@@ -93,7 +113,7 @@ test('unknown activation is never background replayed; explicit retry preserves 
  lost=false;await c.run('deliverActivation(outbox[0])');assert.equal(c.sent.length,2);assert.equal(c.sent[0].body,c.sent[1].body);assert.equal(c.run('workActive(snapshot.tasks[0])'),true);
 });
 test('definitive activation rejection frees the task for a corrected new request',async()=>{
- const c=activationClient();c.context.fetch=async()=>({ok:false,status:400,json:async()=>({error:'Stale instructions'})});await assert.rejects(c.run("beginActivation('resume',{taskId:65})"),/Stale/);assert.equal([...c.records.values()][0].state,'not-applied');assert.equal(c.run('activationPending()'),undefined);assert.equal(c.run('taskHasSavedUpdate(snapshot.tasks[0])'),false);
+ const c=activationClient();c.context.fetch=async()=>({ok:false,status:400,json:async()=>({error:'Stale instructions'})});await assert.rejects(c.run("beginActivation('resume',{taskId:65})"),/Stale/);assert.equal([...c.records.values()][0].state,'acknowledged');assert.equal(c.run('activationPending()'),undefined);assert.equal(c.run('taskHasSavedUpdate(snapshot.tasks[0])'),false);
 });
 test('old-dataset unknown activation is preserved without blocking current work or rewriting retry identity',async()=>{
  const c=activationClient();c.context.old={id:'old',partition:'test:1',action:'create',state:'activation-unknown',input:{site:'test',dataset:'old-data',actorId:1,requestId:'old'}};c.run('records.set(old.id,old);outbox=[old]');const frozen=JSON.stringify(c.context.old.input);

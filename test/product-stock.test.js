@@ -34,20 +34,20 @@ test('operator sees aggregate reservations but only own tasks; assignment capabi
  const view=f.access.saveRole(f.admin,{name:'Work reader',capabilities:['work.view']});f.access.assign(f.admin,{userId:f.op.id,roleId:view});assert.throws(()=>f.read(f.op),/planning is not available/);f.db.prepare("UPDATE users SET status='inactive' WHERE id=?").run(f.op.id);assert.throws(()=>f.read(f.op));assert.throws(()=>f.work.productStock(f.admin,{productId:999999}),/active product/);
  }finally{f.db.close();}
 });
-test('inactive, discrepancy and uncertain stock never masquerade as available; reads follow releases and partial settlement',()=>{
+test('inactive stock stays unavailable; review-only reservations yield stock and reads follow settlement',()=>{
  const f=fixture();try{const [a,b,c]=f.cells;f.stock(a,8);f.stock(b,4);f.stock(c,3);let t=f.work.task(f.op,f.create(f.op,'pick',3,a).taskId);
- f.db.prepare('UPDATE cells SET active=0 WHERE id=?').run(c.id);f.command(f.op,'askReview',{lineId:t.lines[0].id,reason:'Unknown actual'});let s=f.read(f.admin);assert.equal(s.recorded,15);assert.equal(s.pickReserved,3);assert.equal(s.availableToPick,4);assert.equal(s.unavailableUnreserved,8);
+ f.db.prepare('UPDATE cells SET active=0 WHERE id=?').run(c.id);f.command(f.op,'askReview',{lineId:t.lines[0].id,reason:'Unknown actual'});let s=f.read(f.admin);assert.equal(s.recorded,15);assert.equal(s.pickReserved,3);assert.equal(s.availableToPick,12);assert.equal(s.unavailableUnreserved,3);
  const next=f.work.task(f.admin,f.create(f.admin,'pick',2,b).taskId);f.command(f.admin,'stop',{taskId:next.id,generation:next.assignment_generation});s=f.read(f.admin);assert.equal(s.pickReserved,3);assert.equal(s.reservations.length,1);
- const l=f.work.task(f.admin,f.create(f.admin,'pick',2,b).taskId).lines[0];f.command(f.admin,'acquire',{lineId:l.id,revision:l.revision,method:'arrival',deviceId:'stock-test'});const fresh=f.work.line(l.id);f.command(f.admin,'report',{lineId:l.id,revision:fresh.revision,quantity:1,cellId:b.id,unit:f.p.unit_of_measure,deviceId:'stock-test'});s=f.read(f.admin);assert.equal(s.recorded,14);assert.equal(s.pickReserved,3);assert.equal(s.availableToPick,3);
+ const l=f.work.task(f.admin,f.create(f.admin,'pick',2,b).taskId).lines[0];f.command(f.admin,'acquire',{lineId:l.id,revision:l.revision,method:'arrival',deviceId:'stock-test'});const fresh=f.work.line(l.id);f.command(f.admin,'report',{lineId:l.id,revision:fresh.revision,quantity:1,cellId:b.id,unit:f.p.unit_of_measure,deviceId:'stock-test'});s=f.read(f.admin);assert.equal(s.recorded,14);assert.equal(s.pickReserved,3);assert.equal(s.availableToPick,11);
  }finally{f.db.close();}
 });
 test('put reservations in another product occupy capacity without becoming this product’s stock or pick reservations',()=>{
  const f=fixture();try{const other=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.p.id);f.command(f.admin,'create',{direction:'put',productId:other.id,quantity:1,preferredCellId:f.cells[0].id});const s=f.read(f.admin);assert.equal(s.recorded,0);assert.equal(s.pickReserved,0);assert.equal(s.incomingReserved,0);assert.equal(s.availableToPick,0);assert.equal(s.putCapacity,20);assert.equal(s.reservationCount,0);}finally{f.db.close();}
 });
 
-test('uncertain exclusive turn alone blocks free stock; admin can passively inspect then safely stop a linked operator reservation',()=>{
+test('a busy turn preserves its active reservation but permits planning against other free stock',()=>{
  const f=fixture();try{const [a]=f.cells;f.stock(a,8);let t=f.work.task(f.op,f.create(f.op,'pick',3,a).taskId);const before=f.db.prepare('SELECT total_changes() n').get().n;assert.equal(f.work.task(f.admin,f.read(f.admin).reservations[0].taskId).id,t.id);assert.equal(f.db.prepare('SELECT total_changes() n').get().n,before);
  f.command(f.admin,'stop',{taskId:t.id,generation:t.assignment_generation});assert.equal(f.read(f.admin).pickReserved,0);assert.equal(f.read(f.admin).availableToPick,8);
- t=f.work.task(f.op,f.create(f.op,'pick',3,a).taskId);const l=t.lines[0];f.command(f.op,'acquire',{lineId:l.id,revision:l.revision,method:'arrival',deviceId:'uncertain-device'});f.db.prepare('UPDATE cell_turns SET uncertain=1 WHERE cell_id=?').run(a.id);const s=f.read(f.admin);assert.equal(s.recorded,8);assert.equal(s.availableToPick,0);assert.equal(s.unavailableUnreserved,5);assert.equal(s.putCapacity,20);
+ t=f.work.task(f.op,f.create(f.op,'pick',3,a).taskId);const l=t.lines[0];f.command(f.op,'acquire',{lineId:l.id,revision:l.revision,method:'arrival',deviceId:'uncertain-device'});f.db.prepare('UPDATE cell_turns SET uncertain=1 WHERE cell_id=?').run(a.id);const s=f.read(f.admin);assert.equal(s.recorded,8);assert.equal(s.availableToPick,5);assert.equal(s.unavailableUnreserved,0);assert.equal(s.putCapacity,22);
  }finally{f.db.close();}
 });

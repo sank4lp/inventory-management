@@ -1,3 +1,4 @@
+import {taskPrioritySql} from './planning-policy.js';
 import {can,assertCan} from '../access/catalog.js';
 const pageNumber=value=>Math.max(1,Math.min(1000000,Math.floor(Number(value)||1)));
 const closed="t.outcome IN ('completed','stopped','cancelled')";
@@ -38,7 +39,7 @@ export function taskSelection(db,user,input={}) {
   const supervisor=can(user,'review.view')?`EXISTS(SELECT 1 FROM work_reports wr JOIN task_lines wl ON wl.id=wr.line_id WHERE wl.task_id=t.id AND wr.status IN ('review','received'))`:'0';
   let scope=`(${own} OR ((t.assignment_state='returned' OR t.attention=1) AND ${returnedScope}) OR ${supervisor})`;
   if(history){params.length=0;if(input.scope==='team'){assertCan(user,'work.team');scope='1';}else{scope='(t.assignee_id=? OR t.created_by=? OR EXISTS(SELECT 1 FROM task_assignment_events e WHERE e.task_id=t.id AND (e.assignee_id=? OR e.previous_assignee=?)))';params.push(user.id,user.id,user.id,user.id);}}
-  const cte=`WITH base AS (SELECT t.*, (SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) product, (SELECT l.unit_of_measure FROM task_lines l WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) unit,
+  const cte=`WITH base AS (SELECT t.*, ${taskPrioritySql()} priority_rank, (SELECT u.name FROM users u WHERE u.id=t.assignee_id) assigned_to, (SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) product, (SELECT l.unit_of_measure FROM task_lines l WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) unit,
     ROUND(COALESCE((SELECT SUM(l.actual_quantity) FROM task_lines l WHERE l.task_id=t.id AND l.execution_state='settled'),0),6) completed,
     (t.attention=1 OR (t.completed_at IS NULL AND (t.review_followup=1 OR t.assignment_state='returned')) OR EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=t.id AND r.status IN ('review','received'))) needs_review,
     EXISTS(SELECT 1 FROM task_lines l JOIN work_guidance g ON g.cell_id=l.cell_id WHERE l.task_id=t.id AND l.execution_state IN ('ready','working') AND json_extract(g.desired,'$.action') IN ('count','quantity','locate') AND COALESCE(json_extract(g.desired,'$.lineId'),-1)!=l.id) waiting
@@ -59,6 +60,7 @@ export function taskSelection(db,user,input={}) {
   }
   if(['1','true',true].includes(input.reviewOnly))where.push('needs_review=1');
   for(const [key,col] of [['taskSearch',"CAST(id AS TEXT)||' '||type"],['productSearch',"COALESCE(product,'')"],['statusSearch','display_status']])if(String(input[key]||'').trim()){where.push(input[key+'Exact']==='1'?`lower(${col})=lower(?)`:`instr(lower(${col}),lower(?))>0`);filtered.push(String(input[key]).trim().slice(0,160));}
+  if(['low','medium','high'].includes(input.priority)){where.push('priority_rank=?');filtered.push(['low','medium','high'].indexOf(input.priority));}
   if(input.progressRange){
     const ranges={'0-25':[0,25],'25-50':[25,50],'50-75':[50,75],'75-100':[75,100]};
     if(!Object.hasOwn(ranges,input.progressRange))throw new Error('Choose a listed progress range.');
@@ -69,13 +71,13 @@ export function taskSelection(db,user,input={}) {
   for(const col of ['requested','completed','remaining','progress'])for(const [suffix,op] of [['Min','>='],['Max','<=']])if(input[col+suffix]!=null&&String(input[col+suffix]).trim()!==''){
     const n=Number(input[col+suffix]);if(!Number.isFinite(n)||n<0)throw new Error('Quantity and progress filters must be non-negative numbers.');where.push(`${col==='requested'?'requested_quantity':col}${op}?`);filtered.push(n);
   }
-  const columns={task:'id',product:'product COLLATE NOCASE',unit:'unit COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
-  const sort=Object.hasOwn(columns,input.sort)?input.sort:'task',direction=input.order==='asc'?'ASC':'DESC';
+  const columns={priority:'priority_rank',assignedTo:'assigned_to COLLATE NOCASE',task:'id',product:'product COLLATE NOCASE',unit:'unit COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
+  const sort=Object.hasOwn(columns,input.sort)?input.sort:(history?'task':'priority'),direction=input.order==='asc'?'ASC':'DESC';
   const limit=[20,50,100].includes(Number(input.pageSize))?Number(input.pageSize):50;
   const total=db.prepare(`${cte} SELECT COUNT(*) n FROM rows WHERE ${where.join(' AND ')}`).get(...filtered).n,pages=Math.max(1,Math.ceil(total/limit)),number=Math.min(pageNumber(input.page),pages);
-  const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},id ${direction} LIMIT ? OFFSET ?`).all(...filtered,limit,(number-1)*limit);
+  const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress,priority_rank FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},id ${direction} LIMIT ? OFFSET ?`).all(...filtered,limit,(number-1)*limit);
   const legacy=history?{priority:null,counts:{}}:legacyTaskSelection(db,user,{view:'mine',state:'open'});
-  return {ids:ids.map(r=>r.id),metrics:new Map(ids.map(r=>[r.id,{work_state:r.lifecycle,work_status:r.display_status,work_progress:r.progress}])),priority:legacy.priority,counts:legacy.counts,page:{number,pages,total,limit,view:history?'history':'mine',state,sort,order:direction.toLowerCase(),unified:true}};
+  return {ids:ids.map(r=>r.id),metrics:new Map(ids.map(r=>[r.id,{work_state:r.lifecycle,work_status:r.display_status,work_progress:r.progress,work_priority:['low','medium','high'][r.priority_rank]}])),priority:legacy.priority,counts:legacy.counts,page:{number,pages,total,limit,view:history?'history':'mine',state,sort,order:direction.toLowerCase(),unified:true}};
 }
 export function reviewSelection(db,user,input={}) {
   if(!can(user,'review.view'))return {rows:[],page:{number:1,pages:1,total:0,limit:100},total:0};

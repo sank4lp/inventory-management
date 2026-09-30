@@ -17,10 +17,11 @@ export async function operationsRoutes(request,response,url,user,state) {
     if(request.method==='GET' && action==='snapshot') {const data=work.snapshot(user,Object.fromEntries(url.searchParams));const taskId=Number(url.searchParams.get('taskId'));if(taskId&&data.capabilities.view&&!data.tasks.some(t=>t.id===taskId)){const task=work.task(user,taskId);if(task)data.tasks.unshift(task);}sendJson(response,data);}
     else if(request.method==='GET' && action==='taskHistory') sendJson(response,work.taskHistory(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='cellHistory') sendJson(response,work.cellHistory(user,Object.fromEntries(url.searchParams)));
+    else if(request.method==='GET' && action==='planningOptions') sendJson(response,work.planningOptions(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='productStock') sendJson(response,work.productStock(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='countCandidates') sendJson(response,{...work.identity(),actorId:user.id,counts:work.countCandidates(user,Object.fromEntries(url.searchParams))});
     else if(request.method==='GET' && action==='movements') sendJson(response,{...work.identity(),actorId:user.id,movements:work.searchMovements(user,Object.fromEntries(url.searchParams))});
-    else if(request.method==='POST') sendJson(response,work.command(user,action,request.parsedForm));
+    else if(request.method==='POST') {try{sendJson(response,work.command(user,action,request.parsedForm));}catch(error){if(!error.planning)throw error;sendJson(response,{error:error.message,planning:error.planning},400);}}
     else sendJson(response,{error:'Action not found.'},404);
     return true;
   }

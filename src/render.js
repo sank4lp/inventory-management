@@ -129,7 +129,7 @@ function nav(user, currentTitle = "") {
     <a class="brand dashboard-brand" href="${primary[0]?.[1]||'/profile'}"><img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112"></a>
     <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav" hidden>Menu</button>
     <nav id="warehouse-main-nav" class="side-nav" aria-label="Primary areas" data-nav-links>${primary.map(([label,href,icon])=>`<a class="side-nav-direct ${active===label?'nav-link-active':''}" href="${href}" ${active===label?'aria-current="page"':''}>${iconSvg(icon,'nav-icon')}<span>${label}</span>${label==='Stocktaking'?`<span data-stocktake-badge ${counts?.badge?'':'hidden'}>${counts?.badge||0}</span>`:''}</a>`).join('')}</nav>
-    <div class="sidebar-footer">${SETTINGS.some(x=>can(user,x[2]))?`<a class="side-nav-direct" href="/settings">${iconSvg('admin','nav-icon')}Settings</a>`:''}<details class="account-menu"><summary>${escapeHtml(user.name)} · Account</summary><a href="/profile">Profile</a><a href="/work?device_help=1#device-help">Saved updates & device help</a><form method="post" action="/logout"><button class="ghost-button sidebar-logout">Sign out</button></form></details></div>
+    <div class="sidebar-footer">${SETTINGS.some(x=>can(user,x[2]))?`<a class="side-nav-direct" href="/settings">${iconSvg('admin','nav-icon')}Settings</a>`:''}<details class="account-menu"><summary>${escapeHtml(user.name)} · Account</summary><a href="/profile">Profile</a><form method="post" action="/logout"><button class="ghost-button sidebar-logout">Sign out</button></form></details></div>
   </div></aside>`;
 }
 

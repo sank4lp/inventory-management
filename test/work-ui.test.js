@@ -173,7 +173,7 @@ test('My work live patch inserts arrivals first, preserves focused row and horiz
  ui.root.querySelector=s=>s==='[data-my-work-table]'?body:null;
  ui.context.fixture=tasks;ui.run('snapshot.tasks=fixture.slice(0,2)');rows=[2,1].map(id=>{ui.context.task=tasks[id-1];return makeRow(ui.run('myTaskRow(task)'));});
  const protectedNode=rows[1];const protectedAction=protectedNode.children.find(c=>c.hasAttribute('data-my-actions-cell'));protectedAction.innerHTML='Focused action and draft';active=protectedNode;ui.context.document.activeElement=protectedNode;
- ui.run('snapshot.tasks=[fixture[2],fixture[1],fixture[0]]');assert.equal(ui.run('patchMyWorkRows()'),64);assert.deepEqual(rows.map(r=>r.dataset.taskRow),['3','2','1']);assert.equal(rows[2],protectedNode);assert.equal(rows[2].children[9],protectedAction);assert.equal(protectedAction.innerHTML,'Focused action and draft');assert.notEqual(rows[2].children[5].innerHTML,'Focused action and draft');
+ ui.run('snapshot.tasks=[fixture[2],fixture[1],fixture[0]]');assert.equal(ui.run('patchMyWorkRows()'),64);assert.deepEqual(rows.map(r=>r.dataset.taskRow),['3','2','1']);assert.equal(rows[2],protectedNode);assert.equal(rows[2].children[10],protectedAction);assert.equal(protectedAction.innerHTML,'Focused action and draft');assert.notEqual(rows[2].children[5].innerHTML,'Focused action and draft');
  ui.run('snapshot.tasks=[fixture[2]];snapshot.watchedTasks=[{...fixture[0],completed_at:"2026-09-28",outcome:"completed"}]');ui.run('patchMyWorkRows()');assert.deepEqual(rows.map(r=>r.dataset.taskRow),['3','1']);assert.equal(rows[1],protectedNode);
  active=null;ui.context.document.activeElement=null;ui.run('patchMyWorkRows()');assert.deepEqual(rows.map(r=>r.dataset.taskRow),['3']);
 });
@@ -220,16 +220,17 @@ test('assignment controls match duration bounds and lock unknown outcomes withou
  ui.run("outbox=[];online=false;updateAssignmentForm(f)");assert.equal(button.disabled,true);
 });
 
-test('successful assignment stays on the form, clears its draft, and a pending assignment cannot be duplicated',async()=>{
- const ui=view();const full=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8');let handler;
- ui.root.addEventListener=(event,fn)=>{handler=fn;};ui.context.FormData=class{constructor(f){return Object.entries(f.values);}};ui.context.feedback={textContent:'',classList:{add(){}}};ui.context.button={disabled:false};ui.context.saved=[];
- ui.run("path='/work/overview';snapshot.capabilities={assign:true,pick:true};saveDraft=async()=>{};store=async(name,mode,fn)=>fn({put:o=>saved.push(o),delete:()=>{},getAll:()=>saved});sync=async()=>{saved[0].state='reserved';saved[0].result={taskId:77};notice='Task assigned to Alex.'};render=()=>{};");
- ui.run(full.slice(full.indexOf('let submitting=false;'),full.indexOf("root.addEventListener('click',async e=>")));
- const f={dataset:{workAction:'assign'},values:{direction:'pick',productId:'1',quantity:'2',assigneeId:'2',dueDuration:'8',dueUnit:'hours'},elements:{},querySelector:s=>s.includes('button')?ui.context.button:ui.context.feedback};const event={target:{closest:()=>f},preventDefault(){}};
- await handler(event);assert.equal(ui.context.saved.length,1);assert.equal(ui.context.location.href,undefined);assert.equal(ui.run('notice'),'Task assigned to Alex.');assert.equal(ui.context.saved[0].input.dueDuration,'8');
- ui.context.saved[0].state='error';await handler(event);assert.equal(ui.context.saved.length,1);assert.match(ui.context.feedback.textContent,/Wait for confirmation/);assert.equal(ui.context.button.disabled,true);
+test('successful assignment uses durable plan delivery, stays on the form, and clears its draft only on acceptance',async()=>{
+ const ui=view();ui.root.querySelector=()=>null;ui.context.calls=[];ui.context.saved=new Map();
+ ui.context.fetch=async(url,init)=>{ui.context.calls.push(JSON.parse(init.body));return {ok:true,json:async()=>({status:'reserved',taskId:77,message:'Task assigned to Alex.'})};};
+ ui.run("path='/work/overview';snapshot.dataset='d';store=async(name,mode,fn)=>fn({put:o=>saved.set(o.id,structuredClone(o)),delete:id=>saved.delete(id),getAll:()=>[...saved.values()]});refresh=async()=>{};render=()=>{};");
+ ui.context.structuredClone=structuredClone;ui.context.AbortSignal=AbortSignal;
+ await ui.run("submitPlan('assign',{direction:'pick',productId:1,quantity:2,assigneeId:2,dueDuration:8,dueUnit:'hours'},'draft')");
+ assert.equal(ui.context.calls.length,1);assert.equal(ui.context.location.href,undefined);assert.equal(ui.run('notice'),'Task assigned to Alex.');assert.equal(ui.context.calls[0].dueDuration,8);
+ ui.context.fetch=async()=>{throw new Error('Connection lost');};
+ await assert.rejects(ui.run("submitPlan('assign',{direction:'pick',productId:1,quantity:2,assigneeId:2},'draft')"),/Connection lost/);
+ const calls=ui.context.saved.size;await assert.rejects(ui.run("submitPlan('assign',{direction:'pick',productId:1,quantity:2,assigneeId:2},'draft')"),/waiting for confirmation/);assert.equal(ui.context.saved.size,calls);
 });
-
 test('pre-arrival light status refreshes while the operator keeps focus and a draft, without implying arrival or actual movement',()=>{
  const ui=view({active:true});ui.context.line={...line,guidance:{state:'sent',message:'Quantity guidance sent — check its label on arrival.'}};let html=ui.run('lineCard(line)');assert.match(html,/data-guidance-line="1"/);assert.match(html,/Quantity guidance sent/);assert.match(html,/I'm at this location/);assert.doesNotMatch(html,/Finish pick at this cell/);
  const hint={dataset:{guidanceLine:'1'},textContent:'old sent'},draft={value:'Keep my note'},focused=draft;ui.context.document.activeElement=focused;ui.root.querySelectorAll=s=>s==='[data-guidance-line]'?[hint]:[];
@@ -324,9 +325,10 @@ test('Stop uses final per-location totals with no preselected answer or legacy b
  const ui=view();ui.context.task={id:90,type:'pick',assignee_id:1,assignment_generation:2,progress_token:'p',closure_token:'c',requested_quantity:10,recorded_quantity:4,remaining_quantity:6,lines:[{...line,cell_id:3,execution_state:'settled',actual_quantity:4},{...line,id:8,cell_id:4,execution_state:'ready',planned_quantity:6,actual_quantity:0}]};ui.run("snapshot.tasks=[task];snapshot.cells=[{id:3,logical_code:'A3'},{id:4,logical_code:'A4'}]");
  const html=ui.run('stopDialogContent(task)');assert.match(html,/Are you sure you want to terminate this task with the current status shown above\?/);assert.match(html,/name="currentStatus" value="yes" required>Yes/);assert.match(html,/name="currentStatus" value="no" required>No/);assert.doesNotMatch(html,/<input[^>]*checked|Confirm stop|data-work-action="stop"/);assert.match(html,/data-close-task[^>]*>Close task/);assert.match(html,/data-send-task-review>Send for review/);assert.match(html,/actualQuantity0[^>]*value="4"><\/td><td class="actual-unit">pieces/);assert.match(html,/actualQuantity1[^>]*value="0"><\/td><td class="actual-unit">pieces/);assert.match(html,/data-add-actual/);assert.match(html,/data-remove-actual/);assert.match(html,/data-searchable name="actualCell0"/);assert.doesNotMatch(ui.run('taskRow(task)'),/data-work-action="stop"/);
 });
-test('accepted review has no top saved-update warning, but failed and offline work remains visible and retryable in device help',()=>{
- const ui=view({role:'admin'});ui.context.entry={id:'receipt',partition:'warehouse-a:1',action:'sendTaskReview',input:{taskId:90},state:'review',message:'Sent for review'};ui.run('snapshot.pending=[];outbox=[entry];render()');let html=ui.root.innerHTML;assert.doesNotMatch(html,/class="work-queue"|data-show-saved|<h3>Saved updates/);assert.match(html,/Saved updates &amp; device help|Saved updates & device help/);assert.match(html,/Sent for review/);
- ui.run("entry.state='error';entry.message='Not confirmed';online=false;render()");html=ui.root.innerHTML;assert.match(html,/data-show-saved/);assert.match(html,/need warehouse confirmation/);assert.match(html,/Not confirmed/);assert.match(html,/data-retry/);assert.match(html,/Offline: saved work/);
+test('review and failed planning never show the removed saved-update banner; unsent movement has connection recovery',()=>{
+ const ui=view({role:'admin'});ui.context.entry={id:'receipt',partition:'warehouse-a:1',action:'sendTaskReview',input:{taskId:90},state:'review',message:'Sent for review'};ui.run('snapshot.pending=[];outbox=[entry];render()');let html=ui.root.innerHTML;assert.doesNotMatch(html,/Saved updates &|need attention or review|data-show-saved/);
+ ui.run("entry.state='error';entry.message='Not confirmed';online=false;render()");html=ui.root.innerHTML;assert.match(html,/data-connection-status/);assert.doesNotMatch(html,/Saved updates &|need warehouse confirmation/);assert.match(html,/Offline: saved work/);
+ const recovery=ui.run("operationContent({stage:'connection'})");assert.match(recovery,/Not confirmed/);assert.match(recovery,/data-retry/);assert.match(recovery,/data-operation-back/);
 });
 test('pending aggregate closure uses its case version and shared final totals rather than a new closure command',()=>{
  const ui=view({role:'admin'});ui.context.task={id:90,assignee_id:1,attention:1,closure_review_id:'case',closure_case_revision:4,closure_actuals:[{cellId:3,quantity:4}],lines:[{...line,reports:[{id:'case',status:'review',quantity:4}]}]};ui.run("snapshot.cells=[{id:3,logical_code:'A3'}]");const html=ui.run('reviewMovementContent(task)');assert.match(html,/data-work-action="resolve"/);assert.match(html,/name="caseRevision" value="4"/);assert.match(html,/name="actualQuantity0"[^>]*value="4"/);assert.doesNotMatch(html,/data-work-action="observeReview"|data-work-action="closeTask"/);
@@ -382,4 +384,15 @@ test('History uses the work table, popup task links and role-scoped filters with
  assert.match(ui.run('taskHistoryContent(task)'),/data-task-dialog-close>← Back/);assert.doesNotMatch(ui.run('taskHistoryContent(task)'),/<form/);
  ui.context.timeline={entries:[{time:'2026-10-01T10:00:00Z',step:'Pick recorded',actor:'<script>',location:'A & B',quantity:-2,unit:'pairs',details:'<img onerror=alert(1)>'}],page:{number:1,pages:2,total:101}};
  const html=ui.run('timelineMarkup(timeline)');assert.match(html,/&lt;script&gt;/);assert.match(html,/A &amp; B/);assert.doesNotMatch(html,/<img|<script/);assert.match(html,/IST/);assert.match(html,/data-history-page="2"/);
+});
+
+test('History shows assignee and a prefilled reopen form; hides recovery footer without changing My Work',()=>{
+ const ui=view({role:'admin'});ui.context.task={id:90,type:'pick',summary:'Part',requested_quantity:5,recorded_quantity:2,remaining_quantity:3,assignee_id:2,previous_assignee_id:2,assignee_name:'Earlier worker',assignment_state:'stopped',assignment_generation:1,outcome:'stopped',completed_at:'2026-10-01T10:00:00Z',closed_actuals:true,lines:[{...line,execution_state:'settled'}]};
+ ui.run("snapshot.tasks=[task];snapshot.operators=[{id:1,name:'Admin',username:'admin',eligible:true,status:'active'},{id:2,name:'Earlier worker',username:'worker',eligible:true,status:'active'}];path='/work/history';render()");
+ assert.match(ui.root.innerHTML,/Assigned To/);assert.match(ui.root.innerHTML,/<td>Earlier worker<\/td>/);assert.match(ui.root.innerHTML,/data-task-reopen="90"/);assert.doesNotMatch(ui.root.innerHTML,/Saved updates &amp; device help|Saved updates & device help|data-disclosure="device-recovery"/);
+ const popup=ui.run('reopenTaskContent(task)');assert.match(popup,/name="productId"[^>]*><option value="1" selected>Part/);assert.match(popup,/name="quantity"[^>]*value="3"/);assert.match(popup,/value="2" selected/);assert.match(popup,/name="assigneeId"/);assert.match(popup,/data-searchable/);assert.match(popup,/value="8"/);assert.match(popup,/Create a linked pick task/);assert.doesNotMatch(popup,/name="actualQuantity|name="actualCell/);
+ ui.run('task.remaining_quantity=0');assert.match(ui.run('reopenTaskContent(task)'),/name="quantity"[^>]*value="0"/);assert.match(ui.run('reopenTaskContent(task)'),/Nothing remains/);
+ ui.run('task.reopened_task_id=91');assert.doesNotMatch(ui.run('myTaskRow(task)'),/data-task-reopen/);assert.match(ui.run('myTaskRow(task)'),/Reopened as #91/);
+ ui.run("path='/work'");assert.doesNotMatch(ui.run('workTableHead()'),/Assigned To/);assert.equal((ui.run('myTaskRow(task)').match(/<td[ >]/g)||[]).length,11);
+ ui.run("path='/work/history';snapshot.user.role='operator';task.reopened_task_id=null");assert.doesNotMatch(ui.run('myTaskRow(task)'),/data-task-reopen/);
 });

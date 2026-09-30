@@ -39,9 +39,12 @@ test('direct HTTP requests and role UI share permissions, including cross-user t
  const taskHistory=await call('GET','/api/work/taskHistory?taskId='+task.taskId,admin);assert.equal(taskHistory.statusCode,200);assert.ok(JSON.parse(taskHistory.body).entries.some(e=>e.step==='Task created'));assert.equal((await call('GET','/api/work/taskHistory?taskId='+task.taskId,op)).statusCode,400);
  const binHistory=await call('GET','/api/work/cellHistory?cellId=1',admin);assert.equal(binHistory.statusCode,200);assert.equal(JSON.parse(binHistory.body).scope,'team');
  const original=(await call('GET','/api/work/snapshot',op));assert.equal(JSON.parse(original.body).tasks.length,0);
+ const planning=await call('GET','/api/work/planningOptions?direction=pick&productId=1',op);assert.equal(planning.statusCode,200);assert.equal(JSON.parse(planning.body).actorId,op.id);assert.ok(JSON.parse(planning.body).cells.length);
+ const stockFailure=await call('POST','/api/work/create',op,{requestId:randomUUID(),direction:'pick',productId:1,quantity:1000000000});assert.equal(stockFailure.statusCode,400);assert.equal(JSON.parse(stockFailure.body).planning.code,'pick_count');
  assert.equal((await call('POST','/api/work/nonexistent',admin,{requestId:randomUUID()})).statusCode,400);assert.equal((await call('GET','/api/unknown',admin)).statusCode,404);
  const workOnly=access.saveRole(admin,{name:'Work view only',capabilities:['work.view']});access.assign(admin,{userId:op.id,roleId:workOnly});
  assert.equal((await call('GET','/api/work/cellHistory?cellId=1',op)).statusCode,403);
+ assert.equal((await call('GET','/api/work/planningOptions?direction=pick&productId=1',op)).statusCode,403);
  const restricted=JSON.parse((await call('GET','/api/work/snapshot',op)).body);assert.equal(restricted.capabilities.view,true);assert.equal(restricted.capabilities.countView,false);assert.equal(restricted.capabilities.locationsView,false);
  for(const path of ['/stocktaking','/stocktaking/results','/quantities','/cells','/labels','/pending-confirmations','/work/overview']){const denied=await call('GET',path,op);assert.equal(denied.statusCode,302,path);assert.match(denied.headers.Location,/role.*permitting/);}
  for(const path of ['/','/recommended-actions','/work','/work/history'])assert.equal((await call('GET',path,op)).statusCode,200,path);

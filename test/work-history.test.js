@@ -61,3 +61,35 @@ test('timeline paginates every event, retains old review uncertainty, and escape
  assert.equal(f.work.snapshot(f.admin,{view:'history',scope:'team',taskSearch:String(id),sort:'product',order:'asc',pageSize:20}).taskPage.limit,20);assert.equal(f.work.snapshot(f.other,{view:'history',taskSearch:String(id)}).taskPage.total,0);
  f.db.close();
 });
+
+for(const direction of ['pick','put'])test(`reopen ${direction} assigns only remaining work, preserves closure and movements, and records both links`,()=>{
+ const f=fixture(),id=f.create(5,{direction});let t=f.work.task(f.op,id);
+ f.cmd(f.op,'start',{taskId:id,generation:t.assignment_generation});t=f.work.task(f.op,id);f.finish(f.op,t.lines[0]);t=f.work.task(f.op,id);
+ f.cmd(f.op,'closeTask',{taskId:id,generation:t.assignment_generation,progressToken:t.progress_token,closureToken:t.closure_token,currentStatus:'yes',workerStopped:true});t=f.work.task(f.admin,id);
+ const balances=JSON.stringify(f.db.prepare('SELECT * FROM inventory_balances ORDER BY cell_id').all().map(x=>[x.cell_id,x.available_quantity])),movements=f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,oldLines=JSON.stringify(t.lines),request={requestId:randomUUID(),taskId:id,generation:t.assignment_generation,progressToken:t.progress_token,closureToken:t.closure_token,productId:f.product.id,direction,quantity:t.remaining_quantity,assigneeId:f.op.id,dueDuration:30,dueUnit:'minutes'};
+ const result=f.work.command(f.admin,'reopen',request),next=f.work.task(f.admin,result.taskId),after=f.work.task(f.admin,id);
+ assert.notEqual(result.taskId,id);assert.equal(result.sourceTaskId,id);assert.equal(next.requested_quantity,2);assert.equal(next.recorded_quantity,0);assert.equal(next.remaining_quantity,2);assert.equal(next.assignee_id,f.op.id);assert.equal(next.assigned_by,f.admin.id);assert.equal(next.assignment_state,'offered');assert.equal(Date.parse(next.due_at)-Date.parse(next.assigned_at),30*60000);
+ assert.equal(JSON.stringify(after.lines),oldLines);assert.equal(after.closed_actuals,true);assert.equal(after.recorded_quantity,3);assert.equal(after.completed_at,t.completed_at);assert.equal(after.reopened_task_id,next.id);assert.equal(next.reopened_from_task_id,id);
+ assert.equal(JSON.stringify(f.db.prepare('SELECT * FROM inventory_balances ORDER BY cell_id').all().map(x=>[x.cell_id,x.available_quantity])),balances);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,movements);
+ assert.equal(f.db.prepare("SELECT SUM(r.quantity) n FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.state='held'").get(next.id).n,2);
+ assert.equal(f.work.command(f.admin,'reopen',request).taskId,next.id);assert.throws(()=>f.cmd(f.admin,'reopen',{...request,requestId:randomUUID()}),/Already reopened/);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tasks').get().n,2);
+ assert.match(f.work.taskHistory(f.admin,{taskId:id}).entries.find(e=>e.step==='Remaining work reopened').details,new RegExp('New task: #'+next.id));assert.match(f.work.taskHistory(f.admin,{taskId:next.id}).entries.find(e=>e.step==='Reopened from earlier task').details,new RegExp('Original task: #'+id));
+ assert.equal(f.db.prepare("SELECT COUNT(*) n FROM work_guidance WHERE json_extract(desired,'$.lineId') IN (SELECT id FROM task_lines WHERE task_id=?) AND json_extract(desired,'$.action') IN ('quantity','locate')").get(next.id).n,0,'assignment does not start the lights');f.db.close();
+});
+test('reopen rejects active tasks, invalid quantities, stale instructions, unavailable stock, wrong product and unauthorized users without creating work',()=>{
+ const f=fixture(),id=f.create(2);let t=f.work.task(f.admin,id);
+ const input=()=>({taskId:id,generation:t.assignment_generation,progressToken:t.progress_token,closureToken:t.closure_token,productId:f.product.id,direction:'pick',quantity:2,assigneeId:f.op.id,dueDuration:8,dueUnit:'hours'});
+ assert.throws(()=>f.cmd(f.admin,'reopen',input()),/Finish or review/);
+ f.cmd(f.op,'closeTask',{...input(),currentStatus:'yes',workerStopped:true});t=f.work.task(f.admin,id);
+ for(const [extra,pattern] of [[{quantity:0},/quantity/i],[{quantity:99},/stock|available|quantity/i],[{progressToken:'old'},/changed/],[{closureToken:'old'},/changed/],[{productId:999},/product or action/],[{direction:'put'},/product or action/]])assert.throws(()=>f.cmd(f.admin,'reopen',{...input(),...extra}),pattern);
+ assert.throws(()=>f.cmd(f.op,'reopen',input()),/not permitted/);
+ f.db.prepare("UPDATE users SET status='inactive' WHERE id=?").run(f.op.id);assert.throws(()=>f.cmd(f.admin,'reopen',input()),/active|eligible/);f.db.prepare("UPDATE users SET status='active' WHERE id=?").run(f.op.id);
+ f.db.prepare("UPDATE products SET unit_of_measure='packs' WHERE id=?").run(f.product.id);t=f.work.task(f.admin,id);assert.throws(()=>f.cmd(f.admin,'reopen',input()),/unit changed/);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tasks').get().n,1);assert.equal(f.db.prepare("SELECT COUNT(*) n FROM work_reservations WHERE state='held'").get().n,0);f.db.close();
+});
+test('completed task defaults remain zero; explicitly requested extra work gets a new record and can use another assignee',()=>{
+ const f=fixture(),id=f.create(1);f.cmd(f.op,'start',{taskId:id,generation:1});f.finish(f.op,f.work.task(f.op,id).lines[0]);const t=f.work.task(f.admin,id);
+ assert.equal(t.remaining_quantity,0);const input={taskId:id,generation:t.assignment_generation,progressToken:t.progress_token,closureToken:t.closure_token,productId:f.product.id,direction:'pick',quantity:0,assigneeId:f.other.id,dueDuration:3,dueUnit:'days'};
+ assert.throws(()=>f.cmd(f.admin,'reopen',input),/quantity/i);const result=f.cmd(f.admin,'reopen',{...input,quantity:1}),next=f.work.task(f.admin,result.taskId);assert.equal(next.assignee_id,f.other.id);assert.equal(Date.parse(next.due_at)-Date.parse(next.assigned_at),3*86400000);assert.equal(f.work.task(f.admin,id).recorded_quantity,1);
+ const sorted=f.work.snapshot(f.admin,{view:'history',scope:'team',sort:'assignedTo',order:'asc'});assert.equal(sorted.taskPage.sort,'assignedTo');assert.deepEqual(sorted.tasks.map(t=>t.assignee_name),sorted.tasks.map(t=>t.assignee_name).sort());f.db.close();
+});

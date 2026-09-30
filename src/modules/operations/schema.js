@@ -11,6 +11,8 @@ export function migrateOperations(db) {
     }
   };
   add("users", "session_version", "INTEGER NOT NULL DEFAULT 1");
+  add("tasks", "allow_mixed_put", "INTEGER NOT NULL DEFAULT 0");
+  add("tasks", "plan_cell_id", "INTEGER REFERENCES cells(id)");
   add("tasks", "workflow_version", "INTEGER NOT NULL DEFAULT 1");
   add("tasks", "plan_revision", "INTEGER NOT NULL DEFAULT 1");
   add("tasks", "review_followup", "INTEGER NOT NULL DEFAULT 0");
