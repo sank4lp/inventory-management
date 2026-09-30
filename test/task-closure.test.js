@@ -78,3 +78,15 @@ test('closure rejects changed units and controlled stock, while review preserves
 test('ordinary movement input cannot forge the internal aggregate closure marker',()=>{
  const f=fixture();try{const r=f.cmd(f.op,'manual',{productId:1,cellId:f.cells[2].id,direction:'pick',quantity:1,unit:f.get(f.t.id).lines[0].unit_of_measure,taskClosure:true,actuals:[{cellId:f.cells[0].id,quantity:0}],reason:'Manual evidence'});const row=f.db.prepare('SELECT payload FROM work_reports WHERE id=?').get(r.reportId);assert.equal(JSON.parse(row.payload).taskClosure,undefined);assert.equal(f.work.snapshot(f.admin).pending.find(x=>x.id===r.reportId).closureTask,undefined);}finally{f.db.close();}
 });
+
+for(const route of ['team','review'])for(const legacy of ['', 'Checked signed slip'])test(`${route} checkbox-only attestation closes, rejects non-booleans and preserves optional legacy evidence: ${legacy||'no note'}`,()=>{
+ const f=fixture();try{f.record();let action='closeTask',input=f.input({verifiedClosure:true});
+ if(route==='review'){const sent=f.cmd(f.admin,'sendTaskReview',{...f.input(),workerStopped:false});const r=f.work.snapshot(f.admin).pending.find(r=>r.id===sent.reportId);assert.equal(JSON.parse(f.db.prepare('SELECT payload FROM work_reports WHERE id=?').get(r.id).payload).verification,undefined);action='resolve';input={...f.fields(r.closureTask),reportId:r.id,caseRevision:r.case_revision,currentStatus:'no',actuals:r.closureActuals};}
+ const before=f.balance(f.cells[0].id);for(const workerStopped of [undefined,false,'true',1]){assert.throws(()=>f.cmd(f.admin,action,{...input,workerStopped,verification:legacy}),/workers stopped/);assert.equal(f.balance(f.cells[0].id),before);assert.equal(f.held(),6);}
+ const request={...input,workerStopped:true,verification:legacy,requestId:randomUUID()};assert.equal(f.cmd(f.admin,action,request).closed,true);assert.equal(f.held(),0);assert.equal(f.cmd(f.admin,action,request).replayed,true);
+ const audit=JSON.parse(f.db.prepare("SELECT payload FROM work_events WHERE event_type='task_closed_actuals'").get().payload);assert.equal(audit.verification,'Checkbox attestation: all workers have stopped and the actual totals are verified.'+(legacy?' Additional verification: '+legacy:''));
+ }finally{f.db.close();}
+});
+test('ordinary movement review still requires verification evidence',()=>{
+ const f=fixture();try{const result=f.cmd(f.op,'manual',{productId:1,cellId:f.cells[2].id,direction:'pick',quantity:1,unit:f.get(f.t.id).lines[0].unit_of_measure,reason:'Manual evidence'});const r=f.work.snapshot(f.admin).pending.find(r=>r.id===result.reportId);assert.throws(()=>f.cmd(f.admin,'resolve',{reportId:r.id,caseRevision:r.case_revision,quantity:1,performerId:f.op.id,workerStopped:true}),/verif/i);}finally{f.db.close();}
+});

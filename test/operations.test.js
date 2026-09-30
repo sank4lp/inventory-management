@@ -23,7 +23,7 @@ test('multi-operator accounting, recovery, isolation, and durable receipts',asyn
  db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,10,0)').run(p.id,cells[0].id);
  const cmd=(a,action,input)=>work.command(a,action,{requestId:randomUUID(),...input});
  const create=(actor,n)=>cmd(actor,'create',{direction:'pick',productId:p.id,quantity:n});
- const t1=create(op,4),t2=create(second,4);
+ const t2=create(second,4),t1=create(op,4);
  assert.equal(db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0,'creation takes no turn');
  assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances').get().n,8);
  assert.throws(()=>create(op,3),/Not enough/);
@@ -31,7 +31,7 @@ test('multi-operator accounting, recovery, isolation, and durable receipts',asyn
  assert.throws(()=>work.task(second,t1.taskId),/another operator/,'team visibility is permission scoped');
  assert.throws(()=>cmd(second,'cancel',{lineId:a.id,revision:a.revision}),/own allocations/);
  const arrive=(actor,l,device)=>cmd(actor,'acquire',{lineId:l.id,revision:l.revision,location:l.logical_code,deviceId:device});
- assert.equal(arrive(second,b,'B').status,'ready','later task can arrive first');
+ assert.equal(arrive(second,b,'B').status,'ready','the displayed task can arrive');
  assert.equal(arrive(op,a,'A').status,'busy');
  b=work.line(b.id);
  const input={requestId:randomUUID(),lineId:b.id,revision:b.revision,cellId:b.cell_id,unit:b.unit_of_measure,quantity:1,deviceId:'B'};
@@ -43,7 +43,7 @@ test('multi-operator accounting, recovery, isolation, and durable receipts',asyn
  arrive(op,a,'A');a=work.line(a.id);
  assert.throws(()=>cmd(op,'report',{lineId:a.id,revision:a.revision,cellId:a.cell_id,unit:a.unit_of_measure,quantity:'',deviceId:'A'}),/blank/);
  const future=new Date(Date.now()+10*60000);
- work.flagInactivity({at:future});
+ work.flagInactivity({at:future});assert.equal(work.snapshot(admin).pending.length,0);cmd(op,'askReview',{lineId:a.id,reason:'Stopped; verify actual'});
  assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances').get().n,4,'inactivity does not release');
  const pending=work.snapshot(admin).pending.find(r=>r.line_id===a.id);
  assert.equal(JSON.parse(pending.payload).unknown,true);
@@ -85,12 +85,12 @@ async function fixture(hardwareService=null){
  const report=(actor,l,n,extra={})=>cmd(actor,'report',{lineId:l.id,revision:l.revision,cellId:l.cell_id,unit:l.unit_of_measure,quantity:n,deviceId:'a',...extra});
  return {db,w,admin,op,p,cells,cmd,stock,create,arrive,report};
 }
-test('shared cells have independent quantity holds and no exclusive lock',async()=>{
+test('shared locators retain independent reservations and exclusive displayed execution',async()=>{
  const f=await fixture();const {db,w,op,admin,cells,stock,cmd,create,arrive,report}=f;stock(cells[0],10);cmd(admin,'mode',{cellId:cells[0].id,mode:'shared'});
  const a=w.task(op,create(op,'pick',3).taskId).lines[0],b=w.task(admin,create(admin,'pick',3).taskId).lines[0];
- assert.equal(arrive(op,a).status,'ready');assert.equal(arrive(admin,b,'b').status,'ready');assert.equal(db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0);
+ assert.equal(arrive(op,a).status,'ready');assert.equal(arrive(admin,b,'b').status,'busy');assert.equal(db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,1);
  assert.equal(report(op,w.line(a.id),2).status,'recorded');assert.equal(db.prepare('SELECT reserved_quantity n FROM inventory_balances').get().n,3);
- assert.equal(report(admin,w.line(b.id),0,{deviceId:'b'}).status,'recorded');assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,8);db.close();
+ assert.equal(arrive(admin,b,'b').status,'ready');assert.equal(report(admin,w.line(b.id),0,{deviceId:'b'}).status,'recorded');assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances').get().n,8);db.close();
 });
 test('a conflicting A4 report leaves B independent and admin can retain other claims short',async()=>{
  const {db,w,op,admin,cells,stock,create,arrive,report,cmd}=await fixture();stock(cells[0],3);stock(cells[1],2);
@@ -282,7 +282,7 @@ test('linking an open allocation to a posted movement requires disposition and r
  const duplicate=w.task(op,create(op,'pick',2).taskId).lines[0];arrive(op,duplicate);
  const received=report(op,w.line(duplicate.id),1,{manual:true});
  const next=w.task(admin,create(admin,'pick',1).taskId).lines[0];
- assert.equal(arrive(admin,next,'next').status,'busy');
+ assert.equal(JSON.parse(db.prepare('SELECT desired FROM work_guidance WHERE cell_id=?').get(next.cell_id).desired).lineId,next.id,'review evidence preserves stock holds but releases LED ownership');
  const input={requestId:randomUUID(),reportId:received.reportId,dismissDuplicate:true,duplicateOf:posted.reportId,verification:'Original slip fully accounts for this duplicate allocation'};
  assert.throws(()=>w.command(admin,'resolve',input),/Confirm.*fully accounts/);
  assert.equal(w.snapshot(admin).pending.length,1);
@@ -302,12 +302,12 @@ test('linking an open allocation to a posted movement requires disposition and r
  assert.equal(arrive(admin,next,'next').status,'ready');db.close();
 });
 
-test('inactivity delivers and retries clears without a later work command',async()=>{
+test('inactivity preserves active ownership; explicit review releases and retries a failed clear',async()=>{
  let attempts=0;const hardware={activateGuidance(){return {ok:true};},clearGuidance(){attempts++;return {ok:attempts>1};}};
  const {db,w,op,admin,cells,stock,create,arrive}=await fixture(hardware);stock(cells[0],3);
  const l=w.task(op,create(op,'pick',2).taskId).lines[0];arrive(op,l);
  const at=new Date(Date.now()+10*60000);
- assert.deepEqual(w.flagInactivity({at}),[l.task_id]);
+ assert.deepEqual(w.flagInactivity({at}),[]);assert.equal(attempts,0);w.command(op,'askReview',{requestId:randomUUID(),lineId:l.id,reason:'Stopped; verify actual'});
  assert.equal(attempts,1);
  assert.equal(db.prepare('SELECT delivered FROM work_guidance WHERE cell_id=?').get(l.cell_id).delivered,0);
  assert.deepEqual(w.flagInactivity({at}),[]);
@@ -321,9 +321,9 @@ test('inactivity delivers and retries clears without a later work command',async
 test('inactivity of a waiting allocation cannot replace a newer active turn',async()=>{
  let clears=0;const hardware={activateGuidance(){return {ok:true};},clearGuidance(){clears++;return {ok:true};}};
  const {db,w,op,admin,cells,stock,create,arrive}=await fixture(hardware);stock(cells[0],4);
+ const current=w.task(admin,create(admin,'pick',1).taskId).lines[0];arrive(admin,current,'newer');
  const old=w.task(op,create(op,'pick',1).taskId).lines[0];
  db.prepare('UPDATE tasks SET last_touched_at=? WHERE id=?').run(new Date(Date.now()-10*60000).toISOString(),old.task_id);
- const current=w.task(admin,create(admin,'pick',1).taskId).lines[0];arrive(admin,current,'newer');
  const guidance=db.prepare('SELECT generation,desired FROM work_guidance WHERE cell_id=?').get(old.cell_id);
  assert.deepEqual(w.flagInactivity(),[],'untouched waiting work is not physical uncertainty');
  assert.equal(w.snapshot(admin).pending.length,0);
@@ -341,7 +341,7 @@ test('shared locator remains available when one participant needs verification',
  const old=w.task(op,create(op,'pick',1).taskId).lines[0];arrive(op,old);
  db.prepare('UPDATE tasks SET last_touched_at=? WHERE id=?').run(new Date(Date.now()-10*60000).toISOString(),old.task_id);
  w.flagInactivity();
- assert.equal(clears,0);assert.equal(located.length,3);
+ assert.equal(clears,0);assert.equal(located.length,1);
  const desired=JSON.parse(db.prepare('SELECT desired FROM work_guidance WHERE cell_id=?').get(old.cell_id).desired);
  assert.equal(desired.action,'locate');assert.equal(desired.lineId,active.id);
  assert.equal(w.held(old.cell_id,old.product_id,'pick'),2);db.close();

@@ -199,12 +199,23 @@
 #work-app .closure-choice legend{font-weight:650;line-height:1.5;margin-bottom:8px;font-size:15px}
 #work-app .closure-choice label{display:flex;align-items:center;gap:8px;min-height:44px}
 #work-app .closure-choice input{width:20px;min-height:20px;margin:0}
-#work-app .task-actual-row{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto;gap:10px;align-items:end;margin:12px 0}
-#work-app .task-actual-row label{min-width:0;margin:0}
-#work-app .actual-quantity-unit{display:flex;align-items:center;gap:8px;min-width:0}
-#work-app .actual-quantity-unit input{min-width:0;width:100%;flex:1}
-#work-app .actual-quantity-unit span{flex:0 0 auto;font-size:14px}
+#work-app .task-actual-table{min-width:0;width:100%;table-layout:fixed;margin:12px 0;border-collapse:separate;border-spacing:0;overflow:visible}
+#work-app .task-actual-table .actual-location-col{width:44%}#work-app .task-actual-table .actual-quantity-col{width:24%}#work-app .task-actual-table .actual-unit-col{width:12%}#work-app .task-actual-table .actual-remove-col{width:20%}
+#work-app .task-actual-table th,#work-app .task-actual-table td{padding:8px 6px;white-space:normal;vertical-align:middle;overflow:visible;overflow-wrap:anywhere}
+#work-app .task-actual-table th{font-size:13px;text-transform:none;letter-spacing:0}
+#work-app .task-actual-table input,#work-app .task-actual-table select{width:100%;min-width:0;margin:0}
+#work-app .task-actual-table .actual-unit{font-size:14px;padding-left:2px}
+#work-app .task-actual-table button[data-remove-actual]{width:100%;min-width:0;padding:10px 4px;min-height:44px}
+#work-app .task-actual-table .searchable-panel{min-width:min(260px,calc(100vw - 76px));max-width:calc(100vw - 76px)}
 #work-app .closure-actions{display:flex;gap:10px;margin-top:16px}
 #work-app .closure-actions button{flex:1;min-width:0}
 #work-app [data-custom-actuals][hidden]{display:none}
-@media(max-width:560px){#work-app .task-actual-row{grid-template-columns:minmax(0,1fr)}#work-app .task-actual-row>button{justify-self:start}#work-app .closure-actions button{padding:10px 8px;font-size:14px}}
+@media(max-width:560px){
+ #work-app .task-actual-table .actual-location-col{width:36%}#work-app .task-actual-table .actual-quantity-col{width:26%}#work-app .task-actual-table .actual-unit-col{width:16%}#work-app .task-actual-table .actual-remove-col{width:22%}
+ #work-app .task-actual-table th,#work-app .task-actual-table td{padding:8px 3px;font-size:12px}
+ #work-app .task-actual-table input{padding:8px 5px}
+ #work-app .task-actual-table .searchable-input{padding-right:28px;font-size:13px}
+ #work-app .task-actual-table .searchable-toggle{width:24px}
+ #work-app .task-actual-table button[data-remove-actual]{font-size:12px}
+ #work-app .closure-actions button{padding:10px 8px;font-size:14px}
+}

@@ -328,7 +328,7 @@ test('Review task stays compact with one uniform table, header assignment and th
 
 test('Stop uses final per-location totals with no preselected answer or legacy bypass, while quantity stays beside its unit',()=>{
  const ui=view();ui.context.task={id:90,type:'pick',assignee_id:1,assignment_generation:2,progress_token:'p',closure_token:'c',requested_quantity:10,recorded_quantity:4,remaining_quantity:6,lines:[{...line,cell_id:3,execution_state:'settled',actual_quantity:4},{...line,id:8,cell_id:4,execution_state:'ready',planned_quantity:6,actual_quantity:0}]};ui.run("snapshot.tasks=[task];snapshot.cells=[{id:3,logical_code:'A3'},{id:4,logical_code:'A4'}]");
- const html=ui.run('stopDialogContent(task)');assert.match(html,/Are you sure you want to terminate this task with the current status shown above\?/);assert.match(html,/name="currentStatus" value="yes" required>Yes/);assert.match(html,/name="currentStatus" value="no" required>No/);assert.doesNotMatch(html,/<input[^>]*checked|Confirm stop|data-work-action="stop"/);assert.match(html,/data-close-task[^>]*>Close task/);assert.match(html,/data-send-task-review>Send for review/);assert.match(html,/actualQuantity0[^>]*value="4"><span>pieces/);assert.match(html,/actualQuantity1[^>]*value="0"><span>pieces/);assert.match(html,/data-add-actual/);assert.match(html,/data-remove-actual/);assert.match(html,/data-searchable name="actualCell0"/);assert.doesNotMatch(ui.run('taskRow(task)'),/data-work-action="stop"/);
+ const html=ui.run('stopDialogContent(task)');assert.match(html,/Are you sure you want to terminate this task with the current status shown above\?/);assert.match(html,/name="currentStatus" value="yes" required>Yes/);assert.match(html,/name="currentStatus" value="no" required>No/);assert.doesNotMatch(html,/<input[^>]*checked|Confirm stop|data-work-action="stop"/);assert.match(html,/data-close-task[^>]*>Close task/);assert.match(html,/data-send-task-review>Send for review/);assert.match(html,/actualQuantity0[^>]*value="4"><\/td><td class="actual-unit">pieces/);assert.match(html,/actualQuantity1[^>]*value="0"><\/td><td class="actual-unit">pieces/);assert.match(html,/data-add-actual/);assert.match(html,/data-remove-actual/);assert.match(html,/data-searchable name="actualCell0"/);assert.doesNotMatch(ui.run('taskRow(task)'),/data-work-action="stop"/);
 });
 test('accepted review has no top saved-update warning, but failed and offline work remains visible and retryable in device help',()=>{
  const ui=view({role:'admin'});ui.context.entry={id:'receipt',partition:'warehouse-a:1',action:'sendTaskReview',input:{taskId:90},state:'review',message:'Sent for review'};ui.run('snapshot.pending=[];outbox=[entry];render()');let html=ui.root.innerHTML;assert.doesNotMatch(html,/class="work-queue"|data-show-saved|<h3>Saved updates/);assert.match(html,/Saved updates &amp; device help|Saved updates & device help/);assert.match(html,/Sent for review/);
@@ -336,4 +336,37 @@ test('accepted review has no top saved-update warning, but failed and offline wo
 });
 test('pending aggregate closure shows final rows and verifier link without per-line observation controls',()=>{
  const ui=view({role:'admin'});ui.context.task={id:90,assignee_id:1,attention:1,closure_review_id:'case',closure_actuals:[{cellId:3,quantity:4}],lines:[{...line,reports:[{id:'case',status:'review',quantity:4}]}]};ui.run("snapshot.cells=[{id:3,logical_code:'A3'}]");const html=ui.run('checkDialogContent(task)');assert.match(html,/Submitted final totals/);assert.match(html,/Open closure review/);assert.doesNotMatch(html,/data-work-action="observeReview"/);
+});
+
+test('team closure and aggregate review share the actuals table and unchecked attestation without a verification question',()=>{
+ const ui=view({role:'admin'});ui.context.task={id:90,type:'pick',assignee_id:2,assignment_generation:2,progress_token:'p',closure_token:'c',lines:[{...line,actual_quantity:4,execution_state:'settled'}]};ui.run("snapshot.cells=[{id:3,logical_code:'A3'}]");
+ for(const html of [ui.run('closureForm(task)'),ui.run("closureReview({id:'case',case_revision:1,closureTask:task,closureActuals:[{cellId:3,quantity:4}]})")]){
+  assert.match(html,/<table class="task-actual-table" aria-label="Final actual movements">/);
+  assert.match(html,/<th scope="col">Actual location<\/th><th scope="col">Actual quantity<\/th><th scope="col">Unit<\/th><th scope="col">Remove<\/th>/);
+  assert.match(html,/<tbody data-actual-rows><tr class="task-actual-row" data-actual-row>/);
+  assert.equal((html.match(/data-searchable name="actualCell0"/g)||[]).length,1);
+  assert.match(html,/<input type="checkbox" name="workerStopped">I confirmed all workers have stopped and verified the actual totals/);
+  assert.doesNotMatch(html,/How were (all )?final totals verified|name="verification"[^>]*required|name="workerStopped"[^>]*(checked|required)/);
+ }
+});
+
+test('restored actual rows are authoritative after removing the first row with older indexed draft fields',()=>{
+ const ui=view();ui.context.task={id:90,lines:[line]};const rebuilt=[];
+ const elements=[{name:'actualCell0',value:'4'},{name:'actualQuantity0',value:'7'},{name:'actualCell1',value:'5'},{name:'actualQuantity1',value:'9'}];elements.taskId={value:'90'};
+ const body={set innerHTML(html){rebuilt.push(html);}},f={dataset:{workAction:'closeTask',draftKind:'task-closure'},elements,querySelector:()=>body};ui.context.form=f;ui.root.querySelectorAll=s=>s==='form[data-work-action]'?[f]:[];
+ ui.run("snapshot.tasks=[task];snapshot.cells=[{id:4,logical_code:'B4'},{id:5,logical_code:'B5'}];drafts.set(draftKey(form),{_actuals:[{cellId:4,quantity:7},{cellId:5,quantity:9}],actualCell1:{value:'4'},actualQuantity1:{value:'7'},actualCell2:{value:'5'},actualQuantity2:{value:'9'}});restoreDrafts()");
+ assert.equal(elements[2].value,'5');assert.equal(elements[3].value,'9');assert.match(rebuilt[0],/actualQuantity0[^>]*value="7"/);assert.match(rebuilt[0],/actualQuantity1[^>]*value="9"/);assert.equal((rebuilt[0].match(/<tr /g)||[]).length,2);
+});
+
+test('waiting guidance links only an explicitly permitted blocker, and the next free location is primary',()=>{
+ const ui=view({active:true});ui.context.task={id:1,assignee_id:1,assignment_generation:1,assignment_state:'started',lines:[{...line,guidance:{state:'waiting',message:'Waiting for Sam · Task #41.',blocker:{kind:'task',taskId:41,name:'Sam'}}},{...line,id:2,cell_id:4,logical_code:'B4',guidance:{state:'sent',message:'Quantity guidance sent.'}}]};ui.run('snapshot.tasks=[task]');assert.doesNotMatch(ui.run('guidanceMarkup(task.lines[0])'),/<a/);ui.run("task.lines[0].guidance.blocker.href='/tasks/41'");assert.match(ui.run('guidanceMarkup(task.lines[0])'),/href="\/tasks\/41">Open task #41/);const html=ui.run('taskPage(1)');assert.match(html,/data-line="2"/);assert.doesNotMatch(html,/data-line="1"/);
+});
+
+test('inactivity alert asks for a check-in without declaring movement unknown or releasing a light',()=>{
+ const ui=view({role:'admin'});ui.run("snapshot.inactivityAlerts=[{taskId:41,name:'Sam Patel'}]");const html=ui.run('inactivityAlertsMarkup()');assert.match(html,/No recent update from Sam Patel/);assert.match(html,/href="\/tasks\/41"/);assert.match(html,/remains reserved for active work/);assert.doesNotMatch(html,/quantity is unknown|light released/);
+});
+
+test('initial render and live refresh keep arrival and light refresh disabled while waiting or blocked',()=>{
+ const ui=view({active:true}),refresh={disabled:false},arrival={disabled:false},card={dataset:{line:'1',lightRevision:'2',lightGeneration:'1',lightBinding:'1'},querySelector:()=>null,querySelectorAll:()=>[refresh,arrival]};ui.context.task={id:1,assignee_id:1,assignment_generation:1,lines:[{...line,binding_revision:1,canAct:true,guidance:{state:'waiting',message:'Waiting for Sam · Task #41.'}}]};ui.root.querySelectorAll=s=>s==='[data-line][data-light-revision]'?[card]:[];ui.run('snapshot.tasks=[task];render()');assert.match(ui.run('lineCard(task.lines[0])'),/Waiting for location/);assert.doesNotMatch(ui.run('lineCard(task.lines[0])'),/Ready to start/);assert.equal(refresh.disabled,true);assert.equal(arrival.disabled,true);
+ ui.run("task.lines[0].guidance.state='sent';patchGuidanceHints()");assert.equal(refresh.disabled,false);assert.equal(arrival.disabled,false);ui.run("task.lines[0].guidance.state='blocked';render()");assert.equal(arrival.disabled,true);ui.run("task.lines[0].guidance.state='sent';online=false;patchGuidanceHints()");assert.equal(arrival.disabled,true);
 });

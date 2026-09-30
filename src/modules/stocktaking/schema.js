@@ -26,6 +26,10 @@ export function migrateStocktaking(db) {
       baseline_json TEXT NOT NULL, started_at TEXT NOT NULL, method TEXT NOT NULL,
       identity_evidence TEXT NOT NULL, observation_id TEXT
     );
+    CREATE TABLE IF NOT EXISTS stocktake_display_claims (
+      item_id INTEGER PRIMARY KEY REFERENCES stocktake_items(id), generation INTEGER NOT NULL,
+      actor_id INTEGER NOT NULL REFERENCES users(id), binding TEXT NOT NULL, requested_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS stocktake_observations (
       id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL UNIQUE REFERENCES stocktake_attempts(id),
       item_id INTEGER NOT NULL REFERENCES stocktake_items(id), counter_id INTEGER NOT NULL REFERENCES users(id),

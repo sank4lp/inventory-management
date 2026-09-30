@@ -1,3 +1,4 @@
+import {displayOwner,waitingMessage,guidanceBinding} from '../operations/guidance.js';
 import {can,assertCan} from "../access/catalog.js";
 import {effectiveUser} from "../access/service.js";
 import {createHash,randomUUID} from 'node:crypto';
@@ -73,7 +74,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.cell_id=? ORDER BY b.product_id`).all(cellId);
     const pending=db.prepare(`SELECT l.id,l.revision,l.execution_state,r.kind,r.quantity,r.state FROM task_lines l JOIN work_reservations r ON r.line_id=l.id WHERE l.cell_id=? AND r.state='held' ORDER BY l.id`).all(cellId);
     const reports=db.prepare("SELECT id,status FROM work_reports WHERE cell_id=? AND status IN ('received','review') ORDER BY id").all(cellId);
-    return {cellId,active:cell?.active,labelId:cell?.label_id,labelRevision:cell?.label_revision,version:db.prepare('SELECT version FROM stocktake_cell_versions WHERE cell_id=?').get(cellId)?.version||0,
+    return {cellId,guidanceBinding:guidanceBinding(db,cellId),active:cell?.active,labelId:cell?.label_id,labelRevision:cell?.label_revision,version:db.prepare('SELECT version FROM stocktake_cell_versions WHERE cell_id=?').get(cellId)?.version||0,
       ledgerId:db.prepare('SELECT COALESCE(MAX(id),0) id FROM transactions WHERE cell_id=?').get(cellId).id,products,pending,reports};
   }
   function stable(before,cellId) {
@@ -105,8 +106,13 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       for(const row of items){if(['counted','review','excluded'].includes(row.state))throw new Error('Assign only remaining count locations.');db.prepare("UPDATE stocktake_items SET assignee_id=?,generation=generation+1,state='pending' WHERE id=?").run(assignee,row.id);event(a,'assigned',{previous:row.assignee_id,assignee},row.run_id,row.id);}return {status:'recorded',message:'Remaining locations assigned; previous observations are retained.'};},
     start(a,i){const r=run(a,i.runId);if(['closed','completed'].includes(r.status))throw new Error('This stocktake is closed.');if(!db.prepare('SELECT 1 FROM stocktake_items WHERE run_id=? AND assignee_id=?').get(r.id,a.id))throw new Error('Assign count locations before starting.');db.prepare("UPDATE stocktake_runs SET started_at=COALESCE(started_at,?),status='in_progress' WHERE id=?").run(now(),r.id);event(a,'started',{},r.id);return {status:'recorded',message:'Count started. Choose a location to check.'};},
     decline(a,i){const r=run(a,i.runId);if(['closed','completed'].includes(r.status))throw new Error('This stocktake is closed.');const rows=db.prepare("SELECT * FROM stocktake_items WHERE run_id=? AND assignee_id=? AND state IN ('pending','counting','skipped','recheck')").all(Number(i.runId),a.id);if(!rows.length)throw new Error('No remaining count assignments to return.');for(const row of rows){db.prepare("UPDATE stocktake_items SET assignee_id=NULL,generation=generation+1,state='pending',note=? WHERE id=?").run(String(i.note||''),row.id);event(a,'returned',{previous:a.id,note:i.note||'',reason:i.reason||''},row.run_id,row.id);}return {status:'recorded',message:'Remaining count work returned for assignment. Saved observations remain in history.'};},
+    locate(a,i){const row=item(a,i);if(!['pending','counting','skipped','recheck'].includes(row.state))throw new Error('This location already has a submitted count.');
+      const cell=db.prepare('SELECT active FROM cells WHERE id=?').get(row.cell_id);if(!cell?.active)throw new Error('This location is inactive. Review the count scope.');
+      const owner=operationsService.requestCountGuidance(a,row),owned=owner?.kind==='count'&&owner.itemId===row.id;
+      return {status:owned?'recorded':'busy',itemId:row.id,message:owned?'Count location requested. Follow its locator, then identify the location before counting.':owner?waitingMessage(owner):'Count locator is unavailable. Check the location on screen.'};},
     begin(a,i){const row=item(a,i);if(!['pending','counting','skipped','recheck'].includes(row.state))throw new Error('This location already has a submitted count.');const c=db.prepare('SELECT *,id AS cell_id FROM cells WHERE id=? AND active=1').get(row.cell_id);if(!c)throw new Error('This location changed. Ask an administrator to review the scope.');
       if(i.method==='qr'){if(!validLocationLabel(db,identity().site,c,i.label))throw new Error('Wrong, unknown or revoked location QR.');}else if(i.method!=='manual'||![c.logical_code,c.display_name].filter(Boolean).includes(String(i.location||'').trim()))throw new Error('Identify this location by its exact name or code.');
+      const owner=operationsService.requestCountGuidance(a,row);if(owner?.kind!=='count'||owner.itemId!==row.id)throw new Error(owner?waitingMessage(owner):'This location is not available for counting.');
       const existing=db.prepare('SELECT * FROM stocktake_attempts WHERE item_id=? AND counter_id=? AND generation=? AND observation_id IS NULL ORDER BY started_at DESC LIMIT 1').get(row.id,a.id,row.generation);
       const id=existing?.id||randomUUID();if(!existing)db.prepare('INSERT INTO stocktake_attempts(id,item_id,counter_id,generation,baseline_json,started_at,method,identity_evidence) VALUES(?,?,?,?,?,?,?,?)').run(id,row.id,a.id,row.generation,json(baseline(row.cell_id)),now(),i.method,i.label||i.location);
       db.prepare("UPDATE stocktake_items SET state='counting' WHERE id=?").run(row.id);db.prepare("UPDATE stocktake_runs SET started_at=COALESCE(started_at,?),status='in_progress' WHERE id=?").run(now(),row.run_id);
@@ -126,6 +132,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       db.prepare('UPDATE stocktake_attempts SET observation_id=? WHERE id=?').run(id,attempt.id);
       if(row.generation===attempt.generation&&!['closed','completed'].includes(r.status))db.prepare('UPDATE stocktake_items SET latest_observation=?,state=? WHERE id=?').run(id,status==='matched'?'counted':status==='recheck'?'recheck':'review',row.id);
       if(condition)db.prepare('INSERT INTO stocktake_condition_reviews(observation_id,cell_id,details) VALUES(?,?,?)').run(id,row.cell_id,json({lines:lines.filter(l=>l.conditionQuantity),unknown}));
+      if(row.generation===attempt.generation)db.prepare('DELETE FROM stocktake_display_claims WHERE item_id=? AND generation=?').run(row.id,attempt.generation);
       event(a,'observed',{observationId:id,status},row.run_id,row.id);refreshRun(row.run_id);return {status,observationId:id,message:status==='matched'?'Count saved — matches. No stock movement.':status==='recheck'?'Observation saved — needs a fresh stable count.':'Difference sent for review. Physical stock has not changed.'};},
     skip(a,i){const row=item(a,i);if(!String(i.reason||'').trim())throw new Error('Give a reason for skipping.');db.prepare("UPDATE stocktake_items SET state='skipped',generation=generation+1,note=? WHERE id=?").run(i.reason,row.id);event(a,'skipped',{reason:i.reason},row.run_id,row.id);return {status:'recorded',message:'Skipped, not counted. Return to this location later.'};},
     review(a,i){actorNow(a,i.action==='recount'?'recount':'approve');const o=db.prepare('SELECT * FROM stocktake_observations WHERE id=?').get(i.observationId);if(!o)throw new Error('Count observation not found.');const row=db.prepare('SELECT * FROM stocktake_items WHERE id=?').get(o.item_id);run(a,row.run_id);
@@ -163,10 +170,19 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       const id=String(input.requestId||'');if(id.length<8||id.length>160)throw new Error('A stable request identity is required.');const fingerprint=createHash('sha256').update(canonical({action,input})).digest('hex');
       const receipt=db.prepare('SELECT * FROM stocktake_receipts WHERE actor_id=? AND request_id=?').get(a.id,id);if(receipt){if(receipt.fingerprint!==fingerprint)throw new Error('This request was already received with different contents.');return {...parse(receipt.result_json),replayed:true};}
       if(input.dataset&&input.dataset!==identity().dataset&&action!=='observe')throw new Error('The warehouse dataset changed. Refresh.');
-      const permissions={create:can(a,'count.manage')?'count.manage':'count.create',schedule:'count.schedule',assign:'count.manage',start:'count.perform',decline:'count.perform',begin:'count.perform',observe:'count.perform',skip:'count.perform',review:input.action==='recount'?'count.recount':'count.approve',condition:'count.condition',close:'count.manage',deadline:'count.manage',scope:'count.manage'};
+      const permissions={create:can(a,'count.manage')?'count.manage':'count.create',schedule:'count.schedule',assign:'count.manage',start:'count.perform',locate:'count.perform',decline:'count.perform',begin:'count.perform',observe:'count.perform',skip:'count.perform',review:input.action==='recount'?'count.recount':'count.approve',condition:'count.condition',close:'count.manage',deadline:'count.manage',scope:'count.manage'};
       if(action!=='observe')assertCan(a,permissions[action]);
-      const value=actions[action](a,input);db.prepare('INSERT INTO stocktake_receipts VALUES(?,?,?,?,?)').run(a.id,id,fingerprint,json(value),now());return value;
-    });return result;
+      const value=actions[action](a,input);operationsService.reconcileGuidance();db.prepare('INSERT INTO stocktake_receipts VALUES(?,?,?,?,?)').run(a.id,id,fingerprint,json(value),now());return value;
+    });if(!result.replayed)operationsService.flushGuidance();return result;
+  }
+  function countGuidance(item){
+    const owner=displayOwner(db,item.cell_id),claim=db.prepare('SELECT * FROM stocktake_display_claims WHERE item_id=? AND generation=?').get(item.id,item.generation);
+    if(owner&&(owner.kind!=='count'||owner.itemId!==item.id))return {state:'waiting',message:waitingMessage(owner)};
+    if(!claim)return {state:'idle',message:'Choose Count this location to request its light.'};
+    const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(item.cell_id),desired=row?parse(row.desired):null;
+    if(claim.binding!==guidanceBinding(db,item.cell_id))return {state:'blocked',message:'Count location mapping changed. Request this location again before new work.'};
+    const sent=owner?.kind==='count'&&owner.itemId===item.id&&desired?.action==='count'&&desired.itemGeneration===item.generation&&desired.binding===claim.binding&&row.delivered;
+    return {state:sent?'sent':'manual',message:sent?'Count locator sent. Identify this location before counting.':'Count light not confirmed. Identify the location by its label or exact name.'};
   }
   function snapshot(actor) {
     const a=operationsService.actorNow(actor);
@@ -177,7 +193,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       const ids=new Set(items.map(i=>i.id));const observations=db.prepare(`SELECT o.*,u.name AS counter_name,u.username AS counter_username,v.name AS reviewer_name,v.username AS reviewer_username,a.baseline_json,a.method,a.started_at FROM stocktake_observations o JOIN stocktake_attempts a ON a.id=o.attempt_id JOIN users u ON u.id=o.counter_id LEFT JOIN users v ON v.id=o.reviewer_id JOIN stocktake_items i ON i.id=o.item_id WHERE i.run_id=? ORDER BY o.received_at`).all(r.id).filter(o=>ids.has(o.item_id)&&(can(a,'count.team')||o.counter_id===a.id));
       const pending=items.filter(i=>i.assignee_id===a.id&&['pending','counting','skipped','recheck'].includes(i.state)).length;
       const reviews=observations.filter(o=>['review','recheck','unverified'].includes(o.status)).length;
-      return {...r,items:items.map(i=>({...i,description:describeLocation(db,i.cell_id),originalDescription:parse(i.location_json),controlled:controlledCell(db,i.cell_id)})),observations:observations.map(o=>({...o,lines:parse(o.lines_json),unknown:parse(o.unknown_json),baseline:parse(o.baseline_json),linkedMovements:parse(o.linked_movements),correctionTransactions:parse(db.prepare('SELECT transaction_ids FROM stocktake_settlements WHERE observation_id=?').get(o.id)?.transaction_ids||'[]')})),
+      return {...r,items:items.map(i=>({...i,description:describeLocation(db,i.cell_id),guidance:countGuidance(i),originalDescription:parse(i.location_json),controlled:controlledCell(db,i.cell_id)})),observations:observations.map(o=>({...o,lines:parse(o.lines_json),unknown:parse(o.unknown_json),baseline:parse(o.baseline_json),linkedMovements:parse(o.linked_movements),correctionTransactions:parse(db.prepare('SELECT transaction_ids FROM stocktake_settlements WHERE observation_id=?').get(o.id)?.transaction_ids||'[]')})),
         attempts:db.prepare('SELECT a.* FROM stocktake_attempts a JOIN stocktake_items i ON i.id=a.item_id WHERE i.run_id=? AND a.counter_id=? AND a.observation_id IS NULL').all(r.id,a.id).map(v=>({...v,baseline:parse(v.baseline_json)})),
         overdue:Boolean(r.due_date&&r.due_date<dateInZone(clock(),r.timezone)&&!['completed','closed'].includes(r.status)),actionable:(can(a,'count.manage')&&!['completed','closed'].includes(r.status))||((can(a,'count.approve')||can(a,'count.recount'))&&reviews>0)||(can(a,'count.perform')&&pending>0&&!['completed','closed'].includes(r.status)),pending,reviews,
         scopeChanges:can(a,'count.team')?db.prepare('SELECT id,logical_code,display_name FROM cells WHERE active=1 AND id NOT IN (SELECT cell_id FROM stocktake_items WHERE run_id=?)').all(r.id):[]};

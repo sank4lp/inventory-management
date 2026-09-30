@@ -15,11 +15,11 @@ function countView(search='?run=1&cell=10'){
 }
 const item={id:10,assignee_id:1,active:1,state:'pending',generation:1,description:{name:'A1',directions:'Aisle A shelf 1'},logical_code:'A1',counter_name:'Sam Patel',counter_username:'sam.one'};
 const runFixture=()=>({id:1,title:'Shelf check',status:'pending',pending:1,reviews:0,items:[{...item}],attempts:[],observations:[],scopeChanges:[]});
-test('selected count has scan-first identification with manual and skip fallbacks, without an extra start or duplicate count action',()=>{
+test('selected count explicitly requests its locator and retains scan, manual and skip fallbacks',()=>{
  const v=countView();v.c.r=runFixture();const html=v.run('runView(r)');
  assert.match(html,/data-count-scan="10"/);assert.match(html,/<details><summary>Cannot scan/);assert.match(html,/Confirm exact location name or code/);
  assert.match(html,/Skip this location for now/);assert.match(html,/Return remaining work/);assert.match(html,/Results and differences/);
- assert.doesNotMatch(html,/data-count-action="start"|Count this location/);assert.ok(html.indexOf('data-count-scan')<html.indexOf('data-count-action="begin"'));
+ assert.doesNotMatch(html,/data-count-action="start"/);assert.ok(html.indexOf('data-count-scan')<html.indexOf('data-count-action="begin"'));
  v.c.r.items[0].active=0;assert.doesNotMatch(v.run('runView(r)'),/data-count-scan/);
 });
 test('count navigation reflects eligible ownership and review permissions instead of offering an administrator unassigned counting work',()=>{
@@ -91,4 +91,10 @@ test('explicit stale-field recovery loads the latest revision without silently r
  v.run('saveFieldDraft(f);saved.fieldDrafts[fieldDraftKey("other") ]={label:"Other draft"}');fresh=JSON.parse(v.run('JSON.stringify(s)'));fresh.fields=[{field_key:'aisle',revision:4,label:'Updated by another admin',field_type:'select',options_json:'["North","South"]'}];
  assert.equal(v.run('saved.fieldDrafts[fieldDraftKey("aisle")].revision'),'3');await v.run('discardFieldDraft(f)');assert.equal(reads,1);assert.equal(v.run('saved.fieldDrafts[fieldDraftKey("aisle")]'),undefined);assert.equal(v.run('saved.fieldDrafts[fieldDraftKey("other")].label'),'Other draft');assert.match(v.run('fieldForm(s.fields[0])'),/name="revision" value="4"/);
  v.run('saveFieldDraft(f);saved.pending={action:"field",input:{fieldKey:"aisle",requestId:"receipt",revision:3}}');const pending=v.run('JSON.stringify(saved.pending)');await v.run('discardFieldDraft(f)');assert.equal(reads,1);assert.equal(v.run('JSON.stringify(saved.pending)'),pending);assert.equal(v.run('saved.fieldDrafts[fieldDraftKey("aisle")].revision'),'3');assert.match(v.run('message'),/awaiting confirmation/);
+});
+
+test('live count ownership status changes while a focused count draft remains untouched',()=>{
+ const v=countView(),hint={dataset:{countGuidance:'10'},textContent:''},draft={value:'7'},scan={dataset:{countBeginItem:'10',countGeneration:'1'},disabled:false},manual={dataset:{countBeginItem:'10',countGeneration:'1'},disabled:false};v.c.r=runFixture();v.c.r.items[0].guidance={state:'waiting',message:'Waiting for Sam · Task #41.'};v.root.querySelectorAll=selector=>selector==='[data-count-guidance]'?[hint]:selector==='[data-count-begin-item]'?[scan,manual]:[];v.c.document.activeElement=draft;
+ const full=readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8');v.run(full.slice(full.indexOf('function patchCountGuidance()'),full.indexOf('setInterval(async()=>')));v.run('snapshot.runs=[r];online=true;patchCountGuidance()');assert.match(hint.textContent,/Sam.*Task #41/);assert.equal(scan.disabled,true);assert.equal(manual.disabled,true);const waiting=v.run('countForm(r,r.items[0])');assert.match(waiting,/Wait until this location is available/);assert.match(waiting,/data-count-begin-item="10" data-count-generation="1" disabled/);
+ v.run("r.items[0].guidance={state:'sent',message:'Count locator sent. Identify this location before counting.'};patchCountGuidance()");assert.match(hint.textContent,/Count locator sent/);assert.equal(scan.disabled,false);assert.equal(manual.disabled,false);assert.equal(draft.value,'7');assert.equal(v.c.document.activeElement,draft);v.run('online=false;patchCountGuidance()');assert.match(hint.textContent,/Offline/);
 });

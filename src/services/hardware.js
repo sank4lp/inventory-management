@@ -51,6 +51,7 @@ export function createHardwareService({ db, config, logger }) {
     );
   }
 
+  function targetCellId(t){return db.prepare('SELECT c.id FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE ctrl.address=(SELECT address FROM controllers WHERE id=?) AND c.hardware_channel=?').get(t.controller_id,t.hardware_channel)?.id??t.cell_id??t.id??-1;}
   function run(operationName, fn, args = [], context = {}) {
     try {
       if(disposed) return {ok:false,degraded:true,message:"Hardware service was replaced.",events:[]};
@@ -79,13 +80,13 @@ export function createHardwareService({ db, config, logger }) {
           const display=db.prepare("SELECT * FROM display_requests WHERE id=? AND actor_id=? AND state IN ('active','expiring')").get(context.displayId,context.displayActor);
           if(!display)return {ok:false,degraded:true,message:'Superseded display request ignored.',events:[]};
           for(const target of targets){const owned=JSON.parse(display.targets_json).find(t=>t.controllerId===target.controller_id&&t.channel===target.hardware_channel);const work=db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(target.id||null)?.generation||null;if(!owned||owned.workGeneration!==work)return {ok:false,degraded:true,message:'Newer task guidance is protected.',events:[]};}
-          if(activeWorkGuidance(db))return {ok:false,degraded:true,message:'Task guidance is active.',events:[]};
+          if(targets.some(t=>activeWorkGuidance(db,targetCellId(t))))return {ok:false,degraded:true,message:'Task guidance is active.',events:[]};
         } else if(context.source==="work_coordinator") {
           const desired=db.prepare("SELECT generation FROM work_guidance WHERE cell_id=?").get(context.workCellId);
           if(!desired || desired.generation!==context.workGeneration || context.workBinding&&context.workBinding!==guidanceBinding(db,context.workCellId)) return {ok:false,degraded:true,message:"Superseded guidance ignored.",events:[]};
           const bound=db.prepare('SELECT c.id,c.controller_id,c.hardware_channel,ctrl.address FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(context.workCellId);
           if(!bound||targets.some(t=>(t.cell_id??t.id)!==bound.id||t.controller_id!==bound.controller_id||t.hardware_channel!==bound.hardware_channel||t.controller_address!==bound.address))return {ok:false,degraded:true,message:'Changed guidance mapping ignored.',events:[]};
-        } else if(activeWorkGuidance(db) || db.prepare("SELECT 1 FROM display_requests WHERE state IN ('active','expiring') LIMIT 1").get()) {
+        } else if(targets.length?targets.some(t=>activeWorkGuidance(db,targetCellId(t))||db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) v WHERE d.state IN ('active','expiring') AND json_extract(v.value,'$.status')='sent' AND json_extract(v.value,'$.controllerId')=? AND json_extract(v.value,'$.channel')=?").get(t.controller_id,t.hardware_channel)):(activeWorkGuidance(db)||db.prepare("SELECT 1 FROM display_requests WHERE state IN ('active','expiring')").get())) {
           return {ok:false,degraded:true,message:"Location work is active. Utility displays and tests are paused until active turns settle.",events:[]};
         }
       }

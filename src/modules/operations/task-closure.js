@@ -96,9 +96,15 @@ export function createTaskClosure({db,line,currentTask,progressToken,workQuantit
   event('task_closed_actuals',actor,first.id,{taskId:t.id,actuals:rows,deltas,accountingUnit:first.current_unit,taskUnit:first.unit_of_measure,conversionFactor:factor,supervisor,verification:input.verification||null,requestId:input.requestId});assignmentEvent(actor,t.id,'closed_actuals',t.assignee_id,{actuals:rows});syncReservations();taskProgress(t.id);
   return {status:'recorded',taskId:t.id,closed:true,reportId:caseReport?.id,message:'Task closed with confirmed actual movement. Remaining reservations released.'};
  }
+ function attest(input){
+  if(input.workerStopped!==true)throw new Error('Confirm all workers stopped and the actual totals are verified.');
+  const attestation='Checkbox attestation: all workers have stopped and the actual totals are verified.';
+  const legacy=String(input.verification||'').trim();
+  return {...input,verification:legacy?`${attestation} Additional verification: ${legacy}`:attestation};
+ }
  function close(actor,input){
   const supervisor=input.verifiedClosure===true;
-  if(supervisor){assertCan(actor,'review.resolve');assertCan(actor,'review.stop');if(input.workerStopped!==true||!String(input.verification||'').trim())throw new Error('Confirm all workers stopped and describe the verified final totals.');}
+  if(supervisor){assertCan(actor,'review.resolve');assertCan(actor,'review.stop');input=attest(input);}
   const t=fresh(actor,input,supervisor);if(t.assignee_id!==actor.id)assertCan(actor,'work.teamStop');
   if(pendingCase(t.id))throw new Error('Task closure is already awaiting supervisor review. Open that case.');return finalize(actor,t,rowsFor(t,input),input,supervisor);
  }
@@ -108,6 +114,6 @@ export function createTaskClosure({db,line,currentTask,progressToken,workQuantit
   db.prepare('UPDATE work_reports SET performer_id=NULL WHERE id=?').run(r.id);
   review(r,'Task closure requested. Verify all final location totals together; no stock correction has been posted.');db.prepare('UPDATE tasks SET stop_requested=1,assignment_generation=assignment_generation+1 WHERE id=?').run(t.id);assignmentEvent(actor,t.id,'closure_review_requested',t.assignee_id,{reportId:r.id,actuals});return {status:'review',taskId:t.id,reportId:r.id,message:'Sent for review. Actual entries are saved; the task is not closed and stock is not confirmed.'};
  }
- function resolve(actor,input,report){assertCan(actor,'review.resolve');assertCan(actor,'review.stop');if(input.keepOpen)return null;const t=fresh(actor,input,true);if(report.line_id==null||line(report.line_id).task_id!==t.id)throw new Error('This review belongs to another task.');if(input.workerStopped!==true||!String(input.verification||'').trim())throw new Error('Confirm the worker has stopped and describe how all actual totals were verified.');return finalize(actor,t,rowsFor(t,input),input,true,report);}
+ function resolve(actor,input,report){assertCan(actor,'review.resolve');assertCan(actor,'review.stop');if(input.keepOpen)return null;const t=fresh(actor,input,true);if(report.line_id==null||line(report.line_id).task_id!==t.id)throw new Error('This review belongs to another task.');input=attest(input);return finalize(actor,t,rowsFor(t,input),input,true,report);}
  return {close,send,resolve,totals,token,pendingCase,hasClosed};
 }

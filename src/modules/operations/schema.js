@@ -4,7 +4,10 @@ import { randomUUID } from "node:crypto";
 export function migrateOperations(db) {
   const add = (table, name, definition) => {
     if (!db.prepare(`PRAGMA table_info(${table})`).all().some((column) => column.name === name)) {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      db.exec(`
+    CREATE TABLE IF NOT EXISTS work_inactivity_alerts (
+      task_id INTEGER PRIMARY KEY REFERENCES tasks(id), last_touched_at TEXT NOT NULL, detected_at TEXT NOT NULL
+    );ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
     }
   };
   add("users", "session_version", "INTEGER NOT NULL DEFAULT 1");
