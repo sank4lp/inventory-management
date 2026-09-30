@@ -77,7 +77,7 @@ function activationForm(t,label=null,attrs=''){
 }
 function isActivation(action,input={}){return ['start','resume'].includes(action)||action==='create'&&!input.assigneeId;}
 function currentActivation(o){return o.input.dataset===snapshot.dataset&&o.input.site===snapshot.site&&Number(o.input.actorId)===snapshot.user.id;}
-function currentSavedUpdate(o){return o.partition===key()&&(!['activation-pending','activation-unknown'].includes(o.state)||currentActivation(o));}
+function currentSavedUpdate(o){return o.partition===key()&&(!(o.reviewSave||['activation-pending','activation-unknown'].includes(o.state))||currentActivation(o));}
 function activationPending(t=null){return outbox.find(o=>currentSavedUpdate(o)&&['activation-pending','activation-unknown'].includes(o.state)&&(!t||Number(o.input.taskId)===t.id));}
 async function enterActiveTask(result){
  const t=await fetchDialogTask(Number(result.taskId));
@@ -204,10 +204,8 @@ function canCloseReview(t){return !!t&&!t.closed_actuals&&!t.completed_at&&(revi
 function reviewMovementContent(t){
  if(t.closed_actuals||t.completed_at)return `<section class="check-workspace">${reviewHeader(t,'align')}${reviewChoices(t,'check-align')}<p>This task is finalized. Late evidence must be reconciled separately; its original closure cannot be reopened.</p>${allowed('review')?`<a class="work-primary" href="${esc(reviewHref(t))}">Review late evidence</a>`:'<p>Ask an authorized verifier to reconcile the retained evidence.</p>'}</section>`;
  const supervisor=reviewVerifier(t),canClose=canCloseReview(t);
- const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('closureToken',t.closure_token)+hidden('currentStatus','no');
- const counts=(t.closure_count_options||[]).filter(c=>JSON.parse(c.lines_json).some(l=>l.productId===t.lines[0]?.product_id));
- const accounting=supervisor?disclosure('review-stocktake-'+t.id,'Stocktake overlap',counts.map(c=>`<label>${esc(c.logical_code)} · ${esc(c.title)}<input type="radio" name="countLink${c.cell_id}" value="${esc(c.id)}">This count already includes the movement difference here</label>`).join('')+'<label class="work-check"><input type="checkbox" name="afterCountVerified">I verified these differences are separate from every overlapping stocktake correction.</label>'):'';
- const body=fields+(t.closure_review_id?hidden('reportId',t.closure_review_id)+hidden('caseRevision',t.closure_case_revision):supervisor?hidden('verifiedClosure','true'):'')+actualEditor(t,t.closure_actuals||recordedMovements(t))+(supervisor?'<label class="work-check"><input type="checkbox" name="workerStopped">I confirmed all workers have stopped and verified the actual totals.</label>':'')+accounting+(!canClose?'<p class="work-callout">An authorized verifier must reconcile this physical evidence before the task can close.</p>':'')+`<button data-close-task ${canClose?'':'disabled'}>Save Movement and Close Task</button>`+(!t.closure_review_id?'<button type="submit" class="secondary" data-send-task-review>Send for review</button>':'');
+ const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('closureToken',t.closure_token)+hidden('currentStatus','no')+hidden('alignPhysical','true');
+ const body=fields+(t.closure_review_id?hidden('reportId',t.closure_review_id)+hidden('caseRevision',t.closure_case_revision):supervisor?hidden('verifiedClosure','true'):'')+actualEditor(t,t.closure_actuals||recordedMovements(t))+(supervisor?'<label class="work-check"><input type="checkbox" name="workerStopped">I confirmed all workers have stopped and verified the actual totals.</label>':'')+(!canClose?'<p class="work-callout">An authorized verifier must reconcile this physical evidence before the task can close.</p>':'')+`<button data-close-task ${canClose?'':'disabled'}>Save Movement and Close Task</button>`;
  return `<section class="check-workspace">${reviewHeader(t,'align')}${reviewChoices(t,'check-align')}${form(t.closure_review_id?'resolve':'closeTask',body,'data-review-movement data-draft-kind="'+(t.closure_review_id?'closure-review':'task-closure')+'"')}${allowed('review')?'<p><a href="'+esc(reviewHref(t))+'">Open original evidence and other reconciliation options</a></p>':''}${reviewDiscard(t)}</section>`;
 }
 function reviewAssignmentContent(t){
@@ -401,6 +399,14 @@ function patchTaskDialog(){
  const t=availableTask(d.dataset.taskId);
  const identityChanged=d._identity&&(d._identity.site!==snapshot.site||d._identity.dataset!==snapshot.dataset||d._identity.actorId!==snapshot.user.id);
  const changed=!t||String(t.assignment_generation)!==d.dataset.generation||t.progress_token!==d.dataset.progressToken||(['stop','check-align','check-discard'].includes(d.dataset.mode)||d.querySelector('[data-task-closure]'))&&t.closure_token!==d.dataset.closureToken;
+ const pendingSave=pendingPhysicalSave(d.dataset.taskId);
+ if(pendingSave&&!identityChanged){
+  const warning=d.querySelector('[data-task-dialog-warning]');warning.hidden=false;warning.innerHTML=physicalSaveStatus(pendingSave);
+  d._physicalLocked||=new Map();
+  for(const el of d.querySelectorAll('form input,form select,form button,[data-review-align],[data-review-assignment],[data-review-discard]')){if(!d._physicalLocked.has(el))d._physicalLocked.set(el,el.disabled);el.disabled=true;}
+  return;
+ }
+ if(d._physicalLocked){for(const [el,disabled] of d._physicalLocked)el.disabled=disabled;d._physicalLocked=null;}
  const recovery=d.dataset.mode==='recovery';
  const stale=identityChanged||(!recovery&&(!online||changed||t&&taskHasSavedUpdate(t)))||(d.dataset.mode==='check-assignment'&&!allowed('assign'))||(d.dataset.mode==='update'&&t&&(!allowed('assign')||t.assignment_state!=='returned'&&!returnBlocked(t)))||(['check','check-align','check-assignment','check-discard'].includes(d.dataset.mode)&&t&&!canCheckTask(t))||(d.dataset.mode==='stop'&&t&&!canStopTask(t));
  const warning=d.querySelector('[data-task-dialog-warning]');warning.hidden=!(stale||recovery&&changed);warning.textContent=recovery&&!identityChanged?'These instructions changed. Your original draft stays attached to them; report only work already done.':'This task or account changed. Your draft is kept; close and check the latest task before saving.';
@@ -476,14 +482,14 @@ function taskPage(id){
 
 function pageLinks(info,key='page') {
  if(!info)return '';const q=new URLSearchParams(location.search),url=n=>{const v=new URLSearchParams(q);v.set(key,n);return path+'?'+v;};
- return `<nav class="work-pagination" aria-label="${key==='returnedPage'?'Returned work':key==='page'?'Task':'Review'} pages"><span>${info.total} matching · Page ${info.number} of ${info.pages} · Up to 100 rows</span>${info.number>1?`<a href="${esc(url(info.number-1))}">Previous page</a>`:''}${info.number<info.pages?`<a href="${esc(url(info.number+1))}">Next page / older records</a>`:''}</nav>`;
+ return `<nav class="work-pagination" aria-label="${key==='returnedPage'?'Returned work':key==='page'?'Task':'Review'} pages"><span>${info.total} matching · Page ${info.number} of ${info.pages} · Up to ${info.limit||100} rows</span>${info.number>1?`<a href="${esc(url(info.number-1))}">Previous page</a>`:''}${info.number<info.pages?`<a href="${esc(url(info.number+1))}">Next page / older records</a>`:''}</nav>`;
 }
 function operatorPicker(t){const eligible=(snapshot.operators||[]).filter(u=>u.eligible&&u.status!=='inactive');return `<label>Assign to<select data-searchable name="assigneeId" required><option value="">Choose operator</option>${options(eligible,'id',u=>`${u.name} · ${u.username}${u.open!=null?' · '+u.open+' open':''}`)}</select></label>`;}
 function reassignForm(t){return t.closed_actuals||t.closure_review_id||!allowed('assign')||t.attention||(t.completed_at&&t.outcome!=='stopped')||['completed','cancelled'].includes(t.outcome)?'':form('reassign',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+operatorPicker(t)+input('reason','Assignment note (optional)')+'<button>Save</button>');}
 function taskRow(t){
  const mine=t.assignee_id===snapshot.user.id,closed=['completed','stopped','cancelled'].includes(t.outcome)||t.completed_at;
  const untouched=(t.lines||[]).every(l=>['ready','cancelled','superseded'].includes(l.execution_state)&&!l.started_at&&!l.reports?.length);
- const saved=outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected','activation-pending','activation-unknown'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));
+ const saved=outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected','activation-pending','activation-unknown','review-saving','review-unknown'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));
  const reasons=[...new Set((t.lines||[]).flatMap(l=>(l.reports||[]).filter(r=>['received','review'].includes(r.status)).map(r=>r.quantity_known===0?'Quantity not confirmed':r.reason)))];
  const label=t.attention?'Waiting for supervisor — '+(reasons[0]||'reported quantity needs checking'):outcome(t);
  const actualPeople=[...new Set((t.lines||[]).filter(l=>l.attribution).map(l=>l.attribution.performer||'Unknown'))];
@@ -497,7 +503,7 @@ function taskRow(t){
 }
 function taskCards(tasks){return `<div class="work-table-wrap" tabindex="0" role="region" aria-label="Task table; scroll horizontally for actions"><table class="work-task-table"><thead><tr><th scope="col">Task / product</th><th scope="col">Remaining</th><th scope="col">Status / due</th><th scope="col">Progress</th><th scope="col">People</th><th scope="col">Assigned</th><th scope="col">Actions</th></tr></thead><tbody data-task-table>${tasks.map(taskRow).join('')||'<tr><td colspan="7">No matching tasks.</td></tr>'}</tbody></table></div>`;}
 function myTasks(){if(snapshot.taskPage?.unified)return snapshot.tasks;return snapshot.tasks.filter(t=>t.assignee_id===snapshot.user.id&&!t.completed_at&&!['completed','stopped','cancelled'].includes(t.outcome)&&t.assignment_state!=='returned').sort((a,b)=>(Date.parse(b.assigned_at||b.started_at)||0)-(Date.parse(a.assigned_at||a.started_at)||0)||b.id-a.id);}
-function taskHasSavedUpdate(t){return outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected','activation-pending','activation-unknown'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));}
+function taskHasSavedUpdate(t){return outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected','activation-pending','activation-unknown','review-saving','review-unknown'].includes(o.state)&&(Number(o.input.taskId)===t.id||(t.lines||[]).some(l=>l.id===Number(o.input.lineId))));}
 function myTaskChoice(t){
  if(t.assignee_id!==snapshot.user.id||t.completed_at||['completed','stopped','cancelled'].includes(t.outcome)||taskHasSavedUpdate(t))return null;
  if(untouchedOffer(t)&&allowed('execute'))return {action:'decline',label:'Decline',explanation:'Return this unstarted assignment for reassignment. Its deadline stays unchanged.'};
@@ -523,34 +529,61 @@ const workFilterNames=workFilterColumns.flatMap(c=>c.names);
 const retiredWorkFilters=['unitSearch',...['requested','completed','remaining','progress'].flatMap(k=>[k+'Min',k+'Max'])];
 function clearRetiredWorkFilters(q){for(const k of retiredWorkFilters)q.delete(k);return q;}
 let selectedFilterColumns;
+function tableFilterOptions(key){
+ const values=new Map();
+ for(const t of myTasks()){
+  const value=key==='task'?`${t.id} ${t.type}`:key==='product'?taskName(t):key==='status'?myWorkStatus(t):myWorkState(t);
+  const label=key==='task'?`#${t.id} · ${t.type==='put'?'Put':'Pick'}`:key==='state'?workStates[value]:value;
+  if(value&&label)values.set(String(value),String(label));
+ }
+ return [...values].map(([value,label])=>({value,label}));
+}
+function workFilterOptions(c,value='',exact=false){
+ const choices=c.key==='progress'?['0-25','25-50','50-75','75-100'].map(value=>({value,label:value.replace('-', '–')+'%'})):tableFilterOptions(c.key);
+ const defaults=c.key==='state'?[{value:'current',label:'Current tasks'},{value:'all',label:'All states'}]:[{value:'',label:'All'}];
+ const list=[...defaults,...choices];
+ // Retain an applied or unsaved choice even if live updates remove its last row.
+ if(value&&!list.some(o=>o.value===value)){const label=c.key==='state'?(workStates[value]||value):c.key==='task'&&/^\d+ (pick|put)$/.test(value)?`#${value.split(' ')[0]} · ${value.endsWith('put')?'Put':'Pick'}`:value;list.push({value,label,exact});}
+ return list.map(o=>`<option value="${esc(o.value)}" ${o.value===value?'selected':''} ${o.exact===false?'':'data-exact="1"'}>${esc(o.label)}</option>`).join('');
+}
 function workFilterChip(c,q){
- const value=k=>esc(q.get(k)||''),label=esc(c.label),active=selectedFilterColumns.has(c.key);
- const control=c.key==='progress'?`<select name="progressRange" aria-label="Progress"><option value="">Any</option>${['0-25','25-50','50-75','75-100'].map(k=>`<option value="${k}" ${q.get('progressRange')===k?'selected':''}>${k.replace('-', '–')}%</option>`).join('')}</select>`:c.key==='state'?`<select name="workState" aria-label="State">${Object.entries({current:'Current tasks',all:'All states',review:'Needs review',not_started:'Not started',in_progress:'In progress',completed:'Completed'}).map(([k,v])=>`<option value="${k}" ${k===(q.get('workState')||'current')?'selected':''}>${v}</option>`).join('')}</select>`:`<input name="${c.names[0]}" type="search" value="${value(c.names[0])}" aria-label="${label}" placeholder="Search…">`;
+ const label=esc(c.label),active=selectedFilterColumns.has(c.key),name=c.names[0],value=q.get(name)||(c.key==='state'?'current':'');
+ const control=`<select name="${name}" aria-label="${label}" data-table-filter="${c.key}">${workFilterOptions(c,value,q.get(name+'Exact')==='1')}</select>`;
  return `<div class="work-filter-chip" data-filter-column="${c.key}" ${active?'':'hidden'}><span class="work-filter-label">${label}</span>${control}<button type="button" class="filter-remove" data-remove-filter="${c.key}" aria-label="Remove ${label.toLowerCase()} filter" title="Remove ${label.toLowerCase()} filter">×</button></div>`;
 }
+function patchWorkFilterOptions(){
+ const f=root.querySelector('.my-work-filters');if(!f)return;
+ for(const c of workFilterColumns){
+  const select=f.elements[c.names[0]];if(!select||select===document.activeElement)continue;
+  const html=workFilterOptions(c,select.value,select.selectedOptions?.[0]?.dataset.exact==='1');
+  if(select.innerHTML!==html)select.innerHTML=html;
+ }
+}
+function workPageSize(value){return [20,50,100].includes(Number(value))?Number(value):50;}
 function workTableFilters(){
  const q=new URLSearchParams(location.search);
  if(!selectedFilterColumns)selectedFilterColumns=new Set(workFilterColumns.filter(c=>c.names.some(k=>q.has(k)&&q.get(k)!==''&&(k!=='workState'||q.get(k)!=='current'))).map(c=>c.key));
  const columns=[...selectedFilterColumns].map(k=>workFilterColumns.find(c=>c.key===k)).concat(workFilterColumns.filter(c=>!selectedFilterColumns.has(c.key)));
  const canSelect=allowed('resolve')&&allowed('resolveStop')&&allowed('teamStop');
- return `<form method="get" action="/work" class="my-work-filters" aria-label="Filter tasks"><div class="work-filter-toolbar"><select class="work-filter-picker" data-add-filter aria-label="Add filter"><option value="">Filters</option>${workFilterColumns.map(c=>`<option value="${c.key}" ${selectedFilterColumns.has(c.key)?'disabled':''}>${esc(c.label)}</option>`).join('')}</select><button data-apply-work-filters disabled>Apply</button>${canSelect?`<button type="button" class="secondary" data-toggle-selection aria-pressed="${selectingTasks}">${selectingTasks?'Done':'Select'}</button>`:''}<label class="work-check"><input type="checkbox" name="reviewOnly" value="1" ${['1','true'].includes(q.get('reviewOnly'))?'checked':''}>See only review items</label></div><div class="work-filter-fields" data-filter-fields ${selectedFilterColumns.size?'':'hidden'}>${columns.map(c=>workFilterChip(c,q)).join('')}</div>${canSelect?`<button type="button" class="danger" data-bulk-discard ${selectedTasks.size?'':'hidden'}>Discard All (${selectedTasks.size})</button>`:''}<span data-filter-feedback role="status"></span></form>`;
+ return `<form method="get" action="/work" class="my-work-filters" aria-label="Filter tasks"><div class="work-filter-toolbar"><select class="work-filter-picker" data-add-filter aria-label="Add filter"><option value="">Filters</option>${workFilterColumns.map(c=>`<option value="${c.key}" ${selectedFilterColumns.has(c.key)?'disabled':''}>${esc(c.label)}</option>`).join('')}</select><button data-apply-work-filters disabled>Apply</button>${canSelect?`<button type="button" class="secondary" data-toggle-selection aria-pressed="${selectingTasks}">${selectingTasks?'Done':'Select'}</button>`:''}<select class="work-page-size" name="pageSize" aria-label="Items per page">${[20,50,100].map(n=>`<option value="${n}" ${n===workPageSize(q.get('pageSize'))?'selected':''}>Items per page: ${n}</option>`).join('')}</select><label class="work-check"><input type="checkbox" name="reviewOnly" value="1" ${['1','true'].includes(q.get('reviewOnly'))?'checked':''}>See only review items</label></div><div class="work-filter-fields" data-filter-fields ${selectedFilterColumns.size?'':'hidden'}>${columns.map(c=>workFilterChip(c,q)).join('')}</div>${canSelect?`<button type="button" class="danger" data-bulk-discard ${selectedTasks.size?'':'hidden'}>Discard All (${selectedTasks.size})</button>`:''}<span data-filter-feedback role="status"></span></form>`;
 }
 function changeFilterColumn(f,key,add){
  const column=workFilterColumns.find(c=>c.key===key);if(!column)return;
  const chip=f.querySelector(`[data-filter-column="${key}"]`),picker=f.querySelector('[data-add-filter]');
- if(add){selectedFilterColumns.add(key);chip.hidden=false;f.querySelector('[data-filter-fields]').append(chip);f.querySelector('[data-filter-fields]').hidden=false;chip.querySelector('input,select').focus();}
+ if(add){selectedFilterColumns.add(key);chip.hidden=false;f.querySelector('[data-filter-fields]').append(chip);f.querySelector('[data-filter-fields]').hidden=false;chip.querySelector('select').focus();}
  else{selectedFilterColumns.delete(key);for(const name of column.names)f.elements[name].value=name==='workState'?'current':'';chip.hidden=true;picker.focus();}
  f.querySelector('[data-filter-fields]').hidden=!selectedFilterColumns.size;picker.querySelector(`option[value="${key}"]`).disabled=add;picker.value='';updateFilterApply(f);dirty=workFiltersChanged(f);
 }
 function workFiltersChanged(f){const q=new URLSearchParams(location.search);return workFilterNames.some(k=>(f.elements[k]?.value||'')!==(q.get(k)||(k==='workState'?'current':'')));}
 function updateFilterApply(f){const b=f?.querySelector('[data-apply-work-filters]');if(b)b.disabled=!workFiltersChanged(f);}
-async function applyWorkFilters(f,reviewOnly=false){
+async function applyWorkFilters(f,immediate=false){
  const before=location.search,q=clearRetiredWorkFilters(new URLSearchParams(before));q.delete('page');
- if(!reviewOnly)for(const k of workFilterNames){const v=f.elements[k]?.value||'';if(v)q.set(k,v);else q.delete(k);}
+ if(!immediate)for(const k of workFilterNames){const v=f.elements[k]?.value||'';if(v)q.set(k,v);else q.delete(k);if(['taskSearch','productSearch','statusSearch'].includes(k)){if(v&&f.elements[k]?.selectedOptions?.[0]?.dataset.exact==='1')q.set(k+'Exact','1');else q.delete(k+'Exact');}}
+ if(immediate==='pageSize')q.set('pageSize',String(workPageSize(f.elements.pageSize.value)));
  if(f.elements.reviewOnly.checked)q.set('reviewOnly','1');else q.delete('reviewOnly');
  window.history.replaceState(window.history.state,'','/work'+(q.size?'?'+q:''));
  try{await refresh();if(location.search!==(q.size?'?'+q:''))return;const head=root.querySelector('.my-work-table thead tr');if(head)head.innerHTML=workTableHead();patchMyWorkRows();patchSelection();dirty=workFiltersChanged(f);updateFilterApply(f);f.querySelector('[data-filter-feedback]').textContent='';}
- catch(error){if(location.search!==(q.size?'?'+q:''))return;window.history.replaceState(window.history.state,'','/work'+before);f.elements.reviewOnly.checked=['1','true'].includes(new URLSearchParams(before).get('reviewOnly'));f.querySelector('[data-filter-feedback]').textContent=error.message;updateFilterApply(f);}
+ catch(error){if(location.search!==(q.size?'?'+q:''))return;window.history.replaceState(window.history.state,'','/work'+before);f.elements.reviewOnly.checked=['1','true'].includes(new URLSearchParams(before).get('reviewOnly'));if(f.elements.pageSize)f.elements.pageSize.value=String(workPageSize(new URLSearchParams(before).get('pageSize')));f.querySelector('[data-filter-feedback]').textContent=error.message;updateFilterApply(f);}
 }
 function workTableHead(){return `${selectingTasks?'<th scope="col" class="task-select-cell"><input type="checkbox" data-select-all aria-label="Select all eligible tasks on this page"></th>':''}${[['task','Task'],['product','Product'],['unit','Unit'],['requested','Requested'],['completed','Completed'],['remaining','Remaining'],['status','Status'],['progress','Progress'],['state','State']].map(([k,v])=>workColumn(k,v)).join('')}<th scope="col">Action</th>`;}
 
@@ -748,13 +781,13 @@ function render(){
  if(!snapshot){root.innerHTML='<section class="work-empty"><h2>No saved work on this device</h2><p>Connect to the warehouse and sign in to save your allocations.</p><a href="/login">Sign in</a></section>';return;}
 
  root.classList?.toggle('my-work',path==='/work');
- const queued=outbox.filter(o=>o.partition===key()&&!['recorded','duplicate','reserved','ready','verified','busy','acknowledged'].includes(o.state));
+ const queued=outbox.filter(o=>o.partition===key()&&!o.reviewSave&&!['recorded','duplicate','reserved','ready','verified','busy','acknowledged'].includes(o.state));
  const unconfirmed=queued.filter(o=>o.state!=='review');
  const savedDetails=queued.length?`<div class="table-wrap"><table><thead><tr><th>Update / status</th><th>Next action</th></tr></thead><tbody>${queued.map(queueEntry).join('')}</tbody></table></div><button type="button" class="secondary" data-retry>Send saved updates / refresh</button>`:'';
  const deviceHelp=disclosure('device-recovery','Saved updates & device help',savedDetails+'<p>Saved work stays on this device. Send all updates before handing it over.</p><div class="work-tools-links"><button type="button" class="text-button" data-export>Download saved updates and drafts</button><button type="button" class="text-button" data-forget>Clear local data (only after updates are received)</button></div>');
  const utility=['/work','/work/overview'].includes(path)?disclosure('my-work-tools','Work tools',workShortcuts()+'<div id="device-help">'+deviceHelp+'</div><div class="work-connection">'+badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')+'</div>',false,'my-work-utility'):'';
  const body=path==='/work/overview'?assignmentPage():path==='/work/timing'?timingPage():path==='/work/history'?historyPage():path==='/pick'?createPage('pick'):path==='/put'?createPage('put'):path==='/record-movement'?manualPage():path==='/pending-confirmations'?pendingPage():path==='/labels'?labelsPage():path==='/movement-history'?ledger():/^\/tasks\/\d+$/.test(path)?taskPage(path.split('/')[2]):home();
- root.innerHTML=`<nav class="work-views" aria-label="Work views"><a href="/work">My work</a>${allowed('assign')?'<a href="/work/overview">Assign Work</a>':''}${allowed('review')?`<a href="/pending-confirmations">Needs review · ${snapshot.reviewTotal??snapshot.pending.length}</a>`:''}<a href="/work/history">History</a>${utility}</nav>${['/work','/work/overview'].includes(path)?'':`<div class="work-toolbar"><div class="work-tools">${!online?'<a href="/work">My work</a><a href="/pick">Pick</a><a href="/put">Put</a>':''}${disclosure('work-tools','Work tools',workShortcuts(),false,'work-tools-details')}</div><div class="work-connection">${badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')}<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small></div></div>`}<div id="work-notice" data-notice="${esc(notice)}" role="status" aria-live="polite">${notice?`<p class="work-callout">${esc(workText(notice))}</p>`:''}</div><p id="work-connection-warning" class="work-callout warning" role="status" ${connectionWarning?'':'hidden'}>${esc(connectionWarning)}</p>${!online?'<p class="work-callout warning">Offline: saved work and physical entries stay on this device. No new reservation or location turn is granted. Follow the warehouse manual procedure; use paper if needed.</p>':''}${unconfirmed.length?`<p class="work-callout warning" role="status">${unconfirmed.length} saved update${unconfirmed.length===1?'':'s'} ${unconfirmed.some(o=>['local','sending','error','rejected','activation-unknown','activation-pending'].includes(o.state))?'need warehouse confirmation':'need attention or review'}. <button type="button" class="text-button" data-show-saved>View status and retry</button></p>`:''}<div data-inactivity-alerts role="status">${inactivityAlertsMarkup()}</div>${body}<dialog class="my-work-action-dialog task-edit-dialog" data-task-dialog aria-label="Task action"></dialog>${path==='/work'?'<dialog class="my-work-action-dialog" data-my-work-dialog aria-label="Task actions"></dialog>':path==='/work/overview'?'':`<footer class="work-footer" id="device-help">${disclosure('device-recovery','Saved updates & device help',savedDetails+'<p>Saved work stays on this device. Use your own device account. Send all updates before handing it over.</p><div class="work-tools-links"><button type="button" class="text-button" data-export>Download saved updates and drafts</button><button type="button" class="text-button" data-forget>Clear local data (only after updates are received)</button></div>')}</footer>`}`;
+ root.innerHTML=`<nav class="work-views" aria-label="Work views"><a href="/work">My work</a>${allowed('assign')?'<a href="/work/overview">Assign Work</a>':''}${allowed('review')?`<a href="/pending-confirmations">Needs review · ${snapshot.reviewTotal??snapshot.pending.length}</a>`:''}<a href="/work/history">History</a>${utility}</nav>${['/work','/work/overview'].includes(path)?'':`<div class="work-toolbar"><div class="work-tools">${!online?'<a href="/work">My work</a><a href="/pick">Pick</a><a href="/put">Put</a>':''}${disclosure('work-tools','Work tools',workShortcuts(),false,'work-tools-details')}</div><div class="work-connection">${badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')}<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small></div></div>`}<div id="work-notice" data-notice="${esc(notice)}" role="status" aria-live="polite">${notice?`<p class="work-callout">${esc(workText(notice))}</p>`:''}</div><p id="work-connection-warning" class="work-callout warning" role="status" ${connectionWarning?'':'hidden'}>${esc(connectionWarning)}</p>${!online?'<p class="work-callout warning">Offline: saved work and physical entries stay on this device. No new reservation or location turn is granted. Follow the warehouse manual procedure; use paper if needed.</p>':''}<div data-physical-save-status>${physicalSaveStatus()}</div>${unconfirmed.length?`<p class="work-callout warning" role="status">${unconfirmed.length} saved update${unconfirmed.length===1?'':'s'} ${unconfirmed.some(o=>['local','sending','error','rejected','activation-unknown','activation-pending'].includes(o.state))?'need warehouse confirmation':'need attention or review'}. <button type="button" class="text-button" data-show-saved>View status and retry</button></p>`:''}<div data-inactivity-alerts role="status">${inactivityAlertsMarkup()}</div>${body}<dialog class="my-work-action-dialog task-edit-dialog" data-task-dialog aria-label="Task action"></dialog>${path==='/work'?'<dialog class="my-work-action-dialog" data-my-work-dialog aria-label="Task actions"></dialog>':path==='/work/overview'?'':`<footer class="work-footer" id="device-help">${disclosure('device-recovery','Saved updates & device help',savedDetails+'<p>Saved work stays on this device. Use your own device account. Send all updates before handing it over.</p><div class="work-tools-links"><button type="button" class="text-button" data-export>Download saved updates and drafts</button><button type="button" class="text-button" data-forget>Clear local data (only after updates are received)</button></div>')}</footer>`}`;
  for(const link of root.querySelectorAll('a[href]')){const href=(link.getAttribute?.('href')||'').split('?')[0];const cap=workLinkCapability(href);if(cap&&!allowed(cap))link.remove();}
  for(const f of root.querySelectorAll('form[data-work-action]')){f._workIdentity={site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id};f._draftPath=path;}
  restoreDrafts();
@@ -779,7 +812,7 @@ function restoreDrafts(){
 }
 
 function patchMyWorkRows(){
- const body=root.querySelector('[data-my-work-table]');if(!body)return;
+ const body=root.querySelector('[data-my-work-table]');if(!body)return;patchWorkFilterOptions();
  const dialog=root.querySelector('[data-my-work-dialog]'),active=document.activeElement;
  const rows=[...body.querySelectorAll('[data-task-row]')],observed=new Map([...(snapshot.watchedTasks||[]),...snapshot.tasks].map(t=>[String(t.id),t]));
  const protectedRow=row=>row.contains(active)||row.querySelector('form[data-edited]')||dialog?.open&&String(dialog.dataset.taskId)===row.dataset.taskRow;
@@ -829,6 +862,44 @@ async function searchCombo(select,query,signal){
  if(kind==='counts'){f._countCandidates=data.counts;return {options:data.counts.map(c=>({value:c.id,label:`${countCandidateLabel(c)} · ${c.lines.map(l=>l.name+': actual '+l.actual+' / difference '+l.difference+' '+l.unit).join('; ')} · reviewed by ${c.reviewer_name||'Unknown'}`})),message:data.counts.length?`${data.counts.length} counts found. Check physical evidence before choosing.`:'No matching counts. Try another date, person or name.'};}
  return {options:data.movements.map(m=>({value:m.id,label:`${new Date(m.created_at).toLocaleString()} · ${m.quantity} ${m.unit} · ${m.performer_name||'Unknown'} · ${m.origin_ref}`})),message:data.movements.length===100?'Showing 100 matches. Refine the reference or date to find older movements.':data.movements.length?`${data.movements.length} matching movements. Choose and verify the correct one.`:'No matching movements. Try another reference, person or date.'};
 }
+// Review saves are online, final commands. Only an explicit retry resends an
+// uncertain result, using its exact durable request identity and original data.
+function pendingPhysicalSave(taskId=null){return outbox.find(o=>o.reviewSave&&currentSavedUpdate(o)&&['review-saving','review-unknown'].includes(o.state)&&(taskId==null||Number(o.input.taskId)===Number(taskId)));}
+function physicalSaveStatus(entry=null){return (entry?[entry]:outbox.filter(o=>o.reviewSave&&currentSavedUpdate(o)&&['review-saving','review-unknown'].includes(o.state))).map(o=>`<p class="work-callout warning" role="status">Task #${esc(o.input.taskId)}: save not confirmed. Reconnect and retry this save; do not enter the movement again. <button type="button" data-retry-physical-save="${esc(o.id)}">Retry save</button></p>`).join('');}
+function patchPhysicalSaveStatus(){const target=root.querySelector?.('[data-physical-save-status]');if(target)target.innerHTML=physicalSaveStatus();}
+async function savePhysicalReview(f,action,values){
+ if(!online)throw new Error('Reconnect to the warehouse and press Save again. Your quantities stay here.');
+ const t=availableTask(values.taskId);
+ if(!t||taskHasSavedUpdate(t)||outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected'].includes(o.state)&&o.action==='manual'))throw new Error('An earlier movement has not reached the warehouse yet. Send that saved movement first, then save these final quantities.');
+ const id=uid(),o={id,partition:key(),reviewSave:true,action,input:{...values,alignPhysical:true,requestId:id,site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id,deviceId},draftId:draftKey(f),state:'review-saving',createdAt:new Date().toISOString()};
+ await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');
+ if(root.querySelector?.('[data-task-dialog]')?.open)patchTaskDialog();
+ await deliverPhysicalReview(o);
+}
+async function deliverPhysicalReview(o){
+ if(!currentSavedUpdate(o)||!currentActivation(o))throw new Error('Sign in to the original account and warehouse to retry this save.');
+ let response,result;
+ try{
+  response=await fetch('/api/work/'+o.action,{method:'POST',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(o.input)});
+  result=await response.json();
+ }catch{ /* A lost response does not prove the transaction failed. */ }
+ const rejected=response&&[400,401,403,404,409,422].includes(response.status)&&result?.error;
+ if(rejected){o.state='not-applied';o.message=result.error;}
+ else if(response?.ok&&result?.status==='recorded'&&result.closed===true){o.state='recorded';o.result=result;o.message='Movement saved. Task closed.';}
+ else{o.state='review-unknown';o.message='Save not confirmed. Reconnect and use Retry save here. Do not enter the movement again.';}
+ await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');patchPhysicalSaveStatus();
+ if(o.state!=='recorded')throw new Error(o.message);
+ await store('cache','readwrite',s=>s.delete(o.draftId));drafts.delete(o.draftId);notice=o.message;
+ const live=root.querySelector?.('#work-notice');if(live){live.innerHTML='<p class="work-callout">'+esc(notice)+'</p>';live.dataset.notice=notice;}
+ try{await refresh();await afterReviewSave(Number(o.input.taskId),o.action);}
+ catch{
+  // The durable warehouse receipt is authoritative even if refreshing fails.
+  // Never ask the user to resubmit a successful movement as a new command.
+  notice='Movement saved and task closed. Reconnect to refresh the task list.';
+  for(const name of ['tasks','returnedTasks','watchedTasks'])if(snapshot[name])snapshot[name]=snapshot[name].filter(t=>t.id!==Number(o.input.taskId));
+  const d=root.querySelector?.('[data-task-dialog]');d?.close();dirty=false;render();
+ }
+}
 let syncing=false;
 let syncDone=Promise.resolve();
 async function sync(){
@@ -874,7 +945,7 @@ root.addEventListener('input',e=>{
  if(f&&e.target.name==='unit')updateProductPicker(f);
 
 });
-root.addEventListener('change',e=>{if(e.target.matches('[data-select-task],[data-select-all]')){changeTaskSelection(e.target);return;}const filter=e.target.closest('.my-work-filters');if(filter){if(e.target.matches('[data-add-filter]')){changeFilterColumn(filter,e.target.value,true);return;}if(e.target.name==='reviewOnly')void applyWorkFilters(filter,true);else updateFilterApply(filter);dirty=workFiltersChanged(filter);return;}const changedForm=e.target.closest('form');if(changedForm){updateClosureForm(changedForm);if(['changeDue','deadlineChoice'].includes(e.target.name))updateReturnedDue(changedForm);updateRecoveryLink(changedForm);updateAssignmentForm(changedForm);if(e.target.name==='verification')updateVerificationFields(changedForm);if(e.target.name==='timeUnit')updateTimingFields(changedForm,true);}if(e.target.name==='productId'){updateProductPicker(e.target.closest('form'));refreshProductStocks(true,e.target.closest('form'));}else if(e.target.name==='direction')refreshProductStocks(true,e.target.closest('form'));if(e.target.name==='assigneeId')patchTaskAssignees();if(e.target.name==='countCorrectionId'){const f=e.target.closest('form'),r=snapshot.pending.find(r=>r.id===f.elements.reportId?.value),candidate=(f._countCandidates||[r?.countEvidence]).find(c=>c&&String(c.id)===e.target.value);if(r)f.querySelector('[data-count-sequence]').textContent=countSequence(candidate,r);}dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{});});
+root.addEventListener('change',e=>{if(e.target.matches('[data-select-task],[data-select-all]')){changeTaskSelection(e.target);return;}const filter=e.target.closest('.my-work-filters');if(filter){if(e.target.matches('[data-add-filter]')){changeFilterColumn(filter,e.target.value,true);return;}if(e.target.name==='reviewOnly')void applyWorkFilters(filter,true);else if(e.target.name==='pageSize')void applyWorkFilters(filter,'pageSize');else updateFilterApply(filter);dirty=workFiltersChanged(filter);return;}const changedForm=e.target.closest('form');if(changedForm){updateClosureForm(changedForm);if(['changeDue','deadlineChoice'].includes(e.target.name))updateReturnedDue(changedForm);updateRecoveryLink(changedForm);updateAssignmentForm(changedForm);if(e.target.name==='verification')updateVerificationFields(changedForm);if(e.target.name==='timeUnit')updateTimingFields(changedForm,true);}if(e.target.name==='productId'){updateProductPicker(e.target.closest('form'));refreshProductStocks(true,e.target.closest('form'));}else if(e.target.name==='direction')refreshProductStocks(true,e.target.closest('form'));if(e.target.name==='assigneeId')patchTaskAssignees();if(e.target.name==='countCorrectionId'){const f=e.target.closest('form'),r=snapshot.pending.find(r=>r.id===f.elements.reportId?.value),candidate=(f._countCandidates||[r?.countEvidence]).find(c=>c&&String(c.id)===e.target.value);if(r)f.querySelector('[data-count-sequence]').textContent=countSequence(candidate,r);}dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{});});
 let submitting=false;
 root.addEventListener('submit',async e=>{
  const filters=e.target.closest('.my-work-filters');if(filters?.matches?.('.my-work-filters')){e.preventDefault();if(workFiltersChanged(filters))await applyWorkFilters(filters);return;}
@@ -891,7 +962,7 @@ root.addEventListener('submit',async e=>{
   if(action==='updateReviewTask'){values.changeDue=values.deadlineChoice==='duration'||values.deadlineChoice==='none';values.noDeadline=values.deadlineChoice==='none';delete values.deadlineChoice;}
   const countLinks={};for(const name of Object.keys(values))if(/^countLink\d+$/.test(name)){countLinks[name.slice(9)]=values[name];delete values[name];}if(Object.keys(countLinks).length)values.countLinks=countLinks;
   if(f.dataset.workAction==='closeTask'||f.dataset.draftKind==='closure-review'){values.actuals=closureActualValues(f);for(const name of Object.keys(values))if(/^actual(Cell|Quantity)/.test(name))delete values[name];}
-  for(const n of ['noDeadline','verifiedClosure','workerStopped','changeDue','manual','keepOpen','dismissDuplicate','closeAllocation','zeroConfirmed','afterCountVerified','stopRemaining','enabled'])if(n in values)values[n]=values[n]===true||values[n]==='on'||values[n]==='true';
+  for(const n of ['alignPhysical','noDeadline','verifiedClosure','workerStopped','changeDue','manual','keepOpen','dismissDuplicate','closeAllocation','zeroConfirmed','afterCountVerified','stopRemaining','enabled'])if(n in values)values[n]=values[n]===true||values[n]==='on'||values[n]==='true';
   if(action==='report'&&!online)values.manual=true;
   if(values.occurredAt)values.occurredAt=new Date(values.occurredAt).toISOString();
   if(values.dueAt)values.dueAt=new Date(values.dueAt).toISOString();
@@ -901,7 +972,9 @@ root.addEventListener('submit',async e=>{
   if('verificationNote' in values)values.verification=verifiedDescription(values);
   if(values.note&&action==='decline')values.reason=[values.reason,values.note].filter(Boolean).join(' — ');
   if(action==='manual'&&!values.unit?.trim())values.unit=snapshot.products.find(p=>p.id===Number(values.productId))?.unit_of_measure;
-  if(['closeTask','sendTaskReview','updateReviewTask'].includes(action)||f.dataset.draftKind==='closure-review'||f.dataset.draftKind==='discard-task'){
+  if(f.dataset.reviewMovement!==undefined){
+   await savePhysicalReview(f,action,values);
+  }else if(['closeTask','sendTaskReview','updateReviewTask'].includes(action)||f.dataset.draftKind==='closure-review'||f.dataset.draftKind==='discard-task'){
    if(!online)throw new Error('Reconnect before saving this task. Your entries remain saved as a draft.');
    if(action!=='updateReviewTask'&&!values.currentStatus)throw new Error('Choose Yes or No first.');
    const t=availableTask(values.taskId)||snapshot.pending?.find(r=>r.id===values.reportId)?.closureTask;if(!t||taskHasSavedUpdate(t)||outbox.some(o=>o.partition===key()&&['local','sending','error','rejected'].includes(o.state)&&o.action==='manual'))throw new Error('Send saved movement updates and wait for confirmation before closing this task.');
@@ -928,12 +1001,13 @@ root.addEventListener('submit',async e=>{
    outbox=await all('outbox');notice=message;render();await sync();const received=outbox.find(o=>o.id===id);
    render();
   }
- }catch(error){feedback.textContent=workText(error.message);feedback.classList.add('error');button.disabled=action==='assign'&&(assignmentPending()||!online);notice=error.message;if(!f.isConnected||isActivation(action))render();}
+ }catch(error){feedback.textContent=workText(error.message);feedback.classList.add('error');feedback.setAttribute?.('tabindex','-1');feedback.focus?.();feedback.scrollIntoView?.({block:'nearest'});button.disabled=action==='assign'&&(assignmentPending()||!online);if(f.dataset.reviewMovement===undefined)notice=error.message;if(!f.isConnected||isActivation(action))render();}
  finally{submitting=false;if(f.closest?.('[data-task-dialog]'))patchTaskDialog();}
 });
 root.addEventListener('click',async e=>{
  try{
   if(e.target.closest('[data-review-back],[data-task-dialog-close]')){await modalBack();return;}
+  const retrySave=e.target.closest('[data-retry-physical-save]');if(retrySave){if(submitting)return;submitting=true;let failure;try{const o=outbox.find(o=>o.id===retrySave.dataset.retryPhysicalSave&&currentSavedUpdate(o));if(o)await deliverPhysicalReview(o);}catch(error){failure=error;}finally{submitting=false;patchTaskDialog();}if(failure&&!outbox.some(o=>o.id===retrySave.dataset.retryPhysicalSave&&['review-saving','review-unknown'].includes(o.state)))throw failure;return;}
   const choice=e.target.closest('[data-review-align],[data-review-assignment],[data-review-discard]');if(choice){if(choice.disabled)return;const d=choice.closest('[data-task-dialog]');await saveModalDrafts();const mode=choice.hasAttribute('data-review-align')?'check-align':choice.hasAttribute('data-review-assignment')?'check-assignment':'check-discard';openTaskDialog(d._task,mode,null,d.dataset.mode==='check'?'push':'replace');return;}
   if(e.target.closest('[data-toggle-selection]')){selectingTasks=!selectingTasks;if(!selectingTasks)selectedTasks.clear();patchSelection(true);return;}
   const filterRemove=e.target.closest('[data-remove-filter]');if(filterRemove){changeFilterColumn(filterRemove.closest('form'),filterRemove.dataset.removeFilter,false);return;}
@@ -959,7 +1033,7 @@ root.addEventListener('click',async e=>{
    const reports=outbox.filter(o=>o.partition===key()),savedDrafts=(await all('cache')).filter(r=>r.values&&r.id.startsWith(key()+':')),blob=new Blob([JSON.stringify({warehouse:snapshot.site,account:snapshot.user.username,reports,drafts:savedDrafts},null,2)],{type:'application/json'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='warehouse-saved-updates.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);return;
   }
   if(e.target.closest('[data-forget]')){
-   if(outbox.some(o=>['local','sending','error','rejected','activation-pending','activation-unknown'].includes(o.state))){notice='Unreceived updates remain. Send or download them before clearing local data.';render();return;}
+   if(outbox.some(o=>['local','sending','error','rejected','activation-pending','activation-unknown','review-saving','review-unknown'].includes(o.state))){notice='Unreceived updates remain. Send or download them before clearing local data.';render();return;}
    // Clear only this account; another account's cache and evidence stay partitioned.
    for(const row of await all('cache'))if(row.id.startsWith(key()+':')||row.id===key())await store('cache','readwrite',s=>s.delete(row.id));
    for(const row of outbox.filter(o=>o.partition===key()))await store('outbox','readwrite',s=>s.delete(row.id));

@@ -20,14 +20,19 @@ function fixture(){
 test('unified filters and numeric sorts apply before the 100-row boundary, deduplicate review scope and isolate operators',()=>{
  const f=fixture();try{
   const ids=[];for(let i=0;i<125;i++){const t=f.create();ids.push(t.id);f.db.prepare('UPDATE tasks SET requested_quantity=? WHERE id=?').run(i+1,t.id);}
-  const a=f.page(f.op,{sort:'requested',order:'asc'}),b=f.page(f.op,{sort:'requested',order:'asc',page:2});assert.equal(a.taskPage.total,125);assert.equal(a.tasks.length,100);assert.equal(b.tasks.length,25);assert.deepEqual([...a.tasks,...b.tasks].map(t=>t.requested_quantity),Array.from({length:125},(_,i)=>i+1));
+  const a=f.page(f.op,{sort:'requested',order:'asc',pageSize:100}),b=f.page(f.op,{sort:'requested',order:'asc',page:2,pageSize:100});assert.equal(a.taskPage.total,125);assert.equal(a.tasks.length,100);assert.equal(b.tasks.length,25);assert.deepEqual([...a.tasks,...b.tasks].map(t=>t.requested_quantity),Array.from({length:125},(_,i)=>i+1));
+  const defaultPage=f.page(f.op);assert.equal(defaultPage.taskPage.limit,50);assert.equal(defaultPage.tasks.length,50);assert.equal(defaultPage.taskPage.pages,3);
+  assert.equal(f.page(f.op,{page:3}).tasks.length,25);
+  const small=f.page(f.op,{pageSize:20,page:7});assert.equal(small.tasks.length,5);assert.equal(small.taskPage.limit,20);assert.equal(small.taskPage.pages,7);
+  const clamped=f.page(f.op,{pageSize:50,page:99});assert.equal(clamped.taskPage.number,3);assert.equal(clamped.tasks.length,25);
+  for(const pageSize of [0,21,-1,1000,'invalid'])assert.equal(f.page(f.op,{pageSize}).taskPage.limit,50);
   const range=f.page(f.op,{requestedMin:110,requestedMax:120,remainingMin:112,sort:'remaining',order:'desc'});assert.deepEqual(range.tasks.map(t=>t.requested_quantity),[120,119,118,117,116,115,114,113,112]);assert.equal(range.myWorkPriority.id,ids[0]);
   assert.equal(f.page(f.second,{workState:'all'}).taskPage.total,0);assert.equal(f.page(f.admin).taskPage.total,0);
   let t=f.get(ids[0]);f.cmd(f.op,'askReview',{lineId:t.lines[0].id,reason:'Uncertain movement'});t=f.get(ids[124]);f.cmd(f.op,'decline',f.fields(t));
   const reviewed=f.page(f.admin,{reviewOnly:1,sort:'task',order:'asc'});assert.equal(reviewed.taskPage.total,2);assert.deepEqual(reviewed.tasks.map(t=>t.work_state),['review','review']);assert.deepEqual(reviewed.tasks.map(t=>t.work_status),['Quantity check','Needs assignment']);assert.equal(new Set(reviewed.tasks.map(t=>t.id)).size,2);
   assert.equal(f.page(f.admin,{statusSearch:'assignment'}).tasks[0].id,ids[124]);assert.equal(f.page(f.op,{reviewOnly:true}).tasks.length,1);assert.equal(f.page(f.admin,{productSearch:'no match'}).taskPage.total,0);
   assert.throws(()=>f.page(f.op,{requestedMin:'not numeric'}),/non-negative/);assert.throws(()=>f.page(f.op,{progressMax:-1}),/non-negative/);
-  for(const key of ['completed','progress','state','status','product','unit'])assert.equal(f.page(f.op,{sort:key,order:'asc'}).tasks.length,100);
+  for(const key of ['completed','progress','state','status','product','unit'])assert.equal(f.page(f.op,{sort:key,order:'asc',pageSize:100}).tasks.length,100);
   const access=createAccessService({db:f.db}),role=access.saveRole(f.admin,{name:'Scoped assigner',capabilities:['work.view','work.assign','work.pick']});access.assign(f.admin,{userId:f.second.id,roleId:role});const delegate=currentActor(f.db,f.second);assert.equal(f.page(delegate).taskPage.total,0);
   t=f.get(f.cmd(delegate,'create',{direction:'pick',productId:1,quantity:.001,assigneeId:f.op.id}).taskId);f.cmd(f.op,'decline',f.fields(t));assert.deepEqual(f.page(delegate).tasks.map(t=>t.id),[t.id]);
  }finally{f.db.close();}
@@ -82,5 +87,20 @@ test('progress bands include each boundary once, include 100%, and preserve oper
    const page=f.page(f.op,{progressRange:range,sort:'task',order:'asc'});assert.deepEqual(page.tasks.map(t=>t.id),indexes.map(i=>ids[i]));assert.equal(page.taskPage.total,2);assert.equal(f.page(f.second,{progressRange:range}).taskPage.total,0);
   }
   assert.equal(f.page(f.op).taskPage.total,9);assert.throws(()=>f.page(f.op,{progressRange:'0-100'}),/listed progress range/);
+ }finally{f.db.close();}
+});
+
+test('dropdown task and product selections match exact values while old search links remain usable',()=>{
+ const f=fixture();try{
+  const tasks=Array.from({length:12},()=>f.create());
+  f.db.prepare("UPDATE products SET name='Boot' WHERE id=1").run();
+  f.db.prepare("UPDATE products SET name='Boots' WHERE id=2").run();
+  f.db.prepare('UPDATE task_lines SET product_id=2 WHERE task_id=?').run(tasks[1].id);
+  assert.deepEqual(f.page(f.op,{taskSearch:`${tasks[0].id} pick`,taskSearchExact:'1'}).tasks.map(t=>t.id),[tasks[0].id]);
+  const exact=f.page(f.op,{productSearch:'Boot',productSearchExact:'1'});assert.equal(exact.taskPage.total,11);assert.ok(exact.tasks.every(t=>t.id!==tasks[1].id));
+  assert.equal(f.page(f.op,{productSearch:'Boot'}).taskPage.total,12);
+  assert.equal(f.page(f.op,{statusSearch:'started',statusSearchExact:'1'}).taskPage.total,0);
+  assert.equal(f.page(f.op,{statusSearch:'Not started',statusSearchExact:'1'}).taskPage.total,12);
+  assert.equal(f.page(f.second,{productSearch:'Boot',productSearchExact:'1',pageSize:100}).taskPage.total,0);
  }finally{f.db.close();}
 });

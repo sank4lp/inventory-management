@@ -47,7 +47,7 @@ export function taskSelection(db,user,input={}) {
   const where=['1'],filtered=[...params],state=input.workState||'current';
   if(state==='current')where.push("lifecycle!='completed'");else if(['review','not_started','in_progress','completed'].includes(state)){where.push('lifecycle=?');filtered.push(state);}
   if(['1','true',true].includes(input.reviewOnly))where.push('needs_review=1');
-  for(const [key,col] of [['taskSearch',"CAST(id AS TEXT)||' '||type"],['productSearch',"COALESCE(product,'')"],['statusSearch','display_status']])if(String(input[key]||'').trim()){where.push(`instr(lower(${col}),lower(?))>0`);filtered.push(String(input[key]).trim().slice(0,160));}
+  for(const [key,col] of [['taskSearch',"CAST(id AS TEXT)||' '||type"],['productSearch',"COALESCE(product,'')"],['statusSearch','display_status']])if(String(input[key]||'').trim()){where.push(input[key+'Exact']==='1'?`lower(${col})=lower(?)`:`instr(lower(${col}),lower(?))>0`);filtered.push(String(input[key]).trim().slice(0,160));}
   if(input.progressRange){
     const ranges={'0-25':[0,25],'25-50':[25,50],'50-75':[50,75],'75-100':[75,100]};
     if(!Object.hasOwn(ranges,input.progressRange))throw new Error('Choose a listed progress range.');
@@ -60,10 +60,11 @@ export function taskSelection(db,user,input={}) {
   }
   const columns={task:'id',product:'product COLLATE NOCASE',unit:'unit COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
   const sort=Object.hasOwn(columns,input.sort)?input.sort:'task',direction=input.order==='asc'?'ASC':'DESC';
-  const total=db.prepare(`${cte} SELECT COUNT(*) n FROM rows WHERE ${where.join(' AND ')}`).get(...filtered).n,pages=Math.max(1,Math.ceil(total/100)),number=Math.min(pageNumber(input.page),pages);
-  const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},id ${direction} LIMIT 100 OFFSET ?`).all(...filtered,(number-1)*100);
+  const limit=[20,50,100].includes(Number(input.pageSize))?Number(input.pageSize):50;
+  const total=db.prepare(`${cte} SELECT COUNT(*) n FROM rows WHERE ${where.join(' AND ')}`).get(...filtered).n,pages=Math.max(1,Math.ceil(total/limit)),number=Math.min(pageNumber(input.page),pages);
+  const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},id ${direction} LIMIT ? OFFSET ?`).all(...filtered,limit,(number-1)*limit);
   const legacy=legacyTaskSelection(db,user,{view:'mine',state:'open'});
-  return {ids:ids.map(r=>r.id),metrics:new Map(ids.map(r=>[r.id,{work_state:r.lifecycle,work_status:r.display_status,work_progress:r.progress}])),priority:legacy.priority,counts:legacy.counts,page:{number,pages,total,limit:100,view:'mine',state,sort,order:direction.toLowerCase(),unified:true}};
+  return {ids:ids.map(r=>r.id),metrics:new Map(ids.map(r=>[r.id,{work_state:r.lifecycle,work_status:r.display_status,work_progress:r.progress}])),priority:legacy.priority,counts:legacy.counts,page:{number,pages,total,limit,view:'mine',state,sort,order:direction.toLowerCase(),unified:true}};
 }
 export function reviewSelection(db,user,input={}) {
   if(!can(user,'review.view'))return {rows:[],page:{number:1,pages:1,total:0,limit:100},total:0};

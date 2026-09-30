@@ -58,8 +58,8 @@ test('late phone evidence after closure is retained without another stock postin
  }finally{f.db.close();}
 });
 for(const direction of ['pick','put'])test(`${direction}: supervisor resolves stock/capacity conflict with discrepancy and preserves another task's claims`,()=>{
- const f=fixture(direction);try{f.record();const a=f.cells[0].id,b=f.cells[2].id;if(direction==='pick')f.cmd(f.other,'create',{direction,productId:1,quantity:20,preferredCellId:b});else f.cmd(f.other,'create',{direction,productId:1,quantity:30,preferredCellId:b});const wanted=direction==='pick'?25:35,actuals=[{cellId:b,quantity:wanted}],otherClaims=f.db.prepare("SELECT r.* FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id!=? AND r.state='held'").all(f.t.id);
- assert.throws(()=>f.cmd(f.op,'closeTask',f.input({currentStatus:'no',actuals})),/reservation/);const sent=f.cmd(f.op,'sendTaskReview',f.input({currentStatus:'no',actuals})),r=f.work.snapshot(f.admin).pending.find(r=>r.id===sent.reportId);f.cmd(f.admin,'resolve',{...f.fields(r.closureTask),reportId:r.id,caseRevision:r.case_revision,currentStatus:'no',actuals,workerStopped:true,verification:'Confirmed actual movement despite recorded shortage/capacity'});assert.equal(f.balance(b),direction==='pick'?-5:35);assert.ok(f.get(f.t.id).completed_at);assert.equal(f.held(),0);assert.deepEqual(f.db.prepare("SELECT r.* FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id!=? AND r.state='held'").all(f.t.id),otherClaims);assert.ok(f.db.prepare('SELECT * FROM work_discrepancies WHERE cell_id=?').get(b));
+ const f=fixture(direction);try{f.record();const a=f.cells[0].id,b=f.cells[2].id;if(direction==='pick')f.cmd(f.other,'create',{direction,productId:1,quantity:20,preferredCellId:b});else f.cmd(f.other,'create',{direction,productId:1,quantity:30,preferredCellId:b});const wanted=direction==='pick'?15:25,actuals=[{cellId:b,quantity:wanted}],otherClaims=f.db.prepare("SELECT r.* FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id!=? AND r.state='held'").all(f.t.id);
+ assert.throws(()=>f.cmd(f.op,'closeTask',f.input({currentStatus:'no',actuals})),/reservation/);const sent=f.cmd(f.op,'sendTaskReview',f.input({currentStatus:'no',actuals})),r=f.work.snapshot(f.admin).pending.find(r=>r.id===sent.reportId);f.cmd(f.admin,'resolve',{...f.fields(r.closureTask),reportId:r.id,caseRevision:r.case_revision,currentStatus:'no',actuals,workerStopped:true,verification:'Confirmed actual movement despite recorded shortage/capacity'});assert.equal(f.balance(b),direction==='pick'?5:25);assert.ok(f.get(f.t.id).completed_at);assert.equal(f.held(),0);assert.deepEqual(f.db.prepare("SELECT r.* FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id!=? AND r.state='held'").all(f.t.id),otherClaims);assert.ok(f.db.prepare('SELECT * FROM work_discrepancies WHERE cell_id=?').get(b));
  }finally{f.db.close();}
 });
 test('team Stop requires verified closure authority or routes actuals to review; observation-only recipients cannot close others evidence',()=>{
@@ -69,7 +69,7 @@ test('team Stop requires verified closure authority or routes actuals to review;
 });
 test('stocktake overlap blocks operator delta; supervisor can link exactly the accounted difference without posting again',()=>{
  const f=fixture();try{f.record();const cell=f.cells[0],count=createStocktakingService({db:f.db,operationsService:f.work,clock:()=>new Date(Date.now()+10000)}),cc=(actor,action,input)=>count.command(actor,action,{requestId:randomUUID(),...input});const run=cc(f.op,'create',{mode:'selected',cellIds:[cell.id]}),item=count.snapshot(f.op).runs.find(r=>r.id===run.runId).items[0],attempt=cc(f.op,'begin',{itemId:item.id,generation:item.generation,method:'manual',location:cell.logical_code}),observation=cc(f.op,'observe',{attemptId:attempt.attemptId,lines:[{productId:1,actual:1}]});cc(f.admin,'review',{observationId:observation.observationId,revision:1,action:'approve',reason:'Unknown',evidence:'Count includes one fewer picked'});assert.equal(f.balance(cell.id),1);
- const actuals=[{cellId:cell.id,quantity:3}];assert.throws(()=>f.cmd(f.op,'closeTask',f.input({currentStatus:'no',actuals})),/stocktake/);const sent=f.cmd(f.op,'sendTaskReview',f.input({currentStatus:'no',actuals})),r=f.work.snapshot(f.admin).pending.find(r=>r.id===sent.reportId),input={...f.fields(r.closureTask),reportId:r.id,caseRevision:r.case_revision,currentStatus:'no',actuals,workerStopped:true,verification:'This one-unit difference is exactly accounted in the approved count'};assert.throws(()=>f.cmd(f.admin,'resolve',input),/stocktake/);const before=f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n;f.cmd(f.admin,'resolve',{...input,countLinks:{[cell.id]:observation.observationId}});assert.equal(f.balance(cell.id),1);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,before);assert.equal(f.get(f.t.id).recorded_quantity,3);assert.equal(f.held(),0);assert.equal(f.db.prepare('SELECT accounted_delta FROM stocktake_movement_links').get().accounted_delta,1);
+ const actuals=[{cellId:cell.id,quantity:3}];assert.throws(()=>f.cmd(f.op,'closeTask',f.input({currentStatus:'no',actuals})),/stocktake|stock count/);const sent=f.cmd(f.op,'sendTaskReview',f.input({currentStatus:'no',actuals})),r=f.work.snapshot(f.admin).pending.find(r=>r.id===sent.reportId),input={...f.fields(r.closureTask),reportId:r.id,caseRevision:r.case_revision,currentStatus:'no',actuals,workerStopped:true,verification:'This one-unit difference is exactly accounted in the approved count'};assert.throws(()=>f.cmd(f.admin,'resolve',input),/stocktake|stock count/);const before=f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n;f.cmd(f.admin,'resolve',{...input,countLinks:{[cell.id]:observation.observationId}});assert.equal(f.balance(cell.id),1);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,before);assert.equal(f.get(f.t.id).recorded_quantity,3);assert.equal(f.held(),0);assert.equal(f.db.prepare('SELECT accounted_delta FROM stocktake_movement_links').get().accounted_delta,1);
  }finally{f.db.close();}
 });
 test('closure rejects changed units and controlled stock, while review preserves the proposed actuals',()=>{
@@ -89,4 +89,34 @@ for(const route of ['team','review'])for(const legacy of ['', 'Checked signed sl
 });
 test('ordinary movement review still requires verification evidence',()=>{
  const f=fixture();try{const result=f.cmd(f.op,'manual',{productId:1,cellId:f.cells[2].id,direction:'pick',quantity:1,unit:f.get(f.t.id).lines[0].unit_of_measure,reason:'Manual evidence'});const r=f.work.snapshot(f.admin).pending.find(r=>r.id===result.reportId);assert.throws(()=>f.cmd(f.admin,'resolve',{reportId:r.id,caseRevision:r.case_revision,quantity:1,performerId:f.op.id,workerStopped:true}),/verif/i);}finally{f.db.close();}
+});
+
+for(const direction of ['pick','put'])test(`${direction}: impossible physical alignment stays open, preserves all stock and holds, then a corrected retry closes once`,()=>{
+ const f=fixture(direction);try{
+  f.record();const cell=f.cells[0],before=f.balance(cell.id),held=f.held(),tx=f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n;
+  const input=f.input({verifiedClosure:true,workerStopped:true,alignPhysical:true,currentStatus:'no',actuals:[{cellId:cell.id,quantity:5}],requestId:randomUUID()});
+  assert.throws(()=>f.cmd(f.admin,'closeTask',input),direction==='pick'?/actual pick 5.*stock available.*Check the location/:/exceeds the location capacity.*Check the location/);
+  assert.equal(f.balance(cell.id),before);assert.equal(f.held(),held);assert.equal(f.get(f.t.id).completed_at,null);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,tx);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM operation_receipts WHERE request_id=?').get(input.requestId).n,0);
+  input.actuals[0].quantity=3;input.requestId=randomUUID();const r=f.cmd(f.admin,'closeTask',input);assert.equal(r.status,'recorded');assert.equal(r.closed,true);assert.equal(f.get(f.t.id).recorded_quantity,3);assert.equal(f.held(),0);assert.equal(f.balance(cell.id),before+(direction==='pick'?1:-1));
+  assert.equal(f.cmd(f.admin,'closeTask',input).replayed,true);assert.equal(f.balance(cell.id),before+(direction==='pick'?1:-1));assert.equal(f.work.snapshot(f.admin,{view:'mine',workState:'current'}).tasks.some(t=>t.id===f.t.id),false);
+ }finally{f.db.close();}
+});
+test('physical alignment can override competing reservations while leaving their claims and current task audit intact',()=>{
+ const f=fixture();try{
+  f.record();const cell=f.cells[2],other=f.cmd(f.other,'create',{direction:'pick',productId:1,quantity:20,preferredCellId:cell.id});
+  const claims=f.db.prepare("SELECT r.* FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.state='held'").all(other.taskId);
+  const result=f.cmd(f.admin,'closeTask',f.input({verifiedClosure:true,workerStopped:true,alignPhysical:true,currentStatus:'no',actuals:[{cellId:cell.id,quantity:5}]}));
+  assert.equal(result.closed,true);assert.equal(result.status,'recorded');assert.equal(f.balance(cell.id),15);assert.equal(f.held(),0);assert.equal(f.get(f.t.id).attention,0);
+  assert.deepEqual(f.db.prepare("SELECT r.* FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.state='held'").all(other.taskId),claims);
+  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.status IN ('review','received')").get(f.t.id).n,0);
+ }finally{f.db.close();}
+});
+test('one impossible location rolls back an entire multi-location physical review, including pending review resolution',()=>{
+ const f=fixture();try{
+  f.record();const sent=f.cmd(f.admin,'sendTaskReview',f.input()),r=f.work.snapshot(f.admin).pending.find(r=>r.id===sent.reportId),before=f.cells.map(c=>f.balance(c.id));
+  const input={...f.fields(r.closureTask),reportId:r.id,caseRevision:r.case_revision,workerStopped:true,alignPhysical:true,currentStatus:'no',actuals:[{cellId:f.cells[1].id,quantity:1},{cellId:f.cells[2].id,quantity:21}]};
+  assert.throws(()=>f.cmd(f.admin,'resolve',input),/exceeds the stock available/);assert.deepEqual(f.cells.map(c=>f.balance(c.id)),before);assert.equal(f.get(f.t.id).completed_at,null);assert.equal(f.db.prepare('SELECT status FROM work_reports WHERE id=?').get(r.id).status,'review');
+  input.actuals[1].quantity=2;const saved=f.cmd(f.admin,'resolve',input);assert.equal(saved.closed,true);assert.equal(f.get(f.t.id).attention,0);assert.equal(f.db.prepare('SELECT status FROM work_reports WHERE id=?').get(r.id).status,'resolved');
+ }finally{f.db.close();}
 });

@@ -71,3 +71,25 @@ test('history reopens a closed task read-only and refuses a bulk frame from anot
  await c.run('handleModalPop({state:{workModal:{session:modalSession,depth:1}}})');assert.deepEqual(opened,['details']);
  c.run("modalFrames[0]={mode:'bulk-discard',identity:'another-account'};");await c.run('handleModalPop({state:{workModal:{session:modalSession,depth:1}}})');assert.deepEqual(opened,['details']);
 });
+
+test('column dropdowns use displayed tasks, deduplicate values and preserve a disappeared choice',()=>{
+ const c=client();c.context.a=task(1);c.context.b=task(2,{type:'put'});c.run('snapshot.tasks=[a,b];snapshot.taskPage={unified:true};snapshot.products=[{name:"Unrelated product"}]');
+ const product=c.run('tableFilterOptions("product")');assert.equal(product.length,1);assert.equal(product[0].label,'Packing cases');
+ const html=c.run('workTableFilters()');assert.match(html,/select name="taskSearch"/);assert.match(html,/select name="productSearch"/);assert.match(html,/select name="statusSearch"/);assert.doesNotMatch(html,/type="search"|Unrelated product/);
+ assert.match(html,/>#1 · Pick</);assert.match(html,/>#2 · Put</);assert.match(html,/value="50" selected>Items per page: 50/);
+ c.run('snapshot.tasks=[]');assert.match(c.run('workFilterOptions(workFilterColumns[1],"Packing cases",true)'),/value="Packing cases" selected data-exact="1"/);
+});
+test('page size changes immediately, reset pagination and preserve unapplied filter drafts',async()=>{
+ const c=filterClient();c.context.location.search='?page=3&productSearch=Boots';c.elements.productSearch.value='Gloves';c.elements.pageSize={value:'20'};
+ await c.run('applyWorkFilters(f,"pageSize")');const q=new URLSearchParams(c.context.location.search);assert.equal(q.get('pageSize'),'20');assert.equal(q.has('page'),false);assert.equal(q.get('productSearch'),'Boots');assert.equal(c.elements.productSearch.value,'Gloves');assert.equal(c.apply.disabled,false);
+ c.run("refresh=async()=>{throw new Error('Offline');}");c.elements.pageSize.value='100';await c.run('applyWorkFilters(f,"pageSize")');assert.equal(new URLSearchParams(c.context.location.search).get('pageSize'),'20');assert.equal(c.elements.pageSize.value,'20');assert.equal(c.elements.productSearch.value,'Gloves');
+});
+test('Apply marks dropdown values as exact and keeps page size when sorting',async()=>{
+ const c=filterClient();c.elements.productSearch.value='Boot';c.elements.productSearch.selectedOptions=[{dataset:{exact:'1'}}];c.context.location.search='?pageSize=20';
+ await c.run('applyWorkFilters(f)');const q=new URLSearchParams(c.context.location.search);assert.equal(q.get('productSearchExact'),'1');assert.equal(q.get('pageSize'),'20');assert.match(c.run('workColumn("product","Product")'),/pageSize=20/);
+ c.elements.productSearch.value='';await c.run('applyWorkFilters(f)');assert.equal(new URLSearchParams(c.context.location.search).has('productSearchExact'),false);
+});
+
+test('physical alignment has one final save action and no Send for review or overlap disclosure',()=>{
+ const c=client();c.context.t=task(1);c.run('snapshot.cells=[{id:1,logical_code:"A1"}]');const html=c.run('reviewMovementContent(t)');assert.match(html,/data-review-movement/);assert.match(html,/Save Movement and Close Task/);assert.doesNotMatch(html,/data-send-task-review|Send for review|Stocktake overlap/);
+});

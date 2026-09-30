@@ -43,3 +43,27 @@ Latest validation: 70 focused query/client/UI tests passed, including a new rang
 Filters, Apply and Select now share equal 76 × 30 CSS-pixel dimensions (38px tall for coarse pointers), in that order. The review-only checkbox and label align to the right of the same row. At widths too narrow to fit both groups, the review-only control wraps and stays right-aligned. Selected filter inputs appear in a separate compact row below, so they cannot interrupt the three primary controls. Adding and removing filters retains their activation and Apply behavior.
 
 Validation: 93 existing client/UI/review tests passed; JavaScript syntax and `git diff --check` passed. Browser verification covered add/remove, draft Apply, equal control dimensions and right alignment on desktop, and no toolbar overflow at 325 CSS pixels. The existing preview at port 3210 displays the update. Screenshot: `docs/evidence/compact-work-review/filter-control-row.png`.
+
+## Dropdown values and items per page
+
+Column filters now use native dropdowns populated from the tasks displayed on the current page, not from the full product catalogue. Task choices show number and Pick/Put; duplicate product/status/state values are listed once. Current tasks / All states remain available, and Progress retains the four agreed percentage bands. An applied or draft choice remains selected when live changes remove its last visible row. To select values from another page, navigate there first or increase the page size.
+
+Selections use exact matching, so selecting a task or product cannot also include similarly named values. Existing text-search URLs remain supported. Column choices still wait for Apply; review-only still applies immediately.
+
+Items per page offers 20, 50 (default), and 100. A change applies immediately, resets to page one, and preserves unapplied column-filter drafts. The server validates the sizes, filters/sorts before pagination and clamps out-of-range pages. Page links retain the size and display the correct row limit. An unsuccessful size change restores the prior selection.
+
+Validation: 383 tests passed, including new exact-match, permission-scope, page-boundary/default/invalid-size and draft-preservation coverage. The existing 100-row checks now explicitly select 100. Browser checks covered actual dropdown values, exact task/product filtering, 20/50/100 selections, draft Apply, filter removal, and phone/desktop overflow. Both simulator previews keep their existing demo databases. Screenshot: `docs/evidence/compact-work-review/dropdown-filters.png`.
+
+## Simplified movement review
+
+Removed the always-present Stocktake overlap disclosure from My Work → Review → Align With Actual Physical Movement. The quantity/location table, stopped-worker confirmation, save, review routing and Discard remain. Server accounting checks are unchanged; exceptional count reconciliation is still accessible through the existing original-evidence link. Verified the rendered popup and passed 93 existing UI/review/task-closure tests, including stocktake double-post prevention. Screenshot: `docs/evidence/compact-work-review/review-without-overlap.png`.
+
+## Final physical review saves (2026-10-01)
+
+- Review → Align With Actual Physical Movement has one final Save Movement and Close Task action; Send for review is removed from this editor.
+- The client waits for an explicit `recorded` + `closed` receipt. Rejected quantities remain editable in the open dialog, with an actionable error. Validation failures do not become device-help queue warnings.
+- A lost response retains a frozen, account/site/dataset-scoped request and exposes Retry save in the popup (and the page after closing/reloading). It is never background-submitted as a new review. Retrying reuses the original idempotency key and payload. No new movement is allowed for that task while the result is uncertain.
+- Final closure validates stock and physical capacity atomically before any ledger writes, including supervisor saves. Actual movement may override competing reservations, while preserving those other tasks' claims and flagging their discrepancy. Impossible stock/capacity changes keep the task and its reservations open. Existing unit conversion, stale-instruction, stock-count double-accounting and permission checks remain enforced.
+- Successful closure reconciles the task's pending evidence, updates actual totals, releases its reservations and light turns, and removes it from current work. History is retained. A receipt remains authoritative if only the subsequent page refresh fails.
+- Validation: full suite 392/392 passing; focused client checks rerun after the final inline success-message change. Browser test on isolated simulator port 3213 rejected 99,999 rolls against 11.5 recorded stock without closing the dialog. Correcting to 11 succeeded despite another task's 1-roll hold: stock became 0.5, the closed task's hold was released, the other hold remained, no pending review was created, and the closed task disappeared from current work. A second test rejected 1 against 0.5, then accepted 0.25 with immediate “Movement saved. Task closed.” confirmation. Database rows and ledger deltas were inspected. No production stock or hardware was used.
+- Evidence: `docs/evidence/compact-work-review/physical-review-error.png`, `docs/evidence/compact-work-review/physical-review-saved.png`.

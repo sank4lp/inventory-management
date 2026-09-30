@@ -249,6 +249,7 @@
 #work-app .work-filter-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;width:100%;min-width:0}
 #work-app .work-filter-toolbar>button,#work-app .work-filter-toolbar>.work-filter-picker{box-sizing:border-box;flex:0 0 76px;width:76px;min-width:76px;max-width:76px;height:30px;min-height:30px;margin:0;padding:3px 8px;font-family:inherit;font-size:13px;font-weight:650;line-height:18px;white-space:nowrap;text-align:center;border-radius:6px}
 #work-app .work-filter-toolbar>.work-filter-picker{background:#fff;padding:3px 4px;text-align-last:center}
+#work-app .work-filter-toolbar>.work-page-size{box-sizing:border-box;flex:0 0 156px;width:156px;min-width:0;height:30px;min-height:30px;margin:0;padding:3px 5px;border-radius:6px;background:#fff;font-family:inherit;font-size:13px;line-height:18px}
 #work-app .work-filter-toolbar>button:disabled{background:#e5e9e7;border-color:#d5dcda;color:#68766f;opacity:1;cursor:default}
 #work-app .work-filter-toolbar>label.work-check{min-height:30px;padding:0;align-items:center;white-space:nowrap;font-size:13px;margin:0 0 0 auto;gap:5px!important}
 #work-app .my-work-filters input[type=checkbox]{width:16px;min-width:16px;height:16px;min-height:16px;flex:0 0 16px;margin:0}
@@ -291,7 +292,7 @@
 #work-app [data-bulk-row-error]:empty{display:none}
 @media(pointer:coarse){
  #work-app .my-work-table .my-work-actions button,#work-app .bulk-row-actions button{min-height:44px}
- #work-app .work-filter-toolbar>button,#work-app .work-filter-toolbar>.work-filter-picker{height:38px;min-height:38px}
+ #work-app .work-filter-toolbar>button,#work-app .work-filter-toolbar>.work-filter-picker,#work-app .work-filter-toolbar>.work-page-size{height:38px;min-height:38px}
  #work-app .work-filter-chip{min-height:38px;height:auto}
  #work-app .work-filter-chip .filter-remove{opacity:1;pointer-events:auto;min-height:32px;width:28px}
  #work-app .my-work-filters .work-filter-chip input:not([type=checkbox]),#work-app .my-work-filters .work-filter-chip select{min-height:32px}

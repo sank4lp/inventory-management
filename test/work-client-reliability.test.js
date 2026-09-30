@@ -152,11 +152,12 @@ test('check reassignment/stop submission keeps a typed observation and never que
  }
 });
 
-function closureSubmitClient({mode='yes',online=true,reply='recorded'}={}){
+function closureSubmitClient({mode='yes',online=true,reply='recorded',physical=false}={}){
  const c=client(),records=new Map(),sent=[];let handler,renders=0;
  const values={taskId:'66',generation:'3',progressToken:'p',closureToken:'c',currentStatus:mode,actualCell0:'4',actualQuantity0:'3'};
  const elements=Object.entries(values).map(([name,value])=>({name,value,type:name==='currentStatus'?'radio':name.startsWith('actual')?'text':'hidden',checked:name==='currentStatus'}));for(const el of elements)elements[el.name]=el;
  const button={disabled:false},feedback={textContent:'',classList:{add(){}}},row={querySelector:s=>s==='select'?{value:'4'}:{value:'3'}},f={dataset:{workAction:'closeTask',draftKind:'task-closure'},_workIdentity:{site:'test',dataset:'data',actorId:1},_draftPath:'/tasks/66',elements,isConnected:true,querySelector:s=>s==='.form-feedback'?feedback:button,querySelectorAll:s=>s==='[data-actual-row]'?[row]:[],closest:()=>null};
+ if(physical)f.dataset.reviewMovement='';
  c.context.f=f;c.context.records=records;c.context.capture=(name,fn)=>{if(name==='submit')handler=fn;};c.context.FormData=class{constructor(){return Object.entries(values);}};c.context.onRender=()=>renders++;
  c.context.fetch=async(url,options)=>{sent.push(JSON.parse(options.body));if(reply==='lost')throw new TypeError('Connection lost');return {ok:reply!=='rejected',status:reply==='rejected'?400:200,json:async()=>reply==='rejected'?{error:'Actual totals conflict. Send for review.'}:{status:reply,message:reply==='review'?'Sent for review':'Task closed',closed:reply==='recorded',taskId:66}};};
  c.run(`root.addEventListener=capture;online=${online};snapshot.tasks=[{id:66,assignment_generation:3,assignee_id:1,lines:[{id:7}]}];store=async(name,mode,fn)=>fn({getAll:()=>[...records.values()].filter(r=>r.partition),put:o=>records.set(o.id,o),delete:id=>records.delete(id)});refresh=async()=>{online=true;};render=onRender;`);
@@ -203,4 +204,21 @@ test('assignment save returns refreshed Review only on acceptance, with explicit
  const c=assignmentSubmitClient();await c.submit();assert.equal(c.sent.length,1);const request=JSON.parse(c.sent[0]);assert.equal(request.changeDue,true);assert.equal(request.noDeadline,false);assert.equal(request.duration,'30');assert.equal(request.timeUnit,'minutes');assert.equal(c.opened[0].mode,'check');assert.equal(c.opened[0].t.assignee_id,2);assert.equal(c.run('drafts.has(draftKey(f))'),false);
  for(const reply of ['rejected','lost']){const failed=assignmentSubmitClient(reply);await failed.submit();assert.equal(failed.opened.length,0);assert.equal(failed.run('drafts.get(draftKey(f)).remainingQuantity.value'),'3');assert.equal(failed.sent.length,1);assert.ok(failed.feedback.textContent);if(reply==='lost'){await failed.run('sync()');assert.equal(failed.sent[0],failed.sent[1]);}}
  for(const choice of ['keep','none']){const c=assignmentSubmitClient();c.values.deadlineChoice=choice;await c.submit();const request=JSON.parse(c.sent[0]);assert.equal(request.changeDue,choice==='none');assert.equal(request.noDeadline,choice==='none');}
+});
+
+test('physical review saves final totals directly and never submits a new review',async()=>{
+ const c=closureSubmitClient({mode:'no',physical:true});await c.submit();assert.equal(c.sent.length,1);assert.equal(c.sent[0].alignPhysical,true);assert.equal([...c.records.values()].find(o=>o.partition).state,'recorded');assert.equal(c.run('drafts.has(draftKey(f))'),false);assert.equal(c.renders(),1);
+});
+test('physical review validation error keeps quantities editable in the popup and out of device-help warnings',async()=>{
+ const c=closureSubmitClient({mode:'no',physical:true,reply:'rejected'});await c.submit();const o=[...c.records.values()].find(o=>o.partition);assert.equal(o.state,'not-applied');assert.equal(o.reviewSave,true);assert.equal(c.run('taskHasSavedUpdate(snapshot.tasks[0])'),false);assert.equal(c.run('drafts.get(draftKey(f))._actuals[0].quantity'),'3');assert.equal(c.renders(),0);assert.ok(c.feedback.textContent);
+ c.context.fetch=async()=>({ok:true,json:async()=>({status:'recorded',closed:true,taskId:66})});await c.submit();assert.equal(c.run('drafts.has(draftKey(f))'),false);assert.equal(c.renders(),1);
+});
+test('physical review lost response stays in place, never background-posts, and explicit retry reuses exactly the same request',async()=>{
+ const c=closureSubmitClient({mode:'no',physical:true,reply:'lost'});await c.submit();const original=JSON.stringify(c.sent[0]),o=[...c.records.values()].find(o=>o.partition);assert.equal(o.state,'review-unknown');assert.equal(c.renders(),0);assert.equal(c.run('drafts.has(draftKey(f))'),true);assert.match(c.run('physicalSaveStatus()'),/Retry save/);
+ await c.run('sync()');assert.equal(c.sent.length,1);await c.submit();assert.equal(c.sent.length,1);
+ c.context.fetch=async(url,options)=>{assert.equal(options.body,original);return {ok:true,json:async()=>({status:'recorded',closed:true,taskId:66,replayed:true})};};await c.run('deliverPhysicalReview(pendingPhysicalSave(66))');assert.equal(c.renders(),1);assert.equal(c.run('physicalSaveStatus()'),'');assert.equal(o.state,'recorded');
+});
+test('physical review requires an explicit closed receipt and keeps unknown outcomes recoverable',async()=>{
+ const c=closureSubmitClient({mode:'no',physical:true,reply:'review'});await c.submit();assert.equal(c.renders(),0);assert.equal([...c.records.values()].find(o=>o.partition).state,'review-unknown');assert.equal(c.run('drafts.has(draftKey(f))'),true);
+ c.run("snapshot.dataset='new-data'");assert.equal(c.run('physicalSaveStatus()'),'');const o=[...c.records.values()].find(o=>o.partition);c.context.saved=o;await assert.rejects(c.run('deliverPhysicalReview(saved)'),/original account/);
 });
