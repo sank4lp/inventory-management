@@ -80,3 +80,11 @@ test('real pending task and transferred check render the original performer, rep
  for(let step=0;step<2;step++){const html=render(t);assert.match(html,new RegExp('Performed by '+f.op.name));assert.match(html,new RegExp('Entered by '+f.op.name));assert.match(html,/Entered 2/);assert.match(html,/Moved two before connection failed/);if(!step){f.cmd(f.admin,'assignReview',{...f.fields(t),assigneeId:f.other.id});t=f.get(t.id);}}
  }finally{f.db.close();}
 });
+
+for(const action of ['stop','handBack'])test(`${action} rejects changed progress and fresh confirmation preserves recorded movement and unresolved evidence`,()=>{
+ const f=fixture();let t=f.finish(f.create());const stale=f.fields(t),line=t.lines.find(l=>l.execution_state==='ready');
+ f.cmd(f.op,'askReview',{lineId:line.id,reason:'Quantity needs checking'});t=f.get(t.id);assert.equal(t.assignment_generation,stale.generation);const before=f.physical();
+ assert.throws(()=>f.cmd(f.op,action,{...stale,reason:'Shift ended'}),/quantities changed/);assert.deepEqual(f.physical(),before);
+ const input={...f.fields(t),reason:'Shift ended',requestId:randomUUID()};f.work.command(f.op,action,input);assert.equal(f.work.command(f.op,action,input).replayed,true);
+ const updated=f.get(t.id);assert.equal(updated.recorded_quantity,2);assert.equal(updated.lines.find(l=>l.execution_state==='settled').attribution.performer,f.op.name);assert.equal(updated.lines.some(l=>l.reports.some(r=>['review','received'].includes(r.status))),true);assert.deepEqual(f.physical().ledger,before.ledger);assert.notEqual(updated.outcome,'cancelled');f.db.close();
+});

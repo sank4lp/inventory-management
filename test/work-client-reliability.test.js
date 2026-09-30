@@ -140,3 +140,14 @@ test('changed account/dataset never applies an old recovery draft to new work, w
 test('Start check is an explicit local dialog action with no network/light request',async()=>{
  const c=client();let click;c.context.capture=(name,fn)=>{if(name==='click')click=fn;};c.context.fetch=()=>{throw new Error('No request expected');};c.run("root.addEventListener=capture;snapshot.tasks=[{id:66,assignee_id:1,attention:1,lines:[]}];let opened=null;openTaskDialog=(t,mode)=>{opened={id:t.id,mode};};");c.run(source.slice(source.indexOf("root.addEventListener('click'"),source.indexOf('let stopCamera=null;')));await click({target:{closest:s=>s==='[data-task-details],[data-task-stop],[data-task-check],[data-record-moved]'?{dataset:{taskCheck:'66'}}:null}});assert.equal(c.run('opened.mode'),'check');assert.equal(c.run('activeWork'),null);
 });
+
+test('check reassignment/stop submission keeps a typed observation and never queues a management command',async()=>{
+ for(const action of ['assignReview','stop']){
+  const c=client();let handler,writes=0;
+  c.context.capture=(name,fn)=>{if(name==='submit')handler=fn;};c.context.write=()=>{writes++;};
+  c.run("root.addEventListener=capture;saveDraft=async()=>{};store=async()=>{write();return [];};patchTaskDialog=()=>{};");
+  const start=source.indexOf('let submitting=false;'),end=source.indexOf("root.addEventListener('click'",start);c.run(source.slice(start,end));
+  const observation={elements:{quantity:{value:'2'},note:{value:'Checked with Sam'}}},dialog={dataset:{mode:'check'},querySelectorAll:()=>[observation]},button={disabled:false},feedback={classList:{add(){}},textContent:''},form={dataset:{workAction:action},closest:()=>dialog,querySelector:s=>s==='.form-feedback'?feedback:button};
+  await handler({target:{closest:()=>form},preventDefault(){}});assert.equal(writes,0);assert.match(feedback.textContent,/Save your observation first/);assert.equal(observation.elements.note.value,'Checked with Sam');assert.equal(observation.elements.quantity.value,'2');
+ }
+});
