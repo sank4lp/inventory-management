@@ -320,3 +320,25 @@
  #work-app .review-choices{gap:8px}
  #work-app .review-choices button{padding:10px 8px}
 }
+
+/* Read-only task and bin timelines share the compact work table treatment. */
+#work-app .task-edit-dialog.history-dialog,.location-history-dialog{width:min(1200px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);padding:20px;box-sizing:border-box;overflow:auto;border:1px solid var(--work-border);border-radius:14px;color:var(--work-ink);background:#fff}
+.location-history-dialog::backdrop{background:rgb(0 0 0 / .45)}
+.history-dialog .task-timeline-wrap,.cell-timeline-wrap{max-height:55dvh;overflow:auto;margin-top:16px;border:1px solid var(--work-border);border-radius:8px}
+#work-app .history-dialog .task-timeline,.cell-timeline{width:100%;min-width:830px;table-layout:auto;border-collapse:collapse;font-size:13px}
+#work-app .history-dialog .task-timeline :is(th,td),.cell-timeline :is(th,td){padding:9px 12px;vertical-align:top;text-align:left;border-bottom:1px solid var(--work-border);overflow-wrap:normal;white-space:normal}
+#work-app .history-dialog .task-timeline th,.cell-timeline th{position:sticky;top:0;background:#f1f6f3;z-index:1;font-weight:700;white-space:nowrap}
+.task-timeline td:first-child,.cell-timeline td:first-child{min-width:145px}
+.task-timeline td:last-child{min-width:200px;max-width:400px}
+.task-timeline small{display:block;color:#526960;margin-top:3px}
+.history-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;font-size:13px}
+#work-app .history-pagination button,.location-history-dialog button{min-height:40px;padding:8px 14px;border:1px solid #bbcfc6;border-radius:8px;background:white;color:#245b4c;font:inherit;cursor:pointer}
+.history-pagination button:disabled{opacity:.5;cursor:default}
+.location-card-heading{display:flex;gap:12px;align-items:center;justify-content:space-between}.location-card-heading h2{margin:0;min-width:0}.location-card-heading{margin-bottom:12px}
+.location-card-heading .location-history-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 40px;width:40px;height:40px;min-height:40px;padding:8px;border:1px solid #bbcfc6;border-radius:8px;background:white;color:#245b4c;cursor:pointer}
+@media(max-width:600px){#work-app .task-edit-dialog.history-dialog,.location-history-dialog{width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);padding:12px}.history-pagination{gap:6px}.history-pagination span{text-align:center}.history-dialog .review-task-header{flex-wrap:wrap}}
+.cell-timeline td:last-child{min-width:240px;max-width:360px}
+.cell-timeline td:nth-child(3){min-width:130px}
+.cell-timeline td:nth-child(7),.cell-timeline td:nth-child(8){min-width:120px}
+.task-timeline td:nth-child(3){min-width:130px}
+.task-timeline td:nth-child(4){min-width:110px}

@@ -1,0 +1,63 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {createDatabase} from '../src/db.js';
+import {hashPassword} from '../src/services/auth.js';
+import {createOperationsService} from '../src/modules/operations/service.js';
+import {createAccessService} from '../src/modules/access/service.js';
+function fixture(){
+ process.chdir(mkdtempSync(join(tmpdir(),'lightguide-history-')));
+ const db=createDatabase({hashPassword,allowDemoInventorySeed:true}),work=createOperationsService({db});
+ const admin=db.prepare("SELECT * FROM users WHERE role='admin'").get(),op=db.prepare("SELECT * FROM users WHERE role='operator'").get();
+ db.prepare("INSERT INTO users(name,username,password_hash,role,status,created_at) VALUES('Next operator','next',?,'operator','active',?)").run(hashPassword('test'),new Date().toISOString());
+ const other=db.prepare("SELECT * FROM users WHERE username='next'").get(),product=db.prepare('SELECT * FROM products LIMIT 1').get(),cells=db.prepare('SELECT * FROM cells WHERE active=1 ORDER BY id LIMIT 3').all();
+ db.exec('DELETE FROM inventory_balances');db.prepare('UPDATE products SET items_per_cell=3 WHERE id=?').run(product.id);
+ for(const c of cells)db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,3,0)').run(product.id,c.id);
+ const cmd=(actor,action,input={})=>work.command(actor,action,{requestId:randomUUID(),...input});
+ const create=(quantity=5,extra={})=>cmd(admin,'create',{direction:'pick',productId:product.id,quantity,assigneeId:op.id,...extra}).taskId;
+ function finish(actor,line){cmd(actor,'acquire',{lineId:line.id,revision:line.revision,deviceId:'history-test',method:'arrival'});const l=work.line(line.id);cmd(actor,'verify',{lineId:l.id,revision:l.revision,deviceId:'history-test',location:`lytguide:${work.identity().site}:${l.label_id}:${l.label_revision}`});return cmd(actor,'report',{lineId:l.id,revision:l.revision,cellId:l.cell_id,unit:l.unit_of_measure,quantity:l.planned_quantity,deviceId:'history-test'});}
+ return {db,work,admin,op,other,product,cells,cmd,create,finish};
+}
+test('task timeline joins creation, assignments, start/resume and every cell movement without write effects or duplicate retries',()=>{
+ const f=fixture(),id=f.create();let t=f.work.task(f.op,id);
+ f.cmd(f.op,'start',{taskId:id,generation:t.assignment_generation});t=f.work.task(f.op,id);
+ const resume={requestId:randomUUID(),taskId:id,generation:t.assignment_generation,progressToken:t.progress_token,instructions:t.lines.map(l=>({lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision}))};
+ f.work.command(f.op,'resume',resume);f.work.command(f.op,'resume',resume);
+ for(const l of t.lines)f.finish(f.op,l);
+ const capture=()=>JSON.stringify(f.db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map(({name})=>[name,f.db.prepare('SELECT * FROM \"'+name+'\"').all()]));const before=capture(),data=f.work.taskHistory(f.op,{taskId:id}),steps=data.entries.map(e=>e.step);
+ assert.deepEqual(capture(),before,'history is strictly read-only');
+ for(const step of ['Task created','Assigned','Work started','Work resumed','Arrived at location','QR checked','Pick recorded','Location completed','Task completed'])assert.ok(steps.includes(step),step);
+ assert.equal(steps.filter(s=>s==='Work resumed').length,1);
+ const moves=data.entries.filter(e=>e.step==='Pick recorded');assert.equal(moves.length,2);assert.deepEqual(moves.map(e=>e.quantity),[-3,-2]);assert.equal(new Set(moves.map(e=>e.location)).size,2);assert.ok(moves.every(e=>e.actor===f.op.name&&e.unit===f.product.unit_of_measure));
+ assert.equal(data.entries[0].step,'Task created');assert.equal(data.entries.at(-1).step,'Task completed');assert.ok(data.entries.every((e,i,a)=>!i||Date.parse(e.time)>=Date.parse(a[i-1].time)));
+ assert.throws(()=>f.work.taskHistory(f.other,{taskId:id}),/another operator/);assert.throws(()=>f.work.taskHistory(f.admin,{taskId:99999}),/not found/);
+ assert.equal(f.work.snapshot(f.op,{view:'history'}).taskPage.limit,50);assert.equal(f.work.snapshot(f.op,{view:'history',workState:'completed'}).tasks[0].id,id);f.db.close();
+});
+test('return, reassign, start, review and resolution remain visible to former assignees',()=>{
+ const f=fixture(),id=f.create(2);let t=f.work.task(f.op,id);
+ f.cmd(f.op,'decline',{taskId:id,generation:t.assignment_generation,reason:'Busy with another task'});t=f.work.task(f.admin,id);
+ f.cmd(f.admin,'reassign',{taskId:id,generation:t.assignment_generation,assigneeId:f.other.id});t=f.work.task(f.other,id);
+ f.cmd(f.other,'start',{taskId:id,generation:t.assignment_generation});const l=f.work.task(f.other,id).lines[0];f.cmd(f.other,'askReview',{lineId:l.id,reason:'Phone died after picking'});
+ const report=f.work.snapshot(f.admin).pending.find(r=>r.line_id===l.id);f.cmd(f.admin,'resolve',{reportId:report.id,quantity:2,verification:'Spoke with operator'});
+ const data=f.work.taskHistory(f.op,{taskId:id});for(const s of ['Work returned','Reassigned','Work started','Quantity check requested','Sent for review','Review resolved','Pick recorded'])assert.ok(data.entries.some(e=>e.step===s),s);
+ assert.equal(data.entries.find(e=>e.step==='Reassigned').assignee,f.other.name);assert.match(data.entries.find(e=>e.step==='Work returned').details,/Busy with another task/);
+ assert.equal(f.work.snapshot(f.op,{view:'history'}).tasks[0].id,id);assert.throws(()=>f.work.snapshot(f.op,{view:'history',scope:'team'}),/not permitted/);f.db.close();
+});
+test('bin history keeps recorded units and unknown performer, supports paging, and respects current role scope',()=>{
+ const f=fixture(),insert=f.db.prepare('INSERT INTO transactions(type,product_id,cell_id,quantity_delta,user_id,performed_by,unit_of_measure,reason,created_at) VALUES(?,?,?,?,?,?,?,?,?)');
+ for(let i=0;i<53;i++)insert.run(i%2?'put':'pick',f.product.id,f.cells[0].id,i%2?1:-1,f.admin.id,i===0?f.op.id:null,'original cases','History test','2026-10-01T10:00:00.000Z');
+ f.db.prepare("UPDATE products SET unit_of_measure='new unit' WHERE id=?").run(f.product.id);
+ const a=f.work.cellHistory(f.admin,{cellId:f.cells[0].id}),b=f.work.cellHistory(f.admin,{cellId:f.cells[0].id,page:2});assert.equal(a.entries.length,50);assert.equal(b.entries.length,3);assert.equal(new Set([...a.entries,...b.entries].map(e=>e.id)).size,53);assert.ok(a.entries.every(e=>e.unit==='original cases'&&e.performer===null));
+ const own=f.work.cellHistory(f.op,{cellId:f.cells[0].id});assert.equal(own.scope,'own');assert.equal(own.page.total,1);assert.equal(f.work.cellHistory(f.other,{cellId:f.cells[0].id}).page.total,0);
+ const access=createAccessService({db:f.db}),role=access.saveRole(f.admin,{name:'No locations',capabilities:['work.view']});access.assign(f.admin,{userId:f.op.id,roleId:role});assert.throws(()=>f.work.cellHistory(f.op,{cellId:f.cells[0].id}),/not permitted|session/);f.db.close();
+});
+test('timeline paginates every event, retains old review uncertainty, and escapes no information through task selection filters',()=>{
+ const f=fixture(),id=f.create(1),t=f.work.task(f.op,id),l=t.lines[0],insert=f.db.prepare('INSERT INTO work_events(line_id,actor_id,event_type,payload,created_at) VALUES(?,?,?,?,?)');
+ for(let i=0;i<105;i++)insert.run(l.id,f.op.id,'review_observation',JSON.stringify({quantity:1,note:'Observation '+i}),'2099-01-01T10:00:00.000Z');
+ const a=f.work.taskHistory(f.op,{taskId:id}),b=f.work.taskHistory(f.op,{taskId:id,page:2});assert.equal(a.entries.length,100);assert.equal(new Set([...a.entries,...b.entries].map(e=>e.id)).size,a.page.total);assert.equal(b.entries.at(-1).details,'Observation 104');
+ assert.equal(f.work.snapshot(f.admin,{view:'history',scope:'team',taskSearch:String(id),sort:'product',order:'asc',pageSize:20}).taskPage.limit,20);assert.equal(f.work.snapshot(f.other,{view:'history',taskSearch:String(id)}).taskPage.total,0);
+ f.db.close();
+});

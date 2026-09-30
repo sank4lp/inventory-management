@@ -1,3 +1,4 @@
+import {createWorkHistory} from './history.js';
 import {createTaskClosure} from './task-closure.js';
 import {guidanceBinding,displayOwner,waitingMessage} from './guidance.js';
 import {taskSelection,reviewSelection,workloads,returnedSelection} from './queries.js';
@@ -84,6 +85,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const returned = t.assignment_state==='returned' && !t.stop_requested;
     const outcome = review?'needs_review':returned?'needs_assignment':open||t.review_followup&&!t.stop_requested&&(t.review_remaining_quantity>0||actual<t.requested_quantity)?'open':actual >= t.requested_quantity && actual>0?'completed':actual>0?'stopped':'cancelled';
     const closed = ['completed','stopped','cancelled'].includes(outcome);
+    if(closed&&!t.completed_at)event('task_completed',null,null,{taskId,outcome,quantity:actual});
     db.prepare('UPDATE tasks SET status=?,outcome=?,attention=?,completed_at=?,last_touched_at=? WHERE id=?')
       .run(closed?(outcome==='completed'?'completed':'cancelled'):'pending_review',outcome,review?1:0,closed?(t.completed_at||now()):null,now(),taskId);
   }
@@ -199,6 +201,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return db.prepare("SELECT * FROM work_reports WHERE id=?").get(reportId);
   }
   function review(report, reason) {
+    event('review_requested',{id:report.reporter_id},report.line_id,{reason},report.id);
     db.prepare("UPDATE work_reports SET status='review',reason=? WHERE id=?").run(reason, report.id);
     if (report.line_id && !JSON.parse(report.payload).unknown) {
       db.prepare("UPDATE work_reports SET status='superseded',verification='Operator entry received; physical verification remains pending' WHERE line_id=? AND origin_ref LIKE 'attention:%' AND status='review'").run(report.line_id);
@@ -274,8 +277,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       }
     }
     syncReservations();
-    taskProgress(allocation.task_id);
     event("allocation_settled", actor, allocation.id, { planned: allocation.planned_quantity, actual: qty, supervisor, verification }, report.id);
+    taskProgress(allocation.task_id);
     return { status: "recorded", reportId: report.id, taskId: allocation.task_id, quantity: qty, message: `${qty} ${report.unit} recorded at ${allocation.logical_code}.` };
   }
   function plan(product,input,remaining) {
@@ -572,6 +575,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     for (const allocation of task.lines) captureInstruction(allocation.id);
     syncReservations();
     event("task_reserved", actor, null, { taskId: task.id, lines: task.lines.map(l => l.id) });
+    if(!input.assigneeId)assignmentEvent(actor,task.id,'started',assignee.id);
     return { status: "reserved", taskId: task.id, generation:1, message: assignmentForm?`Task assigned to ${assignee.name}.`:"Quantities reserved. Follow the location guidance, then tap I’m at this location on arrival." };
   }
   function resumeTask(actor,input) {
@@ -583,6 +587,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const supplied=typeof input.instructions==='string'?JSON.parse(input.instructions):input.instructions;
     if(!Array.isArray(supplied)||supplied.length!==eligible.length||new Set(supplied.map(x=>Number(x.lineId))).size!==eligible.length||eligible.some(l=>!supplied.some(x=>Number(x.lineId)===l.id&&Number(x.revision)===l.revision&&Number(x.bindingRevision)===l.binding_revision)))throw new Error('Location instructions changed. Refresh before resuming.');
     const claims=eligible.flatMap(l=>guide(actor,{...input,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision}).guidanceClaims);
+    assignmentEvent(actor,t.id,'resumed',t.assignee_id);
     return {status:'recorded',taskId:t.id,generation:t.assignment_generation,guidanceClaims:claims,guidanceCells:claims.map(c=>c.cellId),message:'Task resumed. Follow the location guidance; arrival is a separate action.'};
   }
   function guide(actor,input) {
@@ -645,6 +650,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const l=line(input.lineId);executeOwner(actor,l,input);
     if(l.execution_state!=='working'||l.revision!==Number(input.revision)||l.device_id!==input.deviceId||hasEvidence(l.id))throw new Error('This location changed or needs review. Refresh before finishing.');
     if(!validLocationLabel(db,identity().site,l,input.location))throw new Error('Wrong, unknown or revoked QR. Scan this cell’s label, complete manually, or report another location.');
+    event('location_verified',actor,l.id,{cellId:l.cell_id});
     return {status:'verified',revision:l.revision,message:'Location checked. Press Finish only after moving the items.'};
   }
   function resolve(actor, input) {
@@ -1076,5 +1082,6 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       AND (?='' OR instr(lower(r.origin_ref||' '||r.id||' '||r.created_at||' '||COALESCE(u.name,'')||' '||r.quantity),lower(?))>0)
       ORDER BY r.created_at DESC,r.id LIMIT 100`).all(report.product_id,report.cell_id,report.direction,query,query);
   }
-  return { command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock };
+  const history=createWorkHistory({db,actorNow,task,identity});
+  return { ...history, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock };
 }

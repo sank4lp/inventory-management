@@ -36,9 +36,12 @@ test('direct HTTP requests and role UI share permissions, including cross-user t
  assert.equal((await call('POST','/api/location-setup/field',op,{requestId:randomUUID()})).statusCode,403);
  db.prepare("INSERT OR IGNORE INTO products(id,sku,name,unit_of_measure,items_per_cell) VALUES(1,'HTTP-TEST','HTTP fixture','pcs',100)").run();db.prepare("INSERT OR IGNORE INTO cells(id,logical_code,row_number,column_number) VALUES(1,'HTTP-01',1,1)").run();db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity) VALUES(1,1,10) ON CONFLICT(product_id,cell_id) DO UPDATE SET available_quantity=10').run();
  const task=state.operationsService.command(admin,'create',{requestId:randomUUID(),direction:'pick',productId:1,quantity:1});const denied=await call('GET','/api/work/snapshot?taskId='+task.taskId,op);assert.equal(denied.statusCode,400);assert.match(denied.body,/another operator/);
+ const taskHistory=await call('GET','/api/work/taskHistory?taskId='+task.taskId,admin);assert.equal(taskHistory.statusCode,200);assert.ok(JSON.parse(taskHistory.body).entries.some(e=>e.step==='Task created'));assert.equal((await call('GET','/api/work/taskHistory?taskId='+task.taskId,op)).statusCode,400);
+ const binHistory=await call('GET','/api/work/cellHistory?cellId=1',admin);assert.equal(binHistory.statusCode,200);assert.equal(JSON.parse(binHistory.body).scope,'team');
  const original=(await call('GET','/api/work/snapshot',op));assert.equal(JSON.parse(original.body).tasks.length,0);
  assert.equal((await call('POST','/api/work/nonexistent',admin,{requestId:randomUUID()})).statusCode,400);assert.equal((await call('GET','/api/unknown',admin)).statusCode,404);
  const workOnly=access.saveRole(admin,{name:'Work view only',capabilities:['work.view']});access.assign(admin,{userId:op.id,roleId:workOnly});
+ assert.equal((await call('GET','/api/work/cellHistory?cellId=1',op)).statusCode,403);
  const restricted=JSON.parse((await call('GET','/api/work/snapshot',op)).body);assert.equal(restricted.capabilities.view,true);assert.equal(restricted.capabilities.countView,false);assert.equal(restricted.capabilities.locationsView,false);
  for(const path of ['/stocktaking','/stocktaking/results','/quantities','/cells','/labels','/pending-confirmations','/work/overview']){const denied=await call('GET',path,op);assert.equal(denied.statusCode,302,path);assert.match(denied.headers.Location,/role.*permitting/);}
  for(const path of ['/','/recommended-actions','/work','/work/history'])assert.equal((await call('GET',path,op)).statusCode,200,path);

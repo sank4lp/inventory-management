@@ -19,7 +19,7 @@ export const ROUTE_POLICY = [
   ['GET',/^\/reports$/,'reports.view'],['POST',/^\/reports\/format(\/reset)?$/,'reports.format'],
   ['GET',/^\/$/,'work.view'],['GET',/^\/work(\/history)?$/,'work.view'],['GET',/^\/work\/overview$/,'work.assign'],['GET',/^\/work\/timing$/,'work.timing'],['GET',/^\/pending-confirmations$/,'review.view'],
   ['GET',/^\/record-movement$/,'work.report'],['GET',/^\/movement-history$/,'work.view'],['GET',/^\/tasks\/\d+$/,'work.view'],['POST',/^\/tasks\/\d+\/(confirm|put-plan|simulate-button)$/,'work.execute'],['POST',/^\/tasks\/\d+\/correct$/,'work.correct'],['POST',/^\/tasks\/\d+\/cancel$/,'work.stop'],
-  ['GET',/^\/api\/work\/snapshot$/,'account'],['GET',/^\/api\/work\/productStock$/,'work.view'],['GET',/^\/api\/work\/(movements|countCandidates)$/,'review.view'],['POST',/^\/api\/work\/[A-Za-z]+$/,'account'],
+  ['GET',/^\/api\/work\/snapshot$/,'account'],['GET',/^\/api\/work\/(productStock|taskHistory)$/,'work.view'],['GET',/^\/api\/work\/cellHistory$/,'locations.view'],['GET',/^\/api\/work\/(movements|countCandidates)$/,'review.view'],['POST',/^\/api\/work\/[A-Za-z]+$/,'account'],
   ['GET',/^\/pick$/,'work.pick'],['POST',/^\/pick$/,'work.pick'],['GET',/^\/put$/,'work.put'],['POST',/^\/put$/,'work.put'],
   ['GET',/^\/(products(\/\d+)?|fragments\/catalog-products)$/,'products.view'],['POST',/^\/products$/,'products.add'],['POST',/^\/products\/\d+\/items-per-cell$/,'products.capacity'],['POST',/^\/products\/\d+\/details$/,'products.edit'],['POST',/^\/products\/\d+\/delete$/,'products.remove'],
   ['POST',/^\/products\/(quantities(\/clear)?|\d+\/find(\/clear)?)$/,'locations.quantity'],
