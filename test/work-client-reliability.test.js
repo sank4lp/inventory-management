@@ -117,3 +117,26 @@ test('passive polls and reconnects never send a light or activation request',asy
 test('clear local data refuses to erase an unconfirmed activation receipt',async()=>{
  for(const state of ['activation-pending','activation-unknown']){const c=activationClient();let handler;c.context.capture=(name,fn)=>{if(name==='click')handler=fn;};c.run(`root.addEventListener=capture;outbox=[{id:'uncertain',partition:key(),state:'${state}',input:{}}]`);const a=source.indexOf("root.addEventListener('click'"),b=source.indexOf('let stopCamera=null;',a);c.run(source.slice(a,b));await handler({target:{closest:s=>s==='[data-forget]'?{}:null}});assert.match(c.run('notice'),/Unreceived updates remain/);assert.equal(c.run('outbox.length'),1);}
 });
+
+test('recovery dialog stays writable offline and after instruction changes, but keeps its original identity and restores focus',()=>{
+ const c=client(),save={disabled:false},warning={},f={dataset:{workAction:'report'},elements:{}},opener={focused:false,focus(){this.focused=true;}};
+ const d={dataset:{},open:false,querySelector:s=>s==='form'?f:warning,querySelectorAll:s=>s==='form'?[f]:[save],showModal(){this.open=true;},setAttribute(){}};c.context.document.activeElement=opener;c.context.document.querySelector('#work-app').querySelector=()=>d;c.context.task={id:66,assignee_id:1,assignment_generation:1,progress_token:'before',lines:[{id:7,task_id:66,revision:2,current_generation:1,canAct:true,unit_of_measure:'cases',logical_code:'A1',product_name:'Cases'}]};c.run('snapshot.tasks=[task];online=false;openTaskDialog(task,"recovery",7)');assert.equal(save.disabled,false);assert.equal(f._workIdentity.actorId,1);assert.match(d.innerHTML,/Actual quantity \(cases\)/);c.run('task.assignment_generation=2;task.progress_token="after";patchTaskDialog()');assert.equal(save.disabled,false);assert.equal(warning.hidden,false);assert.match(warning.textContent,/original draft/);c.run('snapshot.user.id=2;patchTaskDialog()');assert.equal(save.disabled,true);assert.equal(f._workIdentity.actorId,1);d.onclose();assert.equal(opener.focused,true);
+});
+function recoverySubmitClient(){
+ const c=client(),records=new Map();let handler;const values={lineId:'7',revision:'2',assignmentGeneration:'1',cellId:'4',productId:'1',unit:'cases',direction:'pick',manual:'true',quantity:'2',reason:'Moved before reassignment'};
+ const elements=Object.entries(values).map(([name,value])=>({name,value,type:['quantity','reason'].includes(name)?'text':'hidden'}));for(const e of elements)elements[e.name]=e;
+ const button={disabled:false},feedback={textContent:'',classList:{add(){}}},f={dataset:{workAction:'report',draftKind:'difference'},_workIdentity:{site:'test',dataset:'data',actorId:1},_draftPath:'/tasks/66',elements,isConnected:true,querySelector:s=>s==='.form-feedback'?feedback:button};
+ c.context.f=f;c.context.records=records;c.context.capture=(name,fn)=>{if(name==='submit')handler=fn;};c.context.FormData=class{constructor(){return Object.entries(values);}};
+ c.run(`root.addEventListener=capture;online=false;snapshot.tasks=[{id:66,assignment_generation:2,lines:[{id:7,revision:3}]}];store=async(name,mode,fn)=>fn({getAll:()=>[...records.values()].filter(r=>r.partition),put:o=>records.set(o.id,o),delete:id=>records.delete(id)});render=()=>{};sync=async()=>{};`);
+ c.run(source.slice(source.indexOf('let submitting=false;'),source.indexOf("root.addEventListener('click'")));
+ return {...c,records,f,submit:()=>handler({target:{closest:()=>f},preventDefault(){}})};
+}
+test('late original-instruction recovery queues durably offline without rewriting revision, assignment or actor',async()=>{
+ const c=recoverySubmitClient();await c.submit();const entry=[...c.records.values()].find(x=>x.action==='report');assert.ok(entry);assert.equal(entry.input.revision,'2');assert.equal(entry.input.assignmentGeneration,'1');assert.equal(entry.input.actorId,1);assert.equal(entry.input.site,'test');assert.equal(entry.input.dataset,'data');assert.equal(entry.input.quantity,'2');assert.equal(entry.input.manual,true);assert.equal(entry.state,'local');
+});
+test('changed account/dataset never applies an old recovery draft to new work, while preserving its original draft',async()=>{
+ const c=recoverySubmitClient();const originalKey=c.run('draftKey(f)');c.run("snapshot.user.id=2;snapshot.dataset='new-data'");await c.submit();assert.equal([...c.records.values()].some(x=>x.action==='report'),false);assert.equal(c.run('drafts.get(draftKey(f)).quantity.value'),'2');assert.equal(c.run('draftKey(f)'),originalKey);assert.match(c.run('notice'),/original account/);
+});
+test('Start check is an explicit local dialog action with no network/light request',async()=>{
+ const c=client();let click;c.context.capture=(name,fn)=>{if(name==='click')click=fn;};c.context.fetch=()=>{throw new Error('No request expected');};c.run("root.addEventListener=capture;snapshot.tasks=[{id:66,assignee_id:1,attention:1,lines:[]}];let opened=null;openTaskDialog=(t,mode)=>{opened={id:t.id,mode};};");c.run(source.slice(source.indexOf("root.addEventListener('click'"),source.indexOf('let stopCamera=null;')));await click({target:{closest:s=>s==='[data-task-details],[data-task-stop],[data-task-check],[data-record-moved]'?{dataset:{taskCheck:'66'}}:null}});assert.equal(c.run('opened.mode'),'check');assert.equal(c.run('activeWork'),null);
+});

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync} from 'node:fs';
+import {mkdtempSync,readFileSync} from 'node:fs';
+import vm from 'node:vm';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -58,4 +59,24 @@ test('review-only recipient cannot post a correction to another performer’s co
 test('acknowledgement keeps returns visible; explicit safe closure removes them while uncertainty stays visible',()=>{
  const f=fixture();let t=f.create();f.cmd(f.op,'handBack',f.fields(t));t=f.get(t.id);f.cmd(f.admin,'acknowledgeReturn',f.fields(t));assert.ok(f.work.snapshot(f.admin).returnedTasks.some(x=>x.id===t.id));f.cmd(f.admin,'stop',f.fields(t));assert.equal(f.work.snapshot(f.admin).returnedTasks.some(x=>x.id===t.id),false);assert.ok(f.work.snapshot(f.admin,{view:'history',scope:'team'}).tasks.some(x=>x.id===t.id));
  t=f.create();f.cmd(f.op,'askReview',{lineId:t.lines[0].id,reason:'Unknown moved quantity'});f.cmd(f.op,'handBack',f.fields(f.get(t.id)));f.cmd(f.admin,'stop',f.fields(f.get(t.id)));assert.ok(f.work.snapshot(f.admin).returnedTasks.some(x=>x.id===t.id));f.db.close();
+});
+
+test('original assignee can save a receipt-backed check observation without physical effects or lighting',()=>{
+ const f=fixture();try{let t=f.create();f.cmd(f.op,'askReview',{lineId:t.lines[0].id,reason:'Uncertain actual'});t=f.get(t.id);assert.equal(t.review_followup,0);const before=f.physical();let lights=0;const checked=createOperationsService({db:f.db,hardwareService:{activateGuidance(){lights++;return {ok:true};}}});const input={...f.fields(t),lineId:t.lines[0].id,quantity:'',note:'Spoke with original worker; actual still unknown',requestId:randomUUID()};
+ assert.throws(()=>checked.command(f.other,'observeReview',input));assert.throws(()=>checked.command(f.op,'observeReview',{...input,progressToken:'stale'}));checked.command(f.op,'observeReview',input);assert.equal(checked.command(f.op,'observeReview',input).replayed,true);assert.equal(lights,0);assert.deepEqual(f.physical(),before);assert.equal(f.get(t.id).review_observations.length,1);assert.equal(JSON.parse(f.get(t.id).review_observations[0].payload).quantity,null);const report=f.get(t.id).lines[0].reports[0];assert.equal(report.reporter_name,f.op.name);assert.equal(report.performer_name,null);
+ }finally{f.db.close();}
+});
+test('inline assignee save rejects no change/stale/ineligible requests and uses safe returned/check paths with retained performer',()=>{
+ const f=fixture();try{let t=f.create(),before=f.physical();const input={...f.fields(t),assignmentEditor:'task',assigneeId:f.op.id};assert.throws(()=>f.cmd(f.admin,'reassign',input),/another person/);assert.deepEqual(f.physical(),before);assert.equal(f.get(t.id).assignment_generation,t.assignment_generation);assert.throws(()=>f.cmd(f.admin,'reassign',{...input,assigneeId:f.other.id,progressToken:'stale'}),/changed/);f.db.prepare("UPDATE users SET status='inactive' WHERE id=?").run(f.other.id);assert.throws(()=>f.cmd(f.admin,'reassign',{...input,assigneeId:f.other.id}));f.db.prepare("UPDATE users SET status='active' WHERE id=?").run(f.other.id);
+ t=f.finish(t,2);f.cmd(f.op,'handBack',{...f.fields(t),reason:'Shift ended'});t=f.get(t.id);const saved={...f.fields(t),assignmentEditor:'task',assigneeId:f.other.id,remainingQuantity:t.remaining_quantity,requestId:randomUUID()};f.work.command(f.admin,'updateReturned',saved);assert.equal(f.work.command(f.admin,'updateReturned',saved).replayed,true);t=f.get(t.id);assert.equal(t.assignee_id,f.other.id);assert.equal(t.lines.find(l=>l.execution_state==='settled').attribution.performer,f.op.name);
+ let check=f.create('pick',true,2);f.cmd(f.op,'askReview',{lineId:check.lines[0].id,reason:'Check moved quantity'});check=f.get(check.id);const physical=f.physical();f.cmd(f.admin,'assignReview',{...f.fields(check),assignmentEditor:'task',assigneeId:f.other.id});check=f.get(check.id);assert.equal(check.review_followup,1);assert.deepEqual(f.physical(),physical);assert.throws(()=>f.cmd(f.admin,'assignReview',{...f.fields(check),assignmentEditor:'task',assigneeId:f.other.id}),/another person/);assert.throws(()=>f.cmd(f.admin,'reassign',{...f.fields(check),assigneeId:f.op.id}),/Verify moved quantity/);
+ }finally{f.db.close();}
+});
+
+const taskClientSource=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').split('let syncing=false;')[0];
+test('real pending task and transferred check render the original performer, reporter, quantity and reason',()=>{
+ const f=fixture();try{let t=f.create(),l=t.lines[0];f.cmd(f.op,'report',{lineId:l.id,revision:l.revision,assignmentGeneration:t.assignment_generation,cellId:l.cell_id,unit:l.unit_of_measure,quantity:2,manual:true,reason:'Moved two before connection failed',deviceId:'old-device'});t=f.get(t.id);
+ const render=task=>{const context=vm.createContext({document:{querySelector:()=>null},crypto:{randomUUID:()=> 'test'},localStorage:{getItem:()=> 'test',setItem(){}},URLSearchParams,location:{pathname:'/tasks/'+task.id,search:''}});vm.runInContext(taskClientSource,context);context.task=task;context.user=f.admin;return vm.runInContext("snapshot={site:'test',user,operators:[],cells:[],tasks:[task]};online=true;taskPage(task.id)",context);};
+ for(let step=0;step<2;step++){const html=render(t);assert.match(html,new RegExp('Performed by '+f.op.name));assert.match(html,new RegExp('Entered by '+f.op.name));assert.match(html,/Entered 2/);assert.match(html,/Moved two before connection failed/);if(!step){f.cmd(f.admin,'assignReview',{...f.fields(t),assigneeId:f.other.id});t=f.get(t.id);}}
+ }finally{f.db.close();}
 });

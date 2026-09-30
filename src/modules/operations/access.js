@@ -5,5 +5,5 @@ export const workCapabilities = user => ({
  link:can(user,'review.link'),resolveStop:can(user,'review.stop'),reconcile:can(user,'review.reconcile'),
  timing:can(user,'work.timing'),deadline:can(user,'work.deadline'),stop:can(user,'work.stop'),teamStop:can(user,'work.teamStop'),
  correct:can(user,'work.correct'),report:can(user,'work.report'),mode:can(user,'locations.mode'),labels:can(user,'locations.labels'),
- countView:can(user,'count.view'),locationsView:can(user,'locations.view'),
+ productsView:can(user,'products.view'),countView:can(user,'count.view'),locationsView:can(user,'locations.view'),
 });

@@ -428,7 +428,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function observeReview(actor,input) {
     const t=currentTask(actor,input),l=line(input.lineId);
-    if(t.assignee_id!==actor.id||!t.review_followup||l.task_id!==t.id||!hasEvidence(l.id))throw new Error('This quantity check changed. Refresh before saving an observation.');
+    if(t.assignee_id!==actor.id||l.task_id!==t.id||!hasEvidence(l.id))throw new Error('This quantity check changed. Refresh before saving an observation.');
+    if(input.progressToken&&input.progressToken!==progressToken(t.id))throw new Error('Task evidence changed. Refresh before saving an observation.');
     const note=String(input.note||'').trim();if(!note)throw new Error('Describe what you checked and who did the original movement.');
     const quantity=input.quantity==null||String(input.quantity).trim()===''?null:workQuantity(input.quantity);
     event('review_observation',actor,l.id,{quantity,note:note.slice(0,2000),generation:t.assignment_generation});
@@ -442,6 +443,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function reassign(actor,input,resume=false) {
     const t=currentTask(actor,input,!resume),person=resume?actor:eligibleAssignee(actor,input.assigneeId);
+    if(t.review_followup&&!t.review_handover_verified)throw new Error('Verify moved quantity and confirm the original worker has stopped before reassignment.');
     const lines=db.prepare('SELECT * FROM task_lines WHERE task_id=?').all(t.id);
     if(lines.some(l=>l.execution_state==='working'||hasEvidence(l.id)))throw new Error('Resolve / hand over active or uncertain work first. Confirm with the original worker that physical work has stopped.');
     if(t.completed_at && t.outcome!=='stopped')throw new Error('Closed work cannot be reassigned.');
@@ -817,13 +819,20 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const permissions={resume:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
+      if(action==='reassign'&&input.progressToken&&input.progressToken!==progressToken(Number(input.taskId)))throw new Error('Task quantities changed. Refresh before reassignment.');
+      if(input.assignmentEditor==='task'){
+        if(!['reassign','updateReturned','assignReview'].includes(action))throw new Error('Invalid assignment action.');
+        const t=currentTask(current,input,true);
+        if(input.progressToken!==progressToken(t.id))throw new Error('Task quantities or assignment changed. Refresh before saving.');
+        if(Number(input.assigneeId)===t.assignee_id)throw new Error('Choose another person to change the assignment.');
+      }
       const value = actions[action](current, input);
       reconcileGuidance();
       db.prepare("INSERT INTO operation_receipts(actor_id,request_id,fingerprint,result_json,created_at) VALUES(?,?,?,?,?)")
         .run(current.id, id, fingerprint, JSON.stringify(value), now());
       return value;
     });
-    if(['guide','resume','start','create'].includes(action)&&result.replayed)return result;
+    if(action==='observeReview'||['guide','resume','start','create'].includes(action)&&result.replayed)return result;
     try { flushGuidance(['guide','resume'].includes(action)?{claims:result.guidanceClaims}:{}); } catch (error) { logger?.warn?.("work.guidance.deferred", { error: error.message }); }
     return result;
   }
@@ -880,7 +889,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       attribution:db.prepare(`SELECT p.name AS performer,r.name AS reporter,v.name AS reviewer FROM work_settlements s JOIN work_reports w ON w.id=s.report_id
         LEFT JOIN users p ON p.id=w.performer_id LEFT JOIN users r ON r.id=w.reporter_id LEFT JOIN users v ON v.id=w.resolver_id WHERE s.line_id=?`).get(item.id)||null,
       reserved:db.prepare("SELECT quantity FROM work_reservations WHERE line_id=? AND state='held'").get(item.id)?.quantity||0,
-      reports:db.prepare('SELECT id,status,quantity,quantity_known,reason,created_at FROM work_reports WHERE line_id=? ORDER BY created_at DESC').all(item.id)}));
+      reports:db.prepare(`SELECT r.id,r.status,r.quantity,r.quantity_known,r.unit,r.reason,json_extract(r.payload,'$.reason') AS entered_reason,r.created_at,performer.name AS performer_name,reporter.name AS reporter_name FROM work_reports r LEFT JOIN users performer ON performer.id=r.performer_id LEFT JOIN users reporter ON reporter.id=r.reporter_id WHERE r.line_id=? ORDER BY r.created_at DESC`).all(item.id)}));
     if(result.lines[0])result.summary=`${result.type==='pick'?'Pick':'Put'} ${result.requested_quantity} ${result.lines[0].unit_of_measure} of ${result.lines[0].product_name}`;
     result.recorded_quantity=rounded(result.lines.filter(l=>l.execution_state==='settled').reduce((n,l)=>n+l.actual_quantity,0));
     result.remaining_quantity=Math.max(0,rounded(result.requested_quantity-result.recorded_quantity));

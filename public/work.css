@@ -136,3 +136,13 @@
 @media(prefers-reduced-motion:reduce){.stock-spinner{animation:none;border-style:dotted}}
 #work-app .product-stock details{border:0;margin-top:4px;padding-top:0}
 #work-app .product-stock summary{font-size:12px;font-weight:500;min-height:32px;padding:3px 0;align-content:center}
+
+.task-work-screen{max-width:760px}.task-primary-action{margin:12px 0}.task-primary-action>button{width:100%}
+.task-context{margin:18px 0;padding:16px;border:1px solid var(--work-border);border-radius:12px;background:white}
+.task-context p{margin:8px 0}.task-context form{border:0!important;margin:0!important;padding:0!important}
+.task-assignee-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
+.task-assignee-editor>div{min-width:0}.task-assignee-editor p{margin:0 0 8px}
+.task-assignee-editor input,.task-assignee-editor select{width:100%;min-width:0}.task-assignee-editor>button{margin-bottom:0;min-height:44px}
+.task-bottom-actions{display:flex;flex-wrap:wrap;gap:10px;padding:20px 0}.task-bottom-actions button{flex:1;min-width:150px}
+#work-app .my-work-table{min-width:1160px}
+@media(max-width:480px){.task-context{padding:12px}.task-assignee-editor{gap:8px}.task-edit-dialog{padding:16px}}
