@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import {
   card,
   escapeHtml,
@@ -375,5 +376,5 @@ export function renderAdjustmentLine(products, index, options = {}) {
 }
 
 export function canEditTask(user, task) {
-  return Boolean(user && task && (user.role === "admin" || user.id === task.created_by));
+  return Boolean(user && task && (can(user,"work.team") || user.id === task.created_by));
 }

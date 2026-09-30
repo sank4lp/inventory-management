@@ -96,6 +96,7 @@ function completeWithActual({ db, inventory, operator, task, actual, completedAt
     note: "Custom report expansion fixture",
   });
   db.prepare("UPDATE tasks SET completed_at = ? WHERE id = ?").run(completedAt, task.id);
+  db.prepare("UPDATE transactions SET created_at = ? WHERE task_id = ?").run(completedAt, task.id);
   return task;
 }
 
@@ -240,6 +241,8 @@ test("movement trend and exception queries use completed actuals and never combi
   });
 
   const trend = buildMovementOverTimeReport(db, {
+    fromAt: "2026-07-01T00:00:00.000Z",
+    toAt: "2026-07-31T23:59:59.999Z",
     metric: "total_handled",
     groupBy: "day",
     topN: 10,
@@ -357,7 +360,7 @@ test("reports page presents a finite curated question library without custom cre
   assert.match(html, /Choose A Report/);
   assert.match(html, /Choose the warehouse question you want answered\./);
   assert.match(html, /aria-label="Curated warehouse reports"/);
-  assert.match(html, /Warehouse Questions/);
+  assert.match(html, /Stocktake differences/);
 
   const questions = [
     [
@@ -365,7 +368,7 @@ test("reports page presents a finite curated question library without custom cre
       "Product Movement & Demand",
       "Which products were picked most in the selected timeframe?",
     ],
-    ["stock-snapshot", "Stock Snapshot", "What stock can we pick right now?"],
+    ["stock-snapshot", "Stock Snapshot", "What stock is recorded on shelf?"],
     [
       "replenishment-watch",
       "Replenishment Watch",

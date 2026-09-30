@@ -1,0 +1,246 @@
+[
+  {
+    "path": "/products",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Products · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/work",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "My work · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/work/overview",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Team work · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/cells",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Locations · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/stocktaking/results",
+    "phaseLeak": false,
+    "query": "?run=1",
+    "scrollWidth": 305,
+    "title": "Stocktaking · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/location-setup",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Location setup · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/reports",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Reports · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/settings",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Settings · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/settings/people",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Settings · People & access · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/settings/system",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Settings · System · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/devices",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Configuration Console · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/backups",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Backups · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/profile",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 305,
+    "title": "Profile · LytGuide IMS",
+    "width": 320
+  },
+  {
+    "path": "/products",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 829,
+    "width": 844
+  },
+  {
+    "path": "/cells/1",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 829,
+    "width": 844
+  },
+  {
+    "path": "/stocktaking/results",
+    "phaseLeak": false,
+    "query": "?run=1",
+    "scrollWidth": 829,
+    "width": 844
+  },
+  {
+    "path": "/location-setup",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 829,
+    "width": 844
+  },
+  {
+    "path": "/work/overview",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 829,
+    "width": 844
+  },
+  {
+    "path": "/products",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 805,
+    "width": 820
+  },
+  {
+    "path": "/cells/1",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 820,
+    "width": 820
+  },
+  {
+    "path": "/stocktaking/results",
+    "phaseLeak": false,
+    "query": "?run=1",
+    "scrollWidth": 805,
+    "width": 820
+  },
+  {
+    "path": "/location-setup",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 805,
+    "width": 820
+  },
+  {
+    "path": "/work/overview",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 820,
+    "width": 820
+  },
+  {
+    "path": "/products",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 1425,
+    "width": 1440
+  },
+  {
+    "path": "/cells/1",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 1440,
+    "width": 1440
+  },
+  {
+    "path": "/stocktaking/results",
+    "phaseLeak": false,
+    "query": "?run=1",
+    "scrollWidth": 1425,
+    "width": 1440
+  },
+  {
+    "path": "/location-setup",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 1425,
+    "width": 1440
+  },
+  {
+    "path": "/work/overview",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 1425,
+    "width": 1440
+  },
+  {
+    "path": "/products",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 3840,
+    "width": 3840
+  },
+  {
+    "path": "/cells/1",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 3840,
+    "width": 3840
+  },
+  {
+    "path": "/stocktaking/results",
+    "phaseLeak": false,
+    "query": "?run=1",
+    "scrollWidth": 3840,
+    "width": 3840
+  },
+  {
+    "path": "/location-setup",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 3840,
+    "width": 3840
+  },
+  {
+    "path": "/work/overview",
+    "phaseLeak": false,
+    "query": "",
+    "scrollWidth": 3840,
+    "width": 3840
+  }
+]

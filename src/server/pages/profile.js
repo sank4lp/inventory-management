@@ -1,3 +1,5 @@
+import {effectiveUser} from "../../modules/access/service.js";
+import {can} from "../../modules/access/catalog.js";
 import {
   getUserProfile,
   listRecentTasksForProfileUser,
@@ -20,7 +22,7 @@ function lastActiveLabel(profile) {
 export function createProfilePages({ db }) {
   function taskOwnerLink(viewer, task) {
     const label = task.created_by_name || task.created_by_username || `User #${task.created_by}`;
-    if (viewer.role === "admin") {
+    if (can(viewer,"people.view")) {
       return `<a class="mini-link" href="/admin/users/${task.created_by}">${escapeHtml(label)}</a>`;
     }
     if (Number(viewer.id) === Number(task.created_by)) {
@@ -71,7 +73,7 @@ export function createProfilePages({ db }) {
             <div class="profile-hero-copy">
               <p class="profile-kicker">${escapeHtml(kicker)}</p>
               <h2>${escapeHtml(profile.name)}</h2>
-              <p class="muted">${escapeHtml(profile.username)} · ${statusBadge(profile.role)} ${statusBadge(profile.status)}</p>
+              <p class="muted">${escapeHtml(profile.username)} · ${statusBadge(effectiveUser(db,profile).role_name)} ${statusBadge(profile.status)}</p>
             </div>
           </section>
 
@@ -79,7 +81,7 @@ export function createProfilePages({ db }) {
             { label: "Tasks Created", value: formatQuantity(profile.activity.tasksCreated) },
             { label: "Tasks Completed", value: formatQuantity(profile.activity.tasksCompleted) },
             { label: "Inventory Transactions", value: formatQuantity(profile.activity.transactionsRecorded) },
-            { label: "Last Active", value: formatDate(lastActiveLabel(profile)) },
+            { label: "Last Active", value: formatDate(lastActiveLabel(profile)), text: true },
           ])}
 
           ${card(
@@ -96,7 +98,7 @@ export function createProfilePages({ db }) {
                 </div>
                 <div>
                   <strong>Role</strong>
-                  <span>${statusBadge(profile.role)}</span>
+                  <span>${statusBadge(effectiveUser(db,profile).role_name)}</span>
                 </div>
                 <div>
                   <strong>Status</strong>

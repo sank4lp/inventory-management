@@ -1,0 +1,81 @@
+{
+  "admin": {
+    "site": "90b2ba18-bc37-48de-a5db-fba42950f32d",
+    "dataset": "e6253109-5729-4b23-a53f-918bb9c4a40e",
+    "actorId": 1,
+    "productId": 1,
+    "unit": "pairs",
+    "generatedAt": "2026-09-29T10:07:07.248Z",
+    "recorded": 12,
+    "pickReserved": 5,
+    "incomingReserved": 2,
+    "availableToPick": 7,
+    "putCapacity": 16,
+    "unavailableUnreserved": 0,
+    "reservationCount": 3,
+    "reservations": [
+      {
+        "kind": "put",
+        "quantity": 2,
+        "unit": "pairs",
+        "taskId": 3,
+        "location": "Z1-R1-C01",
+        "assignmentState": "started",
+        "attention": 0,
+        "assignee": "System Admin"
+      },
+      {
+        "kind": "pick",
+        "quantity": 2,
+        "unit": "pairs",
+        "taskId": 2,
+        "location": "Z1-R1-C02",
+        "assignmentState": "started",
+        "attention": 0,
+        "assignee": "System Admin"
+      },
+      {
+        "kind": "pick",
+        "quantity": 3,
+        "unit": "pairs",
+        "taskId": 1,
+        "location": "Z1-R1-C01",
+        "assignmentState": "started",
+        "attention": 0,
+        "assignee": "Warehouse Operator"
+      }
+    ],
+    "moreReservations": false,
+    "detailScope": "team"
+  },
+  "operator": {
+    "site": "90b2ba18-bc37-48de-a5db-fba42950f32d",
+    "dataset": "e6253109-5729-4b23-a53f-918bb9c4a40e",
+    "actorId": 2,
+    "productId": 1,
+    "unit": "pairs",
+    "generatedAt": "2026-09-29T10:07:07.250Z",
+    "recorded": 12,
+    "pickReserved": 5,
+    "incomingReserved": 2,
+    "availableToPick": 7,
+    "putCapacity": 16,
+    "unavailableUnreserved": 0,
+    "reservationCount": 3,
+    "reservations": [
+      {
+        "kind": "pick",
+        "quantity": 3,
+        "unit": "pairs",
+        "taskId": 1,
+        "location": "Z1-R1-C01",
+        "assignmentState": "started",
+        "attention": 0,
+        "assignee": "Warehouse Operator"
+      }
+    ],
+    "moreReservations": false,
+    "detailScope": "own"
+  },
+  "databaseChangesDuringReads": 0
+}

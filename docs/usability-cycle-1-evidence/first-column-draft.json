@@ -1,0 +1,34 @@
+{
+  "initialFinding": {
+    "before": {
+      "focus": "note",
+      "note": "Unsaved Cycle 1 focus check",
+      "scroll": 641.5,
+      "tableScroll": 0
+    },
+    "after": {
+      "focus": "note",
+      "note": "Unsaved Cycle 1 focus check",
+      "scroll": 716,
+      "tableScroll": 0
+    }
+  },
+  "fixedCheck": {
+    "before": {
+      "at": "2026-09-28T17:31:07.600Z",
+      "focus": "note",
+      "note": "Unsaved Cycle 1 stable-scroll check",
+      "notice": "1 task rows updated. 1 active tasks · 0 cases need review. Your open forms stay in place; server checks their saved versions.",
+      "scroll": 589.5,
+      "tableScroll": 0
+    },
+    "after": {
+      "at": "2026-09-28T17:31:42.465Z",
+      "focus": "note",
+      "note": "Unsaved Cycle 1 stable-scroll check",
+      "notice": "1 task rows updated. 1 active tasks · 0 cases need review. Your open forms stay in place; server checks their saved versions.",
+      "scroll": 589.5,
+      "tableScroll": 0
+    }
+  }
+}

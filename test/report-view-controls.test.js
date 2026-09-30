@@ -269,7 +269,7 @@ test("curated report library exposes one clear question and print target per rep
   );
   const expectedReports = [
     ["product-movement", "Product Movement & Demand", "Which products were picked most in the selected timeframe?", true],
-    ["stock-snapshot", "Stock Snapshot", "What stock can we pick right now?", false],
+    ["stock-snapshot", "Stock Snapshot", "What stock is recorded on shelf?", false],
     ["replenishment-watch", "Replenishment Watch", "Which products are out of stock or down to one normal location batch?", false],
     ["slow-moving-stock", "Slow-Moving Stock", "Which stocked products were not picked in the selected timeframe?", true],
     ["movement", "Stock Change Over Time", "Did inventory increase or decrease during the selected timeframe?", true],
@@ -280,7 +280,7 @@ test("curated report library exposes one clear question and print target per rep
 
   assert.match(html, /Curated Questions/);
   assert.match(html, /Choose the warehouse question you want answered\./);
-  assert.match(html, /<span>8<\/span>/);
+  assert.match(html, /<span>9<\/span>/);
   const libraryItems = tagsWithAttribute(html, "a", "data-report-open");
   const inlineReports = tagsWithAttribute(html, "article", "data-report-inline");
   const printOptions = tagsWithAttribute(html, "button", "data-report-print-option");
@@ -580,7 +580,7 @@ test("client controller binds multi-select stock controls, curated hashes, and r
   assert.match(appSource, /window\.addEventListener\("afterprint"/);
 });
 
-test("report tables fit without internal scrolling and share compact stock typography", () => {
+test("paper-preview and print report styles retain compact stock typography", () => {
   const styles = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
 
   assert.match(
@@ -615,4 +615,22 @@ test("report tables fit without internal scrolling and share compact stock typog
     styles,
     /body\.report-printing \.report-inline-stack > \[data-report-inline\]:not\(\[hidden\]\)\s*\{[^}]*display:\s*block\s*!important;/,
   );
+});
+
+test('Stock Snapshot prints recorded stock including reservations and only links to permitted availability views',async()=>{
+ const context=await createTestContext(),{db,admin,inventory}=context;
+ const cell=inventory.listCells(db)[0],boots=createProduct(inventory,db,{sku:'RESERVED-BOOT',name:'Reserved Boots',unit:'pairs'});
+ stockProducts(inventory,db,admin,cell.id,[{product:boots,quantity:7}]);
+ db.prepare('UPDATE inventory_balances SET reserved_quantity=5 WHERE product_id=?').run(boots.id);
+ const {createReportsPages}=await freshImport('../src/server/pages/reports.js'),pages=createReportsPages({db});
+ const before=db.prepare('SELECT * FROM inventory_balances').all();
+ const html=pages.renderReports(admin,null,new URL('http://localhost/reports#stock-snapshot'));
+ const stock=extractInlineReport(html,'stock-snapshot');
+ assert.match(stock,/On shelf \(recorded\)/);assert.match(stock,/including reserved goods/);assert.match(stock,/Reserved Boots/);assert.match(stock,/>7(?:\.0)?(?:\s|<)/);
+ assert.doesNotMatch(stock,/What stock can we pick right now|>Available</);assert.match(stock,/href="\/quantities"/);
+ // The printable article is the same content used on screen; no alternative misleading heading.
+ assert.doesNotMatch(stock,/data-report-screen-only/);
+ const restricted=extractInlineReport(pages.renderReports({...admin,capabilities:['reports.view']},null,new URL('http://localhost/reports')),'stock-snapshot');assert.doesNotMatch(restricted,/href="\/quantities"/);
+ assert.match(html,/manual movement entries/);assert.doesNotMatch(html,/manual reports are shown/);
+ assert.deepEqual(db.prepare('SELECT * FROM inventory_balances').all(),before);db.close();
 });

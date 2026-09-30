@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import * as reportFormatServices from "../../services/report-format.js";
 import { escapeHtml } from "./shared.js";
 
@@ -342,7 +343,7 @@ function editorContents(reportFormat, returnTo) {
               <h4>Inventory Detail</h4>
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Product</th><th>Category</th><th>Available</th></tr></thead>
+                  <thead><tr><th>Product</th><th>Category</th><th>On shelf (recorded)</th></tr></thead>
                   <tbody>
                     <tr><td>Basmati Rice</td><td>Rice</td><td>1,240 kg</td></tr>
                     <tr><td>Brown Rice</td><td>Rice</td><td>880 kg</td></tr>
@@ -368,7 +369,7 @@ export function renderReportFormatEditor(
     attributes = "",
   } = {},
 ) {
-  if (user?.role !== "admin") {
+  if (!can(user,"reports.format")) {
     return "";
   }
 

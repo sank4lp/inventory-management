@@ -1,3 +1,5 @@
+import {currentActor} from "../../modules/access/service.js";
+import {can} from "../../modules/access/catalog.js";
 import * as reportServices from "../../services/reports.js";
 import {
   getReportFormatSettings,
@@ -805,7 +807,7 @@ function stockDetailColumnLabel(column, { groupLabel, unitLabel, labels }) {
     return "Products";
   }
   if (column === "available_quantity") {
-    return "Available";
+    return "On shelf (recorded)";
   }
   return labels[column] || fallbackLabels[column] || column.replace(/^custom\./, "").replaceAll("_", " ");
 }
@@ -1091,7 +1093,7 @@ function stockCompositionBody(
       </section>
       <footer class="report-notes">
         <strong>Calculation note</strong>
-        <span>Stock composition is a current snapshot. Percentages use the complete total for each compatible unit, including the “Other” slice.</span>
+        <span>Stock composition shows recorded on-shelf stock, including reserved goods; it is not the quantity available to pick. Percentages use the complete total for each compatible unit, including the “Other” slice.</span>
       </footer>
     </section>
   `;
@@ -1304,7 +1306,7 @@ function productMovementBody(rows, report = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>${escapeHtml(report.note || `${presentation.label} is calculated from corrected completed tasks. Current stock is an as-of-now value, and incompatible units are never combined.`)}</span>
+      <span>${escapeHtml(report.note || `${presentation.label} is calculated from corrected completed tasks. Current stock is an as-of-now value, and incompatible units are never combined. Open-task partial movements and manual movement entries are shown in Stock Change Over Time and Movement history.`)}</span>
     </footer>
   `;
 }
@@ -1418,7 +1420,7 @@ function movementOverTimeBody(report = {}, { chartKey = "movement-over-time" } =
     ${charts ? `
       <section class="report-visuals" aria-label="Movement trend visuals">
         <div class="report-visual-grid">${charts}</div>
-        <p class="report-visual-note"><sup>*</sup> Trend quantities are calculated from corrected completed tasks and never combine incompatible units.</p>
+        <p class="report-visual-note"><sup>*</sup> Trend quantities use posted ledger movements, including partial allocations, manual movements and correction deltas; incompatible units are never combined.</p>
       </section>
     ` : ""}
     <section class="report-document-section">
@@ -1621,7 +1623,7 @@ function replenishmentWatchBody(report = {}, labels = {}) {
     <section class="report-document-section">
       <h4>Products To Review</h4>
       ${table(
-        [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "Available", batchLabel, "Locations"],
+        [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "On shelf (recorded)", batchLabel, "Locations"],
         rows.map((row) => [
           `${escapeHtml(row.name)}<br /><small>${escapeHtml(skuLabel)}: ${escapeHtml(row.sku)}</small>`,
           escapeHtml(row.category || "Uncategorized"),
@@ -1635,7 +1637,7 @@ function replenishmentWatchBody(report = {}, labels = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>“Low” means one normal location batch or less. This is a practical replenishment watch, not a demand forecast or supplier reorder point.</span>
+      <span>Quantities are recorded on shelf, including reserved goods. “Low” means one normal location batch or less. This is a practical replenishment watch, not a demand forecast or supplier reorder point.</span>
     </footer>
   `;
 }
@@ -1786,7 +1788,7 @@ function teamThroughputBody(report = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>Throughput uses completed task counts, not mixed-unit item totals. Multi-line tasks count once.</span>
+      <span>Throughput uses completed task counts, not mixed-unit item totals. Multi-line tasks count once. Open-task partial movements and unreserved manual movements are excluded; use Stock Change Over Time for posted inventory changes.</span>
     </footer>
   `;
 }
@@ -1895,6 +1897,7 @@ export function createReportsPages({ db }) {
     const range = resolveReportRange(url, runtime.config?.reportDefaultDays || 30);
     const generatedAt = new Date().toISOString();
     const reportFormat = getReportFormatSettings(db);
+    currentActor(db,user,"reports.view");
     const reports = buildReports(db, { fromAt: range.fromAt, toAt: range.toAt });
     const productMovementReport = reports.productMovement || {};
     const productMovement = normalizeProductMovement(productMovementReport);
@@ -1948,7 +1951,7 @@ export function createReportsPages({ db }) {
       {
         key: "stock-snapshot",
         title: "Stock Snapshot",
-        description: "What stock can we pick right now?",
+        description: "What stock is recorded on shelf?",
         metric: formatQuantity(stockCompositionReport.totalMatchingRows ?? stockCompositionRows.length),
         metricLabel: "Products With Stock",
         usesGlobalRange: false,
@@ -1956,7 +1959,7 @@ export function createReportsPages({ db }) {
         body: stockCompositionBody(
           { ...stockCompositionReport, groupBy: "product", labels: stockCompositionReport.labels || productLabels },
           { visualization: "bar", chartKey: "stock-snapshot" },
-        ),
+        ) + (can(user, "locations.view") ? '<p class="report-availability-link"><a href="/quantities">View on-shelf, reserved and available-to-pick quantities</a></p>' : ""),
       },
       {
         key: "replenishment-watch",
@@ -2019,7 +2022,7 @@ export function createReportsPages({ db }) {
             escapeHtml(row.logical_code),
             escapeHtml(formatQuantity(row.quantity_delta)),
             escapeHtml(row.unit_of_measure),
-            escapeHtml(row.reason),
+            escapeHtml(row.reason)+(row.stocktake_run_id ? `<br><a href="/stocktaking/results?run=${Number(row.stocktake_run_id)}#observation-${escapeHtml(String(row.origin_ref).slice(10))}">Count evidence</a>` : ''),
             escapeHtml(row.username),
           ]),
           "No adjustments were recorded in this timeframe.",
@@ -2042,7 +2045,7 @@ export function createReportsPages({ db }) {
             </div>
             <div class="reports-hero-actions">
               ${
-                user.role === "admin"
+                can(user,"reports.format")
                   ? `<button
                       type="button"
                       class="ghost-button"
@@ -2069,15 +2072,15 @@ export function createReportsPages({ db }) {
                   <p class="report-eyebrow">Curated Questions</p>
                   <h2 id="report-library-title">Choose A Report</h2>
                 </div>
-                <span>${escapeHtml(formatQuantity(reportSections.length))}</span>
+                <span>${escapeHtml(formatQuantity(reportSections.length+1))}</span>
               </div>
               <label class="report-library-search">
                 <span>Search reports</span>
                 <input type="search" placeholder="Name or purpose" autocomplete="off" data-report-library-search />
               </label>
               <nav class="report-library-list report-overview-grid" aria-label="Curated warehouse reports">
-                <p class="report-library-group-label">Warehouse Questions</p>
-                ${builtInReportSections.map(reportLibraryItem).join("")}
+                ${[['Stock',['stock-snapshot','replenishment-watch','slow-moving-stock']],['Operations',['product-movement','movement','team-activity']],['Checks',['issues','adjustments']]].map(([label,keys])=>`<p class="report-library-group-label">${label}</p>${builtInReportSections.filter(r=>keys.includes(r.key)).map(reportLibraryItem).join('')}`).join('')}
+                <a class="report-library-item" href="/reports/stocktake-differences">Stocktake differences · count evidence and coverage</a>
                 <p class="report-library-empty" data-report-library-empty hidden>No reports match that search.</p>
               </nav>
             </aside>

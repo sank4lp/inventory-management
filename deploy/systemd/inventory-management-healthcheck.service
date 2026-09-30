@@ -1,0 +1,6 @@
+[Unit]
+Description=Check Inventory Management Portal responsiveness
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/inventory-management-healthcheck

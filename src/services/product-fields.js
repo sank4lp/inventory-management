@@ -1,3 +1,5 @@
+import {can,assertCan} from '../modules/access/catalog.js';
+import {currentActor} from "../modules/access/service.js";
 const DATA_TYPES = new Set(["text", "number", "date", "boolean", "select"]);
 const PROTECTED_SYSTEM_ROLES = new Set([
   "identifier",
@@ -31,13 +33,7 @@ function actorId(actor) {
   return id;
 }
 
-function assertAdmin(actor) {
-  const id = actorId(actor);
-  if (actor?.role !== "admin") {
-    throw new Error("Only an admin can change product field definitions.");
-  }
-  return id;
-}
+function assertAdmin(db,actor) { try{return currentActor(db,actor,'products.fields').id;}catch(error){error.message='Only an admin or a role with product field permissions can change this setting. '+error.message;throw error;} }
 
 function cleanLabel(value) {
   const label = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -235,7 +231,7 @@ export function getProductFieldLabels(db) {
 }
 
 export function createCustomProductField(db, input) {
-  const createdBy = assertAdmin(input.actor);
+  const createdBy = assertAdmin(db,input.actor);
   const label = cleanLabel(input.label);
   const dataType = String(input.dataType || input.data_type || "text").trim();
   if (!DATA_TYPES.has(dataType)) {
@@ -292,7 +288,7 @@ export function createCustomProductField(db, input) {
 }
 
 export function updateProductField(db, input) {
-  assertAdmin(input.actor);
+  assertAdmin(db,input.actor);
   const field = findField(db, input);
   if (!field) {
     throw new Error("Product field not found.");
@@ -434,7 +430,9 @@ export function getProductAttributes(db, productId, { includeInactive = false } 
 }
 
 export function setProductAttributeValue(db, input) {
-  const updatedBy = actorId(input.actor);
+  const actor=currentActor(db,input.actor);
+  if(!can(actor,'products.add'))assertCan(actor,'products.edit');
+  const updatedBy = actorId(actor);
   const productId = Number(input.productId ?? input.product_id);
   const product = db.prepare("SELECT id FROM products WHERE id = ?").get(productId);
   if (!product) {

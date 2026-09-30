@@ -1,3 +1,6 @@
+import {can} from "../../modules/access/catalog.js";
+import { randomUUID } from "node:crypto";
+import { describeLocation } from "../../modules/operations/location-contract.js";
 import {
   listCellCatalog,
   listCells,
@@ -342,6 +345,7 @@ export function createLocationPages({ db }) {
           "Location Summary",
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
+            <p>${escapeHtml(describeLocation(db,cell.id).directions)}</p>
             <p>${
               cell.controller_code && cell.hardware_channel
                 ? `${escapeHtml(cell.controller_code)} · Channel ${escapeHtml(cell.hardware_channel)}`
@@ -366,6 +370,11 @@ export function createLocationPages({ db }) {
           "",
           `data-row-collapser data-row-limit="4" data-row-label="products"`,
         )}
+        ${can(user,'locations.manage')?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
+          <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="descriptionRevision" value="${describeLocation(db,cell.id).descriptionRevision}">
+          <label>Location name<input name="displayName" maxlength="160" value="${escapeHtml(cell.display_name||'')}"></label>
+          <label>Shed / shelf details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second shelf on the left"></label>
+          <p>The cell code, QR and stock history stay unchanged. </p><button>Save directions</button></form>`):''}
       `,
     });
   }
@@ -565,6 +574,7 @@ export function createLocationPages({ db }) {
               required
             />
           </label>
+          <label>Shed / shelf details (optional)<input name="travelInstructions" maxlength="1000" placeholder="Shed A, second shelf on the left"></label>
           <button type="submit" class="ghost-button">Add Location</button>
         </form>
         ${
@@ -590,6 +600,13 @@ export function createLocationPages({ db }) {
                           required
                         />
                         <button type="submit" class="ghost-button">Rename</button>
+                      </form>
+                      <form method="post" action="/cells/${cell.id}/directions" class="inline-form">
+                        <input type="hidden" name="requestId" value="${randomUUID()}">
+                        <input type="hidden" name="descriptionRevision" value="${cell.description_revision}">
+                        <input type="hidden" name="displayName" value="${escapeHtml(cell.display_name||'')}">
+                        <label>Shed / shelf details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}"></label>
+                        <button type="submit" class="ghost-button">Save details</button>
                       </form>
                     `,
                     cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Unmapped</span>`,
@@ -832,6 +849,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderDevices(user, flash) {
+    if(!can(user,'hardware.flash')&&!can(user,'hardware.map')&&!can(user,'locations.manage')&&!can(user,'hardware.test')&&!can(user,'hardware.controllers'))return page({title:'Hardware configuration and health',user,flash,content:`<p><a href="/settings">← Settings</a></p><p>Controller health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.</p>${table(['Controller','RS485 address','Health','Last seen','Outputs'],listControllers(db).map(c=>[escapeHtml(c.controller_code),escapeHtml(c.address),statusBadge(c.heartbeat_status),escapeHtml(formatDate(c.last_seen_at)),c.module_count]))}<h2>Location mappings</h2>${table(['Location','Controller','Output','Mapping'],listCells(db).map(c=>[escapeHtml(c.display_name||c.logical_code),escapeHtml(c.controller_code||c.controller_id||'Manual'),escapeHtml(c.hardware_channel||'—'),escapeHtml(c.mapping_status)]))}`});
     const controllers = listControllers(db);
     const cells = listCells(db);
     const mappedCells = cells.filter(cellIsMapped);
@@ -840,7 +858,7 @@ export function createLocationPages({ db }) {
       (controller) => String(controller.heartbeat_status || "").toLowerCase() === "online",
     ).length;
     const moduleTotal = controllers.reduce(
-      (sum, controller) => sum + Number(controller.module_count || controller.mapped_cells || 0),
+      (sum, controller) => sum + Number(controller.module_count || 0),
       0,
     );
 
@@ -849,7 +867,7 @@ export function createLocationPages({ db }) {
       `<code>${escapeHtml(controller.address || "")}</code>`,
       statusBadge(controller.heartbeat_status),
       escapeHtml(formatDate(controller.last_seen_at)),
-      escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
+      controller.module_count ? escapeHtml(formatQuantity(controller.module_count)) : '<span class="muted">Light count not configured</span>',
       escapeHtml(formatQuantity(controller.mapped_cells)),
       `
         <div class="mini-actions">
@@ -933,7 +951,7 @@ export function createLocationPages({ db }) {
             <div class="panel-heading">
               <div>
                 <h2 id="configuration-status-heading">System Status</h2>
-                <p class="muted">Controller health shows the latest saved check. Use refresh on a controller when you need a live RS485 check.</p>
+                <p class="muted">Controller health shows the latest saved check. Configured output counts come from controller setup; mapped locations do not establish the physical light count. Use refresh on a controller when you need a live RS485 check.</p>
               </div>
             </div>
             <div class="status-strip">
@@ -942,7 +960,7 @@ export function createLocationPages({ db }) {
                 <strong>${escapeHtml(`${onlineControllers}/${controllers.length}`)}</strong>
               </div>
               <div class="status-metric">
-                <span class="muted">LED Modules</span>
+                <span class="muted">Configured LED outputs</span>
                 <strong>${escapeHtml(formatQuantity(moduleTotal))}</strong>
               </div>
               <div class="status-metric">
@@ -964,7 +982,7 @@ export function createLocationPages({ db }) {
               </div>
             </div>
             ${table(
-              ["Controller", "RS485 ID", "Health", "Last Seen", "LED Modules", "Cells", "Actions"],
+              ["Controller", "RS485 ID", "Health", "Last Seen", "Configured outputs", "Mapped locations", "Actions"],
               controllerRows,
             )}
           </section>

@@ -1,3 +1,7 @@
+import { createOperationsService } from "../modules/operations/service.js";
+import {createStocktakingService} from '../modules/stocktaking/service.js';
+import {createLocationSetupService} from '../modules/locations/service.js';
+import {createDisplayCoordinator} from '../services/display-coordinator.js';
 import { appConfig } from "../config.js";
 import { createDatabase } from "../db.js";
 import { createLogger } from "../logger.js";
@@ -27,6 +31,7 @@ let appState = null;
 let stalePendingTaskTimer = null;
 let databaseMaintenanceTimer = null;
 let controllerHealthTimer = null;
+let phaseTwoTimer=null;
 
 const CONTROLLER_HEALTH_TIMER_INTERVAL_MS = 5 * 1000;
 
@@ -58,7 +63,7 @@ function startStalePendingTaskMaintenance(systemService) {
 
   stopStalePendingTaskMaintenance();
   stalePendingTaskTimer = setInterval(() => {
-    systemService.cancelStalePendingReviewTasks();
+    try { systemService.cancelStalePendingReviewTasks(); } catch(error) { logger.warn('work.inactivity.failed',{error:error.message}); }
   }, 30 * 1000);
   stalePendingTaskTimer.unref?.();
 }
@@ -105,6 +110,11 @@ function buildAppState() {
     config: appConfig,
     logger,
   });
+  const operationsService = createOperationsService({db, hardwareService, logger});
+  const stocktakingService=createStocktakingService({db,operationsService});
+  const displayCoordinator=createDisplayCoordinator({db,hardwareService,operationsService});
+  const locationSetupService=createLocationSetupService({db,operationsService,displayCoordinator});
+  if(process.env.NO_SERVER_LISTEN!=="1"){phaseTwoTimer=setInterval(()=>{try{displayCoordinator.expire();stocktakingService.tick();}catch(error){logger.warn("phase2.maintenance",{error:error.message});}},5000);phaseTwoTimer.unref?.();}
   const systemService = createSystemService({
     db,
     config: appConfig,
@@ -112,7 +122,7 @@ function buildAppState() {
     hardwareService,
     getTask,
   });
-  systemService.cancelStalePendingReviewTasks();
+  operationsService.flagInactivity({timeoutMs:0,restoreGuidance:true});
   const startup = systemService.runStartupChecks();
   startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
   startStalePendingTaskMaintenance(systemService);
@@ -147,6 +157,10 @@ function buildAppState() {
   });
 
   setRuntimeContext({
+    locationSetupService,
+    displayCoordinator,
+    stocktakingService,
+    operationsService,
     config: appConfig,
     databaseMaintenanceService,
     firmwareService,
@@ -156,6 +170,10 @@ function buildAppState() {
   });
 
   return {
+    locationSetupService,
+    displayCoordinator,
+    stocktakingService,
+    operationsService,
     adminService: createAdminService({ db }),
     anomalyService: createAnomalyService({ db }),
     backupService,
@@ -181,8 +199,10 @@ function buildAppState() {
 
 export function reloadAppState({ closeCurrentDb = true } = {}) {
   stopStalePendingTaskMaintenance();
+  if(phaseTwoTimer){clearInterval(phaseTwoTimer);phaseTwoTimer=null;}
   stopControllerHealthMaintenance();
   stopDatabaseMaintenance();
+  appState?.hardwareService?.dispose?.();
   if (closeCurrentDb && appState?.db) {
     appState.db.close();
   }

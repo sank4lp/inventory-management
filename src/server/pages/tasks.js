@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {
   getRecommendedActions,
   listCells,
@@ -321,7 +322,7 @@ export function createTaskPages({ db }) {
     const plannedTotal = task.lines.reduce((sum, line) => sum + Number(line.planned_quantity), 0);
     const taskLabel = task.type === "pick" ? "Pick Task" : "Put Task";
     const movementLabel = task.type === "pick" ? "Pick" : "Put";
-    const actionLabel = task.type === "pick" ? "Complete Pick" : "Complete Put";
+    const actionLabel = task.status === "completed" ? "Recorded Movement · Do Not Execute Again" : task.type === "pick" ? "Complete Pick" : "Complete Put";
     const taskTitle = `${editMode ? "Correct" : task.type === "pick" ? "Pick" : "Put"} Task #${task.id}`;
     const editSubmitPath = editMode && task.status === "completed" ? "correct" : "confirm";
     const canAdjustPutPlan = task.type === "put" && taskIsActive && canEditTask(user, task);
@@ -378,11 +379,11 @@ export function createTaskPages({ db }) {
             min="0"
             inputmode="numeric"
             name="actual_${line.id}"
-            value="${escapeHtml(line.actual_quantity || line.planned_quantity)}"
+            value="${escapeHtml(line.actual_quantity ?? line.planned_quantity)}"
             data-quantity-change-input
             ${canAdjustPutPlan ? `data-put-actual-qty-for="${escapeHtml(line.id)}"` : ""}
           />`
-        : escapeHtml(formatQuantity(line.actual_quantity || line.planned_quantity)),
+        : escapeHtml(formatQuantity(line.actual_quantity ?? line.planned_quantity)),
       ...(canAdjustPutPlan
         ? [
             `<button
@@ -507,7 +508,7 @@ export function createTaskPages({ db }) {
                 : `<p class="muted">${
                     task.status === "cancelled"
                       ? "Cancelled tasks cannot be completed or edited. Start a new task instead."
-                      : "Only the task owner or an admin can edit this task."
+                      : canEditTask(user, task) ? "This is a completed record. Choose Correct Task to fix an earlier entry; record a new physical movement separately." : "Only the task owner or an admin can edit this task."
                   }</p>`
             }
           `,
@@ -522,7 +523,7 @@ export function createTaskPages({ db }) {
     const returnTo = safeRecommendedReturnPath(options.returnTo);
     const openedFromCapacityUpdate = options.source === "capacity" && Boolean(selectedKey);
     const openedFromPutCapacity = options.source === "put-capacity";
-    const fullOptimizationLedReady = options.ledReady === true;
+    const fullOptimizationLedReady = false; // Display receipts, never URL flags, own active guidance.
     const activeLedMoveIndex = String(options.ledMoveIndex || "").trim();
     const returnToInput = returnTo
       ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}" />`
@@ -629,6 +630,7 @@ export function createTaskPages({ db }) {
                   action.title,
                   `
                     ${action.optimizationPlan && fullOptimizationLedReady ? `<p class="flash flash-success">Full optimization LEDs are active. Review the move plan, then apply the recommendation.</p>` : ""}
+                    <div data-display-console><p data-display-message role="status"></p><div data-display-active></div></div>
                     <p class="recommendation-space-outcome ${freedLocationCount(action) > 0 ? "recommendation-space-outcome-positive" : ""}">
                       <strong>${escapeHtml(freedLocationLabel(action))}</strong>
                       ${freedLocationCount(action) > 0 ? ` when the recommended moves are applied.` : ` by this action; it improves stock placement without creating an empty location.`}
@@ -639,8 +641,8 @@ export function createTaskPages({ db }) {
                         ? `<p class="flash flash-error">The system could not find room for ${escapeHtml(formatQuantity(action.unresolvedQuantity))} item(s). Please review manually.</p>`
                         : ""
                     }
-                    <form method="post" action="/recommended-actions/apply" class="stack-form" data-led-command-form data-led-loading-label="Working"${ledClearAttrs}>
-                      <input type="hidden" name="source_cell_id" value="${action.cellId}" />
+                    <form method="post" action="/recommended-actions/apply" class="stack-form" data-recommendation-actuals>
+                      <input type="hidden" name="requestId" value="${randomUUID()}" /><input type="hidden" name="source_cell_id" value="${action.cellId}" />
                       <input type="hidden" name="product_id" value="${action.productId}" />
                       <input type="hidden" name="reason" value="${escapeHtml(action.title)}" />
                       <input type="hidden" name="recommendation_key" value="${escapeHtml(action.key)}" />
@@ -686,9 +688,11 @@ export function createTaskPages({ db }) {
                               </div>
                               <div class="recommendation-fields">
                                 <input type="hidden" name="move_source_${index}" value="${escapeHtml(sourceCellId)}" />
-                                <label>Move Quantity
+                                <label>Suggested move quantity
                                   <input type="number" min="0" step="0.01" name="move_qty_${index}" value="${escapeHtml(move.quantity)}" />
                                 </label>
+                                <label>Actual picked from source<input type="number" min="0" step="0.000001" name="actual_pick_${index}" required placeholder="Actual, including 0"></label>
+                                <label>Actual put at target<input type="number" min="0" step="0.000001" name="actual_put_${index}" required placeholder="Actual, including 0"></label>
                                 <label>Target Cell
                                   ${cellPickerField(
                                     cells,
@@ -700,7 +704,7 @@ export function createTaskPages({ db }) {
                                 <button
                                   type="submit"
                                   class="ghost-button led-action-button"
-                                  formaction="/recommended-actions/light-cell"
+                                  formaction="/recommended-actions/light-cell" formnovalidate
                                   name="light_move_index"
                                   value="${index}"
                                   data-led-command-submit
@@ -719,7 +723,7 @@ export function createTaskPages({ db }) {
                             <button
                               type="submit"
                               class="ghost-button led-action-button"
-                              formaction="/recommended-actions/light-cell"
+                              formaction="/recommended-actions/light-cell" formnovalidate
                               name="light_move_index"
                               value="all"
                               data-led-command-submit
@@ -732,8 +736,7 @@ export function createTaskPages({ db }) {
                         type="submit"
                         data-led-command-submit
                         data-led-loading-label="Applying"
-                        ${action.optimizationPlan && !fullOptimizationLedReady ? `disabled title="Show full optimization LEDs before applying this recommendation."` : ""}
-                      >Apply Recommendation</button>
+                      >Save actual movement results</button><label>What happened?<input name="physical_note" required placeholder="Include any partial or interrupted work"></label><label><input name="physical_confirmed" type="checkbox" required>I recorded the physical quantities, including zero where nothing moved.</label><p>Lights only identify locations. Suggested quantities never post automatically. Actual results go to supervisor review; use the normal Pick and Put workflows to reserve and execute new work.</p>
                     </form>
                   `,
                 );

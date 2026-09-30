@@ -1,0 +1,359 @@
+/* Screen UI contract, loaded after legacy page styles and the operator UI.
+   Keep paper/report-format previews under their own typography controls. */
+@media screen {
+  :root {
+    --ui-control-height: 2.75rem;
+    --ui-control-radius: .625rem;
+    --ui-label-size: .875rem;
+    --ui-help-size: .8125rem;
+    --text-button-height: var(--ui-control-height);
+  }
+
+  /* The offline page deliberately loads only theme, work and this shared layer. */
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { line-height: 1.5; }
+  button, input, select, textarea { font-family: inherit; }
+  button, .mini-link, .action-cta-button, .work-primary, .work-secondary,
+  #work-app button, .qr-dialog button, .combo-option, .firmware-detect-actions .ghost-button {
+    min-height: var(--ui-control-height);
+    border-radius: var(--ui-control-radius);
+    font-size: var(--ui-label-size);
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),
+  select, textarea, #work-app input:not([type=checkbox]):not([type=radio]), #work-app select {
+    min-width: 0;
+    min-height: var(--ui-control-height);
+    max-width: 100%;
+    border-radius: var(--ui-control-radius);
+    font-size: 1rem;
+    line-height: 1.5;
+    padding: calc((var(--ui-control-height) - 1.5em - 2px) / 2) .75rem;
+  }
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]).combo-input { padding-inline-end: 3.25rem; }
+  .combo-toggle { width: 3rem; min-height: calc(var(--ui-control-height) - 2px); height: calc(var(--ui-control-height) - 2px); }
+  textarea { padding-block: .75rem; }
+  .report-format-color-control input[type=color] { height: var(--ui-control-height); min-height: var(--ui-control-height); }
+  label, #work-app label { font-size: var(--ui-label-size); }
+  .mini-link, .action-cta-button, .ping-button, .locate-button, .count-button,
+  .led-action-button, .report-stage-actions > button, .report-toolbar-control > button {
+    height: auto;
+    padding: .625rem .875rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .icon-button, .toast-close, .row-collapse-icon-button {
+    width: var(--ui-control-height);
+    min-width: var(--ui-control-height);
+    min-height: var(--ui-control-height);
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .toast { grid-template-columns: minmax(0, 1fr) var(--ui-control-height); }
+  .side-nav-direct, .side-nav-summary, .side-nav-sublist a,
+  #work-app summary, .form-disclosure summary {
+    min-height: var(--ui-control-height);
+  }
+  #work-app summary, .form-disclosure summary { align-content: center; }
+  summary { min-height: var(--ui-control-height); align-content: center; cursor: pointer; }
+  .work-toolbar a, .work-footer a, .work-tools-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--ui-control-height);
+    font-size: var(--ui-label-size);
+  }
+  #work-app button.text-button { font-size: var(--ui-help-size); }
+  .work-help, .work-task p, .work-callout, .work-plan-help { font-size: .875rem; }
+  .work-badge, .work-eyebrow, .work-reference, .work-connection small,
+  .work-queue small, .work-product span, .work-quantity small,
+  #work-app .work-footer, .work-footer p { font-size: .75rem; }
+  .work-quantity { flex-wrap: wrap; gap: .75rem; }
+  .work-quantity strong { font-size: clamp(2rem, 3vw, 3rem); overflow-wrap: anywhere; }
+  .work-card-heading, .work-task-summary { flex-wrap: wrap; }
+  .work-actions { flex-wrap: wrap; }
+  .work-grid, .label-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+  .label-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 12.5rem), 1fr)); }
+
+  /* Shrink flex/grid children, never the text, to fit the available content area. */
+  .dashboard-shell:not(.dashboard-shell-public) { max-width: 113rem; margin-inline: auto; }
+  .page-shell { min-width: 0; z-index: auto; }
+  .stats-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.25rem), 1fr)); }
+  .stat-card { min-width: 0; }
+  .stat-value { overflow-wrap: anywhere; }
+  .stat-value-text { font-size: 1rem; line-height: 1.5; }
+  .page-header h1 { font-size: clamp(1.5rem, 1.15rem + 1vw, 2rem); overflow-wrap: anywhere; }
+  .card-header, .panel-heading, .secondary-panel-header, .completion-header,
+  .adjustment-lines-header, .adjustment-line-footer, .firmware-progress-head {
+    flex-wrap: wrap;
+    gap: .75rem;
+  }
+  .card-header > *, .panel-heading > *, .secondary-panel-header > *,
+  .inline-form > *, .firmware-progress-head > * { min-width: 0; max-width: 100%; }
+  .inline-form-wrap { min-width: 0; max-width: 100%; flex: 1 1 16rem; }
+  .inline-form > label, .inline-form > input, .inline-form > select { flex: 1 1 12rem; }
+  .mini-actions { gap: .5rem; }
+  .hero-grid, .two-column { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+  .table-wrap, .table-scroll, .work-table-wrap { max-width: 100%; min-width: 0; overscroll-behavior-x: contain; }
+  .reports-workspace { grid-template-columns: minmax(0, 1fr); }
+  .reports-workspace > * { min-width: 0; max-width: 100%; }
+  .catalog-controls { flex-wrap: wrap; }
+  .catalog-controls > .inline-form { min-width: 0; }
+  #cell-management .table-wrap input[name=logical_code] { min-width: 11rem; }
+  .report-format-panel-embedded { container-type: inline-size; }
+  .report-format-panel-embedded .report-format-editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .report-format-editor-grid > *, .report-format-form-grid > * { min-width: 0; }
+
+  /* Let fixed dialogs escape the page stacking context and fit short screens. */
+  .modal-backdrop { overflow-y: auto; padding: 1rem; }
+  body:has(.modal-backdrop:not([hidden])) { overflow: hidden; }
+  .modal-panel { max-height: calc(100dvh - 2rem); }
+  .qr-dialog { max-height: calc(100dvh - 2rem); overflow-y: auto; }
+  .completion-panel { overflow-y: auto; }
+
+  .danger-button { color: #a32222; background: #fff1f1; border-color: #e9b4b4; }
+  .danger-button:hover { color: #821b1b; background: #ffe4e4; }
+  .green-button { color: #fff; background: linear-gradient(180deg, #087a52, #065f46); border-color: #087a52; }
+  .green-button:hover { background: #065f46; border-color: #065f46; }
+  .backup-schedule-summary { color: #24497c; background: #edf4ff; }
+  .backup-schedule-summary strong { color: #193c6b; }
+  .backup-schedule-summary span { color: #36577f; }
+  .firmware-port-status-ok, .adjustment-line-saved .adjustment-line-state { color: #176145; background: #e2f5eb; }
+  .firmware-port-status-missing { color: #a32222; background: #fff0f0; }
+  .mapping-cell-name-saved { color: #176145; }
+  .mapping-cell-name-dirty { color: #79500c; }
+  .adjustment-empty-state-warning, .adjustment-line-dirty .adjustment-line-state { color: #79500c; background: #fff5db; }
+  .combo-panel { color: var(--text); background: var(--panel); }
+
+  .report-toolbar-popover { border-radius: var(--ui-control-radius); gap: .75rem; max-height: min(36rem, 70dvh); }
+  .report-toolbar-popover h3, .report-toolbar-popover legend,
+  .report-toolbar-popover > strong, .report-toolbar-popover > header strong,
+  .report-toolbar-popover label { font-size: var(--ui-label-size); }
+  .report-toolbar-popover > header span, .report-toolbar-popover p,
+  .report-toolbar-popover small { font-size: var(--ui-help-size); line-height: 1.5; }
+  .report-toolbar-popover select, .report-toolbar-popover input[type=datetime-local] {
+    min-height: var(--ui-control-height); font-size: 1rem;
+  }
+  .report-toolbar-popover-actions button, .report-toolbar-popover button[type=submit] {
+    min-height: var(--ui-control-height); font-size: var(--ui-label-size); padding: .625rem .875rem;
+  }
+  .report-toolbar-option { min-height: var(--ui-control-height); padding: .625rem .375rem; }
+  .report-toolbar-popover label.report-toolbar-option:has(input[type=checkbox], input[type=radio]) {
+    grid-template-columns: 1.125rem minmax(0, 1fr); align-items: center;
+  }
+  .report-toolbar-popover .report-toolbar-option input[type=checkbox],
+  .report-toolbar-popover .report-toolbar-option input[type=radio] { width: 1.125rem; height: 1.125rem; }
+  .report-toolbar-options { max-height: 17rem; }
+
+  /* Reports remain readable on screen; wide tables/charts scroll within the page.
+     Exclude the deliberately scaled paper-format preview and all print media. */
+  .report-document:not(.report-format-preview) { min-width: 0; }
+  .report-document:not(.report-format-preview) .table-wrap,
+  .report-document:not(.report-format-preview) .report-summary-table-wrap,
+  .report-document:not(.report-format-preview) [data-report-stock-table],
+  .report-document:not(.report-format-preview) .report-chart {
+    min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain;
+  }
+  .report-document:not(.report-format-preview) table {
+    min-width: 40rem; table-layout: auto; font-size: max(.875rem, var(--report-body-size)); line-height: 1.5;
+  }
+  .report-document:not(.report-format-preview) th,
+  .report-document:not(.report-format-preview) td {
+    padding: .625rem .75rem; overflow-wrap: normal; word-break: normal;
+  }
+  .report-document:not(.report-format-preview) th { font-size: .8125rem; }
+  .report-document:not(.report-format-preview) .report-bar-chart {
+    min-width: 47.5rem; max-height: none;
+  }
+  .report-document:not(.report-format-preview) .report-chart p,
+  .report-document:not(.report-format-preview) .report-visual-note,
+  .report-document:not(.report-format-preview) .report-document-context dd,
+  .report-document:not(.report-format-preview) .report-document-context dt { font-size: .75rem; }
+  .report-document:not(.report-format-preview) .report-bar-label,
+  .report-document:not(.report-format-preview) .report-bar-value { font-size: 13px; }
+  .report-document:not(.report-format-preview) :is(.report-kpi > span, .report-kpi > small,
+    .report-insights h4, .report-takeaway h4, .report-summary-line > :first-child,
+    .report-document-meta dt, .report-document-meta dd) { font-size: .75rem; }
+  .report-document:not(.report-format-preview) :is(.report-insights p, .report-insights li) { font-size: .875rem; }
+  .report-format-control > small { font-size: .75rem; }
+  .report-document:not(.report-format-preview) :is(.report-donut-legend strong,
+    .report-donut-legend small, .report-donut-percentage,
+    .report-donut-center-label, .report-donut-center-unit) { font-size: .75rem; }
+
+  @container (min-width: 58rem) {
+    .report-format-panel-embedded .report-format-editor-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+  }
+  @media (max-width: 1020px), (pointer: coarse) {
+    :root { --ui-control-height: 3rem; }
+    .side-nav-item > .side-nav-group > .side-nav-summary { width: 3rem; min-height: 3rem; }
+    .side-nav-item > .side-nav-direct { padding-right: 3.5rem; }
+  }
+  @media (max-width: 700px) {
+    .page-shell { padding: 1rem; }
+    .card, .allocation, .work-panel, .work-task, .work-empty { padding: 1rem; }
+    .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat-card { padding: .875rem; gap: .625rem; }
+    .work-toolbar nav a, .work-footer a { min-height: var(--ui-control-height); font-size: var(--ui-label-size); }
+    .report-stage-context-actions { position: relative; gap: .5rem; }
+    .report-toolbar-control { position: static; }
+    .report-toolbar-control > button { max-width: none; height: 100%; }
+    .report-toolbar-control [data-report-time-toggle] { max-width: none; }
+    .report-stage-context-actions .report-toolbar-control .report-toolbar-popover {
+      position: fixed; top: auto; bottom: max(1rem, env(safe-area-inset-bottom));
+      left: 1rem; right: 1rem; transform: none; width: auto; max-height: 70dvh;
+    }
+    .report-stage-actions > button { width: auto; flex: 1 1 auto; }
+    .report-format-preview-kpis { grid-template-columns: repeat(auto-fit, minmax(min(100%, 6rem), 1fr)); }
+    .report-library-list { grid-auto-columns: clamp(14rem, 75vw, 18rem); }
+    .report-document-header > *, .report-document-meta { min-width: 0; }
+    .offline-shell { padding: 1rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; }
+    .work-task:hover { transform: none; }
+  }
+}
+
+/* Shared count, setup and primary navigation controls. */
+@media screen {
+  .count-form { display:grid; gap:1rem; max-width:48rem; margin-block:1rem; }
+  .count-form label { display:grid; gap:.35rem; min-width:0; }
+  .count-form label:has(input[type=checkbox]) { display:flex; align-items:center; min-height:44px; gap:.6rem; }
+  .count-form fieldset { min-width:0; border:1px solid var(--border,#ccd5df); border-radius:.625rem; padding:1rem; display:grid; gap:.75rem; }
+  .count-form legend { font-size:1.1rem; font-weight:700; overflow-wrap:anywhere; }
+  .count-form button { justify-self:start; max-width:100%; white-space:normal; }
+  .count-run { border-block-start:1px solid var(--border,#ccd5df); padding-block:1rem; overflow-wrap:anywhere; }
+  .count-run p,.count-run h3 { overflow-wrap:anywhere; }
+  .count-location-options { max-height:24rem; overflow-y:auto; }
+  .stocktake-reminder { padding:.75rem 1rem; margin-block:.75rem; border:1px solid #b9ccdf; border-radius:.625rem; background:#f0f6fc; }
+  .account-menu { padding:.5rem; min-width:0; }
+  .account-menu a { display:flex; align-items:center; min-height:44px; }
+  [data-stocktake-badge] { border-radius:1rem; padding:0 .5rem; background:#eaf2fb; color:#184775; }
+  #stocktaking-app { min-width:0; }
+  .qr-dialog video { display:block; width:100%; max-height:55dvh; }
+}
+@media print {
+  .stocktake-reminder,.count-form,.account-menu,#stocktaking-app .work-toolbar,#stocktaking-app button {display:none!important;}
+  #stocktaking-app .work-panel {break-inside:auto;}
+  #stocktaking-app .count-run {break-inside:avoid;}
+}
+.setup-labels{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}.setup-label{text-align:center;padding:1rem;border:1px solid #ccc;break-inside:avoid}.setup-label svg{width:160px;max-width:100%}.setup-label strong,.setup-label small{display:block;overflow-wrap:anywhere}
+@media screen {
+ .count-form input[type="checkbox"],#location-setup-app input[type="checkbox"],form[data-recommendation-actuals] input[type="checkbox"]{width:1.25rem!important;min-width:1.25rem;height:1.25rem;min-height:1.25rem;flex:0 0 1.25rem;margin:.15rem 0;box-shadow:none;padding:0;}
+ #location-setup-app label:has(input[type="checkbox"]){display:flex;align-items:flex-start;gap:.65rem;text-align:left;}
+ #location-setup-app [data-session]>button,#location-setup-app [data-session]>.work-secondary{margin:.25rem .25rem .25rem 0;}
+ #location-setup-app,.work-panel, .work-panel a{overflow-wrap:anywhere;}
+}
+@media screen {
+ .product-status-grid .stat-card>a{display:flex;flex-direction:column;gap:.5rem;align-items:flex-start;min-width:0;text-decoration:none;color:inherit;}
+ .product-status-grid .stat-card .stat-value{display:block;line-height:1.15;}
+ .product-status-grid .stat-card>button{margin-top:.75rem;max-width:100%;white-space:normal;}
+ .catalog-controls .catalog-audit-button{white-space:normal;max-width:100%;min-width:0;}
+}
+
+/* Shared screen controls. Paper reports retain their selected print formatting. */
+@media screen {
+  :root {
+    --ui-primary: #1c6553;
+    --ui-primary-hover: #154d40;
+    --ui-secondary-border: #bbcfc6;
+    --ui-secondary-ink: #245b4c;
+  }
+  button, .blue-button, .green-button, .action-cta-button, .work-primary, #work-app button, .qr-dialog button {
+    background: var(--ui-primary); color: #fff; border-color: var(--ui-primary); box-shadow: none;
+    max-width: 100%; white-space: normal; overflow-wrap: anywhere;
+  }
+  button:hover, .blue-button:hover, .green-button:hover, .action-cta-button:hover, .work-primary:hover, #work-app button:hover {
+    background: var(--ui-primary-hover); border-color: var(--ui-primary-hover); color: #fff;
+  }
+  button.secondary, .ghost-button, .work-secondary, .secondary-cta,
+  #work-app button.secondary, .refresh-button, .mobile-nav-toggle {
+    background: #fff; color: var(--ui-secondary-ink); border-color: var(--ui-secondary-border); box-shadow: none;
+  }
+  button.secondary:hover, .ghost-button:hover, .work-secondary:hover, .secondary-cta:hover,
+  #work-app button.secondary:hover, .refresh-button:hover {
+    background: #eaf3ef; color: var(--ui-secondary-ink); border-color: var(--ui-secondary-border);
+  }
+  .danger-button, button.danger-button, #work-app button.danger-button {
+    background: #fff1f1; color: #a32222; border-color: #e9b4b4;
+  }
+  .danger-button:hover, button.danger-button:hover, #work-app button.danger-button:hover {
+    background: #ffe4e4; color: #821b1b; border-color: #e9b4b4;
+  }
+  button.text-button, #work-app button.text-button { background: transparent; color: var(--ui-secondary-ink); border: 0; }
+  button:disabled, #work-app button:disabled { cursor: not-allowed; }
+  label:has(> input:is([type=checkbox], [type=radio])),
+  .count-form label:has(> input:is([type=checkbox], [type=radio])),
+  #location-setup-app label:has(> input:is([type=checkbox], [type=radio])),
+  #work-app label:has(> input:is([type=checkbox], [type=radio])) {
+    display: flex; flex-direction: row; align-items: flex-start; gap: .65rem;
+    min-height: var(--ui-control-height); padding-block: .5rem; line-height: 1.5;
+    text-align: left; overflow-wrap: anywhere;
+  }
+  input:is([type=checkbox], [type=radio]), #work-app input:is([type=checkbox], [type=radio]) {
+    width: 1.25rem; min-width: 1.25rem; height: 1.25rem; min-height: 1.25rem;
+    flex: 0 0 1.25rem; padding: 0; margin: .05rem 0; box-shadow: none; accent-color: var(--ui-primary);
+  }
+  /* A wrapped label is one rectangular target, without overlaying adjacent controls. */
+  .page-shell :is(td, th) > a, .page-shell p > a:only-child {
+    display: inline-flex; align-items: center; min-height: var(--ui-control-height);
+    max-width: 100%; padding-block: .25rem; vertical-align: middle; overflow-wrap: anywhere;
+  }
+  .page-shell :is(td, th) > a { min-width: 2.75rem; }
+}
+
+/* My work reuses the catalogue table; deeper forms are opened on demand. */
+@media screen {
+  #work-app.my-work { max-width: none; }
+  #work-app .my-work-list { min-width: 0; }
+  #work-app .my-work-table { min-width: 1080px; font-size: 14px; }
+  #work-app .my-work-table :is(th,td) { white-space: nowrap; vertical-align: middle; }
+  #work-app .my-work-table td { padding-block: 8px; }
+  #work-app .my-work-table td>a { padding: 0; }
+  #work-app .my-work-actions { display: flex; align-items: center; gap: 8px; }
+  #work-app .my-work-start { display: block; margin: 0; padding: 0; border: 0; }
+  #work-app .my-work-actions :is(button,a) { min-height: var(--ui-control-height); padding: 8px 12px; white-space: nowrap; }
+  #work-app .my-work-type { color: var(--work-muted); font-size: 12px; margin-left: 6px; text-transform: capitalize; }
+  #work-app .my-work-overdue { color: #8a4717; }
+  #work-app .my-work-utility { margin: 0 0 0 auto; padding: 0; border: 0; }
+  #work-app .my-work-utility>summary { display: flex; align-items: center; min-height: 44px; }
+  #work-app .my-work-utility[open] { flex-basis: 100%; }
+  #work-app .my-work-utility[open]>summary { justify-content: flex-end; }
+  #work-app .my-work-utility .work-connection { font-size: 13px; margin: 8px 0; }
+  #work-app .my-work-action-dialog { box-sizing: border-box; width: min(32rem, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; border: 1px solid var(--work-border); border-radius: 12px; padding: 24px; color: var(--work-ink); }
+  #work-app .my-work-action-dialog::backdrop { background: #102d26a8; }
+  #work-app .my-work-action-dialog h2 { font-size: 21px; }
+  #work-app .my-work-action-dialog [data-my-action-warning]:not([hidden]) { color: #8a4717; padding: 12px; background: #fff8e9; }
+}
+@media screen {
+  #work-app.my-work { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+  #work-app .my-work-next-area { max-width: none; padding-top: 8px; }
+  #work-app .my-work-next-task { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  #work-app .my-work-next-task p { margin: 4px 0 0; }
+  #work-app .my-work-next-product { font-size: 20px; font-weight: 700; }
+  #work-app .my-work-footer { position: fixed; z-index: 40; bottom: 0; left: calc(max(0px, (100% - 113rem) / 2) + 288px); width: calc(min(100%, 113rem) - 288px); padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid var(--work-border); box-shadow: 0 -4px 16px #1c3c3010; }
+  #work-app .my-work-footer .work-actions { justify-content: center; }
+  #work-app .my-work-footer a { flex: 1; min-width: 0; max-width: 18rem; }
+  .offline-shell #work-app .my-work-footer { left: 0; width: 100%; }
+  @media (max-width: 1020px) {
+    #work-app .my-work-footer { left: 0; width: 100%; padding-inline: 16px; }
+  }
+}
+@media print { .my-work-footer, .my-work-utility, .my-work-action-dialog { display: none !important; } }
+
+/* The assignment form shares normal Work controls, with no monitoring furniture. */
+@media screen {
+  #work-app .assignment-panel { max-width: 40rem; margin-top: 24px; }
+  #work-app .assignment-panel form { margin: 0; padding: 0; border: 0; }
+  #work-app .assignment-direction { display: flex; gap: 8px; padding: 0; border: 0; margin: 0 0 16px; }
+  #work-app .assignment-direction legend { font-weight: 650; margin-bottom: 8px; }
+  #work-app .assignment-direction label { position: relative; flex: 1; margin: 0; padding: 0; align-items: stretch; }
+  #work-app .assignment-direction input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  #work-app .assignment-direction span { width: 100%; display: flex; justify-content: center; align-items: center; min-height: 44px; padding: 8px 16px; border: 1px solid var(--work-border); border-radius: 8px; background: white; }
+  #work-app .assignment-direction input:checked+span { background: var(--work-accent, #285f50); color: white; border-color: var(--work-accent, #285f50); }
+  #work-app .assignment-direction input:focus-visible+span { outline: 3px solid #71ad99; outline-offset: 3px; }
+  #work-app .assignment-direction input:disabled+span { opacity: .5; cursor: not-allowed; }
+  #work-app .assignment-duration { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+  #work-app .assignment-panel select { width: 100%; min-width: 0; }
+}

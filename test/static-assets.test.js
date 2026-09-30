@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Writable } from "node:stream";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import test from "node:test";
 
 import { serveStatic } from "../src/server/static-assets.js";
+import { operationsRoutes } from "../src/modules/operations/routes.js";
 
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -104,4 +107,36 @@ test("static asset server exposes browser modules and rejects traversal", async 
 
   const traversalResult = await serve("/client/../app.js");
   assert.equal(traversalResult.handled, false);
+});
+
+test("operator and offline pages load the shared screen styles and offline installation caches them", async () => {
+  async function render(pathname) {
+    const response = { body: '', writeHead() {}, end(html) { this.body = html; } };
+    await operationsRoutes({method:'GET'}, response, new URL(pathname, 'http://localhost'),
+      {id:1,name:'Operator',role:'operator'}, {db:{},operationsService:{snapshot:()=>({tasks:[]})}});
+    return response.body;
+  }
+  const work = await render('/work');
+  const offline = await render('/offline');
+  const styles = html => [...html.matchAll(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"/g)].map(m => m[1]);
+  for (const html of [work, offline]) {
+    assert.equal(styles(html).filter(path => path === '/work.css').length, 1);
+    assert.equal(styles(html).at(-1), '/responsive.css');
+  }
+  const handlers = new Map();
+  let cached = [];
+  vm.runInNewContext(readFileSync(join(rootDir, 'public/sw.js'), 'utf8'), {
+    self: {addEventListener:(name, handler)=>handlers.set(name, handler), skipWaiting:()=>Promise.resolve()},
+    caches: {open:async()=>({addAll:async paths=>{cached=Array.from(paths);}})},
+  });
+  let installation;
+  handlers.get('install')({waitUntil:promise=>{installation=promise;}});
+  await installation;
+  for (const path of styles(offline)) {
+    assert.ok(cached.includes(path), `${path} must be available after connection loss`);
+    const asset = await serve(path);
+    assert.equal(asset.response.statusCode, 200);
+    assert.match(asset.response.headers['Content-Type'], /text\/css/);
+    assert.ok(asset.response.body.length > 0);
+  }
 });

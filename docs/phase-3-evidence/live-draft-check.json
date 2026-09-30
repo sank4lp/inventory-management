@@ -1,0 +1,16 @@
+{
+  "before": {
+    "focus": "reason",
+    "scroll": 790,
+    "table": 0,
+    "updated": "Connected to warehouseUpdated 22:25:40",
+    "value": "Unsaved monitoring test only"
+  },
+  "after": {
+    "focus": "reason",
+    "scroll": 790,
+    "table": 0,
+    "updated": "Connected to warehouseUpdated 22:26:15",
+    "value": "Unsaved monitoring test only"
+  }
+}

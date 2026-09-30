@@ -1,3 +1,5 @@
+import {currentActor} from "../modules/access/service.js";
+import {can} from "../modules/access/catalog.js";
 import {
   allocatePick,
   cancelTask,
@@ -13,6 +15,8 @@ import {
 } from "./inventory.js";
 
 export function createTaskService({ db, hardwareService, logger, systemService }) {
+  function authorized(userId,taskId,capability){const actor=currentActor(db,{id:userId},capability),task=taskId?getTask(db,Number(taskId)):null;if(taskId&&(!task||task.created_by!==actor.id&&!can(actor,'review.resolve')))throw new Error('This task belongs to another operator.');return actor;}
+
   return {
     getTask(taskId) {
       return getTask(db, taskId);
@@ -30,6 +34,7 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       return systemService.issueSubmissionToken({ scope, taskId, userId });
     },
     createPickTask({ userId, productId, quantity, preferredCellId = null, preferredCellIds = [] }) {
+      authorized(userId,null,"work.pick");
       const task = allocatePick(db, { userId, productId, quantity, preferredCellId, preferredCellIds });
       const guidance = hardwareService.activateGuidance(task, task.lines, {
         source: "task_create",
@@ -46,6 +51,7 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       return { task, guidance };
     },
     createPutTask({ userId, productId, quantity, preferredCellId = null, preferredCellIds = [] }) {
+      authorized(userId,null,"work.put");
       const task = planPut(db, { userId, productId, quantity, preferredCellId, preferredCellIds });
       const guidance = hardwareService.activateGuidance(task, task.lines, {
         source: "task_create",
@@ -62,6 +68,7 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       return { task, guidance };
     },
     confirmTask({ taskId, actualQuantities, actualCellIds, userId, note, submissionToken }) {
+      authorized(userId,taskId,"work.execute");
       systemService.consumeSubmissionToken({
         token: submissionToken,
         scope: "task-confirm",
@@ -89,6 +96,7 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       return completion;
     },
     updatePutPlan({ taskId, allocations, userId, note, submissionToken }) {
+      authorized(userId,taskId,"work.execute");
       systemService.consumeSubmissionToken({
         token: submissionToken,
         scope: "task-put-plan",
@@ -120,6 +128,7 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       return { task, guidance };
     },
     correctTask({ taskId, actualQuantities, actualCellIds, userId, note, submissionToken }) {
+      authorized(userId,taskId,"work.correct");
       systemService.consumeSubmissionToken({
         token: submissionToken,
         scope: "task-correct",
@@ -141,6 +150,7 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       return correction;
     },
     cancelTask({ taskId, userId, submissionToken }) {
+      authorized(userId,taskId,"work.stop");
       systemService.consumeSubmissionToken({
         token: submissionToken,
         scope: "task-cancel",
@@ -158,6 +168,7 @@ export function createTaskService({ db, hardwareService, logger, systemService }
       return task;
     },
     recordPhysicalConfirmation({ lineId, taskId, userId }) {
+      authorized(userId,taskId,"work.execute");
       const task = getTask(db, Number(taskId));
       if (!task) {
         throw new Error("Task not found.");

@@ -1,0 +1,18 @@
+ public/client/work.js                     |  6 ++--
+ public/responsive.css                     | 55 +++++++++++++++++++++++++++++--
+ public/sw.js                              |  2 +-
+ public/work.css                           |  2 +-
+ src/modules/access/service.js             |  2 +-
+ src/modules/operations/access.js          |  1 +
+ src/modules/operations/service.js         | 44 ++++++++++++-------------
+ src/modules/stocktaking/display-routes.js |  2 +-
+ src/server/pages/report-format-editor.js  |  2 +-
+ src/server/pages/reports.js               | 14 ++++----
+ src/services/report-definitions.js        |  2 +-
+ test/access.test.js                       |  4 +++
+ test/custom-report-expansion.test.js      |  2 +-
+ test/location-setup-display.test.js       | 15 +++++++++
+ test/report-view-controls.test.js         | 20 ++++++++++-
+ test/stock-composition.test.js            |  2 +-
+ test/work-ui.test.js                      | 12 +++++++
+ 17 files changed, 145 insertions(+), 42 deletions(-)
