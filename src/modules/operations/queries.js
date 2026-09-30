@@ -1,8 +1,9 @@
 import {can,assertCan} from '../access/catalog.js';
 const pageNumber=value=>Math.max(1,Math.min(1000000,Math.floor(Number(value)||1)));
 const closed="t.outcome IN ('completed','stopped','cancelled')";
+const created="COALESCE((SELECT MIN(e.created_at) FROM task_assignment_events e WHERE e.task_id=t.id AND e.event_type='assigned'),t.started_at)";
 const overdue="t.completed_at IS NULL AND t.due_at IS NOT NULL AND julianday(t.due_at)<julianday('now')";
-export function taskSelection(db,user,input={}) {
+function legacyTaskSelection(db,user,input={}) {
   const view=input.view||'accessible',where=['t.workflow_version=2'],params=[];
   if(view==='assign'){assertCan(user,'work.assign');return {priority:null,ids:[],page:{number:1,pages:1,total:0,limit:100,view,state:'open'},counts:{}};}
   if(view==='team'||view==='history'&&input.scope==='team')assertCan(user,'work.team');
@@ -22,11 +23,40 @@ export function taskSelection(db,user,input={}) {
   const total=db.prepare(`SELECT COUNT(*) n FROM tasks t WHERE ${where.join(' AND ')}`).get(...params).n;
   const pages=Math.max(1,Math.ceil(total/100)),page=Math.min(pageNumber(input.page),pages);
   // My work displays new assignments first; execution priority uses original creation time.
-  // tasks.started_at is the immutable creation timestamp, unlike assigned_at on reassignment.
+  // The original assigned event survives explicit Start and later reassignment.
   const order=view==='mine'?"COALESCE(julianday(t.assigned_at),julianday(t.started_at)) DESC,t.id DESC":`CASE WHEN ${closed} THEN 1 ELSE 0 END,CASE WHEN ${overdue} THEN 0 ELSE 1 END,t.id DESC`;
   const rows=db.prepare(`SELECT t.id FROM tasks t WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 100 OFFSET ?`).all(...params,(page-1)*100);
-  const priority=view==='mine'&&can(user,'work.execute')?db.prepare(`SELECT t.id,t.started_at AS createdAt,(SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) AS productName FROM tasks t WHERE t.workflow_version=2 AND t.assignee_id=? AND t.completed_at IS NULL AND t.attention=0 AND t.outcome='open' AND t.assignment_state IN ('offered','started','legacy') AND EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=t.id AND l.execution_state IN ('ready','working')) AND NOT EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=t.id AND r.status IN ('review','received')) ORDER BY julianday(t.started_at),t.id LIMIT 1`).get(user.id)||null:null;
+  const priority=view==='mine'&&can(user,'work.execute')?db.prepare(`SELECT t.id,${created} AS createdAt,(SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) AS productName FROM tasks t WHERE t.workflow_version=2 AND t.assignee_id=? AND t.completed_at IS NULL AND t.attention=0 AND t.outcome='open' AND t.assignment_state IN ('offered','started','legacy') AND EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=t.id AND l.execution_state IN ('ready','working')) AND NOT EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=t.id AND r.status IN ('review','received')) ORDER BY julianday(${created}),t.id LIMIT 1`).get(user.id)||null:null;
   return {priority,ids:rows.map(r=>r.id),page:{number:page,pages,total,limit:100,view,state},counts};
+}
+export function taskSelection(db,user,input={}) {
+  if(input.view!=='mine')return legacyTaskSelection(db,user,input);
+  const own='t.assignee_id=?',params=[user.id];
+  const returnedScope=can(user,'work.team')?'1':can(user,'work.assign')?'(t.created_by=? OR EXISTS(SELECT 1 FROM task_assignment_events e WHERE e.task_id=t.id AND (e.assignee_id=? OR e.previous_assignee=?)))':'0';
+  if(returnedScope.includes('?'))params.push(user.id,user.id,user.id);
+  const supervisor=can(user,'review.view')?`EXISTS(SELECT 1 FROM work_reports wr JOIN task_lines wl ON wl.id=wr.line_id WHERE wl.task_id=t.id AND wr.status IN ('review','received'))`:'0';
+  const cte=`WITH base AS (SELECT t.*, (SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) product,
+    ROUND(COALESCE((SELECT SUM(l.actual_quantity) FROM task_lines l WHERE l.task_id=t.id AND l.execution_state='settled'),0),6) completed,
+    (t.attention=1 OR (t.completed_at IS NULL AND (t.review_followup=1 OR t.assignment_state='returned')) OR EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=t.id AND r.status IN ('review','received'))) needs_review,
+    EXISTS(SELECT 1 FROM task_lines l JOIN work_guidance g ON g.cell_id=l.cell_id WHERE l.task_id=t.id AND l.execution_state IN ('ready','working') AND json_extract(g.desired,'$.action') IN ('count','quantity','locate') AND COALESCE(json_extract(g.desired,'$.lineId'),-1)!=l.id) waiting
+    FROM tasks t WHERE t.workflow_version=2 AND (${own} OR ((t.assignment_state='returned' OR t.attention=1) AND ${returnedScope}) OR ${supervisor})),
+    rows AS (SELECT *,CASE WHEN needs_review THEN 'review' WHEN completed_at IS NOT NULL OR outcome IN ('completed','stopped','cancelled') THEN 'completed' WHEN assignment_state IN ('offered','returned','legacy') THEN 'not_started' ELSE 'in_progress' END lifecycle,
+    CASE WHEN completed_at IS NULL AND review_remaining_quantity IS NOT NULL THEN review_remaining_quantity ELSE ROUND(MAX(0,requested_quantity-completed),6) END remaining,
+    CASE WHEN requested_quantity>0 THEN ROUND(completed*100.0/requested_quantity,1) ELSE 0 END progress,
+    CASE WHEN needs_review THEN CASE WHEN attention=1 OR review_followup=1 OR assignment_state!='returned' THEN 'Quantity check' ELSE 'Needs assignment' END WHEN completed_at IS NOT NULL OR outcome IN ('completed','stopped','cancelled') THEN outcome WHEN waiting AND assignment_state='started' THEN 'Waiting for location' WHEN due_at IS NOT NULL AND julianday(due_at)<julianday('now') THEN 'Overdue' WHEN assignment_state='offered' THEN 'Not started' ELSE 'In progress' END display_status FROM base)`;
+  const where=['1'],filtered=[...params],state=input.workState||'current';
+  if(state==='current')where.push("lifecycle!='completed'");else if(['review','not_started','in_progress','completed'].includes(state)){where.push('lifecycle=?');filtered.push(state);}
+  if(['1','true',true].includes(input.reviewOnly))where.push('needs_review=1');
+  for(const [key,col] of [['taskSearch',"CAST(id AS TEXT)||' '||type"],['productSearch',"COALESCE(product,'')"],['statusSearch','display_status']])if(String(input[key]||'').trim()){where.push(`instr(lower(${col}),lower(?))>0`);filtered.push(String(input[key]).trim().slice(0,160));}
+  for(const col of ['requested','completed','remaining','progress'])for(const [suffix,op] of [['Min','>='],['Max','<=']])if(input[col+suffix]!=null&&String(input[col+suffix]).trim()!==''){
+    const n=Number(input[col+suffix]);if(!Number.isFinite(n)||n<0)throw new Error('Quantity and progress filters must be non-negative numbers.');where.push(`${col==='requested'?'requested_quantity':col}${op}?`);filtered.push(n);
+  }
+  const columns={task:'id',product:'product COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
+  const sort=Object.hasOwn(columns,input.sort)?input.sort:'task',direction=input.order==='asc'?'ASC':'DESC';
+  const total=db.prepare(`${cte} SELECT COUNT(*) n FROM rows WHERE ${where.join(' AND ')}`).get(...filtered).n,pages=Math.max(1,Math.ceil(total/100)),number=Math.min(pageNumber(input.page),pages);
+  const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},id ${direction} LIMIT 100 OFFSET ?`).all(...filtered,(number-1)*100);
+  const legacy=legacyTaskSelection(db,user,{view:'mine',state:'open'});
+  return {ids:ids.map(r=>r.id),metrics:new Map(ids.map(r=>[r.id,{work_state:r.lifecycle,work_status:r.display_status,work_progress:r.progress}])),priority:legacy.priority,counts:legacy.counts,page:{number,pages,total,limit:100,view:'mine',state,sort,order:direction.toLowerCase(),unified:true}};
 }
 export function reviewSelection(db,user,input={}) {
   if(!can(user,'review.view'))return {rows:[],page:{number:1,pages:1,total:0,limit:100},total:0};

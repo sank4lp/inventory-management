@@ -15,6 +15,7 @@ export function migrateOperations(db) {
   add("tasks", "plan_revision", "INTEGER NOT NULL DEFAULT 1");
   add("tasks", "review_followup", "INTEGER NOT NULL DEFAULT 0");
   add("tasks", "review_handover_verified", "INTEGER NOT NULL DEFAULT 0");
+  add("tasks", "review_remaining_quantity", "REAL");
   add("tasks", "attention", "INTEGER NOT NULL DEFAULT 0");
   add("task_lines", "revision", "INTEGER NOT NULL DEFAULT 1");
   add("task_lines", "execution_state", "TEXT NOT NULL DEFAULT 'legacy'");

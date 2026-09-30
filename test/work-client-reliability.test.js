@@ -178,3 +178,28 @@ test('offline, unsynced movement and changed identities keep closure drafts with
 test('aggregate supervisor rejection preserves final rows just like an operator closure',async()=>{
  const c=closureSubmitClient({mode:'no',reply:'rejected'});c.f.dataset.workAction='resolve';c.f.dataset.draftKind='closure-review';await c.submit();assert.equal(c.run('drafts.get(draftKey(f))._actuals[0].quantity'),'3');assert.match(c.feedback.textContent,/Send for review/);assert.equal(c.renders(),0);assert.equal([...c.records.values()].find(o=>o.partition).action,'resolve');
 });
+
+test('review step Back saves drafts under their original task version; storage failure leaves the current step open',async()=>{
+ const c=client();let click,opened=[],saved=0,renders=0;const original={id:66,assignment_generation:1,progress_token:'original',lines:[]},fresh={...original,assignment_generation:2,progress_token:'fresh'},warning={hidden:true},form={dataset:{workAction:'updateReviewTask'}};
+ const dialog={_task:original,dataset:{taskId:'66',mode:'check-assignment'},querySelectorAll:()=>[form],querySelector:()=>warning},target={closest:s=>s==='[data-task-dialog]'?dialog:s==='[data-review-align],[data-review-assignment],[data-review-back]'?{}:null};
+ c.context.capture=(name,fn)=>{if(name==='click')click=fn;};c.context.original=original;c.context.fresh=fresh;c.context.saved=()=>saved++;c.context.opened=(t,mode)=>opened.push({t,mode});c.context.rendered=()=>renders++;
+ c.run("root.addEventListener=capture;snapshot.tasks=[fresh];saveDraft=async()=>saved();openTaskDialog=opened;render=rendered;");c.run(source.slice(source.indexOf("root.addEventListener('click'"),source.indexOf('let stopCamera=null;')));
+ await click({target});assert.equal(saved,1);assert.equal(opened[0].t,original);assert.equal(opened[0].mode,'check');assert.equal(renders,0);
+ c.run("saveDraft=async()=>{throw new Error('Storage unavailable');}");await click({target});assert.equal(opened.length,1);assert.equal(warning.hidden,false);assert.equal(warning.textContent,'Storage unavailable');assert.equal(renders,0);
+});
+function assignmentSubmitClient(reply='recorded'){
+ const c=client(),records=new Map(),sent=[],opened=[];let handler;
+ const values={taskId:'66',generation:'3',progressToken:'p',assigneeId:'2',remainingQuantity:'3',deadlineChoice:'duration',duration:'30',timeUnit:'minutes'};
+ const elements=Object.entries(values).map(([name,value])=>({name,value,type:['taskId','generation','progressToken'].includes(name)?'hidden':'text'}));for(const el of elements)elements[el.name]=el;
+ const button={disabled:false},feedback={textContent:'',classList:{add(){}}},f={dataset:{workAction:'updateReviewTask',draftKind:'review-assignment'},_workIdentity:{site:'test',dataset:'data',actorId:1},_draftPath:'/work',elements,isConnected:true,querySelector:s=>s==='.form-feedback'?feedback:button,querySelectorAll:()=>[],closest:()=>null};
+ c.context.f=f;c.context.records=records;c.context.FormData=class{constructor(){return Object.entries(values);}};c.context.capture=(name,fn)=>{if(name==='submit')handler=fn;};c.context.didOpen=(t,mode)=>opened.push({t,mode});
+ c.context.fetch=async(url,options)=>{sent.push(options.body);if(reply==='lost')throw new TypeError('Lost response');return {ok:reply!=='rejected',status:reply==='rejected'?400:200,json:async()=>reply==='rejected'?{error:'Task quantities or assignment changed.'}:{status:'recorded',taskId:66,message:'Task assignment updated.'}};};
+ c.run("root.addEventListener=capture;online=true;snapshot.user.role='admin';snapshot.tasks=[{id:66,assignment_generation:3,assignee_id:1,lines:[]}];store=async(name,mode,fn)=>fn({getAll:()=>[...records.values()].filter(r=>r.partition),put:o=>records.set(o.id,o),delete:id=>records.delete(id)});refresh=async()=>{online=true;};render=()=>{};fetchDialogTask=async()=>({id:66,assignment_generation:4,assignee_id:2});openTaskDialog=didOpen;");
+ c.run(source.slice(source.indexOf('let submitting=false;'),source.indexOf("root.addEventListener('click'")));
+ return {...c,records,sent,opened,feedback,f,values,submit:()=>handler({target:{closest:()=>f},preventDefault(){}})};
+}
+test('assignment save returns refreshed Review only on acceptance, with explicit duration semantics and durable retry',async()=>{
+ const c=assignmentSubmitClient();await c.submit();assert.equal(c.sent.length,1);const request=JSON.parse(c.sent[0]);assert.equal(request.changeDue,true);assert.equal(request.noDeadline,false);assert.equal(request.duration,'30');assert.equal(request.timeUnit,'minutes');assert.equal(c.opened[0].mode,'check');assert.equal(c.opened[0].t.assignee_id,2);assert.equal(c.run('drafts.has(draftKey(f))'),false);
+ for(const reply of ['rejected','lost']){const failed=assignmentSubmitClient(reply);await failed.submit();assert.equal(failed.opened.length,0);assert.equal(failed.run('drafts.get(draftKey(f)).remainingQuantity.value'),'3');assert.equal(failed.sent.length,1);assert.ok(failed.feedback.textContent);if(reply==='lost'){await failed.run('sync()');assert.equal(failed.sent[0],failed.sent[1]);}}
+ for(const choice of ['keep','none']){const c=assignmentSubmitClient();c.values.deadlineChoice=choice;await c.submit();const request=JSON.parse(c.sent[0]);assert.equal(request.changeDue,choice==='none');assert.equal(request.noDeadline,choice==='none');}
+});

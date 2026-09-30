@@ -219,3 +219,36 @@
  #work-app .task-actual-table button[data-remove-actual]{font-size:12px}
  #work-app .closure-actions button{padding:10px 8px;font-size:14px}
 }
+
+/* Unified work list and focused review steps. */
+#work-app table.my-work-table{min-width:990px}
+#work-app .my-work-table th a{color:inherit;white-space:nowrap;text-decoration:none}
+#work-app .my-work-table td{vertical-align:middle}
+#work-app .my-work-table td:first-child{min-width:180px}
+#work-app .my-work-table td:nth-child(2){min-width:170px;white-space:normal}
+#work-app .my-work-table td small{display:block;color:var(--work-muted);font-size:12px}
+#work-app .my-work-actions{display:flex;gap:6px;margin-top:5px}
+#work-app .my-work-actions button{min-height:34px;padding:5px 10px;font-size:13px}
+#work-app .my-work-filters{display:grid;gap:12px;background:#f5f8f7;padding:14px;margin:0 0 16px;border:1px solid var(--work-border);border-radius:10px}
+#work-app .my-work-filter-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+#work-app .my-work-filter-fields label,#work-app .my-work-filter-fields fieldset{min-width:0;margin:0}
+#work-app .my-work-filter-fields input,#work-app .my-work-filter-fields select{min-width:0;width:100%;margin:0}
+#work-app .my-work-filter-fields fieldset{padding:6px 8px;border:1px solid var(--work-border);border-radius:6px}
+#work-app .my-work-filter-fields legend{font-size:13px}
+#work-app .my-work-filter-fields fieldset>div{display:flex;gap:5px;align-items:center}
+#work-app .my-work-filters details>div{margin-top:10px}
+#work-app .my-work-filter-actions{display:flex;gap:16px;align-items:center}
+#work-app .review-choices{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+#work-app .review-task-header{justify-content:flex-start}
+#work-app [data-review-duration]{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+#work-app [data-review-duration][hidden]{display:none}
+@media(max-width:600px){#work-app .my-work-filter-fields{grid-template-columns:repeat(2,minmax(0,1fr))}#work-app .review-choices{grid-template-columns:1fr}#work-app .review-task-header h2{font-size:19px}}
+@media(max-width:480px){
+ #work-app .task-actual-table button[data-remove-actual]{min-width:44px;min-height:44px;font-size:0;white-space:nowrap}
+ #work-app .task-actual-table button[data-remove-actual]::after{content:'×';font-size:22px;line-height:1}
+}
+@media(max-width:480px){
+ #work-app .task-edit-dialog.check-dialog{width:calc(100vw - 16px);max-width:calc(100vw - 16px);padding:10px;border-width:1px;max-height:calc(100dvh - 16px)}
+ #work-app .task-actual-table th{overflow-wrap:normal;word-break:normal}
+ #work-app .task-actual-table .actual-unit{white-space:nowrap;overflow-wrap:normal}
+}
