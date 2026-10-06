@@ -185,6 +185,11 @@
 #work-app .task-edit-dialog.check-dialog{width:min(820px,calc(100vw - 32px))}
 #work-app .review-task-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
 #work-app .review-task-header h2{margin:0;font-size:21px}
+#work-app .review-task-header h2,.location-history-dialog .review-task-header h2{flex:1;min-width:0}
+#work-app .dialog-dismiss,.location-history-dialog .dialog-dismiss,.qr-dialog .dialog-dismiss{display:inline-grid;place-items:center;flex:none;width:36px;min-width:36px;height:36px;min-height:36px;margin:0 0 0 auto;padding:0;border:1px solid #bbcfc6;border-radius:8px;background:#fff;color:#245b4c;font:inherit;font-size:22px;line-height:1;cursor:pointer}
+#work-app .dialog-dismiss:hover,.location-history-dialog .dialog-dismiss:hover,.qr-dialog .dialog-dismiss:hover{background:#edf5f1;border-color:#1c6553;color:#174a3d}
+#work-app .dialog-dismiss:focus-visible,.location-history-dialog .dialog-dismiss:focus-visible,.qr-dialog .dialog-dismiss:focus-visible{outline:3px solid #42ac85;outline-offset:2px}
+@media(pointer:coarse){#work-app .dialog-dismiss,.location-history-dialog .dialog-dismiss,.qr-dialog .dialog-dismiss{width:44px;min-width:44px;height:44px;min-height:44px}}
 #work-app .check-workspace .review-task-header form{flex:0 1 340px;min-width:0;margin:0;padding:0;border:0;gap:0}
 #work-app .check-summary-table{min-width:0;width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px;margin:0;background:#fff;box-shadow:none;border-radius:0;isolation:isolate}
 #work-app .check-summary-table caption{padding:0 0 6px;text-align:left;font-size:12px;color:var(--work-muted)}
@@ -344,6 +349,8 @@
 /* Read-only task and bin timelines share the compact work table treatment. */
 #work-app .task-edit-dialog.history-dialog,.location-history-dialog{width:min(1200px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);padding:20px;box-sizing:border-box;overflow:auto;border:1px solid var(--work-border);border-radius:14px;color:var(--work-ink);background:#fff}
 .location-history-dialog::backdrop{background:rgb(0 0 0 / .45)}
+.location-history-dialog .review-task-header{display:flex;align-items:center;gap:12px}
+.qr-dialog-header{display:flex;align-items:center;gap:12px}.qr-dialog-header h2{flex:1;min-width:0;margin:0}
 .history-dialog .task-timeline-wrap,.cell-timeline-wrap{max-height:55dvh;overflow:auto;margin-top:16px;border:1px solid var(--work-border);border-radius:8px}
 #work-app .history-dialog .task-timeline,.cell-timeline{width:100%;min-width:830px;table-layout:auto;border-collapse:collapse;font-size:13px}
 #work-app .history-dialog .task-timeline :is(th,td),.cell-timeline :is(th,td){padding:9px 12px;vertical-align:top;text-align:left;border-bottom:1px solid var(--work-border);overflow-wrap:normal;white-space:normal}

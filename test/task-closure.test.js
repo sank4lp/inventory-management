@@ -37,19 +37,74 @@ function finalQuantityFixture(direction='pick'){
  const balance=cell=>Number(db.prepare('SELECT available_quantity q FROM inventory_balances WHERE product_id=1 AND cell_id=?').get(cell.id)?.q||0);
  return {db,work,admin,op,cells,cmd,task,taskId,fields,balance};
 }
-for(const direction of ['pick','put'])test(`${direction}: each cell posts immediately, task stays open until Complete Task`,()=>{
+for(const direction of ['pick','put'])test(`${direction}: each cell posts immediately and the final cell completes the task`,()=>{
  const f=fixture(direction);try{
   let task=f.get(f.t.id);const start=f.cells.map(c=>f.balance(c.id));
-  for(const [index,original] of task.lines.filter(l=>l.execution_state==='ready').entries()){
+  const ready=task.lines.filter(l=>l.execution_state==='ready');
+  for(const [index,original] of ready.entries()){
    f.cmd(f.op,'acquire',{lineId:original.id,revision:original.revision,method:'arrival'});
    const line=f.get(f.t.id).lines.find(l=>l.id===original.id);
    const requestId=randomUUID(),input={requestId,lineId:line.id,revision:line.revision,assignmentGeneration:line.current_generation,cellId:line.cell_id,unit:line.unit_of_measure,quantity:line.planned_quantity,method:'manual',manualReason:'Cell label checked',cellCompletion:true};
    const result=f.cmd(f.op,'report',input);assert.equal(result.status,'recorded');assert.equal(f.cmd(f.op,'report',input).replayed,true);
-   task=f.get(f.t.id);assert.equal(task.lines.find(l=>l.id===line.id).execution_state,'settled');assert.equal(task.explicit_close,1);assert.equal(task.outcome,'open');assert.equal(task.completed_at,null);
+   task=f.get(f.t.id);assert.equal(task.lines.find(l=>l.id===line.id).execution_state,'settled');assert.equal(task.explicit_close,1);
+   assert.equal(task.outcome,index===ready.length-1?'completed':'open');
+   assert.equal(Boolean(task.completed_at),index===ready.length-1);
    assert.equal(f.balance(line.cell_id),start[index]+(direction==='pick'?-1:1)*line.planned_quantity);
   }
   assert.equal(task.recorded_quantity,10);assert.equal(task.remaining_quantity,0);
-  const finished=f.cmd(f.op,'closeTask',{...f.input(),taskFinish:true,currentStatus:'yes',finalTaskCompletion:true});assert.equal(finished.closed,true);assert.equal(f.get(f.t.id).outcome,'completed');assert.equal(f.held(),0);
+  assert.equal(f.held(),0);
+ }finally{f.db.close();}
+});
+test('startup closes a previously recorded Put task left open by the older flow',()=>{
+ const f=fixture('put');try{
+  for(const original of f.get(f.t.id).lines.filter(l=>l.execution_state==='ready')){
+   f.cmd(f.op,'acquire',{lineId:original.id,revision:original.revision,method:'arrival'});
+   const line=f.get(f.t.id).lines.find(l=>l.id===original.id);
+   f.cmd(f.op,'report',{lineId:line.id,revision:line.revision,assignmentGeneration:line.current_generation,cellId:line.cell_id,unit:line.unit_of_measure,quantity:line.planned_quantity,method:'manual',manualReason:'Cell checked',cellCompletion:true});
+  }
+  f.db.prepare("UPDATE tasks SET status='pending_review',outcome='open',completed_at=NULL WHERE id=?").run(f.t.id);
+  const stock=f.cells.map(c=>f.balance(c.id));
+  createOperationsService({db:f.db});
+  assert.equal(f.get(f.t.id).outcome,'completed');assert.ok(f.get(f.t.id).completed_at);
+  assert.deepEqual(f.cells.map(c=>f.balance(c.id)),stock,'reconciliation does not post stock twice');
+ }finally{f.db.close();}
+});
+test('startup sends an older fully recorded but short Put task to supervisor review',()=>{
+ const f=fixture('put');try{
+  const ready=f.get(f.t.id).lines.filter(l=>l.execution_state==='ready');let autoReview;
+  for(const [index,original] of ready.entries()){
+   f.cmd(f.op,'acquire',{lineId:original.id,revision:original.revision,method:'arrival'});
+   const line=f.get(f.t.id).lines.find(l=>l.id===original.id),short=index===ready.length-1;
+   const result=f.cmd(f.op,'report',{lineId:line.id,revision:line.revision,assignmentGeneration:line.current_generation,cellId:line.cell_id,unit:line.unit_of_measure,quantity:line.planned_quantity-(short?1:0),method:'manual',manualReason:'Cell checked',cellCompletion:true,differenceConfirmed:short});
+   autoReview=result.reviewReportId||autoReview;
+  }
+  assert.ok(autoReview);
+  f.db.prepare('DELETE FROM work_events WHERE report_id=?').run(autoReview);
+  f.db.prepare('DELETE FROM work_reports WHERE id=?').run(autoReview);
+  f.db.prepare("UPDATE tasks SET status='pending_review',outcome='open',attention=0,stop_requested=0 WHERE id=?").run(f.t.id);
+  const stock=f.cells.map(c=>f.balance(c.id));
+  createOperationsService({db:f.db});
+  assert.equal(f.get(f.t.id).outcome,'needs_review');assert.equal(f.get(f.t.id).attention,1);
+  assert.ok(f.work.snapshot(f.admin).pending.some(r=>r.closureTask?.id===f.t.id));
+  assert.deepEqual(f.cells.map(c=>f.balance(c.id)),stock,'reconciliation does not post stock twice');
+ }finally{f.db.close();}
+});
+for(const direction of ['pick','put'])for(const assign of [false,true])test(`${direction}: a short final cell automatically needs review; supervisor can ${assign?'assign the remainder':'close the recorded result'}`,()=>{
+ const f=fixture(direction);try{
+  const ready=f.get(f.t.id).lines.filter(l=>l.execution_state==='ready');
+  for(const [index,original] of ready.entries()){
+   f.cmd(f.op,'acquire',{lineId:original.id,revision:original.revision,method:'arrival'});
+   const line=f.get(f.t.id).lines.find(l=>l.id===original.id),short=index===ready.length-1;
+   const result=f.cmd(f.op,'report',{lineId:line.id,revision:line.revision,assignmentGeneration:line.current_generation,cellId:line.cell_id,unit:line.unit_of_measure,quantity:line.planned_quantity-(short?1:0),method:'manual',manualReason:'Cell checked',cellCompletion:true,differenceConfirmed:short});
+   assert.equal(result.status,'recorded');
+   if(short)assert.ok(result.reviewReportId);else assert.equal(f.get(f.t.id).outcome,'open');
+  }
+  const task=f.get(f.t.id);assert.equal(task.outcome,'needs_review');assert.equal(task.attention,1);assert.equal(task.recorded_quantity,9);assert.equal(task.remaining_quantity,1);assert.equal(task.work_priority,'high');assert.equal(f.held(),0);
+  const pending=f.work.snapshot(f.admin).pending.find(r=>r.closureTask?.id===task.id);assert.ok(pending);
+  const result=f.cmd(f.admin,assign?'resolveAndAssignRemaining':'resolve',{...f.fields(task),reportId:pending.id,caseRevision:pending.case_revision,currentStatus:'no',actuals:pending.closureActuals,workerStopped:true,assigneeId:f.other.id});
+  assert.equal(result.closed,true);assert.equal(f.get(task.id).recorded_quantity,9);assert.ok(f.get(task.id).completed_at);
+  if(assign)assert.equal(f.get(result.newTaskId).requested_quantity,1);
+  else assert.equal(result.newTaskId,undefined);
  }finally{f.db.close();}
 });
 test('changed actual location needs acknowledgement, then posts to that cell without automatic review',()=>{

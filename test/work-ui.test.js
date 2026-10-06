@@ -93,6 +93,26 @@ test('task finish offers unfinished cells first and requires explicit confirmati
  ui.run('task.recorded_quantity=5');html=ui.run('taskFinishDialog(task,[])');assert.match(html,/data-work-action="closeTask"/);assert.doesNotMatch(html,/name="unfinishedConfirmed"/);
 });
 
+test('informational dialogs offer a close icon while decision dialogs keep explicit actions', () => {
+ const ui=view({role:'admin'}),task={id:1,type:'put',assignee_id:1,assignment_generation:1,requested_quantity:5,recorded_quantity:3,remaining_quantity:2,attention:1,lines:[{...line,type:'put',execution_state:'settled',actual_quantity:3}]};
+ ui.context.task=task;ui.run('snapshot.tasks=[task];snapshot.operators=[]');
+ assert.match(ui.run('checkDialogContent(task)'),/data-dialog-dismiss aria-label="Close review"/);
+ assert.match(ui.run('taskHistoryContent(task)'),/data-dialog-dismiss aria-label="Close task history"/);
+ assert.match(ui.run("operationContent({stage:'connection'})"),/data-dialog-dismiss aria-label="Close connection status"/);
+ assert.doesNotMatch(ui.run('reviewMovementContent(task)'),/data-dialog-dismiss/);
+ assert.doesNotMatch(ui.run('discardContent(task)'),/data-dialog-dismiss/);
+ assert.doesNotMatch(ui.run('taskFinishDialog(task,[])'),/data-dialog-dismiss/);
+});
+
+test('a completed Put task shows no Resume or Complete Task action', () => {
+ const ui=view({active:true});
+ const task={id:1,type:'put',summary:'Part',outcome:'completed',completed_at:'2026-10-07T10:00:00Z',requested_quantity:5,recorded_quantity:5,remaining_quantity:0,assignment_generation:1,assignment_state:'started',assignee_id:1,lines:[{...line,type:'put',execution_state:'settled',actual_quantity:5}]};
+ ui.context.task=task;ui.run("snapshot.tasks=[task];path='/tasks/1'");
+ const html=ui.run('taskPage(1)');
+ assert.match(html,/Back to My work/);
+ assert.doesNotMatch(html,/data-work-action="resume"|data-complete-task|data-task-finish-dialog/);
+});
+
 test('a supervisor can accept a short task total and assign the remainder from the same review', () => {
  const ui=view({role:'admin'});
  ui.context.task={id:9,type:'pick',requested_quantity:5,remaining_quantity:1,recorded_quantity:0,assignee_id:2,assignment_generation:2,progress_token:'p',closure_token:'c',closure_review_id:'case-9',closure_case_revision:1,closure_actuals:[{cellId:3,quantity:4}],lines:[{...line,task_id:9}]};

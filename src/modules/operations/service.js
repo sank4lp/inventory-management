@@ -85,13 +85,41 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       WHERE l.task_id=? AND r.status IN ('review','received')`).get(taskId);
     const actual = rounded(lines.reduce((n,l)=>n+(l.execution_state==='settled'?l.actual_quantity:0),0));
     const returned = t.assignment_state==='returned' && !t.stop_requested;
-    const outcome = review?'needs_review':returned?'needs_assignment':open||t.explicit_close&&!t.stop_requested||t.review_followup&&!t.stop_requested&&(t.review_remaining_quantity>0||actual<t.requested_quantity)?'open':actual >= t.requested_quantity && actual>0?'completed':actual>0?'stopped':'cancelled';
+    const needsFinalReview = !t.stop_requested && (
+      t.explicit_close && actual < t.requested_quantity ||
+      t.review_followup && (t.review_remaining_quantity > 0 || actual < t.requested_quantity)
+    );
+    const outcome = review?'needs_review':returned?'needs_assignment':open||needsFinalReview?'open':actual >= t.requested_quantity && actual>0?'completed':actual>0?'stopped':'cancelled';
     const closed = ['completed','stopped','cancelled'].includes(outcome);
     if(closed&&!t.completed_at)event('task_completed',null,null,{taskId,outcome,quantity:actual});
     db.prepare('UPDATE tasks SET status=?,outcome=?,attention=?,completed_at=?,last_touched_at=? WHERE id=?')
       .run(closed?(outcome==='completed'?'completed':'cancelled'):'pending_review',outcome,review?1:0,closed?(t.completed_at||now()):null,now(),taskId);
   }
+  // Earlier versions left fully recorded cell-by-cell tasks open until a second tap.
+  for(const {id} of db.prepare(`SELECT t.id FROM tasks t WHERE t.workflow_version=2
+    AND t.explicit_close=1 AND t.completed_at IS NULL AND t.stop_requested=0
+    AND t.assignment_state!='returned' AND t.review_followup=0 AND t.requested_quantity>0
+    AND (SELECT COALESCE(SUM(l.actual_quantity),0) FROM task_lines l
+      WHERE l.task_id=t.id AND l.execution_state='settled')>=t.requested_quantity
+    AND NOT EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=t.id AND l.execution_state IN ('ready','working'))
+    AND NOT EXISTS(SELECT 1 FROM work_reservations r JOIN task_lines l ON l.id=r.line_id
+      WHERE l.task_id=t.id AND r.state='held')
+    AND NOT EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id
+      WHERE l.task_id=t.id AND r.status IN ('review','received'))`).all())withTransaction(db,()=>taskProgress(id));
   const closure=createTaskClosure({db,line,currentTask,progressToken,workQuantity,movement:(input)=>movement(input),insertReport,review,event,releaseTurn,syncReservations,taskProgress,assignmentEvent,markDiscrepancy});
+  for(const {id,assignee_id} of db.prepare(`SELECT t.id,t.assignee_id FROM tasks t WHERE t.workflow_version=2
+    AND t.explicit_close=1 AND t.completed_at IS NULL AND t.stop_requested=0 AND t.review_followup=0
+    AND t.requested_quantity>(SELECT COALESCE(SUM(l.actual_quantity),0) FROM task_lines l
+      WHERE l.task_id=t.id AND l.execution_state='settled')
+    AND EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=t.id AND l.execution_state='settled')
+    AND NOT EXISTS(SELECT 1 FROM task_lines l WHERE l.task_id=t.id AND l.execution_state IN ('ready','working'))
+    AND NOT EXISTS(SELECT 1 FROM work_reservations r JOIN task_lines l ON l.id=r.line_id
+      WHERE l.task_id=t.id AND r.state='held')
+    AND NOT EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id
+      WHERE l.task_id=t.id AND r.status IN ('review','received'))`).all()){
+    const actor=db.prepare('SELECT * FROM users WHERE id=?').get(assignee_id);
+    if(actor)withTransaction(db,()=>closure.sendAutomatically(actor,id,`auto-reconcile-${id}`));
+  }
   function captureInstruction(id) {
     const l=line(id);
     const description=describeLocation(db,l.cell_id);
@@ -286,7 +314,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     syncReservations();
     event("allocation_settled", actor, allocation.id, { planned: allocation.planned_quantity, actual: qty, supervisor, verification }, report.id);
     taskProgress(allocation.task_id);
-    return { status: "recorded", reportId: report.id, taskId: allocation.task_id, quantity: qty, message: `${qty} ${report.unit} recorded at ${allocation.logical_code}.` };
+    const automaticReview=!supervisor?closure.sendAutomatically(actor,allocation.task_id,`auto-final-cell-${report.id}`):null;
+    return { status: "recorded", reportId: report.id, reviewReportId: automaticReview?.reportId, taskId: allocation.task_id, quantity: qty, message: `${qty} ${report.unit} recorded at ${allocation.logical_code}.${automaticReview?' '+automaticReview.message:''}` };
   }
   function plan(product,input,remaining) {
     const restricted=['location','mixed'].includes(input.recovery?.mode)?Number(input.recovery.cellId):Number(input.plan_cell_id||0);

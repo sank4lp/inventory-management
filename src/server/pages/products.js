@@ -302,7 +302,7 @@ export function createProductPages({ db, productFieldService = null }) {
               <h2 id="capacity-recommendation-title">Recommended Action Created</h2>
               <p class="muted">The capacity update created an inventory action you can review now or leave for later.</p>
             </div>
-            <a class="mini-link" href="${escapeHtml(skipPath)}">Close</a>
+            <a class="icon-button ghost-button" href="${escapeHtml(skipPath)}" aria-label="Close recommendation" title="Close">×</a>
           </div>
           <p><strong>${escapeHtml(action.title)}</strong></p>
           <p class="muted">${escapeHtml(action.actionSummary || `Move ${action.productSku} from ${action.logicalCode}.`)}</p>
@@ -728,7 +728,7 @@ export function createProductPages({ db, productFieldService = null }) {
                       <h2 id="add-product-title">Add Product</h2>
                       <p class="muted">Enter the fields operators need during pick and put. Optional catalog details can wait.</p>
                     </div>
-                    <a class="mini-link" href="/products">Close</a>
+                    <a class="icon-button ghost-button" href="/products" aria-label="Close Add Product" title="Close">×</a>
                   </div>
                   <form method="post" action="/products" class="stack-form">
                     <div class="form-grid">
@@ -1091,7 +1091,7 @@ export function createProductPages({ db, productFieldService = null }) {
               <h2 id="put-capacity-title">No Space Available</h2>
               <p class="muted">${escapeHtml(flash?.message || "No eligible location has enough room for this put quantity.")}</p>
             </div>
-            <a class="mini-link" href="${escapeHtml(returnTo)}">Close</a>
+            <a class="icon-button ghost-button" href="${escapeHtml(returnTo)}" aria-label="Close space options" title="Close">×</a>
           </div>
           <p><strong>The Put planner could not find enough eligible room for ${escapeHtml(product.sku)}.</strong> Use one or more of these options, then retry the same request.</p>
           <div class="put-capacity-recovery-grid">

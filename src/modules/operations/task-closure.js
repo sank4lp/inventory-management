@@ -120,13 +120,25 @@ export function createTaskClosure({db,line,currentTask,progressToken,workQuantit
   }
   return finalize(actor,t,rows,input,supervisor);
  }
+ function requestReview(actor,t,actuals,requestId,automatic=false,currentStatus='yes'){
+  const first=lines(t.id)[0],perCell=t.explicit_close===1;const r=insertReport(actor,{quantity:workQuantity(round(actuals.reduce((n,r)=>n+r.quantity,0))),origin:`task-closure:${requestId}`,taskClosure:true,actuals,currentStatus,reason:automatic?'All locations recorded with less than the requested quantity':perCell?'Unfinished locations submitted for supervisor decision':'Final task movement totals submitted for review'},first,true);
+  db.prepare('UPDATE work_reports SET performer_id=NULL WHERE id=?').run(r.id);
+  review(r,automatic?'All locations are recorded, but the task total is short. A supervisor can assign the remainder or close it as recorded.':perCell?'Unfinished locations need a supervisor decision. Completed cell movements remain recorded.':'Task closure requested. Verify all final location totals together; no stock correction has been posted.');db.prepare('UPDATE tasks SET stop_requested=1,assignment_generation=assignment_generation+1 WHERE id=?').run(t.id);assignmentEvent(actor,t.id,'closure_review_requested',t.assignee_id,{reportId:r.id,actuals,automatic});return {status:'review',taskId:t.id,reportId:r.id,message:automatic?'All locations recorded. The remaining quantity needs a supervisor decision.':perCell?'Unfinished work sent to supervisor. Completed cell movements remain recorded.':'Sent for review. Actual entries are saved; the task is not closed and stock is not confirmed.'};
+ }
  function send(actor,input){
   const team=can(actor,'work.teamStop');let t;if(team){t=currentTask(actor,input);if(t.completed_at||input.progressToken!==progressToken(t.id)||input.closureToken!==token(t.id))throw new Error('Task changed. Refresh before requesting review.');}else t=fresh(actor,input);
   if(input.taskFinish===true&&input.unfinishedConfirmed!==true)throw new Error('Confirm that the unfinished work should go to a supervisor.');
-  if(pendingCase(t.id))throw new Error('Task closure is already awaiting supervisor review.');const actuals=rowsFor(t,input),first=lines(t.id)[0],perCell=t.explicit_close===1;const r=insertReport(actor,{quantity:workQuantity(round(actuals.reduce((n,r)=>n+r.quantity,0))),origin:`task-closure:${input.requestId}`,taskClosure:true,actuals,currentStatus:input.currentStatus,reason:perCell?'Unfinished locations submitted for supervisor decision':'Final task movement totals submitted for review'},first,true);
-  db.prepare('UPDATE work_reports SET performer_id=NULL WHERE id=?').run(r.id);
-  review(r,perCell?'Unfinished locations need a supervisor decision. Completed cell movements remain recorded.':'Task closure requested. Verify all final location totals together; no stock correction has been posted.');db.prepare('UPDATE tasks SET stop_requested=1,assignment_generation=assignment_generation+1 WHERE id=?').run(t.id);assignmentEvent(actor,t.id,'closure_review_requested',t.assignee_id,{reportId:r.id,actuals});return {status:'review',taskId:t.id,reportId:r.id,message:perCell?'Unfinished work sent to supervisor. Completed cell movements remain recorded.':'Sent for review. Actual entries are saved; the task is not closed and stock is not confirmed.'};
+  if(pendingCase(t.id))throw new Error('Task closure is already awaiting supervisor review.');
+  return requestReview(actor,t,rowsFor(t,input),input.requestId,false,input.currentStatus);
+ }
+ function sendAutomatically(actor,taskId,requestId){
+  const t=db.prepare('SELECT * FROM tasks WHERE id=? AND workflow_version=2').get(taskId);
+  if(!t||!t.explicit_close||t.completed_at||t.stop_requested||t.review_followup||pending(t.id).length)return null;
+  const all=lines(t.id).filter(l=>l.execution_state!=='superseded');
+  const actual=round(all.reduce((n,l)=>n+(l.execution_state==='settled'?l.actual_quantity:0),0));
+  if(!all.some(l=>l.execution_state==='settled')||all.some(l=>['ready','working'].includes(l.execution_state))||actual>=t.requested_quantity)return null;
+  return requestReview(actor,t,rowsFor(t,{currentStatus:'yes'}),requestId,true);
  }
  function resolve(actor,input,report){assertCan(actor,'review.resolve');assertCan(actor,'review.stop');if(input.keepOpen)return null;const t=fresh(actor,input,true);if(report.line_id==null||line(report.line_id).task_id!==t.id)throw new Error('This review belongs to another task.');input=attest(input);return finalize(actor,t,rowsFor(t,input),input,true,report);}
- return {close,send,resolve,totals,token,pendingCase,hasClosed};
+ return {close,send,sendAutomatically,resolve,totals,token,pendingCase,hasClosed};
 }
