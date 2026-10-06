@@ -74,7 +74,7 @@ test('a supervisor can accept a short task total and assign the remainder from t
  assert.match(html,/name="actualQuantity0"[^>]*value="4"/);
 });
 
-test('active pick and put show the review-style task summary and let operators choose any location', () => {
+test('active pick and put lead with selectable cells, one main card, and compact task info', () => {
  for (const type of ['pick','put']) {
   const ui=view({active:true});
   const task={id:1,type,summary:'Part',outcome:'open',assignment_generation:1,assignment_state:'started',assignee_id:1,assignee_name:'Operator',assigned_by_name:'Admin',assigned_at:'2026-10-06T08:00:00Z',requested_quantity:10,recorded_quantity:2,remaining_quantity:8,lines:[
@@ -84,10 +84,13 @@ test('active pick and put show the review-style task summary and let operators c
   ]};
   ui.context.task=task;ui.run("snapshot.tasks=[task];path='/tasks/1'");
   let html=ui.run('taskPage(1)');
-  assert.match(html,/<table class="check-summary-table"/);
-  assert.match(html,/<th scope="row">Work<\/th><td>Active work<\/td>/);
-  assert.match(html,/<th scope="row">Status<\/th><td>In progress<\/td>/);
-  assert.match(html,/<th scope="row">Assigned by<\/th><td>Admin<\/td>/);
+  assert.match(html,/<nav class="task-location-list" data-task-cells/);
+  assert.match(html,/<section class="task-context task-info"/);
+  assert.match(html,/<dt>Status<\/dt><dd>In progress<\/dd>/);
+  assert.match(html,/<dt>Assigned by<\/dt><dd>Admin<\/dd>/);
+  assert.ok(html.indexOf('data-task-cells')<html.indexOf('data-line="1"'));
+  assert.ok(html.indexOf('data-line="1"')<html.indexOf('aria-label="Task info"'));
+  assert.ok(html.indexOf('<dt>Product name</dt>')<html.indexOf('<dt>Status</dt>'));
   assert.match(html,/Refresh light/);assert.match(html,/Scan QR/);
   assert.equal((html.match(/class="task-location-card"/g)||[]).length,3);
   assert.match(html,new RegExp(`B4<\\/strong><span>${type==='put'?'Put':'Pick'} 3 pieces`));
@@ -97,6 +100,16 @@ test('active pick and put show the review-style task summary and let operators c
   assert.match(html,/data-line="2"/);
   assert.doesNotMatch(html,/data-line="1"/);
  }
+});
+
+test('task notifications stay compact and repeat renders do not duplicate them', () => {
+ const ui=view();
+ ui.run("notice='Task saved';captureNotification();captureNotification()");
+ assert.equal(ui.run('notifications.length'),1);
+ assert.match(ui.run('notificationButton()'),/aria-label="Notifications"/);
+ assert.match(ui.run('noticeToast()'),/Dismiss notification/);
+ ui.run("notice='Light ready';captureNotification()");
+ assert.equal(ui.run('notifications.length'),2);
 });
 
 test('offline reports stay accessible and queued/view-only safeguards survive simpler screens', () => {
@@ -336,12 +349,12 @@ test('blocked Go-to heading changes live without replacing a focused manual draf
 test('passive task details offer Resume with collapsed recovery and no arrival or Refresh light controls',()=>{
  const task={id:1,type:'pick',assignment_generation:1,assignee_id:1,assignment_state:'started',progress_token:'fresh',lines:[line]},ui=view({tasks:[task]});
  ui.context.task=task;ui.run("path='/tasks/1'");const passive=ui.run('taskPage(1)');assert.match(passive,/Task details/);assert.match(passive,/data-work-action="resume"/);assert.match(passive,/Location A3/);assert.doesNotMatch(passive,/I'm at this location|data-refresh-light|Go to A3/);assert.match(passive,/data-record-moved="1"/);
- ui.run('activeWork={taskId:1,generation:1,identity:key(),dataset:snapshot.dataset}');const active=ui.run('taskPage(1)');assert.match(active,/Active work/);assert.match(active,/Go to A3/);assert.match(active,/I'm at this location/);assert.doesNotMatch(active,/data-work-action="resume"/);
+ ui.run('activeWork={taskId:1,generation:1,identity:key(),dataset:snapshot.dataset}');const active=ui.run('taskPage(1)');assert.match(active,/data-task-cells/);assert.match(active,/Go to A3/);assert.match(active,/I'm at this location/);assert.doesNotMatch(active,/data-work-action="resume"/);
  ui.run("activeWork=null;task.assignment_state='offered'");const offered=ui.run('taskPage(1)');assert.match(offered,/data-work-action="start"/);assert.doesNotMatch(offered,/I'm at this location|data-refresh-light/);
 });
 
 test('task context carries return/check people and times, and assignment editor chooses the safe state-specific action',()=>{
- const ui=view({role:'admin'}),t={id:66,type:'pick',assignee_id:null,assignment_state:'returned',assignment_generation:3,progress_token:'now',requested_quantity:5,recorded_quantity:2,remaining_quantity:3,return_event:{id:9,previous_name:'Sam',created_at:'2026-09-29T10:00:00Z',reason:'Shift ended',note:'Two moved'},assigned_by_name:'Alex',assigned_at:'2026-09-28T10:00:00Z',lines:[{...line,execution_state:'superseded'},{...line,id:2,execution_state:'settled',attribution:{performer:'Sam',reporter:'Alex'}}]};ui.context.t=t;ui.run('snapshot.tasks=[t];snapshot.operators=[{id:1,name:"Alex",username:"alex",eligible:true},{id:2,name:"Sam",username:"sam",eligible:false}]');let html=ui.run('taskPage(66)');for(const text of ['Returned by Sam','Shift ended · Two moved','Assigned by Alex','Performed by Sam','Entered by Alex','Assign the remaining work'])assert.ok(html.includes(text),text);assert.match(html,/data-work-action="updateReturned"/);assert.match(html,/name="remainingQuantity" value="3"/);assert.match(html,/select data-searchable name="assigneeId"/);assert.doesNotMatch(html,/<option value="2"|data-work-action="start"|data-work-action="resume"/);
+ const ui=view({role:'admin'}),t={id:66,type:'pick',assignee_id:null,assignment_state:'returned',assignment_generation:3,progress_token:'now',requested_quantity:5,recorded_quantity:2,remaining_quantity:3,return_event:{id:9,previous_name:'Sam',created_at:'2026-09-29T10:00:00Z',reason:'Shift ended',note:'Two moved'},assigned_by_name:'Alex',assigned_at:'2026-09-28T10:00:00Z',lines:[{...line,execution_state:'superseded'},{...line,id:2,execution_state:'settled',attribution:{performer:'Sam',reporter:'Alex'}}]};ui.context.t=t;ui.run('snapshot.tasks=[t];snapshot.operators=[{id:1,name:"Alex",username:"alex",eligible:true},{id:2,name:"Sam",username:"sam",eligible:false}]');let html=ui.run('taskPage(66)');for(const text of ['Returned by Sam','Shift ended · Two moved','<dt>Assigned by</dt><dd>Alex','Performed by Sam','Entered by Alex','Assign the remaining work'])assert.ok(html.includes(text),text);assert.match(html,/data-work-action="updateReturned"/);assert.match(html,/name="remainingQuantity" value="3"/);assert.match(html,/select data-searchable name="assigneeId"/);assert.doesNotMatch(html,/<option value="2"|data-work-action="start"|data-work-action="resume"/);
  ui.run("t.lines[0].execution_state='working';t.lines[0].reports=[{status:'review',performer_name:'Sam',reporter_name:'Alex',reason:'Count uncertain'}];t.attention=1");assert.match(ui.run('taskAssigneeEditor(t)'),/data-work-action="assignReview"/);assert.doesNotMatch(ui.run('taskAssigneeEditor(t)'),/remainingQuantity/);ui.run("t.lines[0].reports=[];t.attention=0;t.assignment_state='started'");assert.doesNotMatch(ui.run('taskAssigneeEditor(t)'),/<form/);
 });
 test('own and team review entry never executes physical work; verified followup can explicitly plan remaining work',()=>{

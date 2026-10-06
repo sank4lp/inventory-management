@@ -8,6 +8,19 @@ const reviewInstruction=r=>r.quantity_known===0?'Ask the person who did the work
 const taskName=t=>t.lines?.[0]?.product_name||t.summary;
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 let dirty=false;
+let lastTaskAutoScroll='';
+let lastNotice='',toastUntil=0,toastTimer,notifications=[];
+function captureNotification(){
+ if(!notice){lastNotice='';return;}
+ if(notice===lastNotice)return;
+ lastNotice=notice;notifications.unshift({message:workText(notice),time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})});notifications=notifications.slice(0,8);
+ toastUntil=Date.now()+10000;globalThis.clearTimeout?.(toastTimer);
+ toastTimer=globalThis.setTimeout?.(()=>{toastUntil=0;const live=root.querySelector?.('#work-notice');if(live)live.innerHTML='';},10000);
+}
+function notificationList(){return notifications.length?`<ol>${notifications.map(n=>`<li><time>${esc(n.time)}</time><span>${esc(n.message)}</span></li>`).join('')}</ol>`:'<p>No notifications yet.</p>';}
+function notificationButton(){return `<details class="work-notifications" data-disclosure="notifications"><summary aria-label="Notifications">Notifications <span class="notification-count">${notifications.length||''}</span></summary><div class="notification-panel" data-notification-list>${notificationList()}</div></details>`;}
+function noticeToast(){return notice&&Date.now()<toastUntil?`<div class="work-toast"><p>${esc(workText(notice))}</p><button type="button" class="secondary" data-dismiss-notice aria-label="Dismiss notification">×</button></div>`:'';}
+function paintNotifications(){captureNotification();const live=root.querySelector?.('#work-notice');if(live&&live.dataset.notice!==notice){live.innerHTML=noticeToast();live.dataset.notice=notice;}const list=root.querySelector?.('[data-notification-list]');if(list)list.innerHTML=notificationList();const count=root.querySelector?.('.notification-count');if(count)count.textContent=notifications.length?String(notifications.length):'';}
 let selectingTasks=false, selectedTasks=new Set(), bulkTasks=[], bulkErrors=new Map(), bulkBusy=false;
 const modalSession=uid(), modalFrames=[];
 let modalDepth=0, modalMoving=false;
@@ -84,6 +97,7 @@ async function enterActiveTask(result){
  if(t.assignment_generation!==Number(result.generation)||t.assignee_id!==snapshot.user.id||t.canAct===false||t.assignment_state!=='started'||t.review_followup||t.completed_at||t.stop_requested)throw new Error('The task changed after this request. Open its details before continuing.');
  snapshot.tasks=[t,...snapshot.tasks.filter(x=>x.id!==t.id)];
  activeWork={taskId:t.id,generation:t.assignment_generation,identity:key(),dataset:snapshot.dataset};resumeLightWarning='';
+ lastTaskAutoScroll='';
  const returnTo=workReturn(),query=returnTo?'?return_to='+encodeURIComponent(returnTo):'';
  path='/tasks/'+t.id;window.history.pushState({},'',path+query);
  const title=`Task #${t.id} - ${t.type==='put'?'Put':'Pick'} ${taskName(t)}`;const heading=document.querySelector('h1');if(heading)heading.textContent=title;document.title=title+' · LytGuide IMS';render();
@@ -238,7 +252,12 @@ function taskPeople(t){
 }
 function taskContext(t){
  const e=t.return_event;
- return `<section class="task-context">${taskAssigneeEditor(t)}<p class="work-help">Assigned by ${esc(t.assigned_by_name||'Not recorded')} · ${taskDate(t.assigned_at)}</p>${e?`<p><strong>Returned by ${esc(e.previous_name||'Unknown')}</strong> · ${taskDate(e.created_at)}</p><p>${esc([e.reason,e.note].filter(Boolean).join(' · ')||'No reason recorded')}</p>`:''}${t.assignment_state==='returned'&&!t.assignee_id?'<p>Assign the remaining work before starting.</p>':''}${t.review_followup||t.attention?'<p class="work-callout warning">Check moved quantity first. Remaining quantity is provisional until verified.</p>':''}${taskPeople(t)}</section>`;
+ const field=(label,value)=>`<div class="task-info-field"><dt>${label}</dt><dd>${value}</dd></div>`;
+ const assignment=assignmentEditAction(t)?disclosure('task-assignee-'+t.id,'Change',taskAssigneeEditor(t,true),false,'task-assignee-change'):'';
+ const first=[field('Product name',taskProductLink(t)),field('Task',`#${esc(t.id)} · ${esc(t.type==='put'?'Put':'Pick')}`),field('Assigned to',`${esc(t.assignee_name||'Unassigned')}${assignment}`),field('Assigned by',esc(t.assigned_by_name||'Not recorded')),field('Assigned time',taskDate(t.assigned_at))].join('');
+ const rest=[field('Status',esc(outcome(t))),field('Requested',`${esc(t.requested_quantity)} ${esc(t.lines[0]?.unit_of_measure)}`),field('Completed',`${esc(t.recorded_quantity??0)} ${esc(t.lines[0]?.unit_of_measure)}`),field('Remaining',`${esc(t.remaining_quantity??0)} ${esc(t.lines[0]?.unit_of_measure)}`),field('Deadline',t.due_at?taskDate(t.due_at):'No deadline')].join('');
+ const extra=e?`<p><strong>Returned by ${esc(e.previous_name||'Unknown')}</strong> · ${taskDate(e.created_at)}</p><p>${esc([e.reason,e.note].filter(Boolean).join(' · ')||'No reason recorded')}</p>`:'';
+ return `<section class="task-context task-info" aria-label="Task info"><h3>Task info</h3><dl class="task-info-grid">${first}${rest}</dl>${t.assignment_state==='returned'&&!t.assignee_id?'<p>Assign the remaining work before starting.</p>':''}${t.review_followup||t.attention?'<p class="work-callout warning">Check moved quantity first. Remaining quantity is provisional until verified.</p>':''}${extra}${taskPeople(t)?disclosure('task-people-'+t.id,'Movement details',taskPeople(t)):''}</section>`;
 }
 function canReopenTask(t){return !!t&&allowed('assign')&&allowed(t.type)&&!!t.completed_at&&!t.reopened_task_id&&!pendingTaskEvidence(t)&&!t.closure_review_id&&(t.lines||[]).length>0&&(t.lines||[]).every(l=>!['ready','working'].includes(l.execution_state));}
 function reopenButton(t){
@@ -532,8 +551,8 @@ function taskPage(id){
  const selected=Number(new URLSearchParams(location.search).get('line'));
  const primary=live.find(l=>l.id===selected)||ready.find(l=>l.execution_state==='working')||ready.find(l=>!['waiting','blocked'].includes(l.guidance?.state))||ready[0]||live[0];
  const closed=!t.attention&&(['completed','stopped','cancelled'].includes(t.outcome)||Boolean(t.completed_at));
- const locations=!t.review_followup&&live.length?`<nav class="task-location-list" aria-label="Task locations">${live.map(l=>`<a class="task-location-card" ${workActive(t)?'data-active-location="'+l.id+'"':''} href="/tasks/${t.id}?line=${l.id}" ${l===primary?'aria-current="true"':''}><strong>${esc(l.logical_code)}</strong><span>${esc(l.type==='put'?'Put':'Pick')} ${esc(l.execution_state==='settled'?l.actual_quantity:l.planned_quantity)} ${esc(l.unit_of_measure)}</span>${!['ready','working'].includes(l.execution_state)?`<small>${esc(status(l.execution_state))}</small>`:l.guidance?.state==='waiting'?'<small>Waiting for light</small>':''}</a>`).join('')}</nav>`:'';
- return `<section class="task-work-screen"><section class="work-intro task-work-intro"><a href="${esc(workReturn()||'/work')}">← ${workReturn()?'Back to stock':'My work'}</a><h2>Task #${t.id} · ${esc(taskName(t))}</h2>${checkTaskSummary(t,true)}${closed?'<p><a class="work-primary" href="/work">Back to My work</a></p>':''}${t.instruction_note?`<p>${esc(t.instruction_note)}</p>`:''}</section><div class="task-primary-action">${assignmentActions(t)}</div>${taskContext(t)}${followupPanel(t)}${locations}${!t.review_followup&&primary?lineCard(primary):''}<footer class="task-bottom-actions">${canStopTask(t)?`<button type="button" class="secondary" data-task-stop="${t.id}">Stop remaining work</button>`:''}<button type="button" class="secondary" data-task-details="${t.id}">Task details and history</button></footer></section>`;
+ const locations=!t.review_followup&&live.length?`<nav class="task-location-list" data-task-cells aria-label="Task locations">${live.map(l=>`<a class="task-location-card" ${workActive(t)?'data-active-location="'+l.id+'"':''} href="/tasks/${t.id}?line=${l.id}" ${l===primary?'aria-current="true"':''}><strong>${esc(l.logical_code)}</strong><span>${esc(l.type==='put'?'Put':'Pick')} ${esc(l.execution_state==='settled'?l.actual_quantity:l.planned_quantity)} ${esc(l.unit_of_measure)}</span>${!['ready','working'].includes(l.execution_state)?`<small>${esc(status(l.execution_state))}</small>`:l.guidance?.state==='waiting'?'<small>Waiting for light</small>':''}</a>`).join('')}</nav>`:'';
+ return `<section class="task-work-screen"><header class="task-work-intro"><a href="${esc(workReturn()||'/work')}">← ${workReturn()?'Back to stock':'My work'}</a><div class="task-title-row"><h2>Task #${t.id} · ${esc(taskName(t))}</h2><div class="task-title-actions">${assignmentActions(t)}</div></div></header>${followupPanel(t)}${locations}${!t.review_followup&&primary?lineCard(primary):''}${closed?'<p><a class="work-primary" href="/work">Back to My work</a></p>':''}${t.instruction_note?`<p class="work-help">${esc(t.instruction_note)}</p>`:''}${taskContext(t)}<footer class="task-bottom-actions">${canStopTask(t)?`<button type="button" class="secondary" data-task-stop="${t.id}">Stop remaining work</button>`:''}<button type="button" class="secondary" data-task-details="${t.id}">Task details and history</button></footer></section>`;
 }
 
 function pageLinks(info,key='page') {
@@ -920,10 +939,11 @@ function render(){
  dirty=false;
  if(!snapshot){root.innerHTML='<section class="work-empty"><h2>No saved work on this device</h2><p>Connect to the warehouse and sign in to save your allocations.</p><a href="/login">Sign in</a></section>';return;}
 
+ captureNotification();
  root.classList?.toggle('my-work',path==='/work');
  const utility=['/work','/work/overview'].includes(path)?disclosure('my-work-tools','Work tools',workShortcuts()+'<div class="work-connection">'+badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')+'</div>',false,'my-work-utility'):'';
  const body=path==='/work/overview'?assignmentPage():path==='/work/timing'?timingPage():path==='/work/history'?historyPage():path==='/pick'?createPage('pick'):path==='/put'?createPage('put'):path==='/record-movement'?manualPage():path==='/pending-confirmations'?pendingPage():path==='/labels'?labelsPage():path==='/movement-history'?ledger():/^\/tasks\/\d+$/.test(path)?taskPage(path.split('/')[2]):home();
- root.innerHTML=`<nav class="work-views" aria-label="Work views"><a href="/work">My work</a>${allowed('assign')?'<a href="/work/overview">Assign Work</a>':''}<a href="/work/history">History</a>${utility}</nav>${['/work','/work/overview'].includes(path)?'':`<div class="work-toolbar"><div class="work-tools">${!online?'<a href="/work">My work</a><a href="/pick">Pick</a><a href="/put">Put</a>':''}${disclosure('work-tools','Work tools',workShortcuts(),false,'work-tools-details')}</div><div class="work-connection">${badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')}<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small></div></div>`}<div id="work-notice" data-notice="${esc(notice)}" role="status" aria-live="polite">${notice?`<p class="work-callout">${esc(workText(notice))}</p>`:''}</div><p id="work-connection-warning" class="work-callout warning" role="status" ${connectionWarning?'':'hidden'}>${esc(connectionWarning)}</p>${!online?'<p class="work-callout warning">Offline: saved work and physical entries stay on this device. No new reservation or location turn is granted. Follow the warehouse manual procedure; use paper if needed.</p>':''}<div data-physical-save-status>${physicalSaveStatus()}</div><div data-inactivity-alerts role="status">${inactivityAlertsMarkup()}</div>${body}<dialog class="my-work-action-dialog task-edit-dialog planning-dialog" data-operation-dialog></dialog><dialog class="my-work-action-dialog task-edit-dialog" data-task-dialog aria-label="Task action"></dialog>${path==='/work'?'<dialog class="my-work-action-dialog" data-my-work-dialog aria-label="Task actions"></dialog>':''}`;
+ root.innerHTML=`<nav class="work-views" aria-label="Work views"><a href="/work">My work</a>${allowed('assign')?'<a href="/work/overview">Assign Work</a>':''}<a href="/work/history">History</a>${utility}${notificationButton()}</nav>${['/work','/work/overview'].includes(path)?'':`<div class="work-toolbar"><div class="work-tools">${!online?'<a href="/work">My work</a><a href="/pick">Pick</a><a href="/put">Put</a>':''}${disclosure('work-tools','Work tools',workShortcuts(),false,'work-tools-details')}</div><div class="work-connection">${badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')}<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small></div></div>`}<div id="work-notice" data-notice="${esc(notice)}" role="status" aria-live="polite">${noticeToast()}</div><p id="work-connection-warning" class="work-callout warning" role="status" ${connectionWarning?'':'hidden'}>${esc(connectionWarning)}</p>${!online?'<p class="work-callout warning">Offline: saved work and physical entries stay on this device. No new reservation or location turn is granted. Follow the warehouse manual procedure; use paper if needed.</p>':''}<div data-physical-save-status>${physicalSaveStatus()}</div><div data-inactivity-alerts role="status">${inactivityAlertsMarkup()}</div>${body}<dialog class="my-work-action-dialog task-edit-dialog planning-dialog" data-operation-dialog></dialog><dialog class="my-work-action-dialog task-edit-dialog" data-task-dialog aria-label="Task action"></dialog>${path==='/work'?'<dialog class="my-work-action-dialog" data-my-work-dialog aria-label="Task actions"></dialog>':''}`;
  for(const link of root.querySelectorAll('a[href]')){const href=(link.getAttribute?.('href')||'').split('?')[0];const cap=workLinkCapability(href);if(cap&&!allowed(cap))link.remove();}
  for(const f of root.querySelectorAll('form[data-work-action]')){f._workIdentity={site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id};f._draftPath=path;}
  restoreDrafts();
@@ -934,6 +954,12 @@ function render(){
  for(const d of root.querySelectorAll('details[data-disclosure]'))if(disclosures.has(d.dataset.disclosure))d.open=disclosures.get(d.dataset.disclosure);
  for(const f of root.querySelectorAll('form[data-work-action]'))updateVerificationFields(f);
  patchGuidanceHints();
+ const cellStrip=root.querySelector?.('[data-task-cells]'),selectedCell=cellStrip?.querySelector?.('[aria-current="true"]');
+ if(cellStrip&&selectedCell&&cellStrip.scrollWidth>cellStrip.clientWidth)cellStrip.scrollLeft=Math.max(0,selectedCell.offsetLeft-cellStrip.offsetLeft-12);
+ const task=/^\/tasks\/\d+$/.test(path)?snapshot.tasks.find(t=>t.id===Number(path.split('/')[2])):null;
+ const scrollKey=task&&task.assignment_state==='started'&&task.assignee_id===snapshot.user.id&&!task.completed_at?`${key()}:${snapshot.dataset}:${task.id}:${task.assignment_generation}`:'';
+ if(scrollKey&&scrollKey!==lastTaskAutoScroll){lastTaskAutoScroll=scrollKey;root.querySelector('[data-task-cells]')?.scrollIntoView?.({block:'start',behavior:'smooth'});}
+ if(!task)lastTaskAutoScroll='';
 
 }
 function draftKey(f){const identity=f._workIdentity||snapshot;const userId=identity.actorId??identity.user.id;return `${identity.site}:${userId}:${identity.dataset}:draft:${f._draftPath||path}:${f.dataset.workAction}:${f.dataset.draftKind||'normal'}:${f.elements.lineId?.value||f.elements.reportId?.value||f.elements.taskId?.value||''}:${f.elements.revision?.value||f.elements.caseRevision?.value||f.elements.generation?.value||''}:${f.elements.progressToken?.value||''}:${f.elements.assignmentGeneration?.value||''}${draftContext(f)}`;}
@@ -1027,7 +1053,7 @@ async function deliverPhysicalReview(o){
  await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');patchPhysicalSaveStatus();
  if(!['recorded','review'].includes(o.state))throw new Error(o.message);
  await store('cache','readwrite',s=>s.delete(o.draftId));drafts.delete(o.draftId);notice=o.message;
- const live=root.querySelector?.('#work-notice');if(live){live.innerHTML='<p class="work-callout">'+esc(notice)+'</p>';live.dataset.notice=notice;}
+ paintNotifications();
  try{await refresh();await afterReviewSave(Number(o.input.taskId),o.action);}
  catch{
   // The durable warehouse receipt is authoritative even if refreshing fails.
@@ -1076,7 +1102,7 @@ root.addEventListener('combobox:search',e=>{if(!e.target.matches('select[data-se
 root.addEventListener('invalid',e=>{for(let p=e.target.parentElement;p&&p!==root;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;},true);
 root.addEventListener('input',e=>{
  const filter=e.target.closest('.my-work-filters');if(filter){updateFilterApply(filter);dirty=workFiltersChanged(filter);return;}
- dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{notice='Draft not saved: device storage failed. Use the manual recording procedure.';document.querySelector('#work-notice').textContent=workText(notice);});
+  dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{notice='Draft not saved: device storage failed. Use the manual recording procedure.';paintNotifications();});
  if(f)updateRecoveryLink(f);
  if(f)updateCellConfirmation(f);
  if(f&&e.target.name==='verificationNote')updateVerificationFields(f);
@@ -1151,6 +1177,7 @@ root.addEventListener('submit',async e=>{
 });
 root.addEventListener('click',async e=>{
  try{
+  if(e.target.closest('[data-dismiss-notice]')){toastUntil=0;const live=root.querySelector('#work-notice');if(live)live.innerHTML='';return;}
   if(e.target.closest('[data-operation-back]')){await modalBack();return;}
   const pc=e.target.closest('[data-plan-choice]');if(pc){pc.disabled=true;try{await choosePlanRecovery(pc.dataset.planChoice);}catch(error){const d=pc.closest('[data-operation-dialog]');let p=d.querySelector('.form-feedback');if(!p){p=document.createElement('p');p.className='form-feedback';p.setAttribute('role','alert');d.append(p);}p.textContent=error.message;}finally{pc.disabled=false;}return;}
   const pr=e.target.closest('[data-retry-plan]');if(pr){if(submitting)return;submitting=true;try{const o=outbox.find(o=>o.id===pr.dataset.retryPlan);if(o){if(['start','resume'].includes(o.action)){await deliverActivation(o);root.querySelector('[data-operation-dialog]')?.close();}else{await deliverPlan(o);await finishPlan(o);}}}catch(error){await planningFailure(error,error.request?.action,error.request?.input);}finally{submitting=false;}return;}
@@ -1249,7 +1276,7 @@ function patchLiveRows(){
  }
  const connection=root.querySelector('.work-connection');if(connection)connection.innerHTML=badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')+`<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString())}</small>`;
  // Review work is handled from My work.
- const live=root.querySelector('#work-notice');if(live&&live.dataset.notice!==notice){live.innerHTML=notice?`<p class="work-callout">${esc(notice)}</p>`:'';live.dataset.notice=notice;}
+ paintNotifications();
  const warning=root.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=!connectionWarning;}
  const activeCount=root.querySelector('[data-work-active-count]');if(activeCount)activeCount.textContent='Continue working · '+(snapshot.taskCounts?.active??0);
  for(const [href,count] of [['/work/history?scope=team&state=open',snapshot.taskCounts?.active],['/work/history?scope=team&state=needs_assignment',snapshot.taskCounts?.needsAssignment],['/work/history?scope=team&state=overdue',snapshot.taskCounts?.overdue]]){const link=root.querySelector(`.task-tabs a[href="${href}"]`);if(link&&count!=null)link.textContent=link.textContent.split(' · ')[0]+' · '+count;}
