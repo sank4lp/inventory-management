@@ -495,11 +495,14 @@ function patchReturnedRows(){
  const pages=root.querySelector('[data-returned-pages]');if(pages&&!pages.contains(active))pages.innerHTML=pageLinks(snapshot.returnedPage,'returnedPage');
 }
 function completionRows(t,l){
- const rows=recordedMovements(t).filter(r=>Number(r.quantity)>0).map(r=>({...r}));
- const current=rows.find(r=>Number(r.cellId)===Number(l.cell_id));
- if(current)current.quantity=Number((Number(current.quantity)+Number(l.planned_quantity)).toFixed(6));
- else rows.push({cellId:l.cell_id,logical_code:l.logical_code,quantity:l.planned_quantity});
- return rows;
+ const rows=new Map(recordedMovements(t).filter(r=>Number(r.quantity)>0).map(r=>[Number(r.cellId),{...r}]));
+ for(const line of t.lines||[]){
+  if(!['ready','working'].includes(line.execution_state)||Number(line.planned_quantity)<=0)continue;
+  const existing=rows.get(Number(line.cell_id));
+  if(existing)existing.quantity=Number((Number(existing.quantity)+Number(line.planned_quantity)).toFixed(6));
+  else rows.set(Number(line.cell_id),{cellId:line.cell_id,logical_code:line.logical_code,quantity:line.planned_quantity});
+ }
+ return [...rows.values()].length?[...rows.values()]:[{cellId:l.cell_id,logical_code:l.logical_code,quantity:0}];
 }
 function completionTotal(actuals){return Number(actuals.reduce((sum,r)=>sum+Number(r.quantity),0).toFixed(6));}
 function completionAction(task,actuals){return completionTotal(actuals)===Number(task.requested_quantity)?'closeTask':'sendTaskReview';}
@@ -507,13 +510,13 @@ function cellConfirmation(l,stage){
  const t=availableTask(l.task_id),kind=l.type==='put'?'Put':'Pick',verb=l.type==='put'?'put':'pick';
  if(!t)return '';
  const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('closureToken',t.closure_token)+hidden('currentStatus','no')+hidden('finalTaskCompletion','true')+hidden('verification',stage.method==='camera'?'QR checked before operator confirmed final actuals':'Operator confirmed final actuals without a QR scan')+actualEditor(t,completionRows(t,l))+`<p class="work-callout" data-cell-completion-status role="status"></p><button>Complete ${kind}</button>`;
- return `<dialog class="task-edit-dialog cell-confirmation-dialog" data-cell-confirmation aria-label="Confirm ${kind.toLowerCase()}"><h2 tabindex="-1">Confirm ${kind}</h2><p>Did you ${verb} the correct item and quantities from these locations?</p><p class="cell-confirmation-product"><strong>${esc(l.product_name)}</strong>${l.sku?` <small>${esc(l.sku)}</small>`:''}</p><p class="work-help">${stage.method==='camera'?'QR checked for the starting location.':'No QR scan. Check each cell label.'} This confirms the final total for task #${esc(t.id)}. Add every location you used.</p><p>Requested: <strong>${esc(t.requested_quantity)} ${esc(l.unit_of_measure)}</strong></p>${form('closeTask',fields,'data-cell-confirmation-form data-final-task-confirmation data-review-movement data-draft-kind="task-completion"')}<button type="button" class="secondary" data-close-cell-confirmation>Back to task</button></dialog>`;
+ return `<dialog class="task-edit-dialog cell-confirmation-dialog" data-cell-confirmation aria-label="Confirm ${kind.toLowerCase()}"><h2 tabindex="-1">Confirm ${kind}</h2><p>Did you ${verb} the correct item and quantities from these locations?</p><p class="cell-confirmation-product"><strong>${esc(l.product_name)}</strong>${l.sku?` <small>${esc(l.sku)}</small>`:''}</p><p class="work-help">${stage.method==='camera'?'QR checked for the starting location.':'No QR scan. Check each cell label.'} Planned locations are filled in. Change them to match what you actually moved.</p><p>Requested: <strong>${esc(t.requested_quantity)} ${esc(l.unit_of_measure)}</strong></p>${form('closeTask',fields,'data-cell-confirmation-form data-final-task-confirmation data-review-movement data-draft-kind="task-completion"')}<button type="button" class="secondary" data-close-cell-confirmation>Back to task</button></dialog>`;
 }
 function updateCellConfirmation(f){
  if(!f?.hasAttribute?.('data-cell-confirmation-form'))return;
  const t=availableTask(f.elements.taskId?.value),status=f.querySelector('[data-cell-completion-status]');if(!t||!status)return;
  const rows=closureActualValues(f),total=completionTotal(rows),unit=t.lines[0]?.unit_of_measure;
- status.textContent=total===Number(t.requested_quantity)?`Actual total: ${total} ${unit}. This matches the request. Completing will record the confirmed locations.`:`Actual total: ${total} of ${t.requested_quantity} ${unit}. This will go to supervisor review before the task is closed or stock is changed.`;
+ status.textContent=total===Number(t.requested_quantity)?`Actual total: ${total} ${unit}. Matches the request. Complete to update stock and close the task.`:`Actual total: ${total} of ${t.requested_quantity} ${unit}. This will go to supervisor review before the task is closed or stock is changed.`;
 }
 function openCellConfirmation(){const dialog=root.querySelector('[data-cell-confirmation]');if(dialog&&!dialog.open){dialog.showModal();dialog.querySelector('h2')?.focus();}}
 function lineCard(l){
@@ -552,7 +555,7 @@ function taskPage(id){
  const primary=live.find(l=>l.id===selected)||ready.find(l=>l.execution_state==='working')||ready.find(l=>!['waiting','blocked'].includes(l.guidance?.state))||ready[0]||live[0];
  const closed=!t.attention&&(['completed','stopped','cancelled'].includes(t.outcome)||Boolean(t.completed_at));
  const locations=!t.review_followup&&live.length?`<nav class="task-location-list" data-task-cells aria-label="Task locations">${live.map(l=>`<a class="task-location-card" ${workActive(t)?'data-active-location="'+l.id+'"':''} href="/tasks/${t.id}?line=${l.id}" ${l===primary?'aria-current="true"':''}><strong>${esc(l.logical_code)}</strong><span>${esc(l.type==='put'?'Put':'Pick')} ${esc(l.execution_state==='settled'?l.actual_quantity:l.planned_quantity)} ${esc(l.unit_of_measure)}</span>${!['ready','working'].includes(l.execution_state)?`<small>${esc(status(l.execution_state))}</small>`:l.guidance?.state==='waiting'?'<small>Waiting for light</small>':''}</a>`).join('')}</nav>`:'';
- return `<section class="task-work-screen"><header class="task-work-intro"><a href="${esc(workReturn()||'/work')}">← ${workReturn()?'Back to stock':'My work'}</a><div class="task-title-row"><h2>Task #${t.id} · ${esc(taskName(t))}</h2><div class="task-title-actions">${assignmentActions(t)}</div></div></header>${followupPanel(t)}${locations}${!t.review_followup&&primary?lineCard(primary):''}${closed?'<p><a class="work-primary" href="/work">Back to My work</a></p>':''}${t.instruction_note?`<p class="work-help">${esc(t.instruction_note)}</p>`:''}${taskContext(t)}<footer class="task-bottom-actions">${canStopTask(t)?`<button type="button" class="secondary" data-task-stop="${t.id}">Stop remaining work</button>`:''}<button type="button" class="secondary" data-task-details="${t.id}">Task details and history</button></footer></section>`;
+ return `<section class="task-work-screen"><header class="task-work-intro"><a href="${esc(workReturn()||'/work')}">← ${workReturn()?'Back to stock':'My work'}</a><div class="task-title-row"><h2>Task #${t.id} · ${esc(taskName(t))}</h2><div class="task-title-actions">${assignmentActions(t)}</div></div></header>${taskContext(t)}${followupPanel(t)}${locations}${!t.review_followup&&primary?lineCard(primary):''}${closed?'<p><a class="work-primary" href="/work">Back to My work</a></p>':''}${t.instruction_note?`<p class="work-help">${esc(t.instruction_note)}</p>`:''}<footer class="task-bottom-actions">${canStopTask(t)?`<button type="button" class="secondary" data-task-stop="${t.id}">Stop remaining work</button>`:''}<button type="button" class="secondary" data-task-details="${t.id}">Task details and history</button></footer></section>`;
 }
 
 function pageLinks(info,key='page') {

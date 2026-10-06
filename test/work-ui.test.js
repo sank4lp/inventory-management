@@ -62,6 +62,17 @@ test('only a changed task total goes to review; location-only splits complete no
  ]){ui.context.rows=rows;assert.equal(ui.run('completionAction(task,rows)'),action);}
 });
 
+test('final confirmation includes every planned cell, so an exact Pick or Put total closes directly', () => {
+ for(const type of ['pick','put']){
+  const ui=view({active:true}),first={...line,type,planned_quantity:3,execution_state:'working'},second={...line,id:2,cell_id:4,logical_code:'B4',type,planned_quantity:2,execution_state:'ready'};
+  ui.context.task={id:1,type,requested_quantity:5,lines:[first,second]};ui.context.first=first;
+  const rows=ui.run('completionRows(task,first)');
+  assert.deepEqual(JSON.parse(JSON.stringify(rows)),[{cellId:3,logical_code:'A3',quantity:3},{cellId:4,logical_code:'B4',quantity:2}]);
+  ui.context.rows=rows;assert.equal(ui.run('completionAction(task,rows)'),'closeTask');
+  ui.run('rows[0].quantity=2');assert.equal(ui.run('completionAction(task,rows)'),'sendTaskReview');
+ }
+});
+
 test('a supervisor can accept a short task total and assign the remainder from the same review', () => {
  const ui=view({role:'admin'});
  ui.context.task={id:9,type:'pick',requested_quantity:5,remaining_quantity:1,recorded_quantity:0,assignee_id:2,assignment_generation:2,progress_token:'p',closure_token:'c',closure_review_id:'case-9',closure_case_revision:1,closure_actuals:[{cellId:3,quantity:4}],lines:[{...line,task_id:9}]};
@@ -74,7 +85,7 @@ test('a supervisor can accept a short task total and assign the remainder from t
  assert.match(html,/name="actualQuantity0"[^>]*value="4"/);
 });
 
-test('active pick and put lead with selectable cells, one main card, and compact task info', () => {
+test('active pick and put show compact task info above selectable cells and one main card', () => {
  for (const type of ['pick','put']) {
   const ui=view({active:true});
   const task={id:1,type,summary:'Part',outcome:'open',assignment_generation:1,assignment_state:'started',assignee_id:1,assignee_name:'Operator',assigned_by_name:'Admin',assigned_at:'2026-10-06T08:00:00Z',requested_quantity:10,recorded_quantity:2,remaining_quantity:8,lines:[
@@ -88,8 +99,8 @@ test('active pick and put lead with selectable cells, one main card, and compact
   assert.match(html,/<section class="task-context task-info"/);
   assert.match(html,/<dt>Status<\/dt><dd>In progress<\/dd>/);
   assert.match(html,/<dt>Assigned by<\/dt><dd>Admin<\/dd>/);
+  assert.ok(html.indexOf('aria-label="Task info"')<html.indexOf('data-task-cells'));
   assert.ok(html.indexOf('data-task-cells')<html.indexOf('data-line="1"'));
-  assert.ok(html.indexOf('data-line="1"')<html.indexOf('aria-label="Task info"'));
   assert.ok(html.indexOf('<dt>Product name</dt>')<html.indexOf('<dt>Status</dt>'));
   assert.match(html,/Refresh light/);assert.match(html,/Scan QR/);
   assert.equal((html.match(/class="task-location-card"/g)||[]).length,3);
