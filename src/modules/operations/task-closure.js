@@ -111,7 +111,13 @@ export function createTaskClosure({db,line,currentTask,progressToken,workQuantit
   const supervisor=input.verifiedClosure===true;
   if(supervisor){assertCan(actor,'review.resolve');assertCan(actor,'review.stop');input=attest(input);}
   const t=fresh(actor,input,supervisor);if(t.assignee_id!==actor.id)assertCan(actor,'work.teamStop');
-  if(pendingCase(t.id))throw new Error('Task closure is already awaiting supervisor review. Open that case.');return finalize(actor,t,rowsFor(t,input),input,supervisor);
+  if(pendingCase(t.id))throw new Error('Task closure is already awaiting supervisor review. Open that case.');
+  const rows=rowsFor(t,input);
+  if(input.finalTaskCompletion===true||input.finalTaskCompletion==='true'){
+   const actual=round(rows.reduce((sum,row)=>sum+row.quantity,0));
+   if(actual!==t.requested_quantity)throw new Error('Actual total differs from the requested quantity. Send this task for supervisor review.');
+  }
+  return finalize(actor,t,rows,input,supervisor);
  }
  function send(actor,input){
   const team=can(actor,'work.teamStop');let t;if(team){t=currentTask(actor,input);if(t.completed_at||input.progressToken!==progressToken(t.id)||input.closureToken!==token(t.id))throw new Error('Task changed. Refresh before requesting review.');}else t=fresh(actor,input);

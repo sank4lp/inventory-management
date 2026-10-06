@@ -91,5 +91,5 @@ test('Apply marks dropdown values as exact and keeps page size when sorting',asy
 });
 
 test('physical alignment has one final save action and no Send for review or overlap disclosure',()=>{
- const c=client();c.context.t=task(1);c.run('snapshot.cells=[{id:1,logical_code:"A1"}]');const html=c.run('reviewMovementContent(t)');assert.match(html,/data-review-movement/);assert.match(html,/Save Movement and Close Task/);assert.doesNotMatch(html,/data-send-task-review|Send for review|Stocktake overlap/);
+ const c=client();c.context.t=task(1);c.run('snapshot.cells=[{id:1,logical_code:"A1"}]');const html=c.run('reviewMovementContent(t)');assert.match(html,/data-review-movement/);assert.match(html,/Accept movement and close task/);assert.doesNotMatch(html,/data-send-task-review|Send for review|Stocktake overlap/);
 });

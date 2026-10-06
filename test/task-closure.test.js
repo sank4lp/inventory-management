@@ -23,6 +23,58 @@ function fixture(direction='pick'){
  const held=()=>db.prepare("SELECT SUM(r.quantity) q FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.state='held'").get(t.id).q||0;
  return {db,work,admin,op,other,cells,cmd,get,fields,t,record,balance,input,held};
 }
+function finalQuantityFixture(direction='pick'){
+ process.chdir(mkdtempSync(join(tmpdir(),'task-final-')));
+ const db=createDatabase({hashPassword,allowDemoInventorySeed:true}),work=createOperationsService({db});
+ const admin=db.prepare("SELECT * FROM users WHERE role='admin'").get(),op=db.prepare("SELECT * FROM users WHERE role='operator'").get();
+ const cells=db.prepare('SELECT * FROM cells WHERE active=1 ORDER BY id LIMIT 2').all();
+ db.exec('DELETE FROM inventory_balances; UPDATE products SET items_per_cell=20 WHERE id=1;');
+ if(direction==='pick')for(const cell of cells)db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,?,5,0)').run(cell.id);
+ const cmd=(actor,action,input={})=>work.command(actor,action,{requestId:randomUUID(),...work.identity(),actorId:actor.id,deviceId:'phone',...input});
+ const taskId=cmd(op,'create',{direction,productId:1,quantity:5,preferredCellId:cells[0].id}).taskId;
+ let line=work.task(op,taskId).lines[0];cmd(op,'acquire',{lineId:line.id,revision:line.revision,method:'arrival'});
+ const task=()=>work.task(admin,taskId),fields=()=>({taskId,generation:task().assignment_generation,progressToken:task().progress_token,closureToken:task().closure_token});
+ const balance=cell=>Number(db.prepare('SELECT available_quantity q FROM inventory_balances WHERE product_id=1 AND cell_id=?').get(cell.id)?.q||0);
+ return {db,work,admin,op,cells,cmd,task,taskId,fields,balance};
+}
+for(const direction of ['pick','put'])test(`${direction}: location-only final totals close without review, while a short final total is highest-priority review`,()=>{
+ for(const [split,expectedReview] of [
+  [[3,2],false],[[5,0],false],[[2,2],true],[[4,0],true]
+ ]){
+  const f=finalQuantityFixture(direction);try{
+   const rows=f.cells.flatMap((cell,index)=>split[index]?[{cellId:cell.id,quantity:split[index]}]:[]),actual=split[0]+split[1];
+   const before=f.cells.map(f.balance),input={...f.fields(),currentStatus:'no',actuals:rows,finalTaskCompletion:true};
+   if(expectedReview){
+    assert.throws(()=>f.cmd(f.op,'closeTask',input),/supervisor review/);
+    const sent=f.cmd(f.op,'sendTaskReview',input);assert.equal(sent.status,'review');
+    assert.equal(f.task().work_priority,'high');assert.equal(f.task().outcome,'needs_review');
+    assert.deepEqual(f.cells.map(f.balance),before,'unverified stock remains unchanged');
+    const caseRow=f.work.snapshot(f.admin,{view:'mine'}).pending.find(r=>r.id===sent.reportId);
+    assert.ok(caseRow?.closureTask);assert.deepEqual(caseRow.closureActuals.map(r=>r.quantity),rows.map(r=>r.quantity));
+   }else{
+    const saved=f.cmd(f.op,'closeTask',input);assert.equal(saved.closed,true);assert.equal(f.task().attention,0);
+    assert.equal(f.task().recorded_quantity,5);assert.equal(f.db.prepare("SELECT COUNT(*) n FROM work_reports WHERE status IN ('review','received')").get().n,0);
+    assert.deepEqual(f.cells.map(f.balance),before.map((n,i)=>n+(direction==='pick'?-1:1)*split[i]));
+    assert.equal(f.db.prepare("SELECT COALESCE(SUM(quantity),0) n FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.state='held'").get(f.taskId).n,0);
+   }
+   assert.equal(actual,expectedReview?4:5);
+  }finally{f.db.close();}
+ }
+});
+test('supervisor may accept a short final movement or accept it and assign only the remaining quantity',()=>{
+ for(const assign of [false,true]){
+  const f=finalQuantityFixture();try{
+   const rows=[{cellId:f.cells[0].id,quantity:4}],input={...f.fields(),currentStatus:'no',actuals:rows,finalTaskCompletion:true};
+   const sent=f.cmd(f.op,'sendTaskReview',input),pending=f.work.snapshot(f.admin,{view:'mine'}).pending.find(r=>r.id===sent.reportId);
+   const review={...f.fields(),reportId:pending.id,caseRevision:pending.case_revision,currentStatus:'no',actuals:rows,workerStopped:true,assigneeId:f.admin.id};
+   const outcome=f.cmd(f.admin,assign?'resolveAndAssignRemaining':'resolve',review);
+   assert.equal(outcome.closed,true);assert.equal(f.task().recorded_quantity,4);assert.equal(f.task().remaining_quantity,1);
+   assert.equal(f.task().attention,0);assert.equal(f.balance(f.cells[0]),1);
+   if(assign){const next=f.work.task(f.admin,outcome.newTaskId);assert.equal(next.requested_quantity,1);assert.equal(next.assignee_id,f.admin.id);assert.equal(next.assignment_state,'offered');assert.equal(f.task().reopened_task_id,outcome.newTaskId);}
+   else assert.equal(outcome.newTaskId,undefined);
+  }finally{f.db.close();}
+ }
+});
 for(const direction of ['pick','put'])for(const mode of ['current','custom','zero','relocate','multiple'])test(`${direction} closes final ${mode} totals atomically with deltas, retained attribution and all reservations released`,()=>{
  const f=fixture(direction);try{const sign=direction==='pick'?-1:1,a=f.cells[0].id,b=f.cells[1].id,c=f.cells[2].id,initial=[f.balance(a),f.balance(b),f.balance(c)];f.record();assert.equal(f.get(f.t.id).recorded_quantity,4);assert.equal(f.held(),6);
  const rows=mode==='custom'?[{cellId:a,quantity:3}]:mode==='zero'?[{cellId:a,quantity:0}]:mode==='relocate'?[{cellId:c,quantity:4}]:mode==='multiple'?[{cellId:a,quantity:2},{cellId:b,quantity:1},{cellId:c,quantity:1}]:null;

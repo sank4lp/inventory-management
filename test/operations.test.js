@@ -111,6 +111,22 @@ test('stale put plans retain their original actual without posting replacement d
  assert.equal(db.prepare('SELECT available_quantity n FROM inventory_balances WHERE cell_id=?').get(old.cell_id).n,4);
  assert.throws(()=>cmd(op,'correct',{lineId:replacement.id,revision:replacement.revision,quantity:1,verification:'wrong'}),/recorded allocation/);db.close();
 });
+test('confirming a different actual cell keeps the operator report for review without silently moving stock',async()=>{
+ for(const direction of ['pick','put']){
+  const {db,w,op,cells,stock,create,arrive,report}=await fixture();
+  if(direction==='pick'){stock(cells[0],5);stock(cells[1],5);}
+  const task=create(op,direction,1),planned=w.task(op,task.taskId).lines[0];
+  const actual=cells.find(c=>c.id!==planned.cell_id);
+  const before=db.prepare('SELECT COUNT(*) n FROM transactions').get().n;
+  assert.equal(arrive(op,planned).status,'ready');
+  const result=report(op,w.line(planned.id),1,{cellId:actual.id,method:'manual',manualReason:'Operator confirmed a different actual location'});
+  assert.equal(result.status,'review');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM transactions').get().n,before);
+  const saved=db.prepare('SELECT cell_id,quantity FROM work_reports WHERE id=?').get(result.reportId);
+  assert.equal(saved.cell_id,actual.id);assert.equal(saved.quantity,1);
+  db.close();
+ }
+});
 test('unit-aware historical corrections use a net delta after later picks',async()=>{
  const {db,w,op,admin,p,cells,create,arrive,report,cmd}=await fixture();
  const {previewProductUnitConversion,applyProductUnitConversion}=await import('../src/services/unit-conversions.js');

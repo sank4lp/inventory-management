@@ -48,7 +48,7 @@ function form(action,body,attrs=''){
  return `<form data-work-action="${action}" ${attrs}>${body}<p class="form-feedback" role="status"></p></form>`;
 }
 function hidden(n,v){return `<input type="hidden" name="${n}" value="${esc(v)}">`;}
-function allocationFields(l){return hidden('lineId',l.id)+hidden('revision',l.revision)+hidden('cellId',l.cell_id)+hidden('unit',l.unit_of_measure)+hidden('productId',l.product_id)+hidden('direction',l.type)+hidden('assignmentGeneration',l.current_generation);}
+function allocationFields(l,includeCell=true){return hidden('lineId',l.id)+hidden('revision',l.revision)+(includeCell?hidden('cellId',l.cell_id):'')+hidden('unit',l.unit_of_measure)+hidden('productId',l.product_id)+hidden('direction',l.type)+hidden('assignmentGeneration',l.current_generation);}
 function performerField(selected='unknown') {
  if(!allowed('resolve'))return '';
  return `<label>Verified performer<select name="performerId"><option value="unknown" ${selected==null||selected==='unknown'?'selected':''}>Unknown / unverified</option>${options(snapshot.performers||[],'id',u=>`${u.name} · ${u.username}${u.status==='active'?'':' (inactive)'}`,selected)}</select></label><p class="work-help">Who physically moved the stock. The person who entered this and verifying supervisor remain recorded separately.</p>`;
@@ -158,8 +158,8 @@ const returnBlocked=t=>t.attention||(t.lines||[]).some(l=>l.execution_state==='w
 function reviewHref(t){const r=(t.lines||[]).flatMap(l=>l.reports||[]).find(r=>['review','received'].includes(r.status));return r?'/pending-confirmations?reportId='+encodeURIComponent(r.id):'/tasks/'+t.id;}
 function observationList(items){return (items||[]).map(o=>{const v=JSON.parse(o.payload);return `<p>${esc(o.logical_code)} · ${esc(o.observer_name)} observed ${v.quantity==null?'quantity unknown':esc(v.quantity)}: ${esc(v.note)}</p>`;}).join('');}
 function checkTime(value){return value?esc(new Date(value).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',dateStyle:'medium',timeStyle:'short'}))+' IST':'Not recorded';}
-function checkTaskSummary(t){
- const unit=esc(t.lines[0]?.unit_of_measure),fields=[['Task',`<a href="/tasks/${t.id}">#${t.id} · ${t.type==='put'?'Put':'Pick'}</a>`],['Product name',taskProductLink(t)],['Assigned to',esc(t.assignee_name||'Unassigned')],['Assigned by',esc(t.assigned_by_name||'Not recorded')],['Assigned time',checkTime(t.assigned_at)],['Deadline',t.due_at?checkTime(t.due_at)+(t.overdue?' · Overdue':''):'No deadline'],['Quantity',`${esc(t.requested_quantity)} ${unit}`],['Completed',`${esc(t.recorded_quantity)} ${unit}`],['Remaining',`${esc(t.remaining_quantity)} ${unit}`],['Progress',esc(t.review_handover_verified?'Check verified':outcome(t))]];
+function checkTaskSummary(t,showWorkState=false){
+ const unit=esc(t.lines[0]?.unit_of_measure),fields=[...(showWorkState?[['Work',workActive(t)?'Active work':'Task details'],['Status',esc(t.review_followup?'Quantity check':outcome(t))]]:[]),['Task',`<a href="/tasks/${t.id}">#${t.id} · ${t.type==='put'?'Put':'Pick'}</a>`],['Product name',taskProductLink(t)],['Assigned to',esc(t.assignee_name||'Unassigned')],['Assigned by',esc(t.assigned_by_name||'Not recorded')],['Assigned time',checkTime(t.assigned_at)],['Deadline',t.due_at?checkTime(t.due_at)+(t.overdue?' · Overdue':''):'No deadline'],['Quantity',`${esc(t.requested_quantity)} ${unit}`],['Completed',`${esc(t.recorded_quantity)} ${unit}`],['Remaining',`${esc(t.remaining_quantity)} ${unit}`],['Progress',esc(t.review_handover_verified?'Check verified':outcome(t))]];
  if(t.return_event){const e=t.return_event;fields.push(['Returned by',esc(e.previous_name||'Unknown')],['Returned time',checkTime(e.created_at)]);if(e.reason||e.note)fields.push(['Return reason',esc(e.reason||'Not recorded')],['Return note',esc(e.note||'—')]);}
  const rows=[];for(let i=0;i<fields.length;i+=2)rows.push(`<tr>${fields.slice(i,i+2).map(([name,value])=>`<th scope="row">${name}</th><td>${value}</td>`).join('')}</tr>`);
  return `<table class="check-summary-table"><caption>Times: Asia/Kolkata · IST</caption><colgroup><col class="check-summary-label"><col class="check-summary-value"><col class="check-summary-label"><col class="check-summary-value"></colgroup><tbody>${rows.join('')}</tbody></table>`;
@@ -182,14 +182,14 @@ function closureActualValues(f){return [...f.querySelectorAll('[data-actual-row]
 function editActualRows(button){
  const f=button.closest('form'),t=availableTask(f.elements.taskId?.value)||snapshot.pending?.find(r=>r.id===f.elements.reportId?.value)?.closureTask,rows=f.querySelector('[data-actual-rows]');
  if(button.hasAttribute('data-remove-actual'))button.closest('[data-actual-row]').remove();else{const index=Math.max(-1,...[...rows.querySelectorAll('select')].map(el=>Number(el.name.replace('actualCell',''))))+1;rows.insertAdjacentHTML('beforeend',actualRow(t,{cellId:'',quantity:''},index));}
- globalThis.WarehouseCombobox?.init(f);dirty=true;return f;
+ globalThis.WarehouseCombobox?.init(f);updateCellConfirmation(f);dirty=true;return f;
 }
 function closureReview(r){const t=r.closureTask;return disclosure('case-'+r.id,`Task #${t.id} closure · ${esc(r.product_name)} — verify final actual totals`,checkTaskSummary(t)+`<p>${esc(r.reason)}</p><p>These totals replace this task’s recorded movements. Original entries remain in task history.</p>`+form('resolve',hidden('reportId',r.id)+hidden('caseRevision',r.case_revision)+hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('closureToken',t.closure_token)+hidden('currentStatus','no')+actualEditor(t,r.closureActuals)+(r.closureCounts?.length?disclosure('closure-count-links-'+r.id,'Link differences already included in a stocktake',r.closureCounts.filter(c=>JSON.parse(c.lines_json).some(i=>i.productId===t.lines[0]?.product_id)).map(c=>`<label>${esc(c.logical_code)} · ${esc(c.title)}<input type="radio" name="countLink${c.cell_id}" value="${esc(c.id)}">This count already accounts for the final-total difference at this location</label>`).join('')):'')+'<label class="work-check"><input type="checkbox" name="workerStopped">I confirmed all workers have stopped and verified the actual totals.</label>'+disclosure('closure-count-'+r.id,'Stocktake overlap','<p>If a count already includes this correction, keep this pending until the original accounting is reconciled.</p><label class="work-check"><input type="checkbox" name="afterCountVerified">I verified these differences are separate from every overlapping stocktake correction.</label>')+'<button>Close task with verified totals</button>','data-closure-review data-draft-kind="closure-review"')+form('resolve',hidden('reportId',r.id)+hidden('caseRevision',r.case_revision)+hidden('keepOpen','true')+input('verification','Optional note')+'<button class="secondary">Keep pending</button>'),true,'work-panel review-case');}
 function checkStopContent(t){
  return canStopTask(t)?`<section id="check-stop-${t.id}" data-check-stop-panel class="check-stop-panel" tabindex="-1" hidden><h3>Stop remaining work</h3>${closureForm(t)}</section>`:'';
 }
 function reviewHeader(t,step='check'){return `<header class="review-task-header"><button type="button" class="secondary" ${step==='check'?'data-task-dialog-close':'data-review-back'}>← Back</button><h2 tabindex="-1" autofocus>Review task</h2></header>${checkTaskSummary(t)}`;}
-function reviewChoices(t,mode='check'){return `<div class="review-choices"><button type="button" data-review-align aria-pressed="${mode==='check-align'}">Align With Actual Physical Movement</button><button type="button" data-review-assignment ${allowed('assign')&&!t.closed_actuals&&!t.completed_at?'':'disabled'} aria-pressed="${mode==='check-assignment'}">Update Assignment of the task</button></div>`;}
+function reviewChoices(t,mode='check'){return `<div class="review-choices"><button type="button" data-review-align aria-pressed="${mode==='check-align'}">Align With Actual Physical Movement</button><button type="button" data-review-assignment ${allowed('assign')&&!t.closure_review_id&&!t.closed_actuals&&!t.completed_at?'':'disabled'} aria-pressed="${mode==='check-assignment'}">Update Assignment of the task</button></div>`;}
 function reviewDiscard(t){return `<footer class="review-discard-footer"><button type="button" class="danger" data-review-discard ${canCloseReview(t)?'':'disabled'}>Discard</button></footer>`;}
 function checkDialogContent(t){
  if(!canCheckTask(t))return '';
@@ -205,7 +205,9 @@ function reviewMovementContent(t){
  if(t.closed_actuals||t.completed_at)return `<section class="check-workspace">${reviewHeader(t,'align')}${reviewChoices(t,'check-align')}<p>This task is finalized. Late evidence must be reconciled separately; its original closure cannot be reopened.</p>${allowed('review')?`<a class="work-primary" href="${esc(reviewHref(t))}">Review late evidence</a>`:'<p>Ask an authorized verifier to reconcile the retained evidence.</p>'}</section>`;
  const supervisor=reviewVerifier(t),canClose=canCloseReview(t);
  const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('closureToken',t.closure_token)+hidden('currentStatus','no')+hidden('alignPhysical','true');
- const body=fields+(t.closure_review_id?hidden('reportId',t.closure_review_id)+hidden('caseRevision',t.closure_case_revision):supervisor?hidden('verifiedClosure','true'):'')+actualEditor(t,t.closure_actuals||recordedMovements(t))+(supervisor?'<label class="work-check"><input type="checkbox" name="workerStopped">I confirmed all workers have stopped and verified the actual totals.</label>':'')+(!canClose?'<p class="work-callout">An authorized verifier must reconcile this physical evidence before the task can close.</p>':'')+`<button data-close-task ${canClose?'':'disabled'}>Save Movement and Close Task</button>`;
+ const people=(snapshot.operators||[]).filter(u=>u.eligible&&u.status!=='inactive');
+ const assignRemaining=t.closure_review_id&&allowed('assign')?`<label>Assign remaining to<select data-searchable name="assigneeId"><option value="">Choose operator</option>${options(people,'id',u=>u.name+' · '+u.username,t.assignee_id)}</select></label><button data-assign-remaining ${canClose?'':'disabled'}>Accept movement and assign remaining</button>`:'';
+ const body=fields+(t.closure_review_id?hidden('reportId',t.closure_review_id)+hidden('caseRevision',t.closure_case_revision):supervisor?hidden('verifiedClosure','true'):'')+actualEditor(t,t.closure_actuals||recordedMovements(t))+(supervisor?'<label class="work-check"><input type="checkbox" name="workerStopped">I confirmed all workers have stopped and verified the actual totals.</label>':'')+(!canClose?'<p class="work-callout">An authorized verifier must reconcile this physical evidence before the task can close.</p>':'')+`<button data-close-task ${canClose?'':'disabled'}>Accept movement and close task</button>`+assignRemaining;
  return `<section class="check-workspace">${reviewHeader(t,'align')}${reviewChoices(t,'check-align')}${form(t.closure_review_id?'resolve':'closeTask',body,'data-review-movement data-draft-kind="'+(t.closure_review_id?'closure-review':'task-closure')+'"')}${allowed('review')?'<p><a href="'+esc(reviewHref(t))+'">Open original evidence and other reconciliation options</a></p>':''}${reviewDiscard(t)}</section>`;
 }
 function reviewAssignmentContent(t){
@@ -473,6 +475,28 @@ function patchReturnedRows(){
  const count=root.querySelector('[data-returned-count]');if(count)count.textContent=snapshot.returnedPage?.total??0;
  const pages=root.querySelector('[data-returned-pages]');if(pages&&!pages.contains(active))pages.innerHTML=pageLinks(snapshot.returnedPage,'returnedPage');
 }
+function completionRows(t,l){
+ const rows=recordedMovements(t).filter(r=>Number(r.quantity)>0).map(r=>({...r}));
+ const current=rows.find(r=>Number(r.cellId)===Number(l.cell_id));
+ if(current)current.quantity=Number((Number(current.quantity)+Number(l.planned_quantity)).toFixed(6));
+ else rows.push({cellId:l.cell_id,logical_code:l.logical_code,quantity:l.planned_quantity});
+ return rows;
+}
+function completionTotal(actuals){return Number(actuals.reduce((sum,r)=>sum+Number(r.quantity),0).toFixed(6));}
+function completionAction(task,actuals){return completionTotal(actuals)===Number(task.requested_quantity)?'closeTask':'sendTaskReview';}
+function cellConfirmation(l,stage){
+ const t=availableTask(l.task_id),kind=l.type==='put'?'Put':'Pick',verb=l.type==='put'?'put':'pick';
+ if(!t)return '';
+ const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+hidden('closureToken',t.closure_token)+hidden('currentStatus','no')+hidden('finalTaskCompletion','true')+hidden('verification',stage.method==='camera'?'QR checked before operator confirmed final actuals':'Operator confirmed final actuals without a QR scan')+actualEditor(t,completionRows(t,l))+`<p class="work-callout" data-cell-completion-status role="status"></p><button>Complete ${kind}</button>`;
+ return `<dialog class="task-edit-dialog cell-confirmation-dialog" data-cell-confirmation aria-label="Confirm ${kind.toLowerCase()}"><h2 tabindex="-1">Confirm ${kind}</h2><p>Did you ${verb} the correct item and quantities from these locations?</p><p class="cell-confirmation-product"><strong>${esc(l.product_name)}</strong>${l.sku?` <small>${esc(l.sku)}</small>`:''}</p><p class="work-help">${stage.method==='camera'?'QR checked for the starting location.':'No QR scan. Check each cell label.'} This confirms the final total for task #${esc(t.id)}. Add every location you used.</p><p>Requested: <strong>${esc(t.requested_quantity)} ${esc(l.unit_of_measure)}</strong></p>${form('closeTask',fields,'data-cell-confirmation-form data-final-task-confirmation data-review-movement data-draft-kind="task-completion"')}<button type="button" class="secondary" data-close-cell-confirmation>Back to task</button></dialog>`;
+}
+function updateCellConfirmation(f){
+ if(!f?.hasAttribute?.('data-cell-confirmation-form'))return;
+ const t=availableTask(f.elements.taskId?.value),status=f.querySelector('[data-cell-completion-status]');if(!t||!status)return;
+ const rows=closureActualValues(f),total=completionTotal(rows),unit=t.lines[0]?.unit_of_measure;
+ status.textContent=total===Number(t.requested_quantity)?`Actual total: ${total} ${unit}. This matches the request. Completing will record the confirmed locations.`:`Actual total: ${total} of ${t.requested_quantity} ${unit}. This will go to supervisor review before the task is closed or stock is changed.`;
+}
+function openCellConfirmation(){const dialog=root.querySelector('[data-cell-confirmation]');if(dialog&&!dialog.open){dialog.showModal();dialog.querySelector('h2')?.focus();}}
 function lineCard(l){
  const active=['ready','working'].includes(l.execution_state),working=l.execution_state==='working',executing=lineActive(l);
  const waiting=l.reports?.filter(r=>['review','received'].includes(r.status))||[];
@@ -485,8 +509,8 @@ function lineCard(l){
   else if(waiting.length||!online||!executing)actions=recovery;
   else {
    if(!working)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${guidanceMarkup(l)}</p><button type="button" class="secondary" data-refresh-guidance>Refresh light</button>`+form('acquire',allocationFields(l)+hidden('method','arrival')+"<button>I'm at this location</button>");
-   else if(!stage)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${guidanceMarkup(l)}</p><button type="button" class="secondary" data-refresh-guidance>Refresh light</button><button type="button" data-scan-line="${l.id}">Resume camera</button><button type="button" class="secondary" data-manual-summary="${l.id}">Complete without scanning</button>`;
-   else actions=`<section class="cell-summary" aria-label="Cell summary"><h3>${esc(l.product_name)} · ${esc(l.logical_code)}</h3><p>${stage.method==='camera'?'QR checked':'Manual completion — no QR verification'}</p>${form('report',allocationFields(l)+hidden('method',stage.method)+hidden('location',stage.location||'')+`<label>Quantity ${l.type==='pick'?'picked':'put'} (${esc(l.unit_of_measure)})<input name="quantity" type="number" min="0" max="1000000000" step="0.000001" inputmode="decimal" required value="${esc(l.planned_quantity)}"></label><p class="work-help">Change quantity above if needed. Use 0 only when nothing moved.</p>`+(stage.method==='manual'?'<label>Reason<select name="manualReason" required><option value="No camera / camera unavailable">No camera / camera unavailable</option><option value="Label unreadable">Label unreadable</option><option value="Checked printed cell name">Checked printed cell name</option></select></label>':'')+`<p>Press Finish only after moving the items. This records only this cell and stops its unperformed remainder.</p><button>Finish ${esc(l.type)} at this cell</button>`)}<button type="button" class="secondary" data-scan-line="${l.id}">Scan again</button></section>`;
+   else if(!stage)actions=`<p class="work-callout" data-guidance-line="${l.id}" role="status">${guidanceMarkup(l)}</p><button type="button" data-scan-line="${l.id}">Scan QR</button><button type="button" class="secondary" data-manual-summary="${l.id}">Confirm without scanning</button>${disclosure('cell-help-'+l.id,'Help',`<button type="button" class="secondary" data-refresh-guidance>Refresh light</button>`)}`;
+   else actions=`<p class="work-callout" role="status">${stage.method==='camera'?'QR checked':'Ready to confirm without scanning'}. Confirm the final task total across every location used.</p><button type="button" data-open-cell-confirmation>Review and complete ${esc(l.type)}</button>${disclosure('cell-help-'+l.id,'Help',`<button type="button" class="secondary" data-refresh-guidance>Refresh light</button><button type="button" class="secondary" data-scan-line="${l.id}">Scan QR again</button>`)}${cellConfirmation(l,stage)}`;
    actions+=disclosure('difference-'+l.id,'Record a difference',recovery+form('askReview',allocationFields(l)+input('reason','What is uncertain?')+'<button class="secondary">Ask supervisor to resolve</button>'));
    actions+=disclosure('cancel-'+l.id,'Cancel this location',form('cancel',allocationFields(l)+hidden('zeroConfirmed','true')+'<p>This declares zero movement. If anything moved, record that actual using Finish first. A partial actual closes this cell’s remaining plan.</p><label class="work-check"><input type="checkbox" required>Nothing moved at this location.</label><button class="secondary">Nothing moved — cancel</button>'));
    if(!working&&l.type==='put')actions+=disclosure('replan-'+l.id,'Use a different planned location',form('replan',hidden('lineId',l.id)+hidden('revision',l.revision)+`<label>Replacement location<select name="cellId">${options(snapshot.cells,'id',c=>c.logical_code,l.cell_id)}</select></label>`+qty('Replacement planned quantity')+'<label class="work-check"><input type="checkbox" required>Nothing moved under the original instructions.</label><button class="secondary">Save replacement plan</button>'));
@@ -506,9 +530,10 @@ function taskPage(id){
  const live=t.lines.filter(l=>!['superseded'].includes(l.execution_state));
  const ready=live.filter(l=>['ready','working'].includes(l.execution_state));
  const selected=Number(new URLSearchParams(location.search).get('line'));
- const primary=ready.find(l=>l.id===selected)||ready.find(l=>l.execution_state==='working')||ready.find(l=>!['waiting','blocked'].includes(l.guidance?.state))||ready[0];
+ const primary=live.find(l=>l.id===selected)||ready.find(l=>l.execution_state==='working')||ready.find(l=>!['waiting','blocked'].includes(l.guidance?.state))||ready[0]||live[0];
  const closed=!t.attention&&(['completed','stopped','cancelled'].includes(t.outcome)||Boolean(t.completed_at));
- return `<section class="task-work-screen"><section class="work-intro"><a href="${esc(workReturn()||'/work')}">← ${workReturn()?'Back to stock':'My work'}</a><p class="task-product-summary">${workActive(t)?'Active work':'Task details'} · ${esc(taskName(t))}</p><p><strong>${esc(t.review_followup?'Quantity check':outcome(t))}</strong>${closed?'':' · '+esc(dueText(t))}</p>${closed?'<p><a class="work-primary" href="/work">Back to My work</a></p>':''}<p>Requested ${esc(t.requested_quantity)} · Completed ${esc(t.recorded_quantity)} · Remaining ${esc(t.remaining_quantity)} ${esc(t.lines[0]?.unit_of_measure)}</p>${t.instruction_note?`<p>${esc(t.instruction_note)}</p>`:''}</section><div class="task-primary-action">${assignmentActions(t)}</div>${taskContext(t)}${followupPanel(t)}${!t.review_followup&&primary?lineCard(primary):''}${!t.review_followup&&ready.length>1?disclosure('other-locations','Other locations',ready.filter(l=>l!==primary).map(l=>`<a class="work-secondary" ${workActive(t)?'data-active-location="'+l.id+'"':''} href="/tasks/${t.id}?line=${l.id}">${esc(l.directions?.name||l.logical_code)} · ${esc(l.planned_quantity)} ${esc(l.unit_of_measure)}</a>`).join(''),true):''}${live.some(l=>!['ready','working'].includes(l.execution_state))?disclosure('recorded-locations','Recorded / closed locations',live.filter(l=>!['ready','working'].includes(l.execution_state)).map(lineCard).join(''),false):''}<footer class="task-bottom-actions">${canStopTask(t)?`<button type="button" class="secondary" data-task-stop="${t.id}">Stop remaining work</button>`:''}<button type="button" class="secondary" data-task-details="${t.id}">Task details and history</button></footer></section>`;
+ const locations=!t.review_followup&&live.length?`<nav class="task-location-list" aria-label="Task locations">${live.map(l=>`<a class="task-location-card" ${workActive(t)?'data-active-location="'+l.id+'"':''} href="/tasks/${t.id}?line=${l.id}" ${l===primary?'aria-current="true"':''}><strong>${esc(l.logical_code)}</strong><span>${esc(l.type==='put'?'Put':'Pick')} ${esc(l.execution_state==='settled'?l.actual_quantity:l.planned_quantity)} ${esc(l.unit_of_measure)}</span>${!['ready','working'].includes(l.execution_state)?`<small>${esc(status(l.execution_state))}</small>`:l.guidance?.state==='waiting'?'<small>Waiting for light</small>':''}</a>`).join('')}</nav>`:'';
+ return `<section class="task-work-screen"><section class="work-intro task-work-intro"><a href="${esc(workReturn()||'/work')}">← ${workReturn()?'Back to stock':'My work'}</a><h2>Task #${t.id} · ${esc(taskName(t))}</h2>${checkTaskSummary(t,true)}${closed?'<p><a class="work-primary" href="/work">Back to My work</a></p>':''}${t.instruction_note?`<p>${esc(t.instruction_note)}</p>`:''}</section><div class="task-primary-action">${assignmentActions(t)}</div>${taskContext(t)}${followupPanel(t)}${locations}${!t.review_followup&&primary?lineCard(primary):''}<footer class="task-bottom-actions">${canStopTask(t)?`<button type="button" class="secondary" data-task-stop="${t.id}">Stop remaining work</button>`:''}<button type="button" class="secondary" data-task-details="${t.id}">Task details and history</button></footer></section>`;
 }
 
 function pageLinks(info,key='page') {
@@ -902,7 +927,7 @@ function render(){
  for(const link of root.querySelectorAll('a[href]')){const href=(link.getAttribute?.('href')||'').split('?')[0];const cap=workLinkCapability(href);if(cap&&!allowed(cap))link.remove();}
  for(const f of root.querySelectorAll('form[data-work-action]')){f._workIdentity={site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id};f._draftPath=path;}
  restoreDrafts();
- for(const f of root.querySelectorAll('form[data-work-action]')){updateProductPicker(f);updateRecoveryLink(f);updateTimingFields(f);updateAssignmentForm(f);}
+ for(const f of root.querySelectorAll('form[data-work-action]')){updateProductPicker(f);updateRecoveryLink(f);updateTimingFields(f);updateAssignmentForm(f);updateCellConfirmation(f);}
  if(typeof location!=='undefined'&&new URLSearchParams(location.search).has('device_help'))openOperationDialog({stage:'connection'});
  for(const box of root.querySelectorAll('[data-product-stock]'))box._stockOpen=disclosures.get('product-stock-details')||false;
  refreshProductStocks();patchTaskAssignees();
@@ -997,16 +1022,17 @@ async function deliverPhysicalReview(o){
  const rejected=response&&[400,401,403,404,409,422].includes(response.status)&&result?.error;
  if(rejected){o.state='not-applied';o.message=result.error;}
  else if(response?.ok&&result?.status==='recorded'&&result.closed===true){o.state='recorded';o.result=result;o.message='Movement saved. Task closed.';}
+ else if(o.action==='sendTaskReview'&&response?.ok&&result?.status==='review'){o.state='review';o.result=result;o.message='Final quantities sent for supervisor review. No stock was changed yet.';}
  else{o.state='review-unknown';o.message='Save not confirmed. Reconnect and use Retry save here. Do not enter the movement again.';}
  await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');patchPhysicalSaveStatus();
- if(o.state!=='recorded')throw new Error(o.message);
+ if(!['recorded','review'].includes(o.state))throw new Error(o.message);
  await store('cache','readwrite',s=>s.delete(o.draftId));drafts.delete(o.draftId);notice=o.message;
  const live=root.querySelector?.('#work-notice');if(live){live.innerHTML='<p class="work-callout">'+esc(notice)+'</p>';live.dataset.notice=notice;}
  try{await refresh();await afterReviewSave(Number(o.input.taskId),o.action);}
  catch{
   // The durable warehouse receipt is authoritative even if refreshing fails.
   // Never ask the user to resubmit a successful movement as a new command.
-  notice='Movement saved and task closed. Reconnect to refresh the task list.';
+  notice=o.state==='review'?'Final quantities saved for supervisor review. Reconnect to refresh the task list.':'Movement saved and task closed. Reconnect to refresh the task list.';
   for(const name of ['tasks','returnedTasks','watchedTasks'])if(snapshot[name])snapshot[name]=snapshot[name].filter(t=>t.id!==Number(o.input.taskId));
   const d=root.querySelector?.('[data-task-dialog]');d?.close();dirty=false;render();
  }
@@ -1037,9 +1063,9 @@ async function saveDraft(f){
  if(f.dataset.workAction==='closeTask'||f.dataset.draftKind==='closure-review')values._actuals=closureActualValues(f);
  const id=draftKey(f);drafts.set(id,values);await store('cache','readwrite',s=>s.put({id,values}));
 }
-async function showSummary(l,method,locationValue='') {
- const id=stageKey(l),value={method,location:locationValue};
- await store('cache','readwrite',s=>s.put({id,stage:value}));stages.set(id,value);render();
+async function showSummary(l,method,locationValue='',reason='Operator confirmed location without QR') {
+ const id=stageKey(l),value={method,location:locationValue,reason:method==='manual'?reason:''};
+ await store('cache','readwrite',s=>s.put({id,stage:value}));stages.set(id,value);render();openCellConfirmation();
 }
 function findLine(id){return snapshot.tasks.flatMap(t=>t.lines).find(l=>l.id===Number(id));}
 async function immediate(action,values){
@@ -1052,11 +1078,12 @@ root.addEventListener('input',e=>{
  const filter=e.target.closest('.my-work-filters');if(filter){updateFilterApply(filter);dirty=workFiltersChanged(filter);return;}
  dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{notice='Draft not saved: device storage failed. Use the manual recording procedure.';document.querySelector('#work-notice').textContent=workText(notice);});
  if(f)updateRecoveryLink(f);
+ if(f)updateCellConfirmation(f);
  if(f&&e.target.name==='verificationNote')updateVerificationFields(f);
  if(f&&e.target.name==='unit')updateProductPicker(f);
 
 });
-root.addEventListener('change',e=>{if(e.target.matches('[data-select-task],[data-select-all]')){changeTaskSelection(e.target);return;}const filter=e.target.closest('.my-work-filters');if(filter){if(e.target.matches('[data-add-filter]')){changeFilterColumn(filter,e.target.value,true);return;}if(e.target.name==='reviewOnly')void applyWorkFilters(filter,true);else if(e.target.name==='pageSize')void applyWorkFilters(filter,'pageSize');else updateFilterApply(filter);dirty=workFiltersChanged(filter);return;}const changedForm=e.target.closest('form');if(changedForm){updateClosureForm(changedForm);if(['changeDue','deadlineChoice'].includes(e.target.name))updateReturnedDue(changedForm);updateRecoveryLink(changedForm);updateAssignmentForm(changedForm);if(e.target.name==='verification')updateVerificationFields(changedForm);if(e.target.name==='timeUnit')updateTimingFields(changedForm,true);}if(e.target.name==='productId'){updateProductPicker(e.target.closest('form'));refreshProductStocks(true,e.target.closest('form'));}else if(e.target.name==='direction')refreshProductStocks(true,e.target.closest('form'));if(e.target.name==='assigneeId')patchTaskAssignees();if(e.target.name==='countCorrectionId'){const f=e.target.closest('form'),r=snapshot.pending.find(r=>r.id===f.elements.reportId?.value),candidate=(f._countCandidates||[r?.countEvidence]).find(c=>c&&String(c.id)===e.target.value);if(r)f.querySelector('[data-count-sequence]').textContent=countSequence(candidate,r);}dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{});});
+root.addEventListener('change',e=>{if(e.target.matches('[data-select-task],[data-select-all]')){changeTaskSelection(e.target);return;}const filter=e.target.closest('.my-work-filters');if(filter){if(e.target.matches('[data-add-filter]')){changeFilterColumn(filter,e.target.value,true);return;}if(e.target.name==='reviewOnly')void applyWorkFilters(filter,true);else if(e.target.name==='pageSize')void applyWorkFilters(filter,'pageSize');else updateFilterApply(filter);dirty=workFiltersChanged(filter);return;}const changedForm=e.target.closest('form');if(changedForm){updateClosureForm(changedForm);updateCellConfirmation(changedForm);if(['changeDue','deadlineChoice'].includes(e.target.name))updateReturnedDue(changedForm);updateRecoveryLink(changedForm);updateAssignmentForm(changedForm);if(e.target.name==='verification')updateVerificationFields(changedForm);if(e.target.name==='timeUnit')updateTimingFields(changedForm,true);}if(e.target.name==='productId'){updateProductPicker(e.target.closest('form'));refreshProductStocks(true,e.target.closest('form'));}else if(e.target.name==='direction')refreshProductStocks(true,e.target.closest('form'));if(e.target.name==='assigneeId')patchTaskAssignees();if(e.target.name==='countCorrectionId'){const f=e.target.closest('form'),r=snapshot.pending.find(r=>r.id===f.elements.reportId?.value),candidate=(f._countCandidates||[r?.countEvidence]).find(c=>c&&String(c.id)===e.target.value);if(r)f.querySelector('[data-count-sequence]').textContent=countSequence(candidate,r);}dirty=true;const f=e.target.closest('form');if(f)f.dataset.edited='true';if(f?.dataset.workAction)saveDraft(f).catch(()=>{});});
 let submitting=false;
 root.addEventListener('submit',async e=>{
  const recovery=e.target.closest('[data-plan-recovery]');if(recovery?.matches?.('[data-plan-recovery]')){e.preventDefault();if(submitting)return;submitting=true;const b=recovery.querySelector('button[type="submit"]');b.disabled=true;try{await submitPlanRecovery(recovery);}catch(error){recovery.querySelector('.form-feedback').textContent=error.message;}finally{submitting=false;b.disabled=false;}return;}
@@ -1064,7 +1091,7 @@ root.addEventListener('submit',async e=>{
  const bulk=e.target.closest('[data-bulk-discard-form]');if(bulk?.hasAttribute?.('data-bulk-discard-form')){e.preventDefault();await submitBulkDiscard(bulk);return;}
  const f=e.target.closest('form[data-work-action]');if(!f)return;e.preventDefault();if(submitting)return;submitting=true;
  const button=f.querySelector('button:not([type="button"])');button.disabled=true;
- const feedback=f.querySelector('.form-feedback'),action=e.submitter?.hasAttribute('data-send-task-review')?'sendTaskReview':f.dataset.workAction;
+ const feedback=f.querySelector('.form-feedback');let action=e.submitter?.hasAttribute('data-send-task-review')?'sendTaskReview':e.submitter?.hasAttribute('data-assign-remaining')?'resolveAndAssignRemaining':f.dataset.workAction;
  try{
   await saveDraft(f);
   requireSavedCheckObservation(f);
@@ -1074,6 +1101,11 @@ root.addEventListener('submit',async e=>{
   if(action==='updateReviewTask'){values.changeDue=values.deadlineChoice==='duration'||values.deadlineChoice==='none';values.noDeadline=values.deadlineChoice==='none';delete values.deadlineChoice;}
   const countLinks={};for(const name of Object.keys(values))if(/^countLink\d+$/.test(name)){countLinks[name.slice(9)]=values[name];delete values[name];}if(Object.keys(countLinks).length)values.countLinks=countLinks;
   if(f.dataset.workAction==='closeTask'||f.dataset.draftKind==='closure-review'){values.actuals=closureActualValues(f);for(const name of Object.keys(values))if(/^actual(Cell|Quantity)/.test(name))delete values[name];}
+  if(f.hasAttribute?.('data-final-task-confirmation')){
+   const task=availableTask(values.taskId);if(!task)throw new Error('Task changed. Reopen it before completing.');
+   if(!values.actuals?.length)throw new Error('Add at least one actual location.');
+   action=completionAction(task,values.actuals);
+  }
   for(const n of ['alignPhysical','noDeadline','verifiedClosure','workerStopped','changeDue','manual','keepOpen','dismissDuplicate','closeAllocation','zeroConfirmed','afterCountVerified','stopRemaining','enabled'])if(n in values)values[n]=values[n]===true||values[n]==='on'||values[n]==='true';
   if(action==='report'&&!online)values.manual=true;
   if(values.occurredAt)values.occurredAt=new Date(values.occurredAt).toISOString();
@@ -1100,7 +1132,7 @@ root.addEventListener('submit',async e=>{
   else if(action==='acquire'){if(!lineActive(findLine(values.lineId)))throw new Error('Resume this task before arriving.');
    if(!online)throw new Error('Reconnect to request a turn. You may still report physical work already done.');
    f._input||={...values,requestId:uid()};const result=await immediate(action,f._input);notice=result.message;
-   await refresh();render();if(result.status==='ready')void scanQR(findLine(values.lineId));
+   await refresh();render();if(result.status==='ready')void scanQR(findLine(values.lineId)).catch(error=>{notice=error.message;render();});
   }else{
    if(!online&&!['report','manual','decline','handBack','cancel','stop','askReview'].includes(action))throw new Error('Reconnect before changing plans or resolving work.');
    if(action==='assign'&&assignmentPending())throw new Error('Wait for confirmation of the saved assignment before assigning again.');
@@ -1138,7 +1170,9 @@ root.addEventListener('click',async e=>{
   const historyLink=e.target.closest('[data-task-history]');if(historyLink){e.preventDefault();openTaskDialog(await fetchDialogTask(Number(historyLink.dataset.taskHistory)),'details');return;}
   const taskModal=e.target.closest('[data-task-details],[data-task-stop],[data-task-check],[data-record-moved]');if(taskModal){const lineId=taskModal.dataset.recordMoved;let t=snapshot.tasks.find(t=>lineId?t.lines.some(l=>l.id===Number(lineId)):t.id===Number(taskModal.dataset.taskDetails||taskModal.dataset.taskStop||taskModal.dataset.taskCheck));if(online&&(taskModal.dataset.taskStop||taskModal.dataset.taskCheck||!t))t=await fetchDialogTask(Number(taskModal.dataset.taskDetails||taskModal.dataset.taskStop||taskModal.dataset.taskCheck));if(t)openTaskDialog(t,lineId?'recovery':taskModal.dataset.taskDetails?'details':taskModal.dataset.taskStop?'stop':'check',lineId);return;}
   const stockRetry=e.target.closest('[data-stock-retry]');if(stockRetry){refreshProductStocks(true,stockRetry.closest('form'));return;}
-  const nextLocation=e.target.closest('[data-active-location]');if(nextLocation){const t=snapshot.tasks.find(t=>t.id===Number(path.split('/')[2]));if(workActive(t)){e.preventDefault();window.history.pushState({},'',nextLocation.getAttribute('href'));render();return;}}
+  const nextLocation=e.target.closest('[data-active-location]');if(nextLocation){const t=snapshot.tasks.find(t=>t.id===Number(path.split('/')[2]));if(workActive(t)){e.preventDefault();stopCamera?.();window.history.pushState({},'',nextLocation.getAttribute('href'));render();return;}}
+  if(e.target.closest('[data-close-cell-confirmation]')){e.target.closest('[data-cell-confirmation]')?.close();return;}
+  if(e.target.closest('[data-open-cell-confirmation]')){openCellConfirmation();return;}
   if(e.target.closest('[data-refresh-guidance]')){await refreshActiveLight();return;}
   const retryActivation=e.target.closest('[data-retry-activation]');if(retryActivation){if(submitting)return;submitting=true;try{const o=outbox.find(o=>o.id===retryActivation.dataset.retryActivation&&o.partition===key());if(o)await deliverActivation(o);}finally{submitting=false;}return;}
   const taskAction=e.target.closest('[data-update-returned],[data-hand-back]');if(taskAction){const id=Number(taskAction.dataset.updateReturned||taskAction.dataset.handBack),found=[...(snapshot.returnedTasks||[]),...snapshot.tasks,...(snapshot.watchedTasks||[])].find(t=>t.id===id);let t=found;if(!t&&online){t=await fetchDialogTask(id);snapshot.watchedTasks=[...(snapshot.watchedTasks||[]),t];}if(!t)throw new Error('Reconnect to open the latest task.');if(t)openTaskDialog(t,taskAction.dataset.updateReturned?'update':'return');return;}
@@ -1159,7 +1193,7 @@ root.addEventListener('click',async e=>{
    for(const row of outbox.filter(o=>o.partition===key()))await store('outbox','readwrite',s=>s.delete(row.id));
    snapshot=null;outbox=[];render();return;
   }
-  const manual=e.target.closest('[data-manual-summary]');if(manual)await showSummary(findLine(manual.dataset.manualSummary),'manual');
+  const manual=e.target.closest('[data-manual-summary]');if(manual){stopCamera?.();await showSummary(findLine(manual.dataset.manualSummary),'manual');return;}
   const scan=e.target.closest('[data-scan-line]');if(scan)await scanQR(findLine(scan.dataset.scanLine));
   const link=e.target.closest('a');if(link&&!online&&link.getAttribute('href')?.startsWith('/')){const target=link.getAttribute('href');if(['/work','/pick','/put','/record-movement'].includes(target)||/^\/tasks\/\d+$/.test(target)){e.preventDefault();path=target;activeWork=null;render();}}
  }catch(error){notice=error.message;const d=e.target.closest('[data-task-dialog]'),warning=d?.querySelector('[data-task-dialog-warning]');if(warning){warning.hidden=false;warning.textContent=error.message;}else render();}
@@ -1167,16 +1201,17 @@ root.addEventListener('click',async e=>{
 let stopCamera=null;
 async function scanQR(l){
  if(!l)return;stopCamera?.();
- if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){notice='Camera unavailable. Choose Complete without scanning to check the cell and Finish manually.';render();return;}
- const dialog=document.createElement('dialog');dialog.className='qr-dialog';dialog.innerHTML=`<h2>Scan this cell</h2><p>${esc(l.product_name)} · ${esc(l.type)} ${esc(l.planned_quantity)} ${esc(l.unit_of_measure)} · ${esc(l.logical_code)}</p><p>Scanning opens a summary. Only Finish records stock.</p><video autoplay playsinline muted></video><p role="status" class="scan-feedback"></p><button type="button" data-close-camera>Close camera</button><button type="button" class="secondary" data-camera-manual>Complete without scanning</button>`;
- document.body.append(dialog);dialog.showModal();let stopped=false,stream;
- const stop=()=>{stopped=true;stream?.getTracks().forEach(t=>t.stop());cameraStream=null;dialog.remove();stopCamera=null;};stopCamera=stop;
- dialog.querySelector('[data-close-camera]').onclick=stop;dialog.addEventListener('cancel',stop);
- dialog.querySelector('[data-camera-manual]').onclick=async()=>{stop();await showSummary(l,'manual');};
+ let stopped=false,stream,dialog;
+ const stop=()=>{stopped=true;stream?.getTracks().forEach(t=>t.stop());cameraStream=null;dialog?.remove();if(stopCamera===stop)stopCamera=null;};stopCamera=stop;
+ if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){stop();await showSummary(l,'manual','','No camera / camera unavailable');return;}
  try{
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
   if(stopped){stream.getTracks().forEach(t=>t.stop());return;}cameraStream=stream;
+  dialog=document.createElement('dialog');dialog.className='qr-dialog';dialog.innerHTML=`<h2>Scan this cell</h2><p>${esc(l.product_name)} · ${esc(l.type)} ${esc(l.planned_quantity)} ${esc(l.unit_of_measure)} · ${esc(l.logical_code)}</p><p>Scanning checks the cell. Complete ${esc(l.type)} only after confirming the actual location and quantity.</p><video autoplay playsinline muted></video><p role="status" class="scan-feedback"></p><button type="button" data-close-camera>Close camera</button><button type="button" class="secondary" data-camera-manual>Confirm without scanning</button>`;
+  document.body.append(dialog);dialog.showModal();dialog.querySelector('[data-close-camera]').onclick=stop;dialog.addEventListener('cancel',stop);
+  dialog.querySelector('[data-camera-manual]').onclick=async()=>{stop();await showSummary(l,'manual');};
   const video=dialog.querySelector('video');video.srcObject=stream;await video.play();const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});let lastRejected='';
+  if(stopped)return;
   async function frame(){
    if(stopped)return;
    if(video.readyState>=2){canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);const p=ctx.getImageData(0,0,canvas.width,canvas.height),code=window.jsQR(p.data,p.width,p.height);
@@ -1184,12 +1219,12 @@ async function scanQR(l){
    }
    if(!stopped)requestAnimationFrame(frame);
   }requestAnimationFrame(frame);
- }catch(error){stop();notice='Camera unavailable. Choose Complete without scanning; no movement has been recorded.';render();}
+ }catch(error){if(stopped)return;stop();await showSummary(l,'manual','','No camera / camera unavailable');}
 }
 window.addEventListener('pagehide',()=>stopCamera?.());
 window.addEventListener('popstate',handleModalPop);
 window.addEventListener('offline',()=>{online=false;productStockReads.clear();refreshProductStocks();patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
-const canRefresh=()=>!bulkBusy&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open&&!dirty&&!root.contains(document.activeElement)&&!cameraStream?.active&&!submitting;
+const canRefresh=()=>!bulkBusy&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open&&!root.querySelector('[data-cell-confirmation]')?.open&&!dirty&&!root.contains(document.activeElement)&&!stopCamera&&!submitting;
 let monitoring=false,pollDelay=5000;
 function patchLiveRows(){
  refreshProductStocks();patchGuidanceHints();patchReturnedRows();patchTaskAssignees();

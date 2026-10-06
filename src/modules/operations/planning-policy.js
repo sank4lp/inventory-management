@@ -15,7 +15,7 @@ export function putRoom(db,cellId,product,options={}){
  // Floor rather than round: never allocate more than the remaining fraction.
  return Math.max(0,Math.floor(((1-usedSpace(db,cellId,options))*product.items_per_cell+1e-9)*1e6)/1e6);
 }
-export const taskPrioritySql=(task='t')=>`COALESCE((SELECT MAX(CASE
+export const taskPrioritySql=(task='t')=>`CASE WHEN EXISTS(SELECT 1 FROM work_reports wr JOIN task_lines wl ON wl.id=wr.line_id WHERE wl.task_id=${task}.id AND wr.origin_ref LIKE 'task-closure:%' AND wr.status IN ('review','received')) THEN 2 ELSE COALESCE((SELECT MAX(CASE
  WHEN (SELECT COALESCE(SUM(wr.quantity),0) FROM work_reservations wr JOIN task_lines wl ON wl.id=wr.line_id WHERE wr.kind='pick' AND wr.state='held' AND wl.product_id=l.product_id) > (SELECT COALESCE(SUM(MAX(0,b.available_quantity)),0) FROM inventory_balances b WHERE b.product_id=l.product_id) + 0.000000001 THEN 2
  WHEN (SELECT COALESCE(SUM(wr.quantity),0) FROM work_reservations wr JOIN task_lines wl ON wl.id=wr.line_id WHERE wr.kind='pick' AND wr.state='held' AND wl.product_id=l.product_id) > (SELECT COALESCE(SUM(MAX(0,b.available_quantity)),0) FROM inventory_balances b WHERE b.product_id=l.product_id)*0.5 THEN 1 ELSE 0 END)
- FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=${task}.id AND r.state='held' AND r.kind='pick' AND ${reviewClaim('l',task)}),0)`;
+ FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=${task}.id AND r.state='held' AND r.kind='pick' AND ${reviewClaim('l',task)}),0) END`;

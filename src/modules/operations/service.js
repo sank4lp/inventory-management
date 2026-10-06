@@ -763,6 +763,23 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     }
     return result;
   }
+  function resolveAndAssignRemaining(actor,input){
+    assertCan(actor,'review.resolve');assertCan(actor,'review.stop');assertCan(actor,'work.assign');
+    const report=db.prepare('SELECT * FROM work_reports WHERE id=?').get(input.reportId);
+    if(!report||!['review','received'].includes(report.status)||!JSON.parse(report.payload).taskClosure)throw new Error('Open the current task completion review before assigning remaining work.');
+    const original=currentTask(actor,input,true),first=line(report.line_id);
+    if(first.task_id!==original.id)throw new Error('This review belongs to another task.');
+    const assigned=eligibleAssignee(actor,input.assigneeId);
+    if(!Array.isArray(input.actuals))throw new Error('Confirm the actual quantities at each location first.');
+    const actual=rounded(input.actuals.reduce((sum,row)=>sum+workQuantity(row.quantity),0));
+    const remaining=rounded(original.requested_quantity-actual);
+    if(remaining<=0)throw new Error('No quantity remains to assign. Save the actual movement and close this task instead.');
+    const closed=closure.resolve(actor,input,report);
+    const next=create(actor,{direction:original.type,productId:first.product_id,quantity:remaining,assigneeId:assigned.id},true);
+    assignmentEvent(actor,original.id,'reopened',original.assignee_id,{nextTaskId:next.taskId,quantity:remaining,unit:first.unit_of_measure});
+    assignmentEvent(actor,next.taskId,'reopened_from',null,{sourceTaskId:original.id});
+    return {...closed,newTaskId:next.taskId,message:`Actual movement accepted. Task #${next.taskId} assigned for the remaining ${remaining} ${first.unit_of_measure}.`};
+  }
   function postManual(actor, report, verification, input) {
     if(countBoundary(db,report)&&input.afterCountVerified!==true)throw new Error('A stocktake correction may already account for this movement. Verify or link it first.');
     const mapping = manualAccounting(report);
@@ -891,7 +908,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       event('location_reconciled',actor,null,input);
       return {status:'recorded',message:'Verified location reconciled and available for new plans.'};
     },
-    create, resume:resumeTask, guide, acquire, report: reportActual, resolve, cancel, correct,
+    create, resume:resumeTask, guide, acquire, report: reportActual, resolve, resolveAndAssignRemaining, cancel, correct,
     manual(actor, input) { const report = insertReport(actor, {...input,unknown:false}); return review(report, input.direction === "count" ? "Count observation during ongoing work; no balance replacement was made." : "Completed movement received for supervisor verification. No new instructions were activated."); },
     mode(actor, input) {
       actorNow(actor, "locations.mode");
@@ -917,7 +934,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
-      const permissions={reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve'};
+      const permissions={reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       if(['reassign','stop','handBack','decline'].includes(action)&&input.progressToken&&input.progressToken!==progressToken(Number(input.taskId)))throw new Error('Task quantities changed. Refresh before changing this task.');

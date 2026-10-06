@@ -55,8 +55,11 @@ function scanner(){
 test('simulated camera frame verifies then opens summary, stops stream and never sends a movement',async()=>{
  const s=scanner();await s.run('scanQR(l)');await s.frames.shift()();assert.deepEqual(s.commands.map(c=>c.action),['verify']);assert.equal(s.summaries[0].method,'camera');assert.equal(s.counts().stopped,1);assert.equal(s.counts().removed,1);
 });
-test('camera closing before permission resolves still releases the late stream without submitting',async()=>{
- const s=scanner();let grant;s.context.navigator.mediaDevices.getUserMedia=()=>new Promise(r=>grant=r);const pending=s.run('scanQR(l)');s.buttons['[data-close-camera]'].onclick();let stops=0;grant({getTracks:()=>[{stop(){stops++;}}]});await pending;assert.equal(stops,1);assert.equal(s.commands.length,0);assert.equal(s.summaries.length,0);
+test('camera is not shown before permission resolves, and cancelling releases a late stream',async()=>{
+ const s=scanner();let grant;s.context.navigator.mediaDevices.getUserMedia=()=>new Promise(r=>grant=r);const pending=s.run('scanQR(l)');assert.equal(s.buttons['[data-close-camera]'],undefined);s.run('stopCamera()');let stops=0;grant({getTracks:()=>[{stop(){stops++;}}]});await pending;assert.equal(stops,1);assert.equal(s.commands.length,0);assert.equal(s.summaries.length,0);
+});
+test('camera-free devices open manual confirmation without showing a scanner',async()=>{
+ const s=scanner();s.context.navigator.mediaDevices.getUserMedia=async()=>{throw new Error('No camera found');};await s.run('scanQR(l)');assert.equal(s.buttons['[data-close-camera]'],undefined);assert.equal(s.summaries[0].method,'manual');assert.equal(s.counts().removed,0);assert.equal(s.commands.length,0);
 });
 test('wrong simulated QR stays in camera with error and cannot unlock Finish',async()=>{
  const s=scanner();s.run("immediate=async()=>{throw new Error('Wrong QR');}");await s.run('scanQR(l)');await s.frames.shift()();assert.equal(s.summaries.length,0);assert.equal(s.buttons['.scan-feedback'].textContent,'Wrong QR');s.buttons['[data-close-camera]'].onclick();assert.equal(s.counts().stopped,1);

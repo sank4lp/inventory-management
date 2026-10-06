@@ -19,19 +19,84 @@ function view({online = true, role = 'operator', tasks = [], active = false} = {
 }
 const line = {id:1,task_id:1,current_generation:1,revision:2,cell_id:3,logical_code:'A3',unit_of_measure:'pieces',planned_quantity:5,product_name:'Part',product_id:1,type:'pick',execution_state:'ready',created_by:1};
 
-test('arrival, camera and summary remain separate; only explicit Finish declares the displayed actual', () => {
-  const ui=view({active:true});ui.context.line=line;
+test('arrival, scan and manual confirmation remain separate; only explicit completion declares the displayed actual', () => {
+  const ui=view({active:true});ui.context.line=line;ui.run("snapshot.cells=[{id:3,logical_code:'A3'},{id:4,logical_code:'B4'}];snapshot.tasks=[{id:1,type:'pick',requested_quantity:5,assignment_generation:1,assignment_state:'started',assignee_id:1,progress_token:'p',closure_token:'c',lines:[line]}]");
   const ready=ui.run('lineCard(line)');assert.match(ready,/I'm at this location/);
-  assert.doesNotMatch(ready,/Finish pick at this cell/);
+  assert.doesNotMatch(ready,/Complete Pick/);
   const working=ui.run("lineCard({...line,execution_state:'working'})");
-  assert.match(working,/Resume camera/);assert.match(working,/Complete without scanning/);
-  assert.doesNotMatch(working,/Finish pick at this cell/);
+  assert.match(working,/Scan QR/);assert.match(working,/Confirm without scanning/);
+  assert.doesNotMatch(working,/Complete Pick/);
   ui.run("stages.set(stageKey(line),{method:'manual'})");
   const summary=ui.run("lineCard({...line,execution_state:'working'})");
-  assert.match(summary,/Finish pick at this cell/);assert.match(summary,/Press Finish only after moving/);
-  assert.match(summary,/Manual completion — no QR verification/);assert.match(summary,/name="quantity"[^>]+value="5"/);
-  assert.match(summary,/min="0"/);assert.match(summary,/Change quantity/);
+  assert.match(summary,/Review and complete pick/);assert.match(summary,/data-cell-confirmation/);
+  assert.match(summary,/No QR scan/);assert.match(summary,/data-searchable name="actualCell0"/);
+  assert.match(summary,/name="actualQuantity0"[^>]+value="5"/);assert.match(summary,/Complete Pick/);
+  assert.match(summary,/data-add-actual/);assert.match(summary,/min="0"/);
   assert.match(summary,/Record a difference/);assert.match(summary,/Nothing moved — cancel/);
+});
+
+test('QR and no-camera paths use the same editable product, location and quantity confirmation', () => {
+ for(const type of ['pick','put'])for(const method of ['camera','manual']){
+  const ui=view({active:true});ui.context.line={...line,type};ui.run("snapshot.cells=[{id:3,logical_code:'A3'},{id:4,logical_code:'B4'}];snapshot.tasks=[{id:1,requested_quantity:5,assignment_generation:1,assignment_state:'started',assignee_id:1,progress_token:'p',closure_token:'c',lines:[line]}]");
+  ui.run(`stages.set(stageKey(line),{method:'${method}',location:'checked-label'})`);
+  const html=ui.run("lineCard({...line,execution_state:'working'})");
+  assert.match(html,/Did you (pick|put) the correct item and quantities from these locations\?/);
+  assert.match(html,/Part/);assert.match(html,/data-searchable name="actualCell0"/);
+  assert.match(html,/<option value="3" selected>A3<\/option>/);
+  assert.match(html,/<option value="4"[^>]*>B4<\/option>/);
+  assert.match(html,/name="actualQuantity0"[^>]*value="5"/);
+  assert.match(html,/data-add-actual/);assert.match(html,/name="finalTaskCompletion" value="true"/);
+  assert.match(html,new RegExp(`Complete ${type==='pick'?'Pick':'Put'}`));
+  assert.match(html,/Back to task/);
+ }
+});
+
+test('only a changed task total goes to review; location-only splits complete normally', () => {
+ const ui=view({active:true});
+ ui.context.task={requested_quantity:5};
+ for(const [rows,action] of [
+  [[{cellId:3,quantity:3},{cellId:4,quantity:2}],'closeTask'],
+  [[{cellId:3,quantity:5}],'closeTask'],
+  [[{cellId:3,quantity:2},{cellId:4,quantity:2}],'sendTaskReview'],
+  [[{cellId:3,quantity:4}],'sendTaskReview']
+ ]){ui.context.rows=rows;assert.equal(ui.run('completionAction(task,rows)'),action);}
+});
+
+test('a supervisor can accept a short task total and assign the remainder from the same review', () => {
+ const ui=view({role:'admin'});
+ ui.context.task={id:9,type:'pick',requested_quantity:5,remaining_quantity:1,recorded_quantity:0,assignee_id:2,assignment_generation:2,progress_token:'p',closure_token:'c',closure_review_id:'case-9',closure_case_revision:1,closure_actuals:[{cellId:3,quantity:4}],lines:[{...line,task_id:9}]};
+ ui.run("snapshot.cells=[{id:3,logical_code:'A3'}];snapshot.operators=[{id:2,name:'Operator',username:'worker',eligible:true,status:'active'}]");
+ const html=ui.run('reviewMovementContent(task)');
+ assert.match(html,/Accept movement and close task/);
+ assert.match(html,/Accept movement and assign remaining/);
+ assert.match(html,/data-assign-remaining/);
+ assert.match(html,/data-searchable name="assigneeId"/);
+ assert.match(html,/name="actualQuantity0"[^>]*value="4"/);
+});
+
+test('active pick and put show the review-style task summary and let operators choose any location', () => {
+ for (const type of ['pick','put']) {
+  const ui=view({active:true});
+  const task={id:1,type,summary:'Part',outcome:'open',assignment_generation:1,assignment_state:'started',assignee_id:1,assignee_name:'Operator',assigned_by_name:'Admin',assigned_at:'2026-10-06T08:00:00Z',requested_quantity:10,recorded_quantity:2,remaining_quantity:8,lines:[
+   {...line,type,execution_state:'working',guidance:{state:'sent',message:'Light on'}},
+   {...line,id:2,type,cell_id:4,logical_code:'B4',planned_quantity:3,execution_state:'ready',guidance:{state:'sent',message:'Light on'}},
+   {...line,id:3,type,cell_id:5,logical_code:'C5',planned_quantity:2,execution_state:'settled',actual_quantity:2},
+  ]};
+  ui.context.task=task;ui.run("snapshot.tasks=[task];path='/tasks/1'");
+  let html=ui.run('taskPage(1)');
+  assert.match(html,/<table class="check-summary-table"/);
+  assert.match(html,/<th scope="row">Work<\/th><td>Active work<\/td>/);
+  assert.match(html,/<th scope="row">Status<\/th><td>In progress<\/td>/);
+  assert.match(html,/<th scope="row">Assigned by<\/th><td>Admin<\/td>/);
+  assert.match(html,/Refresh light/);assert.match(html,/Scan QR/);
+  assert.equal((html.match(/class="task-location-card"/g)||[]).length,3);
+  assert.match(html,new RegExp(`B4<\\/strong><span>${type==='put'?'Put':'Pick'} 3 pieces`));
+  assert.doesNotMatch(html,/Other locations|Recorded \/ closed locations/);
+  ui.run("location.search='?line=2'");html=ui.run('taskPage(1)');
+  assert.match(html,/href="\/tasks\/1\?line=2" aria-current="true"/);
+  assert.match(html,/data-line="2"/);
+  assert.doesNotMatch(html,/data-line="1"/);
+ }
 });
 
 test('offline reports stay accessible and queued/view-only safeguards survive simpler screens', () => {
@@ -317,7 +382,7 @@ test('task changes cannot discard a typed check observation, including zero quan
 
 test('movement step uses final totals and explicit verifier attestation, while terminal late evidence stays immutable',()=>{
  const ui=view({role:'admin'});ui.context.task={id:66,type:'pick',assignee_id:2,assignment_generation:3,progress_token:'p',closure_token:'c',review_followup:1,requested_quantity:5,recorded_quantity:2,remaining_quantity:3,lines:[{...line,actual_quantity:2,execution_state:'settled',reports:[{id:'late',status:'review'}]}]};ui.run('snapshot.cells=[{id:3,logical_code:"A3"}]');
- let html=ui.run('reviewMovementContent(task)');for(const label of ['Actual location','Actual quantity','Unit','Remove'])assert.match(html,new RegExp('>'+label+'</th>'));assert.match(html,/final total movement for this task/);assert.match(html,/name="workerStopped"/);assert.match(html,/Save Movement and Close Task/);assert.doesNotMatch(html,/How was this verified|name="verification"|checked/);
+ let html=ui.run('reviewMovementContent(task)');for(const label of ['Actual location','Actual quantity','Unit','Remove'])assert.match(html,new RegExp('>'+label+'</th>'));assert.match(html,/final total movement for this task/);assert.match(html,/name="workerStopped"/);assert.match(html,/Accept movement and close task/);assert.doesNotMatch(html,/How was this verified|name="verification"|checked/);
  ui.run("task.completed_at='2026-09-30';task.closed_actuals=true;task.outcome='stopped'");assert.equal(ui.run('canCheckTask(task)'),true);assert.equal(ui.run('canCloseReview(task)'),false);assert.equal(ui.run('myWorkState(task)'),'review');html=ui.run('reviewMovementContent(task)');assert.match(html,/Review late evidence/);assert.doesNotMatch(html,/data-work-action="closeTask"|data-work-action="resolve"/);assert.match(ui.run('checkDialogContent(task)'),/data-review-assignment disabled/);
 });
 

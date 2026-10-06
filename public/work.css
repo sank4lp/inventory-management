@@ -138,6 +138,16 @@
 #work-app .product-stock summary{font-size:12px;font-weight:500;min-height:32px;padding:3px 0;align-content:center}
 
 .task-work-screen{max-width:760px}.task-primary-action{margin:12px 0}.task-primary-action>button{width:100%}
+.task-work-intro{max-width:none;padding-bottom:12px}.task-work-intro h2{font-size:clamp(21px,2.5vw,28px);line-height:1.25;margin:12px 0 16px}
+.task-work-intro .check-summary-table{margin-bottom:12px!important}
+.cell-confirmation-dialog{width:min(480px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;border:1px solid var(--work-border);border-radius:16px;color:var(--work-ink);background:#fff}
+.cell-confirmation-dialog h2{margin:0 0 12px;font-size:clamp(20px,3vw,25px)}.cell-confirmation-dialog>p{margin:8px 0}.cell-confirmation-dialog .cell-confirmation-product{font-size:17px}
+#work-app .cell-confirmation-dialog form{margin:12px 0 0;padding:12px 0 0;gap:12px}.cell-confirmation-quantity{display:flex;align-items:center;gap:8px}.cell-confirmation-quantity input{flex:1;min-width:0}.cell-confirmation-quantity span{flex:none;white-space:nowrap;font-weight:650}
+#work-app .cell-confirmation-dialog form>button,#work-app .cell-confirmation-dialog>[data-close-cell-confirmation]{width:100%}.cell-confirmation-dialog::backdrop{background:#112f2ad0}
+.task-location-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:10px;margin:18px 0 14px}
+.task-location-card{display:flex;flex-direction:column;justify-content:center;gap:3px;min-height:62px;padding:10px 14px;border:1px solid var(--work-border);border-radius:12px;background:#fff;color:var(--work-ink);text-decoration:none;line-height:1.35;box-sizing:border-box}
+.task-location-card strong{font-size:14px}.task-location-card span{font-size:13px}.task-location-card small{font-size:12px;color:var(--work-muted)}
+.task-location-card:hover{border-color:#2e8068;background:var(--work-tint)}.task-location-card[aria-current="true"]{border:2px solid #1c6553;background:var(--work-tint);padding:9px 13px}
 .task-context{margin:18px 0;padding:16px;border:1px solid var(--work-border);border-radius:12px;background:white}
 .task-context p{margin:8px 0}.task-context form{border:0!important;margin:0!important;padding:0!important}
 .task-assignee-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
