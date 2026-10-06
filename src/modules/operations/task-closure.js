@@ -111,6 +111,7 @@ export function createTaskClosure({db,line,currentTask,progressToken,workQuantit
   const supervisor=input.verifiedClosure===true;
   if(supervisor){assertCan(actor,'review.resolve');assertCan(actor,'review.stop');input=attest(input);}
   const t=fresh(actor,input,supervisor);if(t.assignee_id!==actor.id)assertCan(actor,'work.teamStop');
+  if((t.explicit_close||input.taskFinish===true)&&!supervisor&&lines(t.id).some(l=>['ready','working'].includes(l.execution_state)))throw new Error('Finish each remaining location, or choose Complete Task and confirm supervisor review for unfinished work.');
   if(pendingCase(t.id))throw new Error('Task closure is already awaiting supervisor review. Open that case.');
   const rows=rowsFor(t,input);
   if(input.finalTaskCompletion===true||input.finalTaskCompletion==='true'){
@@ -121,9 +122,10 @@ export function createTaskClosure({db,line,currentTask,progressToken,workQuantit
  }
  function send(actor,input){
   const team=can(actor,'work.teamStop');let t;if(team){t=currentTask(actor,input);if(t.completed_at||input.progressToken!==progressToken(t.id)||input.closureToken!==token(t.id))throw new Error('Task changed. Refresh before requesting review.');}else t=fresh(actor,input);
-  if(pendingCase(t.id))throw new Error('Task closure is already awaiting supervisor review.');const actuals=rowsFor(t,input),first=lines(t.id)[0];const r=insertReport(actor,{quantity:workQuantity(round(actuals.reduce((n,r)=>n+r.quantity,0))),origin:`task-closure:${input.requestId}`,taskClosure:true,actuals,currentStatus:input.currentStatus,reason:'Final task movement totals submitted for review'},first,true);
+  if(input.taskFinish===true&&input.unfinishedConfirmed!==true)throw new Error('Confirm that the unfinished work should go to a supervisor.');
+  if(pendingCase(t.id))throw new Error('Task closure is already awaiting supervisor review.');const actuals=rowsFor(t,input),first=lines(t.id)[0],perCell=t.explicit_close===1;const r=insertReport(actor,{quantity:workQuantity(round(actuals.reduce((n,r)=>n+r.quantity,0))),origin:`task-closure:${input.requestId}`,taskClosure:true,actuals,currentStatus:input.currentStatus,reason:perCell?'Unfinished locations submitted for supervisor decision':'Final task movement totals submitted for review'},first,true);
   db.prepare('UPDATE work_reports SET performer_id=NULL WHERE id=?').run(r.id);
-  review(r,'Task closure requested. Verify all final location totals together; no stock correction has been posted.');db.prepare('UPDATE tasks SET stop_requested=1,assignment_generation=assignment_generation+1 WHERE id=?').run(t.id);assignmentEvent(actor,t.id,'closure_review_requested',t.assignee_id,{reportId:r.id,actuals});return {status:'review',taskId:t.id,reportId:r.id,message:'Sent for review. Actual entries are saved; the task is not closed and stock is not confirmed.'};
+  review(r,perCell?'Unfinished locations need a supervisor decision. Completed cell movements remain recorded.':'Task closure requested. Verify all final location totals together; no stock correction has been posted.');db.prepare('UPDATE tasks SET stop_requested=1,assignment_generation=assignment_generation+1 WHERE id=?').run(t.id);assignmentEvent(actor,t.id,'closure_review_requested',t.assignee_id,{reportId:r.id,actuals});return {status:'review',taskId:t.id,reportId:r.id,message:perCell?'Unfinished work sent to supervisor. Completed cell movements remain recorded.':'Sent for review. Actual entries are saved; the task is not closed and stock is not confirmed.'};
  }
  function resolve(actor,input,report){assertCan(actor,'review.resolve');assertCan(actor,'review.stop');if(input.keepOpen)return null;const t=fresh(actor,input,true);if(report.line_id==null||line(report.line_id).task_id!==t.id)throw new Error('This review belongs to another task.');input=attest(input);return finalize(actor,t,rowsFor(t,input),input,true,report);}
  return {close,send,resolve,totals,token,pendingCase,hasClosed};

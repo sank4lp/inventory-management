@@ -19,6 +19,7 @@ export function migrateOperations(db) {
   add("tasks", "review_handover_verified", "INTEGER NOT NULL DEFAULT 0");
   add("tasks", "review_remaining_quantity", "REAL");
   add("tasks", "attention", "INTEGER NOT NULL DEFAULT 0");
+  add("tasks", "explicit_close", "INTEGER NOT NULL DEFAULT 0");
   add("task_lines", "revision", "INTEGER NOT NULL DEFAULT 1");
   add("task_lines", "execution_state", "TEXT NOT NULL DEFAULT 'legacy'");
   add("task_lines", "device_id", "TEXT");
@@ -104,6 +105,7 @@ function migrateWorkflowContracts(db, add) {
   for (const [name, definition] of Object.entries({
     assignee_id:'INTEGER REFERENCES users(id)', assigned_by:'INTEGER REFERENCES users(id)', assigned_at:'TEXT',
     assignment_generation:'INTEGER NOT NULL DEFAULT 1', assignment_state:"TEXT NOT NULL DEFAULT 'legacy'",
+    guidance_paused:'INTEGER NOT NULL DEFAULT 0', guidance_session:'TEXT',
     assignment_source:"TEXT NOT NULL DEFAULT 'legacy'", due_at:'TEXT', requested_quantity:'REAL',
     outcome:"TEXT NOT NULL DEFAULT 'open'", instruction_note:'TEXT', stop_requested:'INTEGER NOT NULL DEFAULT 0',
   })) add('tasks', name, definition);

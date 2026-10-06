@@ -85,7 +85,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       WHERE l.task_id=? AND r.status IN ('review','received')`).get(taskId);
     const actual = rounded(lines.reduce((n,l)=>n+(l.execution_state==='settled'?l.actual_quantity:0),0));
     const returned = t.assignment_state==='returned' && !t.stop_requested;
-    const outcome = review?'needs_review':returned?'needs_assignment':open||t.review_followup&&!t.stop_requested&&(t.review_remaining_quantity>0||actual<t.requested_quantity)?'open':actual >= t.requested_quantity && actual>0?'completed':actual>0?'stopped':'cancelled';
+    const outcome = review?'needs_review':returned?'needs_assignment':open||t.explicit_close&&!t.stop_requested||t.review_followup&&!t.stop_requested&&(t.review_remaining_quantity>0||actual<t.requested_quantity)?'open':actual >= t.requested_quantity && actual>0?'completed':actual>0?'stopped':'cancelled';
     const closed = ['completed','stopped','cancelled'].includes(outcome);
     if(closed&&!t.completed_at)event('task_completed',null,null,{taskId,outcome,quantity:actual});
     db.prepare('UPDATE tasks SET status=?,outcome=?,attention=?,completed_at=?,last_touched_at=? WHERE id=?')
@@ -138,7 +138,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const binding=guidanceBinding(db,cellId);
       const candidates=db.prepare(`SELECT l.id FROM task_lines l JOIN tasks t ON t.id=l.task_id JOIN work_reservations r ON r.line_id=l.id
         WHERE l.cell_id=? AND l.execution_state IN ('ready','working') AND l.planned_quantity>0 AND r.state='held'
-        AND t.workflow_version=2 AND t.assignment_state='started' AND t.review_followup=0 AND t.completed_at IS NULL AND t.stop_requested=0
+        AND t.workflow_version=2 AND t.assignment_state='started' AND t.guidance_paused=0 AND t.review_followup=0 AND t.completed_at IS NULL AND t.stop_requested=0
         AND NOT EXISTS(SELECT 1 FROM work_reports w WHERE w.line_id=l.id AND w.status IN ('review','received'))
         ORDER BY COALESCE(t.started_at,t.assigned_at),l.id`).all(cellId).map(({id})=>line(id)).filter(l=>can(effectiveUser(db,db.prepare('SELECT * FROM users WHERE id=?').get(l.assignee_id)),'work.execute')&&!instructionProblem(l));
       const counts=db.prepare(`SELECT cl.*,i.run_id,i.cell_id FROM stocktake_display_claims cl JOIN stocktake_items i ON i.id=cl.item_id JOIN stocktake_runs r ON r.id=i.run_id
@@ -146,7 +146,11 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       // Preserve an existing display. Arrival never preempts it, including shared-locator cells.
       const existing=candidates.find(l=>l.id===old?.lineId),existingCount=counts.find(i=>i.item_id===old?.itemId&&i.generation===old?.itemGeneration);
       const countFirst=!existing&&!existingCount&&counts[0]&&(!candidates[0]||counts[0].requested_at<candidates[0].task_started_at);
-      const owner=existing||(!existingCount&&!countFirst?candidates[0]:null),count=existingCount||(!owner?counts[0]:null);
+      // A paused operator may already have moved stock here. Protect that
+      // physical turn while leaving the display dark until an explicit resume.
+      const pausedTurn=db.prepare(`SELECT 1 FROM cell_turns turn JOIN task_lines l ON l.id=turn.line_id JOIN tasks t ON t.id=l.task_id
+        WHERE turn.cell_id=? AND t.guidance_paused=1 AND l.execution_state='working'`).get(cellId);
+      const owner=pausedTurn?null:existing||(!existingCount&&!countFirst?candidates[0]:null),count=pausedTurn?null:existingCount||(!owner?counts[0]:null);
       const desired=!c.active?old?{action:'clear',binding:old.binding||binding}:null:count?{action:'count',itemId:count.item_id,itemGeneration:count.generation,binding:count.binding}:owner?{action:c.guidance_mode==='shared'?'locate':'quantity',lineId:owner.id,quantity:owner.planned_quantity,binding}:old?{action:'clear',binding:old.binding||binding}:null;
       if(desired&&JSON.stringify(desired)!==JSON.stringify(old))setGuidance(cellId,desired);
     }
@@ -239,7 +243,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(countBoundary(db,report,allocation)&&!(supervisor&&JSON.parse(report.payload).countBoundaryCleared===true))return review(report,'A stocktake correction may already include this movement. Review its count correction before posting again.');
     if (!supervisor && ["cancelled", "superseded"].includes(allocation.execution_state)) return review(report, "The original allocation changed or was cancelled. Verify the reported physical movement before recording it.");
     const qty = report.quantity;
-    if (report.product_id !== allocation.product_id || report.unit !== allocation.current_unit || (!supervisor && report.cell_id !== allocation.cell_id)) return review(report, "The location or accounting unit changed. Retained for supervisor reconciliation; nothing has been silently converted or relocated.");
+    const acknowledged=JSON.parse(report.payload).cellCompletion===true&&JSON.parse(report.payload).differenceConfirmed===true;
+    if (report.product_id !== allocation.product_id || report.unit !== allocation.current_unit || (!supervisor && report.cell_id !== allocation.cell_id && !acknowledged)) return review(report, "The location or accounting unit changed. Retained for supervisor reconciliation; nothing has been silently converted or relocated.");
     const originPosted=db.prepare("SELECT r.* FROM work_origins o JOIN work_reports r ON r.id=o.report_id WHERE o.origin_ref=?").get(report.origin_ref);
     if(originPosted && (originPosted.quantity!==qty || originPosted.product_id!==report.product_id || originPosted.cell_id!==report.cell_id || originPosted.unit!==report.unit || originPosted.direction!==allocation.type)) return review(report,"This source movement reference was already posted differently. Retain both entries and reconcile them.");
     const onHand = balance(report.product_id, report.cell_id);
@@ -377,7 +382,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(!['offered','legacy','started'].includes(t.assignment_state)||t.completed_at)throw new Error('This task is no longer available to start.');
     if(t.assignment_state!=='started') {
       replanUnissuedTask(actor,t);
-      db.prepare("UPDATE tasks SET assignment_state='started',assignment_generation=assignment_generation+1,last_touched_at=?,started_at=? WHERE id=?").run(now(),now(),t.id);
+      db.prepare("UPDATE tasks SET assignment_state='started',assignment_generation=assignment_generation+1,guidance_paused=0,guidance_session=?,last_touched_at=?,started_at=? WHERE id=?").run(input.guidanceSession||null,now(),now(),t.id);
       for(const l of db.prepare("SELECT id FROM task_lines WHERE task_id=? AND execution_state='ready'").all(t.id)) {db.prepare('UPDATE task_lines SET revision=revision+1 WHERE id=?').run(l.id);captureInstruction(l.id);}
       assignmentEvent(actor,t.id,'started',t.assignee_id);
     }
@@ -476,16 +481,18 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(input.progressToken!==progressToken(t.id))throw new Error('Task quantities or assignment changed. Refresh before saving.');
     if(closure.hasClosed(t.id)||t.completed_at)throw new Error('Closed tasks cannot be reassigned.');
     const remaining=workQuantity(input.remainingQuantity,true),pending=!!db.prepare("SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.status IN ('review','received')").get(t.id);
+    const planCellId=input.planCellId===undefined?(t.plan_cell_id||0):Number(input.planCellId||0);
+    if(!Number.isInteger(planCellId)||planCellId<0||planCellId&&!db.prepare('SELECT id FROM cells WHERE id=? AND active=1').get(planCellId))throw new Error('Choose an active location for the remaining work.');
     let due=t.due_at;
     if(input.changeDue===true){assertCan(actor,'work.deadline');if(input.noDeadline===true)due=null;else{const minutes=Number(input.duration)*({minutes:1,hours:60,days:1440}[input.timeUnit]||0);if(!Number.isFinite(minutes)||minutes<1||minutes>525600)throw new Error('Choose a deadline duration from one minute to one year.');due=new Date(Date.now()+minutes*60000).toISOString();}}
     const actual=rounded(db.prepare("SELECT COALESCE(SUM(actual_quantity),0) n FROM task_lines WHERE task_id=? AND execution_state='settled'").get(t.id).n);
     if(pending){
-      const result=assignReview(actor,input);db.prepare('UPDATE tasks SET review_remaining_quantity=?,due_at=? WHERE id=?').run(remaining,due,t.id);
+      const result=assignReview(actor,input);db.prepare('UPDATE tasks SET review_remaining_quantity=?,due_at=?,plan_cell_id=? WHERE id=?').run(remaining,due,planCellId||null,t.id);
       assignmentEvent(actor,t.id,'review_intent_updated',t.assignee_id,{previousRemaining:t.review_remaining_quantity??Math.max(0,t.requested_quantity-actual),remaining,previousDue:t.due_at,dueAt:due});
       return {...result,taskId:t.id,message:'Assignment saved. Movement still needs review; stock holds remain and work has not restarted.'};
     }
     if(db.prepare("SELECT 1 FROM task_lines WHERE task_id=? AND execution_state='working'").get(t.id))throw new Error('Finish or stop active location work before changing its assignment.');
-    db.prepare('UPDATE tasks SET requested_quantity=?,review_remaining_quantity=NULL,due_at=? WHERE id=?').run(workQuantity(actual+remaining,true),due,t.id);
+    db.prepare('UPDATE tasks SET requested_quantity=?,review_remaining_quantity=NULL,due_at=?,plan_cell_id=? WHERE id=?').run(workQuantity(actual+remaining,true),due,planCellId||null,t.id);
     const result=reassign(actor,{...input,assigneeId:person.id});assignmentEvent(actor,t.id,'review_task_updated',t.assignee_id,{previousRequested:t.requested_quantity,requested:actual+remaining,remaining,previousDue:t.due_at,dueAt:due});return {...result,taskId:t.id,message:'Task assignment updated.'};
   }
   function assignReview(actor,input) {
@@ -578,8 +585,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const assignedAt=now(), timing=timingSettings();
     const duration=assignmentForm?assignmentDuration(input):null;
     const dueAt=assignmentForm?new Date(Date.parse(assignedAt)+duration*60000).toISOString():input.dueAt ? validatedDue(actor,input.dueAt) : timing.enabled ? new Date(Date.parse(assignedAt)+timing.minutes*60000).toISOString() : null;
-    db.prepare("UPDATE tasks SET workflow_version=2,assignee_id=?,assigned_by=?,assigned_at=?,assignment_state=?,assignment_source=?,due_at=?,requested_quantity=?,instruction_note=? WHERE id=?")
-      .run(assignee.id,actor.id,assignedAt,input.assigneeId?'offered':'started',input.assigneeId?'assigned':'self',dueAt,workQuantity(input.quantity,true),String(input.note||'').slice(0,2000),task.id);
+    db.prepare("UPDATE tasks SET workflow_version=2,assignee_id=?,assigned_by=?,assigned_at=?,assignment_state=?,assignment_source=?,due_at=?,requested_quantity=?,instruction_note=?,guidance_session=? WHERE id=?")
+      .run(assignee.id,actor.id,assignedAt,input.assigneeId?'offered':'started',input.assigneeId?'assigned':'self',dueAt,workQuantity(input.quantity,true),String(input.note||'').slice(0,2000),input.assigneeId?null:input.guidanceSession||null,task.id);
     assignmentEvent(actor,task.id,'assigned',null,{dueAt,...(assignmentForm?{durationMinutes:duration}:{}),source:input.assigneeId?'assigned':'self'});
     for (const allocation of task.lines) {
       db.prepare("UPDATE task_lines SET execution_state='ready',unit_of_measure=(SELECT unit_of_measure FROM products WHERE id=task_lines.product_id) WHERE id=?").run(allocation.id);
@@ -615,14 +622,27 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(!eligible.length)throw new Error('No location is ready to resume. Check the outstanding movement or task result.');
     const supplied=typeof input.instructions==='string'?JSON.parse(input.instructions):input.instructions;
     if(!Array.isArray(supplied)||supplied.length!==eligible.length||new Set(supplied.map(x=>Number(x.lineId))).size!==eligible.length||eligible.some(l=>!supplied.some(x=>Number(x.lineId)===l.id&&Number(x.revision)===l.revision&&Number(x.bindingRevision)===l.binding_revision)))throw new Error('Location instructions changed. Refresh before resuming.');
+    db.prepare('UPDATE tasks SET guidance_paused=0,guidance_session=? WHERE id=?').run(input.guidanceSession||null,t.id);
     const claims=eligible.flatMap(l=>guide(actor,{...input,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision}).guidanceClaims);
     assignmentEvent(actor,t.id,'resumed',t.assignee_id);
     return {status:'recorded',taskId:t.id,generation:t.assignment_generation,guidanceClaims:claims,guidanceCells:claims.map(c=>c.cellId),message:'Task resumed. Follow the location guidance; arrival is a separate action.'};
+  }
+  function pauseTask(actor,input) {
+    const t=currentTask(actor,input);
+    if(t.assignee_id!==actor.id||t.assignment_state!=='started'||t.completed_at||t.stop_requested)return {status:'recorded',message:'Task is no longer active.'};
+    // A late pagehide from an older tab cannot darken a task resumed elsewhere.
+    if(!input.guidanceSession||input.guidanceSession!==t.guidance_session)return {status:'recorded',message:'An older task page was ignored.'};
+    if(!t.guidance_paused){
+      db.prepare('UPDATE tasks SET guidance_paused=1,guidance_session=NULL WHERE id=?').run(t.id);
+      assignmentEvent(actor,t.id,'paused',t.assignee_id);
+    }
+    return {status:'recorded',taskId:t.id,message:'Task paused. Resume it to relight its locations.'};
   }
   function guide(actor,input) {
     const t=currentTask(actor,input),l=line(input.lineId);
     if(t.assignee_id!==actor.id||l.task_id!==t.id)throw new Error('Only the assigned operator can refresh this task’s light.');
     if(t.assignment_state!=='started'||t.review_followup||t.stop_requested||t.completed_at)throw new Error('Start eligible work before requesting its light. Quantity-check assignments cannot execute work.');
+    if(t.guidance_paused)throw new Error('Resume this task before requesting its light.');
     if(l.revision!==Number(input.revision)||l.binding_revision!==Number(input.bindingRevision))throw new Error('Location instructions changed. Refresh the task before requesting its light.');
     if(!['ready','working'].includes(l.execution_state)||l.planned_quantity<=0||hasEvidence(l.id))throw new Error('This location is closed or needs a quantity check. Follow the current task.');
     if(metadata('firmware_busy'))throw new Error('Controller maintenance is in progress. Follow your screen.');
@@ -636,6 +656,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function acquire(actor, input) {
     if(metadata("firmware_busy")) throw new Error("Controller maintenance is in progress. No new guidance is available.");
     const allocation = line(input.lineId); executeOwner(actor, allocation, input);
+    if(db.prepare('SELECT guidance_paused FROM tasks WHERE id=?').get(allocation.task_id)?.guidance_paused)throw new Error('Resume this task before arriving at a location.');
     if(controlledCell(db,allocation.cell_id))throw new Error('This location has a condition review. Ask a supervisor to resolve affected instructions; report any actual movement already performed.');
     if (!input.deviceId) throw new Error("A device identity is required.");
     if (allocation.revision !== Number(input.revision) || !["ready", "working"].includes(allocation.execution_state)) throw new Error("This allocation changed. Refresh it before requesting guidance; already performed work can still be reported.");
@@ -659,6 +680,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function reportActual(actor, input) {
     const allocation = line(input.lineId);
+    if(input.cellCompletion===true&&input.differenceConfirmed!==true&&(Number(input.cellId)!==allocation.cell_id||Number(input.quantity)!==allocation.planned_quantity))throw new Error('Confirm the changed location or quantity before completing this cell.');
     const previousOwner = db.prepare('SELECT 1 FROM work_instruction_history WHERE line_id=? AND assignee_id=?').get(allocation.id,actor.id);
     if(actor.id!==allocation.assignee_id && !previousOwner && !can(actor,'review.resolve')) throw new Error('You can report only your own allocations or earlier assigned work.');
     const report = insertReport(actor, {...input,unknown:false}, allocation);
@@ -669,7 +691,9 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(allocation.review_followup)return review(report,'Physical evidence retained for verification during the assigned quantity check.');
     const settled = db.prepare('SELECT 1 FROM work_settlements WHERE line_id=?').get(allocation.id);
     if (settled) return settle(actor, report, allocation);
-    if (report.product_id !== allocation.product_id || report.direction!==allocation.type || Number(input.revision) !== allocation.revision || input.unit !== allocation.unit_of_measure || Number(input.cellId) !== allocation.cell_id) return review(report, 'The original allocation, location, or unit changed. Your actual movement entry was retained; the replacement plan was not posted.');
+    if (report.product_id !== allocation.product_id || report.direction!==allocation.type || Number(input.revision) !== allocation.revision || input.unit !== allocation.unit_of_measure || Number(input.cellId) !== allocation.cell_id && !(input.cellCompletion===true&&input.differenceConfirmed===true)) return review(report, 'The original allocation, location, or unit changed. Your actual movement entry was retained; the replacement plan was not posted.');
+    if(input.cellCompletion===true)db.prepare('UPDATE tasks SET explicit_close=1 WHERE id=?').run(allocation.task_id);
+    if(input.cellCompletion===true&&Number(input.cellId)!==allocation.cell_id&&!db.prepare('SELECT 1 FROM cells WHERE id=? AND active=1').get(Number(input.cellId)))return review(report,'The actual location is inactive. A supervisor must verify the moved items before stock is changed.');
     if(input.method==='camera' && !validLocationLabel(db,identity().site,allocation,input.location)) return review(report,'The location label changed or does not match. Verify the original physical work.');
     if(input.method==='manual' && !String(input.manualReason||'').trim()) return review(report,'Manual completion needs a reason and verification of the cell.');
     if (db.prepare("SELECT 1 FROM work_reports WHERE line_id=? AND status='review' AND id!=?").get(allocation.id,report.id) || allocation.execution_state!=='working' || allocation.device_id!==input.deviceId || input.manual===true) return review(report,'Actual work received for supervisor verification. No new guidance or movement has been assumed.');
@@ -834,6 +858,23 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     releaseUntouched(actor,allocation,'cancelled');taskProgress(allocation.task_id);
     return {status:'recorded',message:'Nothing moved — location cancelled. Only its reservation was released.'};
   }
+  function rejectCell(actor,input){
+    const allocation=line(input.lineId);own(actor,allocation);executeOwner(actor,allocation,input);
+    if(!['ready','working'].includes(allocation.execution_state)||Number(input.revision)!==allocation.revision||hasEvidence(allocation.id))throw new Error('This cell changed. Refresh the task before rejecting it.');
+    if(allocation.execution_state==='working'&&allocation.device_id!==input.deviceId)throw new Error('This cell is active on another device. Resume there or ask a supervisor to check it.');
+    if(input.zeroConfirmed!==true)throw new Error('Confirm that nothing moved at this cell. If stock moved, record the actual quantity instead.');
+    const reasons=['Location is full','Different product is here','Insufficient quantity','Location cannot be reached','Other'];
+    if(!reasons.includes(input.reason)||input.reason==='Other'&&!String(input.note||'').trim())throw new Error('Choose a reason, or describe the issue under Other.');
+    const reason=input.reason+(input.note?' — '+String(input.note).trim().slice(0,500):'');
+    db.prepare('UPDATE tasks SET explicit_close=1 WHERE id=?').run(allocation.task_id);
+    const report=insertReport(actor,{...input,quantity:0,cellId:allocation.cell_id,unit:allocation.unit_of_measure,reason,cellRejection:true},allocation);
+    db.prepare("UPDATE task_lines SET execution_state='cancelled',revision=revision+1,note=? WHERE id=?").run(reason,allocation.id);
+    db.prepare("UPDATE work_reservations SET state='released' WHERE line_id=?").run(allocation.id);
+    releaseTurn(allocation);syncReservations();
+    const result=review(report,'This cell was skipped with zero movement. Check the reason and assign the remaining work or close the task.');
+    event('cell_rejected',actor,allocation.id,{reason,reportId:report.id},report.id);taskProgress(allocation.task_id);
+    return {...result,taskId:allocation.task_id,message:'Cell skipped. The supervisor can review and reassign the remaining work.'};
+  }
   function correct(actor, input, verified = false) {
     const allocation = line(input.lineId); if(allocation.assignee_id!==actor.id)assertCan(actor,"review.resolve");
     if(allocation.review_followup&&!verified&&!can(actor,'review.resolve'))throw new Error('This task is assigned for observation only. Save an observation for the verifier before correcting recorded movements.');
@@ -908,7 +949,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       event('location_reconciled',actor,null,input);
       return {status:'recorded',message:'Verified location reconciled and available for new plans.'};
     },
-    create, resume:resumeTask, guide, acquire, report: reportActual, resolve, resolveAndAssignRemaining, cancel, correct,
+    create, resume:resumeTask, pause:pauseTask, guide, acquire, report: reportActual, resolve, resolveAndAssignRemaining, cancel, rejectCell, correct,
     manual(actor, input) { const report = insertReport(actor, {...input,unknown:false}); return review(report, input.direction === "count" ? "Count observation during ongoing work; no balance replacement was made." : "Completed movement received for supervisor verification. No new instructions were activated."); },
     mode(actor, input) {
       actorNow(actor, "locations.mode");
@@ -934,7 +975,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
-      const permissions={reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
+      const permissions={reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',pause:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',rejectCell:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       if(['reassign','stop','handBack','decline'].includes(action)&&input.progressToken&&input.progressToken!==progressToken(Number(input.taskId)))throw new Error('Task quantities changed. Refresh before changing this task.');
@@ -984,6 +1025,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function guidanceStatus(l,actor=null){
     if(l.assignment_state!=='started'||!['ready','working'].includes(l.execution_state))return null;
     const problem=instructionProblem(l);if(problem)return {state:'blocked',message:problem};
+    if(db.prepare('SELECT guidance_paused FROM tasks WHERE id=?').get(l.task_id)?.guidance_paused)return {state:'paused',message:'Task paused — Resume task to relight the locations.'};
     const owner=displayOwner(db,l.cell_id);
     if(owner&&(owner.kind!=='task'||owner.lineId!==l.id)){
       const visible=actor&&(owner.kind==='task'?can(actor,'work.team')||db.prepare('SELECT 1 FROM tasks WHERE id=? AND (assignee_id=? OR created_by=?)').get(owner.taskId,actor.id,actor.id):can(actor,'count.team'));

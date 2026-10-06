@@ -10,7 +10,14 @@ export function displayOwner(db,cellId) {
     const owner=db.prepare(`SELECT i.run_id AS runId,i.id AS itemId,u.name AS name FROM stocktake_items i JOIN stocktake_runs r ON r.id=i.run_id JOIN users u ON u.id=i.assignee_id WHERE i.id=? AND i.generation=? AND i.state IN ('pending','counting','skipped','recheck') AND r.status NOT IN ('closed','completed')`).get(d.itemId,d.itemGeneration);
     return owner?{...owner,kind:'count',generation:row.generation}:null;
   }
-  if(!['quantity','locate'].includes(d.action))return null;
+  if(!['quantity','locate'].includes(d.action)){
+    // A paused task with an acquired physical turn remains exclusive even
+    // though its LEDs have been cleared. Another task must wait for resolution.
+    const paused=db.prepare(`SELECT l.id AS lineId,t.id AS taskId,u.name FROM cell_turns turn
+      JOIN task_lines l ON l.id=turn.line_id JOIN tasks t ON t.id=l.task_id JOIN users u ON u.id=t.assignee_id
+      WHERE turn.cell_id=? AND t.guidance_paused=1 AND l.execution_state='working'`).get(cellId);
+    return paused?{...paused,kind:'task',generation:row.generation}:null;
+  }
   const owner=db.prepare(`SELECT l.id AS lineId,t.id AS taskId,u.name FROM task_lines l JOIN tasks t ON t.id=l.task_id JOIN users u ON u.id=t.assignee_id
     WHERE l.id=? AND l.execution_state IN ('ready','working') AND t.assignment_state='started' AND t.stop_requested=0 AND t.completed_at IS NULL AND t.review_followup=0
     AND NOT EXISTS(SELECT 1 FROM work_reports w WHERE w.line_id=l.id AND w.status IN ('review','received'))`).get(d.lineId);

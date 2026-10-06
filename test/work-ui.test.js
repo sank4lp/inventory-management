@@ -19,6 +19,20 @@ function view({online = true, role = 'operator', tasks = [], active = false} = {
 }
 const line = {id:1,task_id:1,current_generation:1,revision:2,cell_id:3,logical_code:'A3',unit_of_measure:'pieces',planned_quantity:5,product_name:'Part',product_id:1,type:'pick',execution_state:'ready',created_by:1};
 
+test('leaving an active task sends a scoped keepalive pause; other pages do not',async()=>{
+ const ui=view({active:true});let request;
+ ui.context.fetch=(url,options)=>{request={url,options};return Promise.resolve({ok:true});};
+ ui.run("path='/tasks/1';snapshot.dataset='dataset-a';activeWork.guidanceSession='page-one'");
+ await ui.run('pauseActiveWork({keepalive:true})');
+ assert.equal(request.url,'/api/work/pause');
+ assert.equal(request.options.keepalive,true);
+ assert.equal(JSON.parse(request.options.body).guidanceSession,'page-one');
+ assert.equal(ui.run('activeWork'),null);
+ request=null;ui.run("activeWork={taskId:1,generation:1,identity:key(),dataset:snapshot.dataset,guidanceSession:'page-two'};path='/work'");
+ await ui.run('pauseActiveWork({keepalive:true})');
+ assert.equal(request,null);
+});
+
 test('arrival, scan and manual confirmation remain separate; only explicit completion declares the displayed actual', () => {
   const ui=view({active:true});ui.context.line=line;ui.run("snapshot.cells=[{id:3,logical_code:'A3'},{id:4,logical_code:'B4'}];snapshot.tasks=[{id:1,type:'pick',requested_quantity:5,assignment_generation:1,assignment_state:'started',assignee_id:1,progress_token:'p',closure_token:'c',lines:[line]}]");
   const ready=ui.run('lineCard(line)');assert.match(ready,/I'm at this location/);
@@ -28,11 +42,32 @@ test('arrival, scan and manual confirmation remain separate; only explicit compl
   assert.doesNotMatch(working,/Complete Pick/);
   ui.run("stages.set(stageKey(line),{method:'manual'})");
   const summary=ui.run("lineCard({...line,execution_state:'working'})");
-  assert.match(summary,/Review and complete pick/);assert.match(summary,/data-cell-confirmation/);
-  assert.match(summary,/No QR scan/);assert.match(summary,/data-searchable name="actualCell0"/);
-  assert.match(summary,/name="actualQuantity0"[^>]+value="5"/);assert.match(summary,/Complete Pick/);
-  assert.match(summary,/data-add-actual/);assert.match(summary,/min="0"/);
-  assert.match(summary,/Record a difference/);assert.match(summary,/Nothing moved — cancel/);
+  assert.match(summary,/Complete pick at this location/);assert.match(summary,/data-cell-confirmation/);
+  assert.match(summary,/no QR scan/);assert.match(summary,/data-searchable name="cellId"/);
+  assert.match(summary,/name="quantity"[^>]+value="5"/);assert.match(summary,/Complete Pick at this location/);
+  assert.match(summary,/data-cell-difference/);assert.match(summary,/min="0"/);
+  assert.match(summary,/data-open-cell-action="1"/);assert.match(summary,/data-cell-action-dialog/);
+  assert.match(summary,/Need help/);assert.match(summary,/Send to supervisor/);
+  assert.doesNotMatch(summary,/<summary>Record a difference|<summary>Cancel this location|<summary>Use a different planned location/);
+});
+
+test('cell actions stay compact while cancellation, Put replanning, uncertainty and next subtask remain reachable',()=>{
+ const ui=view({active:true}),first={...line,type:'put'},second={...line,id:2,cell_id:4,logical_code:'B4',type:'put',planned_quantity:3};
+ ui.context.first=first;ui.context.second=second;
+ ui.run("snapshot.cells=[{id:3,logical_code:'A3'},{id:4,logical_code:'B4'}];snapshot.tasks=[{id:1,type:'put',assignment_generation:1,assignment_state:'started',assignee_id:1,lines:[first,second]}]");
+ const html=ui.run('lineCard(first)');
+ assert.match(html,/data-open-cell-action="1"[^>]*>Cancel this location/);
+ assert.match(html,/data-next-subtask="2"[^>]*>Next subtask/);
+ assert.match(html,/data-cell-action-panel="cancel"/);
+ assert.match(html,/data-cell-action-panel="replan" hidden/);
+ assert.match(html,/data-cell-action-panel="help" hidden/);
+ assert.match(html,/data-work-action="cancel"/);assert.match(html,/data-work-action="replan"/);
+ assert.match(html,/data-work-action="rejectCell"/);assert.match(html,/data-work-action="askReview"/);
+ assert.match(html,/name="quantity"[^>]*value="5"/);
+ assert.equal(ui.run('nextSubtaskId(snapshot.tasks[0],first.id)'),second.id);
+ assert.equal(ui.run('nextSubtaskId(snapshot.tasks[0],second.id)'),first.id);
+ ui.run("second.execution_state='settled'");
+ assert.equal(ui.run('nextSubtaskId(snapshot.tasks[0],first.id)'),null);
 });
 
 test('QR and no-camera paths use the same editable product, location and quantity confirmation', () => {
@@ -40,37 +75,22 @@ test('QR and no-camera paths use the same editable product, location and quantit
   const ui=view({active:true});ui.context.line={...line,type};ui.run("snapshot.cells=[{id:3,logical_code:'A3'},{id:4,logical_code:'B4'}];snapshot.tasks=[{id:1,requested_quantity:5,assignment_generation:1,assignment_state:'started',assignee_id:1,progress_token:'p',closure_token:'c',lines:[line]}]");
   ui.run(`stages.set(stageKey(line),{method:'${method}',location:'checked-label'})`);
   const html=ui.run("lineCard({...line,execution_state:'working'})");
-  assert.match(html,/Did you (pick|put) the correct item and quantities from these locations\?/);
-  assert.match(html,/Part/);assert.match(html,/data-searchable name="actualCell0"/);
+  assert.match(html,/Confirm (Pick|Put) at this location/);
+  assert.match(html,/Part/);assert.match(html,/data-searchable name="cellId"/);
   assert.match(html,/<option value="3" selected>A3<\/option>/);
   assert.match(html,/<option value="4"[^>]*>B4<\/option>/);
-  assert.match(html,/name="actualQuantity0"[^>]*value="5"/);
-  assert.match(html,/data-add-actual/);assert.match(html,/name="finalTaskCompletion" value="true"/);
-  assert.match(html,new RegExp(`Complete ${type==='pick'?'Pick':'Put'}`));
+  assert.match(html,/name="quantity"[^>]*value="5"/);
+  assert.match(html,/name="cellCompletion" value="true"/);
+  assert.match(html,new RegExp(`Complete ${type==='pick'?'Pick':'Put'} at this location`));
   assert.match(html,/Back to task/);
  }
 });
 
-test('only a changed task total goes to review; location-only splits complete normally', () => {
- const ui=view({active:true});
- ui.context.task={requested_quantity:5};
- for(const [rows,action] of [
-  [[{cellId:3,quantity:3},{cellId:4,quantity:2}],'closeTask'],
-  [[{cellId:3,quantity:5}],'closeTask'],
-  [[{cellId:3,quantity:2},{cellId:4,quantity:2}],'sendTaskReview'],
-  [[{cellId:3,quantity:4}],'sendTaskReview']
- ]){ui.context.rows=rows;assert.equal(ui.run('completionAction(task,rows)'),action);}
-});
-
-test('final confirmation includes every planned cell, so an exact Pick or Put total closes directly', () => {
- for(const type of ['pick','put']){
-  const ui=view({active:true}),first={...line,type,planned_quantity:3,execution_state:'working'},second={...line,id:2,cell_id:4,logical_code:'B4',type,planned_quantity:2,execution_state:'ready'};
-  ui.context.task={id:1,type,requested_quantity:5,lines:[first,second]};ui.context.first=first;
-  const rows=ui.run('completionRows(task,first)');
-  assert.deepEqual(JSON.parse(JSON.stringify(rows)),[{cellId:3,logical_code:'A3',quantity:3},{cellId:4,logical_code:'B4',quantity:2}]);
-  ui.context.rows=rows;assert.equal(ui.run('completionAction(task,rows)'),'closeTask');
-  ui.run('rows[0].quantity=2');assert.equal(ui.run('completionAction(task,rows)'),'sendTaskReview');
- }
+test('task finish offers unfinished cells first and requires explicit confirmation for supervisor review', () => {
+ const ui=view({active:true}),first={...line,execution_state:'settled',actual_quantity:3},second={...line,id:2,cell_id:4,logical_code:'B4',planned_quantity:2,execution_state:'ready'};
+ ui.context.task={id:1,requested_quantity:5,recorded_quantity:3,lines:[first,second],assignment_generation:1,progress_token:'p',closure_token:'c'};
+ let html=ui.run('taskFinishDialog(task,[task.lines[1]])');assert.match(html,/B4 · pick 2 pieces/);assert.match(html,/name="unfinishedConfirmed" required/);assert.match(html,/data-work-action="sendTaskReview"/);
+ ui.run('task.recorded_quantity=5');html=ui.run('taskFinishDialog(task,[])');assert.match(html,/data-work-action="closeTask"/);assert.doesNotMatch(html,/name="unfinishedConfirmed"/);
 });
 
 test('a supervisor can accept a short task total and assign the remainder from the same review', () => {
@@ -103,7 +123,8 @@ test('active pick and put show compact task info above selectable cells and one 
   assert.ok(html.indexOf('data-task-cells')<html.indexOf('data-line="1"'));
   assert.ok(html.indexOf('<dt>Product name</dt>')<html.indexOf('<dt>Status</dt>'));
   assert.match(html,/Refresh light/);assert.match(html,/Scan QR/);
-  assert.equal((html.match(/class="task-location-card"/g)||[]).length,3);
+  assert.equal((html.match(/class="task-location-card(?: is-complete| )?"/g)||[]).length,3);
+  assert.match(html,/class="task-location-card is-complete"[^>]*>\s*<strong>C5/);
   assert.match(html,new RegExp(`B4<\\/strong><span>${type==='put'?'Put':'Pick'} 3 pieces`));
   assert.doesNotMatch(html,/Other locations|Recorded \/ closed locations/);
   ui.run("location.search='?line=2'");html=ui.run('taskPage(1)');

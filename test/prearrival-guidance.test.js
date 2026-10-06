@@ -103,6 +103,43 @@ test('working-task Refresh light keeps the original exclusive turn; failed deliv
 });
 
 const resumeInput=t=>({taskId:t.id,generation:t.assignment_generation,progressToken:t.progress_token,instructions:t.lines.filter(l=>['ready','working'].includes(l.execution_state)&&l.planned_quantity>0&&!l.reports.some(r=>['review','received'].includes(r.status))).map(l=>({lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision}))});
+test('leaving a task clears its lights without releasing stock; Resume relights it and ignores an older page',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],3);f.stock(f.cells[1],2);
+  const t=f.work.task(f.op,f.create(f.op,'pick',5,{guidanceSession:'page-one'}).taskId);
+  const reserved=f.db.prepare("SELECT COUNT(*) n FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.state='held'").get(t.id).n;
+  assert.equal(reserved,2);
+  f.command(f.op,'pause',{taskId:t.id,generation:t.assignment_generation,guidanceSession:'page-one'});
+  assert.equal(f.db.prepare('SELECT guidance_paused FROM tasks WHERE id=?').get(t.id).guidance_paused,1);
+  for(const channel of [1,2])assert.ok(f.writes.some(s=>s.includes(`clear ${channel}`)));
+  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM work_reservations r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.state='held'").get(t.id).n,reserved);
+  assert.equal(f.work.task(f.op,t.id).lines[0].guidance.state,'paused');
+  assert.throws(()=>f.command(f.op,'guide',guideInput(t)),/Resume this task/);
+  const resumed=f.command(f.op,'resume',{...resumeInput(t),guidanceSession:'page-two'});
+  assert.equal(resumed.guidanceCells.length,2);
+  for(const [channel,quantity] of [[1,3],[2,2]])assert.ok(f.writes.filter(s=>s.includes(`digit ${channel} "${quantity}" green`)).length>=2);
+  const count=f.writes.length;
+  f.command(f.op,'pause',{taskId:t.id,generation:t.assignment_generation,guidanceSession:'page-one'});
+  assert.equal(f.writes.length,count);
+  assert.equal(f.db.prepare('SELECT guidance_paused FROM tasks WHERE id=?').get(t.id).guidance_paused,0);
+ }finally{f.end();}
+});
+test('pausing an arrived cell turns its display off but keeps its physical turn exclusive',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],10);
+  const first=f.work.task(f.op,f.create(f.op,'pick',2,{guidanceSession:'page-one'}).taskId);
+  f.arrive(f.op,first.lines[0]);
+  const second=f.work.task(f.admin,f.create(f.admin,'pick',2).taskId);
+  f.command(f.op,'pause',{taskId:first.id,generation:first.assignment_generation,guidanceSession:'page-one'});
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM cell_turns WHERE cell_id=?').get(first.lines[0].cell_id).n,1);
+  assert.match(f.writes.at(-1),/clear 1/);
+  assert.equal(f.work.task(f.admin,second.id).lines[0].guidance.state,'waiting');
+  assert.equal(f.arrive(f.admin,second.lines[0]).status,'busy');
+  const latest=f.work.task(f.op,first.id);
+  f.command(f.op,'resume',{...resumeInput(latest),guidanceSession:'page-two'});
+  assert.match(f.writes.at(-1),/digit 1 "2" green/);
+ }finally{f.end();}
+});
 for(const direction of ['pick','put'])for(const assigned of [false,true])test(`${direction} ${assigned?'assigned':'self'}: explicit Resume refreshes all eligible locations while inspection and receipt replay stay passive`,()=>{
  const f=fixture();try{if(direction==='pick'){f.stock(f.cells[0],3);f.stock(f.cells[1],2);}let t=f.work.task(f.op,f.create(assigned?f.admin:f.op,direction,5,assigned?{assigneeId:f.op.id}:{}).taskId);
  if(assigned){assert.throws(()=>f.command(f.op,'resume',resumeInput(t)));assert.equal(f.writes.length,0);f.command(f.op,'start',{taskId:t.id,generation:t.assignment_generation,progressToken:t.progress_token});t=f.work.task(f.op,t.id);}

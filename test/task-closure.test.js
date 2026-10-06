@@ -37,6 +37,73 @@ function finalQuantityFixture(direction='pick'){
  const balance=cell=>Number(db.prepare('SELECT available_quantity q FROM inventory_balances WHERE product_id=1 AND cell_id=?').get(cell.id)?.q||0);
  return {db,work,admin,op,cells,cmd,task,taskId,fields,balance};
 }
+for(const direction of ['pick','put'])test(`${direction}: each cell posts immediately, task stays open until Complete Task`,()=>{
+ const f=fixture(direction);try{
+  let task=f.get(f.t.id);const start=f.cells.map(c=>f.balance(c.id));
+  for(const [index,original] of task.lines.filter(l=>l.execution_state==='ready').entries()){
+   f.cmd(f.op,'acquire',{lineId:original.id,revision:original.revision,method:'arrival'});
+   const line=f.get(f.t.id).lines.find(l=>l.id===original.id);
+   const requestId=randomUUID(),input={requestId,lineId:line.id,revision:line.revision,assignmentGeneration:line.current_generation,cellId:line.cell_id,unit:line.unit_of_measure,quantity:line.planned_quantity,method:'manual',manualReason:'Cell label checked',cellCompletion:true};
+   const result=f.cmd(f.op,'report',input);assert.equal(result.status,'recorded');assert.equal(f.cmd(f.op,'report',input).replayed,true);
+   task=f.get(f.t.id);assert.equal(task.lines.find(l=>l.id===line.id).execution_state,'settled');assert.equal(task.explicit_close,1);assert.equal(task.outcome,'open');assert.equal(task.completed_at,null);
+   assert.equal(f.balance(line.cell_id),start[index]+(direction==='pick'?-1:1)*line.planned_quantity);
+  }
+  assert.equal(task.recorded_quantity,10);assert.equal(task.remaining_quantity,0);
+  const finished=f.cmd(f.op,'closeTask',{...f.input(),taskFinish:true,currentStatus:'yes',finalTaskCompletion:true});assert.equal(finished.closed,true);assert.equal(f.get(f.t.id).outcome,'completed');assert.equal(f.held(),0);
+ }finally{f.db.close();}
+});
+test('changed actual location needs acknowledgement, then posts to that cell without automatic review',()=>{
+ const f=fixture('pick');try{
+  const first=f.get(f.t.id).lines.find(l=>l.execution_state==='ready');f.cmd(f.op,'acquire',{lineId:first.id,revision:first.revision,method:'arrival'});
+  const l=f.get(f.t.id).lines.find(l=>l.id===first.id),actual=f.cells[2].id,before=f.balance(actual),input={lineId:l.id,revision:l.revision,assignmentGeneration:l.current_generation,cellId:actual,unit:l.unit_of_measure,quantity:l.planned_quantity,method:'manual',manualReason:'Checked actual cell label',cellCompletion:true};
+  assert.throws(()=>f.cmd(f.op,'report',input),/Confirm the changed location/);assert.equal(f.balance(actual),before);
+  const done=f.cmd(f.op,'report',{...input,differenceConfirmed:true});assert.equal(done.status,'recorded');assert.equal(f.balance(actual),before-l.planned_quantity);assert.equal(f.get(f.t.id).attention,0);
+ }finally{f.db.close();}
+});
+test('a changed actual location that is inactive stays for supervisor verification',()=>{
+ const f=fixture('pick');try{
+  const first=f.get(f.t.id).lines.find(l=>l.execution_state==='ready');f.cmd(f.op,'acquire',{lineId:first.id,revision:first.revision,method:'arrival'});
+  const l=f.get(f.t.id).lines.find(x=>x.id===first.id),target=f.cells[2].id,before=f.balance(target);
+  f.db.prepare('UPDATE cells SET active=0 WHERE id=?').run(target);
+  const result=f.cmd(f.op,'report',{lineId:l.id,revision:l.revision,assignmentGeneration:l.current_generation,cellId:target,unit:l.unit_of_measure,quantity:l.planned_quantity,method:'manual',manualReason:'Checked location',cellCompletion:true,differenceConfirmed:true});
+  assert.equal(result.status,'review');assert.equal(f.balance(target),before);assert.equal(f.get(f.t.id).attention,1);
+ }finally{f.db.close();}
+});
+test('rejecting one cell records a supervisor case, releases its claim and keeps sibling work available',()=>{
+ const f=fixture('put');try{
+  const before=f.get(f.t.id),l=before.lines.find(x=>x.execution_state==='ready');const heldBefore=f.held(),balance=f.balance(l.cell_id);
+  const result=f.cmd(f.op,'rejectCell',{lineId:l.id,revision:l.revision,assignmentGeneration:l.current_generation,zeroConfirmed:true,reason:'Location is full'});
+  assert.equal(result.status,'review');const task=f.get(f.t.id);assert.equal(task.attention,1);assert.equal(task.lines.find(x=>x.id===l.id).execution_state,'cancelled');assert.equal(f.balance(l.cell_id),balance);assert.equal(f.held(),heldBefore-l.planned_quantity);assert.ok(task.lines.some(x=>x.id!==l.id&&x.execution_state==='ready'));
+  assert.ok(f.work.snapshot(f.admin).pending.some(r=>r.id===result.reportId));
+ }finally{f.db.close();}
+});
+test('early Complete Task preserves each posted cell and routes only unfinished work for supervisor decision',()=>{
+ const f=fixture('put');try{
+  const first=f.get(f.t.id).lines.find(l=>l.execution_state==='ready');f.cmd(f.op,'acquire',{lineId:first.id,revision:first.revision,method:'arrival'});
+  const l=f.get(f.t.id).lines.find(x=>x.id===first.id),before=f.balance(l.cell_id);
+  f.cmd(f.op,'report',{lineId:l.id,revision:l.revision,assignmentGeneration:l.current_generation,cellId:l.cell_id,unit:l.unit_of_measure,quantity:l.planned_quantity,method:'manual',manualReason:'Cell checked',cellCompletion:true});
+  assert.equal(f.balance(l.cell_id),before+l.planned_quantity);
+  const request={...f.input(),currentStatus:'yes',taskFinish:true,finalTaskCompletion:true};
+  assert.throws(()=>f.cmd(f.op,'closeTask',request),/remaining location/);
+  assert.throws(()=>f.cmd(f.op,'sendTaskReview',request),/Confirm that the unfinished work/);
+  const sent=f.cmd(f.op,'sendTaskReview',{...request,unfinishedConfirmed:true});assert.equal(sent.status,'review');
+  assert.equal(f.balance(l.cell_id),before+l.planned_quantity);assert.equal(f.get(f.t.id).outcome,'needs_review');
+  const pending=f.work.snapshot(f.admin).pending.find(r=>r.id===sent.reportId);assert.ok(pending?.closureTask);assert.equal(pending.closureActuals.find(r=>r.cellId===l.cell_id).quantity,l.planned_quantity);
+ }finally{f.db.close();}
+});
+test('supervisor can verify a skipped cell as zero and reassign remaining put work to another location',()=>{
+ const f=fixture('put');try{
+  const original=f.get(f.t.id),skipped=original.lines.find(l=>l.execution_state==='ready');
+  const result=f.cmd(f.op,'rejectCell',{lineId:skipped.id,revision:skipped.revision,assignmentGeneration:skipped.current_generation,zeroConfirmed:true,reason:'Location is full'});
+  const pending=f.work.snapshot(f.admin).pending.find(r=>r.id===result.reportId);assert.ok(pending);
+  const checked=f.cmd(f.admin,'resolve',{reportId:pending.id,caseRevision:pending.case_revision,quantity:0,verification:'Checked with operator; no items were put in this cell'});assert.equal(checked.status,'recorded');
+  const t=f.get(f.t.id);assert.equal(t.attention,0);assert.equal(t.outcome,'open');
+  const target=f.cells.find(c=>c.id!==skipped.cell_id);
+  const reassigned=f.cmd(f.admin,'updateReviewTask',{taskId:t.id,generation:t.assignment_generation,progressToken:t.progress_token,assigneeId:f.other.id,remainingQuantity:10,planCellId:target.id});
+  assert.equal(reassigned.status,'recorded');const next=f.get(t.id);assert.equal(next.assignee_id,f.other.id);assert.equal(next.plan_cell_id,target.id);
+  assert.ok(next.lines.some(l=>l.execution_state==='ready'&&l.cell_id===target.id&&l.planned_quantity===10));
+ }finally{f.db.close();}
+});
 for(const direction of ['pick','put'])test(`${direction}: location-only final totals close without review, while a short final total is highest-priority review`,()=>{
  for(const [split,expectedReview] of [
   [[3,2],false],[[5,0],false],[[2,2],true],[[4,0],true]
