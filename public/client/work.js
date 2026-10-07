@@ -9,18 +9,23 @@ const taskName=t=>t.lines?.[0]?.product_name||t.summary;
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 let dirty=false;
 let lastTaskAutoScroll='';
-let lastNotice='',toastUntil=0,toastTimer,notifications=[];
+let lastNotice='',lastConnectionWarning='';
 function captureNotification(){
+ globalThis.WarehouseNotifications?.setOfflineScope?.(snapshot);
+ if(connectionWarning!==lastConnectionWarning){
+  lastConnectionWarning=connectionWarning;
+  if(connectionWarning){const item={message:connectionWarning,options:{key:'work-connection',tone:'warning',scope:[snapshot?.site,snapshot?.dataset,snapshot?.user?.id]}};if(globalThis.WarehouseNotifications)globalThis.WarehouseNotifications.notify(item.message,item.options);else(globalThis.warehouseNotificationQueue||=[]).push(item);}
+  else globalThis.WarehouseNotifications?.clearKey?.('work-connection');
+ }
  if(!notice){lastNotice='';return;}
  if(notice===lastNotice)return;
- lastNotice=notice;notifications.unshift({message:workText(notice),time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})});notifications=notifications.slice(0,8);
- toastUntil=Date.now()+10000;globalThis.clearTimeout?.(toastTimer);
- toastTimer=globalThis.setTimeout?.(()=>{toastUntil=0;const live=root.querySelector?.('#work-notice');if(live)live.innerHTML='';},10000);
+ lastNotice=notice;
+ const item={message:workText(notice),options:{scope:[snapshot?.site,snapshot?.dataset,snapshot?.user?.id]}};
+ if(globalThis.WarehouseNotifications)globalThis.WarehouseNotifications.notify(item.message,item.options);
+ else (globalThis.warehouseNotificationQueue ||= []).push(item);
 }
-function notificationList(){return notifications.length?`<ol>${notifications.map(n=>`<li><time>${esc(n.time)}</time><span>${esc(n.message)}</span></li>`).join('')}</ol>`:'<p>No notifications yet.</p>';}
-function notificationButton(){return `<details class="work-notifications" data-disclosure="notifications"><summary aria-label="Notifications">Notifications <span class="notification-count">${notifications.length||''}</span></summary><div class="notification-panel" data-notification-list>${notificationList()}</div></details>`;}
-function noticeToast(){return notice&&Date.now()<toastUntil?`<div class="work-toast"><p>${esc(workText(notice))}</p><button type="button" class="secondary" data-dismiss-notice aria-label="Dismiss notification">×</button></div>`:'';}
-function paintNotifications(){captureNotification();const live=root.querySelector?.('#work-notice');if(live&&live.dataset.notice!==notice){live.innerHTML=noticeToast();live.dataset.notice=notice;}const list=root.querySelector?.('[data-notification-list]');if(list)list.innerHTML=notificationList();const count=root.querySelector?.('.notification-count');if(count)count.textContent=notifications.length?String(notifications.length):'';}
+function paintNotifications(){captureNotification();}
+function announce(message){lastNotice='';notice=message;captureNotification();}
 let selectingTasks=false, selectedTasks=new Set(), bulkTasks=[], bulkErrors=new Map(), bulkBusy=false;
 const modalSession=uid(), modalFrames=[];
 let modalDepth=0, modalMoving=false;
@@ -112,7 +117,7 @@ async function deliverActivation(o){
   const response=await fetch('/api/work/'+o.action,{method:'POST',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(o.input)});
   const result=await response.json();if(!response.ok){const error=new Error(result.error||'Task action was not confirmed.');error.definite=[400,401,403,404,409,422].includes(response.status);error.planning=result.planning;throw error;}
   o.result=result;o.state=result.status;o.message=result.message;
-  await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');notice=result.message;
+  await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');announce(result.message);
   closeOperationDialogs();await enterActiveTask(result);
  }catch(error){
   if(!o.result){o.state=error.definite?'acknowledged':'activation-unknown';o.message=error.definite?error.message:'Start / Resume not confirmed. Retry this saved request explicitly; background sync will not start it.';await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');}
@@ -241,9 +246,17 @@ function reviewMovementContent(t){
  const body=fields+(t.closure_review_id?hidden('reportId',t.closure_review_id)+hidden('caseRevision',t.closure_case_revision):supervisor?hidden('verifiedClosure','true'):'')+actualEditor(t,t.closure_actuals||recordedMovements(t))+(supervisor?'<label class="work-check"><input type="checkbox" name="workerStopped">I confirmed all workers have stopped and verified the actual totals.</label>':'')+(!canClose?'<p class="work-callout">An authorized verifier must reconcile this physical evidence before the task can close.</p>':'')+`<button data-close-task ${canClose?'':'disabled'}>Accept movement and close task</button>`+assignRemaining;
  return `<section class="check-workspace">${reviewHeader(t,'align')}${reviewChoices(t,'check-align')}${form(t.closure_review_id?'resolve':'closeTask',body,'data-review-movement data-draft-kind="'+(t.closure_review_id?'closure-review':'task-closure')+'"')}${allowed('review')?'<p><a href="'+esc(reviewHref(t))+'">Open original evidence and other reconciliation options</a></p>':''}${reviewDiscard(t)}</section>`;
 }
-function reviewAssignmentContent(t){
+// Keep the task editor and review assignment editor on the same validated command.
+function taskAssignmentForm(t,locationLabel='Location for remaining work'){
  const people=(snapshot.operators||[]).filter(u=>u.eligible&&u.status!=='inactive');
- return `<section class="check-workspace">${reviewHeader(t,'assignment')}${reviewChoices(t,'check-assignment')}${form('updateReviewTask',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+`<label>Assigned to<select data-searchable name="assigneeId" required>${options(people,'id',assigneeLabel,t.assignee_id)}</select></label>`+input('remainingQuantity','Remaining quantity','number',`min="0.000001" max="1000000000" step="0.000001" required value="${esc(t.remaining_quantity)}"`)+`<label>Location for remaining work<select data-searchable name="planCellId"><option value="">Choose automatically</option>${options(snapshot.cells||[],'id',c=>c.description?.name||c.logical_code,t.plan_cell_id)}</select></label><p class="work-help">A chosen location must fit all remaining items. Stock or space is checked before assignment.</p><p>Deadline: ${t.due_at?checkTime(t.due_at):'No deadline'}</p>`+(allowed('deadline')?'<label>Deadline<select name="deadlineChoice"><option value="keep">Keep current deadline</option><option value="duration">Set duration from now</option><option value="none">No deadline</option></select></label><div data-review-duration hidden><label>Duration<input type="number" name="duration" min="0.0007" step="any" value="8" disabled></label><label>Unit<select name="timeUnit" disabled><option value="minutes">Minutes</option><option value="hours" selected>Hours</option><option value="days">Days</option></select></label></div>':'')+(t.attention||t.review_followup?'<p class="work-callout">Changing responsibility or intended remaining work keeps this task in Needs Review. It does not restart physical work.</p>':'')+'<button>Save and Assign task</button>','data-review-assignment-form data-draft-kind="review-assignment"')}${reviewDiscard(t)}</section>`;
+ return form('updateReviewTask',hidden('taskId',t.id)+hidden('generation',t.assignment_generation)+hidden('progressToken',t.progress_token)+`<label>Assigned to<select data-searchable name="assigneeId" required>${options(people,'id',assigneeLabel,t.assignee_id)}</select></label>`+input('remainingQuantity','Remaining quantity','number',`min="0.000001" max="1000000000" step="0.000001" required value="${esc(t.remaining_quantity)}"`)+`<label>${esc(locationLabel)}<select data-searchable name="planCellId"><option value="">Choose automatically</option>${options(snapshot.cells||[],'id',c=>c.description?.name||c.logical_code,t.plan_cell_id)}</select></label><p class="work-help">A chosen location must fit all remaining items. Stock or space is checked before assignment.</p><p>Deadline: ${t.due_at?checkTime(t.due_at):'No deadline'}</p>`+(allowed('deadline')?'<label>Deadline<select name="deadlineChoice"><option value="keep">Keep current deadline</option><option value="duration">Set duration from now</option><option value="none">No deadline</option></select></label><div data-review-duration hidden><label>Duration<input type="number" name="duration" min="0.0007" step="any" value="8" disabled></label><label>Unit<select name="timeUnit" disabled><option value="minutes">Minutes</option><option value="hours" selected>Hours</option><option value="days">Days</option></select></label></div>':'')+(t.attention||t.review_followup?'<p class="work-callout">Changing responsibility or intended remaining work keeps this task in Needs Review. It does not restart physical work.</p>':'')+'<button>Save and Assign task</button>','data-review-assignment-form data-draft-kind="review-assignment"');
+}
+function reviewAssignmentContent(t){
+ return `<section class="check-workspace">${reviewHeader(t,'assignment')}${reviewChoices(t,'check-assignment')}${taskAssignmentForm(t)}${reviewDiscard(t)}</section>`;
+}
+function canEditTask(t){return allowed('assign')&&!t.closure_review_id&&!t.closed_actuals&&!t.completed_at&&!['completed','stopped','cancelled'].includes(t.outcome);}
+function taskEditorContent(t){
+ return `<section class="check-workspace"><header class="review-task-header"><button type="button" class="secondary" data-review-back>← Back</button><h2 tabindex="-1" autofocus>Task #${t.id} · ${esc(t.type==='put'?'Put':'Pick')} ${esc(taskName(t))}</h2>${dismissDialog('task editor')}</header>${checkTaskSummary(t)}<div class="task-editor-actions"><button type="button" class="secondary" data-task-history="${t.id}">Task history</button></div>${canEditTask(t)?taskAssignmentForm(t,'Preferred location'):''}</section>`;
 }
 function pendingTaskEvidence(t){return !!t&&(t.attention||(t.lines||[]).some(l=>(l.reports||[]).some(r=>['review','received'].includes(r.status))));}
 function canCheckTask(t){return !!t&&(!t.completed_at||pendingTaskEvidence(t))&&((t.assignee_id===snapshot.user.id&&(allowed('execute')||allowed('stop')))||allowed('review')||allowed('assign'));}
@@ -453,16 +466,16 @@ function openTaskDialog(t,mode,lineId=null,navigation='push'){
  if(['check','check-align','check-assignment','check-discard'].includes(mode)&&!canCheckTask(t)||mode==='stop'&&!canStopTask(t)||mode==='recovery'&&(!l||l.canAct===false)||mode==='reopen'&&!canReopenTask(t))return;
  if(navigation!=='restore')rememberModal({task:t,mode,lineId,identity:key()+':'+snapshot.dataset},navigation);
  if(!d.open){d._opener=document.activeElement;d._identity={site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id};}d._task=t;
- d.dataset.taskId=t.id;d.dataset.generation=t.assignment_generation;d.dataset.progressToken=t.progress_token;d.dataset.mode=mode;d.classList?.remove?.('bulk-dialog');d.classList?.toggle('history-dialog',mode==='details');d.classList?.toggle('check-dialog',['check','check-align','check-assignment','check-discard','stop'].includes(mode));d.dataset.closureToken=t.closure_token||'';d.dataset.lineId=l?.id||'';d.dataset.revision=l?.revision||'';
- let content=mode==='reopen'?reopenTaskContent(t):mode==='details'?taskHistoryContent(t):mode==='stop'?stopDialogContent(t):mode==='check'?checkDialogContent(t):mode==='check-align'?reviewMovementContent(t):mode==='check-assignment'?reviewAssignmentContent(t):mode==='check-discard'?discardContent(t):mode==='recovery'?recoveryDialogContent(l):mode==='update'?returnedDialogContent(t):returnDialogContent(t);
- if(!['check','check-align','check-assignment','check-discard'].includes(mode)){if(mode==='stop')content=content.replace('<header class="review-task-header">','<header class="review-task-header"><button type="button" class="secondary" data-review-back>← Back</button>');else content=content.replace(/<h2>(.*?)<\/h2>/,'<header class="review-task-header"><button type="button" class="secondary" data-review-back>← Back</button><h2>$1</h2></header>');}
+ d.dataset.taskId=t.id;d.dataset.generation=t.assignment_generation;d.dataset.progressToken=t.progress_token;d.dataset.mode=mode;d.classList?.remove?.('bulk-dialog');d.classList?.toggle('history-dialog',mode==='details');d.classList?.toggle('check-dialog',['edit','check','check-align','check-assignment','check-discard','stop'].includes(mode));d.dataset.closureToken=t.closure_token||'';d.dataset.lineId=l?.id||'';d.dataset.revision=l?.revision||'';
+ let content=mode==='edit'?taskEditorContent(t):mode==='reopen'?reopenTaskContent(t):mode==='details'?taskHistoryContent(t):mode==='stop'?stopDialogContent(t):mode==='check'?checkDialogContent(t):mode==='check-align'?reviewMovementContent(t):mode==='check-assignment'?reviewAssignmentContent(t):mode==='check-discard'?discardContent(t):mode==='recovery'?recoveryDialogContent(l):mode==='update'?returnedDialogContent(t):returnDialogContent(t);
+ if(!['edit','check','check-align','check-assignment','check-discard'].includes(mode)){if(mode==='stop')content=content.replace('<header class="review-task-header">','<header class="review-task-header"><button type="button" class="secondary" data-review-back>← Back</button>');else content=content.replace(/<h2>(.*?)<\/h2>/,'<header class="review-task-header"><button type="button" class="secondary" data-review-back>← Back</button><h2>$1</h2></header>');}
  if(['reopen','recovery','update'].includes(mode))content=content.replace('</header>',dismissDialog(mode==='reopen'?'reopen task':mode==='recovery'?'movement entry':'task editor')+'</header>');
  d.innerHTML=content+'<p data-task-dialog-warning class="work-callout warning" role="status" hidden></p><button type="button" class="secondary" data-task-dialog-close>'+ (mode==='stop'?'Back':'Close')+'</button>';
- if(['details','check','check-align','check-assignment','check-discard'].includes(mode))d.querySelector('[data-task-dialog-close]:last-child')?.remove();
- d.setAttribute?.('aria-label',mode==='reopen'?'Reopen task':mode==='recovery'?'Record what I moved':['check','check-align','check-assignment','check-discard'].includes(mode)?'Review task':mode==='details'?'Task details and history':mode==='stop'?'Stop remaining work':'Task action');
+ if(['edit','details','check','check-align','check-assignment','check-discard'].includes(mode))d.querySelector('[data-task-dialog-close]:last-child')?.remove();
+ d.setAttribute?.('aria-label',mode==='edit'?'Task editor':mode==='reopen'?'Reopen task':mode==='recovery'?'Record what I moved':['check','check-align','check-assignment','check-discard'].includes(mode)?'Review task':mode==='details'?'Task details and history':mode==='stop'?'Stop remaining work':'Task action');
  for(const f of d.querySelectorAll('form')){f._workIdentity={...d._identity};f._draftPath=path;}
  restoreDrafts();const f=d.querySelector('form');if(mode==='check-discard'&&f?.elements.workerStopped)f.elements.workerStopped.checked=false;updateReturnedDue(f);if(f?.dataset.workAction==='updateReviewTask'&&f.elements.timeUnit)f.elements.duration.dataset.timeUnit=f.elements.timeUnit.value;
- d.oncancel=e=>{e.preventDefault();void modalBack();};d.onclose=()=>{d._opener?.focus?.();};if(!d.open)d.showModal();if(['check','check-align','check-assignment','check-discard','stop'].includes(mode))d.querySelector('.review-task-header h2')?.focus?.();patchTaskDialog();if(mode==='details')void loadTaskHistory(t.id);
+ d.oncancel=e=>{e.preventDefault();void modalBack();};d.onclose=()=>{d._opener?.focus?.();};if(!d.open)d.showModal();if(['edit','check','check-align','check-assignment','check-discard','stop'].includes(mode))d.querySelector('.review-task-header h2')?.focus?.();patchTaskDialog();if(mode==='details')void loadTaskHistory(t.id);
 }
 function patchTaskDialog(){
  const d=root.querySelector('[data-task-dialog]');if(!d?.open)return;
@@ -481,7 +494,7 @@ function patchTaskDialog(){
  }
  if(d._physicalLocked){for(const [el,disabled] of d._physicalLocked)el.disabled=disabled;d._physicalLocked=null;}
  const recovery=d.dataset.mode==='recovery';
- const stale=identityChanged||(!recovery&&(!online||changed||t&&taskHasSavedUpdate(t)))||(d.dataset.mode==='reopen'&&t&&!canReopenTask(t))||(d.dataset.mode==='check-assignment'&&!allowed('assign'))||(d.dataset.mode==='update'&&t&&(!allowed('assign')||t.assignment_state!=='returned'&&!returnBlocked(t)))||(['check','check-align','check-assignment','check-discard'].includes(d.dataset.mode)&&t&&!canCheckTask(t))||(d.dataset.mode==='stop'&&t&&!canStopTask(t));
+ const stale=identityChanged||(!recovery&&(!online||changed||t&&taskHasSavedUpdate(t)))||(d.dataset.mode==='reopen'&&t&&!canReopenTask(t))||(d.dataset.mode==='edit'&&d.querySelector('[data-review-assignment-form]')&&(!t||!canEditTask(t)))||(d.dataset.mode==='check-assignment'&&!allowed('assign'))||(d.dataset.mode==='update'&&t&&(!allowed('assign')||t.assignment_state!=='returned'&&!returnBlocked(t)))||(['check','check-align','check-assignment','check-discard'].includes(d.dataset.mode)&&t&&!canCheckTask(t))||(d.dataset.mode==='stop'&&t&&!canStopTask(t));
  const warning=d.querySelector('[data-task-dialog-warning]');warning.hidden=!(stale||recovery&&changed);warning.textContent=recovery&&!identityChanged?'These instructions changed. Your original draft stays attached to them; report only work already done.':'This task or account changed. Your draft is kept; close and check the latest task before saving.';
  for(const button of d.querySelectorAll('form button:not([type="button"])')){const f=button.closest?.('[data-task-assignee]');button.disabled=!!(stale||f&&assigneeFormStale(f,t)||button.hasAttribute?.('data-close-task')&&(['check-align','check-discard'].includes(d.dataset.mode)?!canCloseReview(t):t?.assignee_id!==snapshot.user.id&&!(allowed('resolve')&&allowed('resolveStop'))));}
  for(const button of d.querySelectorAll('[data-review-align],[data-review-assignment],[data-review-discard]'))button.disabled=!!(stale||button.hasAttribute?.('data-review-assignment')&&(!allowed('assign')||t?.closed_actuals||t?.completed_at)||button.hasAttribute?.('data-review-discard')&&!canCloseReview(t));
@@ -639,7 +652,7 @@ function myTaskRow(t){
  const history=path==='/work/history';
  const state=myWorkState(t),priority=t.work_priority||'low',progress=t.work_progress??(t.requested_quantity>0?Math.round((t.recorded_quantity||0)*1000/t.requested_quantity)/10:0),canStart=myTaskActionable(t);
  const action=canStart?activationForm(t,t.assignment_state==='offered'?'Start':'Resume','class="my-work-start"'):'';
- return `<tr data-task-row="${t.id}" data-priority="${esc(t.work_priority||'low')}" data-generation="${t.assignment_generation}">${selectingTasks?`<td class="task-select-cell"><input type="checkbox" data-select-task="${t.id}" aria-label="Select task ${t.id}" ${selectedTasks.has(t.id)?'checked':''} ${canBulkDiscard(t)?'':'disabled'}></td>`:''}<td><a href="/tasks/${t.id}"${history?' data-task-history="'+t.id+'"':''}>#${t.id} · ${t.type==='put'?'Put':'Pick'}</a></td><td>${taskProductLink(t)}</td><td>${tableBadge(t.type==='put'?'Put':'Pick')}</td>${history?`<td>${esc(t.assignee_name||'Unassigned')}</td>`:''}<td>${esc(t.lines?.[0]?.unit_of_measure)}</td><td>${esc(t.requested_quantity??'—')}</td><td>${esc(t.recorded_quantity??0)}</td><td>${esc(t.remaining_quantity??'—')}</td><td>${badge(priority[0].toUpperCase()+priority.slice(1),priority==='high'?'warning':'')}</td><td>${tableBadge(myWorkStatus(t))}${taskHasSavedUpdate(t)?' · Update pending':''}</td><td>${esc(progress)}%</td><td>${esc(workStates[state])}</td>${history?`<td>${stockSnapshot(t.quantity_before,t.quantity_before_unit||t.lines?.[0]?.unit_of_measure)}</td><td>${stockSnapshot(t.quantity_after,t.quantity_after_unit||t.lines?.[0]?.unit_of_measure)}</td>`:''}<td data-my-actions-cell><div class="my-work-actions">${history?`<a class="work-secondary" href="/work/task-history?taskId=${t.id}">Task history</a>`+reopenButton(t):action+checkButton(t)}</div></td></tr>`;
+ return `<tr data-task-row="${t.id}" data-priority="${esc(t.work_priority||'low')}" data-generation="${t.assignment_generation}">${selectingTasks?`<td class="task-select-cell"><input type="checkbox" data-select-task="${t.id}" aria-label="Select task ${t.id}" ${selectedTasks.has(t.id)?'checked':''} ${canBulkDiscard(t)?'':'disabled'}></td>`:''}<td><a href="/tasks/${t.id}"${history?' data-task-history="'+t.id+'"':' data-task-edit="'+t.id+'"'}>#${t.id} · ${t.type==='put'?'Put':'Pick'}</a></td><td>${taskProductLink(t)}</td><td>${tableBadge(t.type==='put'?'Put':'Pick')}</td>${history?`<td>${esc(t.assignee_name||'Unassigned')}</td>`:''}<td>${esc(t.lines?.[0]?.unit_of_measure)}</td><td>${esc(t.requested_quantity??'—')}</td><td>${esc(t.recorded_quantity??0)}</td><td>${esc(t.remaining_quantity??'—')}</td><td>${badge(priority[0].toUpperCase()+priority.slice(1),priority==='high'?'warning':'')}</td><td>${tableBadge(myWorkStatus(t))}${taskHasSavedUpdate(t)?' · Update pending':''}</td><td>${esc(progress)}%</td><td>${esc(workStates[state])}</td>${history?`<td>${stockSnapshot(t.quantity_before,t.quantity_before_unit||t.lines?.[0]?.unit_of_measure)}</td><td>${stockSnapshot(t.quantity_after,t.quantity_after_unit||t.lines?.[0]?.unit_of_measure)}</td>`:''}<td data-my-actions-cell><div class="my-work-actions">${history?`<a class="work-secondary" href="/work/task-history?taskId=${t.id}">Task history</a>`+reopenButton(t):action+checkButton(t)}</div></td></tr>`;
 }
 const workFilterColumns=[
  {key:'task',label:'Task',names:['taskSearch']},{key:'product',label:'Product',names:['productSearch']},
@@ -939,7 +952,7 @@ function closeOperationDialogs(){
 }
 async function finishPlan(o){
  if(o.draftId){await store('cache','readwrite',s=>s.delete(o.draftId));drafts.delete(o.draftId);}
- const result=o.result;notice=result.message+(result.urgentRunId?' Urgent stocktake added.':'');
+ const result=o.result;announce(result.message+(result.urgentRunId?' Urgent stocktake added.':''));
  closeOperationDialogs();
  if(o.action==='create'&&!o.input.assigneeId){await enterActiveTask(result);return;}
  await refresh();render();
@@ -999,11 +1012,15 @@ async function submitPlanRecovery(f){
 }
 
 function workShortcuts(){return outbox.some(o=>currentSavedUpdate(o)&&['local','sending','error','rejected','plan-unknown','activation-unknown'].includes(o.state))?'<button type="button" class="text-button" data-connection-status>Check connection</button>':'';}
-function workViewsMarkup(){return [['/work','My Work','view'],['/work/overview','Assign Work','assign'],['/work/history','History','view'],['/work/task-history','Task History','view'],['/record-movement','Record Movement','report'],['/recommended-actions','Recommended Actions','view']].filter(([, ,cap])=>allowed(cap)).map(([href,label])=>`<a href="${href}" ${path===href?'aria-current="page"':''}>${label}</a>`).join('');}
+function workViewsMarkup(){
+ const tabs=snapshot.workTabs||[{href:'/work',label:'My Work',capability:'view'}];
+ const selected=tabs.find(t=>t.href===path)?.href||(/^\/tasks\/\d+$/.test(path)||['/pick','/put'].includes(path)?'/work':null);
+ return tabs.filter(tab=>allowed(tab.capability)).map(({href,label})=>`<a href="${esc(href)}" ${selected===href?'aria-current="page"':''}>${esc(label)}</a>`).join('');
+}
 function sectionNavigation(utility){
  if(path==='/labels')return `<nav class="work-views" aria-label="Location views">${allowed('locationsView')?'<a href="/cells">Locations</a>':''}<a href="/labels" aria-current="page">Location Labels</a></nav>`;
  if(path==='/work/timing')return '<nav class="work-views" aria-label="Settings"><a href="/settings">← Settings</a></nav>';
- return `<nav class="work-views" aria-label="Work views">${workViewsMarkup()}${utility}${notificationButton()}</nav>`;
+ return `<nav class="work-views" aria-label="Work views">${workViewsMarkup()}${utility}</nav>`;
 }
 function render(){
  const disclosures=new Map([...root.querySelectorAll('details[data-disclosure]')].map(d=>[d.dataset.disclosure,d.open]));
@@ -1014,7 +1031,7 @@ function render(){
  root.classList?.toggle('my-work',path==='/work');
  const utility=['/work','/work/overview'].includes(path)?workShortcuts():'';
  const body=path==='/work/overview'?assignmentPage():path==='/work/timing'?timingPage():path==='/work/history'?historyPage():path==='/pick'?createPage('pick'):path==='/put'?createPage('put'):path==='/record-movement'?recordMovementPage():path==='/work/task-history'?activityHistoryPage():path==='/pending-confirmations'?pendingPage():path==='/labels'?labelsPage():path==='/movement-history'?ledger():/^\/tasks\/\d+$/.test(path)?taskPage(path.split('/')[2]):home();
- root.innerHTML=`${sectionNavigation(utility)}${['/work','/work/overview'].includes(path)?'':`<div class="work-toolbar"><div class="work-tools">${!online?'<a href="/work">My work</a><a href="/pick">Pick</a><a href="/put">Put</a>':''}${workShortcuts()}</div><div class="work-connection">${badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')}<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small></div></div>`}<div id="work-notice" data-notice="${esc(notice)}" role="status" aria-live="polite">${noticeToast()}</div><p id="work-connection-warning" class="work-callout warning" role="status" ${connectionWarning?'':'hidden'}>${esc(connectionWarning)}</p>${!online?'<p class="work-callout warning">Offline: saved work and physical entries stay on this device. No new reservation or location turn is granted. Follow the warehouse manual procedure; use paper if needed.</p>':''}<div data-physical-save-status>${physicalSaveStatus()}</div><div data-inactivity-alerts role="status">${inactivityAlertsMarkup()}</div>${body}<dialog class="my-work-action-dialog task-edit-dialog planning-dialog" data-operation-dialog></dialog><dialog class="my-work-action-dialog task-edit-dialog" data-task-dialog aria-label="Task action"></dialog>${path==='/work'?'<dialog class="my-work-action-dialog" data-my-work-dialog aria-label="Task actions"></dialog>':''}`;
+ root.innerHTML=`${sectionNavigation(utility)}${['/work','/work/overview'].includes(path)?'':`<div class="work-toolbar"><div class="work-tools">${!online?'<a href="/work">My work</a><a href="/pick">Pick</a><a href="/put">Put</a>':''}${workShortcuts()}</div><div class="work-connection">${badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')}<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</small></div></div>`}${!online?'<p class="work-callout warning">Offline: saved work and physical entries stay on this device. No new reservation or location turn is granted. Follow the warehouse manual procedure; use paper if needed.</p>':''}<div data-physical-save-status>${physicalSaveStatus()}</div><div data-inactivity-alerts role="status">${inactivityAlertsMarkup()}</div>${body}<dialog class="my-work-action-dialog task-edit-dialog planning-dialog" data-operation-dialog></dialog><dialog class="my-work-action-dialog task-edit-dialog" data-task-dialog aria-label="Task action"></dialog>${path==='/work'?'<dialog class="my-work-action-dialog" data-my-work-dialog aria-label="Task actions"></dialog>':''}`;
  for(const link of root.querySelectorAll('a[href]')){const href=(link.getAttribute?.('href')||'').split('?')[0];const cap=workLinkCapability(href);if(cap&&!allowed(cap))link.remove();}
  for(const f of root.querySelectorAll('form[data-work-action]')){f._workIdentity={site:snapshot.site,dataset:snapshot.dataset,actorId:snapshot.user.id};f._draftPath=path;}
  restoreDrafts();
@@ -1123,7 +1140,7 @@ async function deliverPhysicalReview(o){
  else{o.state='review-unknown';o.message='Save not confirmed. Reconnect and use Retry save here. Do not enter the movement again.';}
  await store('outbox','readwrite',s=>s.put(o));outbox=await all('outbox');patchPhysicalSaveStatus();
  if(!['recorded','review'].includes(o.state))throw new Error(o.message);
- await store('cache','readwrite',s=>s.delete(o.draftId));drafts.delete(o.draftId);notice=o.message;
+ await store('cache','readwrite',s=>s.delete(o.draftId));drafts.delete(o.draftId);announce(o.message);
  paintNotifications();
  if(o.action==='recordMovement'){try{await refresh();}catch{online=false;}dirty=false;render();return;}
  try{await refresh();await afterReviewSave(Number(o.input.taskId),o.action);}
@@ -1148,8 +1165,8 @@ async function sync(){
    // The frozen request is retried byte-for-byte under its original user/site identity.
    const r=await fetch('/api/work/'+o.action,{method:'POST',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(o.input)});
    const result=await r.json();
-   if(!r.ok){o.state=r.status===400?(['report','manual','correct'].includes(o.action)?'rejected':'not-applied'):'error';o.message=result.error||'Not received. Keep this entry and contact your supervisor.';notice=o.message;}
-   else{o.state=result.status;o.message=result.message;o.result=result;notice=result.message;}
+   if(!r.ok){o.state=r.status===400?(['report','manual','correct'].includes(o.action)?'rejected':'not-applied'):'error';o.message=result.error||'Not received. Keep this entry and contact your supervisor.';announce(o.message);}
+   else{o.state=result.status;o.message=result.message;o.result=result;announce(result.message);}
    await store('outbox','readwrite',s=>s.put(o));
   }
   await refresh();outbox=await all('outbox');
@@ -1228,11 +1245,11 @@ root.addEventListener('submit',async e=>{
    await store('outbox','readwrite',s=>s.put({id,partition:key(),action,input,label:savedAction({action,input}),state:'local',message:action==='updateReviewTask'?'Assignment awaiting warehouse confirmation.':'Closure awaiting warehouse confirmation. Task is not closed yet.',createdAt:new Date().toISOString()}));
    outbox=await all('outbox');await sync();const received=outbox.find(o=>o.id===id);
    if(!received?.result)throw new Error(received?.message||'Change not confirmed. Use saved update status to retry this same request; your draft is kept.');
-   await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));notice=received.message;await afterReviewSave(Number(values.taskId),action);
+   await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));announce(received.message);await afterReviewSave(Number(values.taskId),action);
   }else if(isActivation(action,values)){await beginActivation(action,values);await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));}
   else if(action==='acquire'){if(!lineActive(findLine(values.lineId)))throw new Error('Resume this task before arriving.');
    if(!online)throw new Error('Reconnect to request a turn. You may still report physical work already done.');
-   f._input||={...values,requestId:uid()};const result=await immediate(action,f._input);notice=result.message;
+   f._input||={...values,requestId:uid()};const result=await immediate(action,f._input);announce(result.message);
    await refresh();render();if(result.status==='ready')void scanQR(findLine(values.lineId)).catch(error=>{notice=error.message;render();});
   }else{
    if(!online&&!['report','manual','decline','handBack','cancel','stop','askReview'].includes(action))throw new Error('Reconnect before changing plans or resolving work.');
@@ -1244,7 +1261,7 @@ root.addEventListener('submit',async e=>{
    await store('outbox','readwrite',s=>s.put({id,partition:key(),action,input,label:savedAction({action,input}),state:'local',message,createdAt:new Date().toISOString()}));
    if(action==='manual')provisionalReference(true);
    await store('cache','readwrite',s=>s.delete(draftKey(f)));drafts.delete(draftKey(f));
-   outbox=await all('outbox');notice=message;render();await sync();const received=outbox.find(o=>o.id===id);
+   outbox=await all('outbox');announce(message);render();await sync();const received=outbox.find(o=>o.id===id);
    if((action==='report'&&values.cellCompletion&&received?.state==='recorded')||(action==='rejectCell'&&received?.state==='review'))advanceTaskLocation(Number(received.result?.taskId||findLine(values.lineId)?.task_id),values.lineId);
    render();if(received&&!['recorded','review','reserved','ready','verified','duplicate','busy'].includes(received.state))openOperationDialog({message:received.message,stage:'error'});
   }
@@ -1253,7 +1270,6 @@ root.addEventListener('submit',async e=>{
 });
 root.addEventListener('click',async e=>{
  try{
-  if(e.target.closest('[data-dismiss-notice]')){toastUntil=0;const live=root.querySelector('#work-notice');if(live)live.innerHTML='';return;}
   if(e.target.closest('[data-dialog-dismiss]')){await modalBack();return;}
   if(e.target.closest('[data-operation-back]')){await modalBack();return;}
   const pc=e.target.closest('[data-plan-choice]');if(pc){pc.disabled=true;try{await choosePlanRecovery(pc.dataset.planChoice);}catch(error){const d=pc.closest('[data-operation-dialog]');let p=d.querySelector('.form-feedback');if(!p){p=document.createElement('p');p.className='form-feedback';p.setAttribute('role','alert');d.append(p);}p.textContent=error.message;}finally{pc.disabled=false;}return;}
@@ -1272,7 +1288,8 @@ root.addEventListener('click',async e=>{
   const checkStop=e.target.closest('[data-check-stop]');if(checkStop){toggleCheckStop(checkStop);return;}
   const timelinePage=e.target.closest('[data-history-page]');if(timelinePage){await loadTaskHistory(timelinePage.closest('[data-task-dialog]').dataset.taskId,Number(timelinePage.dataset.historyPage));return;}
   const reopen=e.target.closest('[data-task-reopen]');if(reopen){openTaskDialog(await fetchDialogTask(Number(reopen.dataset.taskReopen)),'reopen');return;}
-  const historyLink=e.target.closest('[data-task-history]');if(historyLink){e.preventDefault();openTaskDialog(await fetchDialogTask(Number(historyLink.dataset.taskHistory)),'details');return;}
+  const editorLink=e.target.closest('[data-task-edit]');if(editorLink){e.preventDefault();const id=Number(editorLink.dataset.taskEdit),t=online?await fetchDialogTask(id):availableTask(id);if(!t)throw new Error('Reconnect to open this task.');openTaskDialog(t,'edit');return;}
+  const historyLink=e.target.closest('[data-task-history]');if(historyLink){e.preventDefault();if(root.querySelector('[data-task-dialog]')?.open)await saveModalDrafts();openTaskDialog(await fetchDialogTask(Number(historyLink.dataset.taskHistory)),'details');return;}
   const taskModal=e.target.closest('[data-task-details],[data-task-stop],[data-task-check],[data-record-moved]');if(taskModal){taskModal.closest?.('[data-cell-action-dialog]')?.close();const lineId=taskModal.dataset.recordMoved;let t=snapshot.tasks.find(t=>lineId?t.lines.some(l=>l.id===Number(lineId)):t.id===Number(taskModal.dataset.taskDetails||taskModal.dataset.taskStop||taskModal.dataset.taskCheck));if(online&&(taskModal.dataset.taskStop||taskModal.dataset.taskCheck||!t))t=await fetchDialogTask(Number(taskModal.dataset.taskDetails||taskModal.dataset.taskStop||taskModal.dataset.taskCheck));if(t)openTaskDialog(t,lineId?'recovery':taskModal.dataset.taskDetails?'details':taskModal.dataset.taskStop?'stop':'check',lineId);return;}
   const cellOpen=e.target.closest('[data-open-cell-action]');if(cellOpen){const d=root.querySelector('[data-cell-action-dialog]');d?.showModal();d?.querySelector('h2')?.focus();return;}
   const cellChoice=e.target.closest('[data-cell-action-choice]');if(cellChoice){const d=cellChoice.closest('[data-cell-action-dialog]'),mode=cellChoice.dataset.cellActionChoice;for(const panel of d.querySelectorAll('[data-cell-action-panel]'))panel.hidden=panel.dataset.cellActionPanel!==mode;for(const button of d.querySelectorAll('[data-cell-action-choice]'))button.setAttribute('aria-pressed',String(button===cellChoice));return;}
@@ -1327,7 +1344,7 @@ async function scanQR(l){
   async function frame(){
    if(stopped)return;
    if(video.readyState>=2){canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);const p=ctx.getImageData(0,0,canvas.width,canvas.height),code=window.jsQR(p.data,p.width,p.height);
-    if(code&&code.data!==lastRejected){try{const result=await immediate('verify',{requestId:uid(),lineId:l.id,revision:l.revision,assignmentGeneration:l.current_generation,location:code.data});if(stopped)return;notice=result.message;stop();await showSummary(l,'camera',code.data);return;}catch(error){lastRejected=code.data;if(!stopped)dialog.querySelector('.scan-feedback').textContent=error.message;}}
+    if(code&&code.data!==lastRejected){try{const result=await immediate('verify',{requestId:uid(),lineId:l.id,revision:l.revision,assignmentGeneration:l.current_generation,location:code.data});if(stopped)return;announce(result.message);stop();await showSummary(l,'camera',code.data);return;}catch(error){lastRejected=code.data;if(!stopped)dialog.querySelector('.scan-feedback').textContent=error.message;}}
    }
    if(!stopped)requestAnimationFrame(frame);
   }requestAnimationFrame(frame);
@@ -1344,7 +1361,7 @@ document.addEventListener?.('click',async e=>{
 },true);
 window.addEventListener('pagehide',()=>{stopCamera?.();void pauseActiveWork({keepalive:true});});
 window.addEventListener('popstate',handleModalPop);
-window.addEventListener('offline',()=>{online=false;productStockReads.clear();refreshProductStocks();patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();const warning=document.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=false;}}});
+window.addEventListener('offline',()=>{online=false;productStockReads.clear();refreshProductStocks();patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();}paintNotifications();});
 const canRefresh=()=>!bulkBusy&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open&&!root.querySelector('[data-cell-confirmation]')?.open&&!dirty&&!root.contains(document.activeElement)&&!stopCamera&&!submitting;
 let monitoring=false,pollDelay=5000;
 function patchLiveRows(){
@@ -1371,7 +1388,6 @@ function patchLiveRows(){
  const connection=root.querySelector('.work-connection');if(connection)connection.innerHTML=badge(online?'Connected to warehouse':'Offline · saved work',online?'good':'warning')+`<small>Updated ${esc(new Date(snapshot.generatedAt).toLocaleTimeString())}</small>`;
  // Review work is handled from My work.
  paintNotifications();
- const warning=root.querySelector('#work-connection-warning');if(warning){warning.textContent=connectionWarning;warning.hidden=!connectionWarning;}
  const activeCount=root.querySelector('[data-work-active-count]');if(activeCount)activeCount.textContent='Continue working · '+(snapshot.taskCounts?.active??0);
  for(const [href,count] of [['/work/history?scope=team&state=open',snapshot.taskCounts?.active],['/work/history?scope=team&state=needs_assignment',snapshot.taskCounts?.needsAssignment],['/work/history?scope=team&state=overdue',snapshot.taskCounts?.overdue]]){const link=root.querySelector(`.task-tabs a[href="${href}"]`);if(link&&count!=null)link.textContent=link.textContent.split(' · ')[0]+' · '+count;}
  if(path==='/work/overview')for(const f of root.querySelectorAll('[data-assignment-form]'))updateAssignmentForm(f);

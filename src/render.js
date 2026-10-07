@@ -1,4 +1,4 @@
-import {can,navigation,SETTINGS} from "./modules/access/catalog.js";
+import {can,navigation,SETTINGS,workTabs,currentWorkTab} from "./modules/access/catalog.js";
 import {permittedMarkup} from "./modules/access/routes-policy.js";
 import { getRuntimeContext } from "./server/runtime-context.js";
 
@@ -107,6 +107,7 @@ function iconSvg(name, className = "ui-icon") {
       <circle cx="12" cy="8" r="4" />
       <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
     `,
+    bell: `<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" />`,
     chevronDown: `
       <path d="m6 9 6 6 6-6" />
     `,
@@ -119,41 +120,38 @@ function iconSvg(name, className = "ui-icon") {
   `;
 }
 
-function nav(user, currentTitle = "") {
+function nav(user, currentTitle = "", currentPath = "") {
   if(!user)return '';
   const runtime=getRuntimeContext(),admin=can(user,'work.team'),title=currentTitle.toLowerCase();
   const counts=can(user,"count.view")?runtime.stocktakingService?.snapshot(user):null;
   const primary=navigation(user);
-  const active=title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups','roles and permissions','hardware'].some(t=>title.includes(t))?'Settings':'Work';
+  const selectedWork=currentWorkTab(currentPath);
+  const active=currentPath==='/work/timing'?'Settings':selectedWork?'Work':title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups','roles and permissions','hardware'].some(t=>title.includes(t))?'Settings':'Work';
   return `<aside class="dashboard-sidebar" aria-label="Dashboard navigation"><div class="dashboard-sidebar-inner">
     <a class="brand dashboard-brand" href="${primary[0]?.[1]||'/profile'}"><img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112"></a>
     <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav" hidden>Menu</button>
-    <nav id="warehouse-main-nav" class="side-nav" aria-label="Primary areas" data-nav-links>${primary.map(([label,href,icon])=>`<a class="side-nav-direct ${active===label?'nav-link-active':''}" href="${href}" ${active===label?'aria-current="page"':''}>${iconSvg(icon,'nav-icon')}<span>${label}</span>${label==='Stocktaking'?`<span data-stocktake-badge ${counts?.badge?'':'hidden'}>${counts?.badge||0}</span>`:''}</a>`).join('')}</nav>
+    <nav id="warehouse-main-nav" class="side-nav" aria-label="Primary areas" data-nav-links>${primary.map(([label,href,icon])=>{
+      const link=`<a class="side-nav-direct ${active===label?'nav-link-active':''}" href="${href}" ${active===label&&label!=='Work'?'aria-current="page"':''}>${iconSvg(icon,'nav-icon')}<span>${label}</span>${label==='Stocktaking'?`<span data-stocktake-badge ${counts?.badge?'':'hidden'}>${counts?.badge||0}</span>`:''}</a>`;
+      if(label!=='Work')return link;
+      return `<div class="sidebar-work-area">${link}<nav class="side-nav-sublist" aria-label="Work pages">${workTabs(user).map(tab=>`<a class="side-nav-link ${tab.href===selectedWork?'nav-link-active':''}" href="${tab.href}" ${tab.href===selectedWork?'aria-current="page"':''}>${escapeHtml(tab.label)}</a>`).join('')}</nav></div>`;
+    }).join('')}</nav>
     <div class="sidebar-footer">${SETTINGS.some(x=>can(user,x[2]))?`<a class="side-nav-direct" href="/settings">${iconSvg('admin','nav-icon')}Settings</a>`:''}<details class="account-menu"><summary>${escapeHtml(user.name)} · Account</summary><a href="/profile">Profile</a><form method="post" action="/logout"><button class="ghost-button sidebar-logout">Sign out</button></form></details></div>
   </div></aside>`;
 }
 
-export function page({ title, user, flash, content }) {
+export function page({ title, user, flash, content, currentPath = "" }) {
   if(user)content=permittedMarkup(content,user);
   const runtime = getRuntimeContext();
   const systemHealth = runtime.systemService?.healthSummary(runtime.startup);
   const systemNotice =
     user
-      ? `<div class="flash flash-warning" data-system-notice aria-live="polite" ${
+      ? `<div class="flash flash-warning" data-system-notice data-notification-source data-notification-key="system-health" data-notification-tone="warning" ${
           systemHealth?.degraded ? "" : "hidden"
-        }>System warning: ${escapeHtml(systemHealth?.degraded ? systemHealth.message : "")}</div>`
+        }>${systemHealth?.degraded ? `System warning: ${escapeHtml(systemHealth.message)}` : ""}</div>`
       : "";
-  const toast =
-    flash
-      ? `
-        <div class="toast-stack" aria-live="${flash.tone === "error" ? "assertive" : "polite"}" aria-atomic="true">
-          <div class="toast toast-${escapeHtml(flash.tone || "info")}" role="${flash.tone === "error" ? "alert" : "status"}" data-toast>
-            <span>${escapeHtml(flash.message)}</span>
-            <button type="button" class="toast-close" data-toast-close aria-label="Dismiss notification">x</button>
-          </div>
-        </div>
-      `
-      : "";
+  const toast = flash ? `<span hidden data-notification-source data-notification-tone="${escapeHtml(flash.tone||'info')}">${escapeHtml(flash.message)}</span><noscript><p class="flash">${escapeHtml(flash.message)}</p></noscript>` : '';
+  const identity=runtime.operationsService?.identity?.();
+  const notificationScope=user?[identity?.site||runtime.config?.siteId||'warehouse-local',identity?.dataset||'current',user.id]:null;
   const hasDashboardShell = Boolean(user);
 
   return `<!doctype html>
@@ -167,24 +165,27 @@ export function page({ title, user, flash, content }) {
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/work.css" />
     <link rel="stylesheet" href="/responsive.css" />
+    <link rel="stylesheet" href="/layout.css" />
     <script type="module" src="/client/searchable-select.js"></script>
+    <script type="module" src="/client/notifications.js"></script>
     <script type="module" src="/app.js"></script>
     ${user ? '<script type="module" src="/client/work-outbox-status.js"></script><script type="module" src="/client/stocktake-status.js"></script>' : ''}
     <script type="module" src="/client/mobile-nav.js"></script>
     <script type="module" src="/client/displays.js"></script><script type="module" src="/client/recommendation-actuals.js"></script>
   </head>
-  <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}" ${user ? `data-account-id="${user.id}"` : ""}>
+  <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}" ${user ? `data-account-id="${user.id}" data-notification-scope="${escapeHtml(JSON.stringify(notificationScope))}"` : ""}>
     ${toast}
     <div class="dashboard-shell ${hasDashboardShell ? "" : "dashboard-shell-public"}">
-      ${nav(user, title)}
+      ${nav(user, title, currentPath)}
       <div class="dashboard-content">
         <main class="page-shell">
           <header class="page-header">
             <h1>${escapeHtml(title)}</h1>
+            ${user ? `<button type="button" class="global-notifications-button" data-notifications-button aria-label="Notifications" aria-expanded="false" aria-controls="global-notifications">${iconSvg('bell')}<span class="global-notification-count" data-notification-count hidden>0</span></button>` : ''}
           </header>
           ${systemNotice}
-          ${user ? `<aside data-stocktake-reminder class="stocktake-reminder" aria-live="polite" hidden></aside>` : ""}
-          ${content}
+          ${user ? `<aside data-stocktake-reminder data-notification-source data-notification-key="stocktaking-reminder" data-notification-tone="warning" class="stocktake-reminder" hidden></aside>` : ""}
+          <div class="page-body">${content}</div>
         </main>
       </div>
     </div>

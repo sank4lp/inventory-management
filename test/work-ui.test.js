@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
+import {WORK_TABS} from '../src/modules/access/catalog.js';
 
 // Exercise the actual rendering functions without booting storage or a network poll.
 const source = readFileSync(new URL('../public/client/work.js', import.meta.url), 'utf8').split('let syncing=false;')[0];
@@ -13,7 +14,7 @@ function view({online = true, role = 'operator', tasks = [], active = false} = {
     URLSearchParams, location: {pathname: '/work', search: ''},
   });
   vm.runInContext(source, context);
-  context.state = {site:'warehouse-a',user:{id:1,name:'Operator',role},generatedAt:'2026-09-25T10:00:00Z',products:[],cells:[],tasks:active&&!tasks.length?[{id:1,assignment_generation:1,assignee_id:1,assignment_state:'started',lines:[]}]:tasks};
+  context.state = {workTabs:WORK_TABS,site:'warehouse-a',user:{id:1,name:'Operator',role},generatedAt:'2026-09-25T10:00:00Z',products:[],cells:[],tasks:active&&!tasks.length?[{id:1,assignment_generation:1,assignee_id:1,assignment_state:'started',lines:[]}]:tasks};
   vm.runInContext(`snapshot=state;online=${online};${active?"activeWork={taskId:1,generation:1,identity:key(),dataset:snapshot.dataset};":""}`, context);
   return {root, context, run: code => vm.runInContext(code, context)};
 }
@@ -154,14 +155,14 @@ test('active pick and put show compact task info above selectable cells and one 
  }
 });
 
-test('task notifications stay compact and repeat renders do not duplicate them', () => {
- const ui=view();
- ui.run("notice='Task saved';captureNotification();captureNotification()");
- assert.equal(ui.run('notifications.length'),1);
- assert.match(ui.run('notificationButton()'),/aria-label="Notifications"/);
- assert.match(ui.run('noticeToast()'),/Dismiss notification/);
- ui.run("notice='Light ready';captureNotification()");
- assert.equal(ui.run('notifications.length'),2);
+test('work sends notices to the shared header once per message', () => {
+ const ui=view();const sent=[];ui.context.WarehouseNotifications={notify:(message,options)=>sent.push({message,options})};
+ ui.run("notice='Task saved';captureNotification();captureNotification()");assert.equal(sent.length,1);assert.equal(sent[0].message,'Task saved');
+ ui.run("notice='Light ready';paintNotifications()");assert.equal(sent.length,2);
+ assert.doesNotMatch(ui.run("sectionNavigation('')"),/Notifications|notification-panel/);
+ ui.run("notice='';captureNotification();notice='Task saved';captureNotification()");assert.equal(sent.length,3);
+ ui.run("announce('Task saved');announce('Task saved');paintNotifications()");assert.equal(sent.length,5);
+ ui.run("connectionWarning='Connection lost';paintNotifications();paintNotifications()");assert.equal(sent.length,6);assert.equal(sent[5].options.tone,'warning');
 });
 
 test('offline reports stay accessible and queued/view-only safeguards survive simpler screens', () => {
@@ -262,7 +263,18 @@ test('count comparison and candidate dates never use arrival time as unknown cou
 test('Other evidence opens and requires its description, ordinary notes remain optional and whitespace cannot pass',()=>{const ui=view(),summary={},details={open:false,querySelector:()=>summary},note={value:'',closest:()=>details,setCustomValidity(v){this.error=v;}},f={elements:{verification:{value:'Spoke with operator'},verificationNote:note}};ui.context.reviewForm=f;ui.run('updateVerificationFields(reviewForm)');assert.equal(note.required,false);assert.equal(details.open,false);f.elements.verification.value='Other evidence (describe below)';ui.run('updateVerificationFields(reviewForm)');assert.equal(note.required,true);assert.equal(details.open,true);assert.ok(note.error);assert.throws(()=>ui.run("verifiedDescription({verification:'Other evidence (describe below)',verificationNote:'   '})"),/Describe/);note.value='Signed movement slip';ui.run('updateVerificationFields(reviewForm)');assert.equal(note.error,'');assert.match(ui.run("verifiedDescription({verification:'Other evidence (describe below)',verificationNote:'Signed movement slip'})"),/Signed movement slip/);f.elements.verification.value='Observed movement';ui.run('updateVerificationFields(reviewForm)');assert.equal(note.required,false);assert.equal(note.value,'Signed movement slip');assert.equal(ui.run("verifiedDescription({verification:'Spoke with operator',verificationNote:''})"),'Spoke with operator');});
 test('timing units convert the displayed value without changing duration and filters keep stable query values',()=>{const ui=view({role:'admin'}),f={dataset:{workAction:'timing'},elements:{minutes:{value:'2',dataset:{timeUnit:'hours'}},timeUnit:{value:'minutes'}}};ui.context.timingForm=f;ui.run('updateTimingFields(timingForm,true)');assert.equal(f.elements.minutes.value,'120');f.elements.timeUnit.value='hours';ui.run('updateTimingFields(timingForm,true)');assert.equal(f.elements.minutes.value,'2');ui.run('snapshot.timing={minutes:120,inactivityMinutes:5,timezone:"Asia/Kolkata",enabled:true}');assert.match(ui.run('timingPage()'),/value="hours" selected>Hours/);assert.equal(ui.run("taskFilterLabel('open')"),'Active');assert.equal(ui.run("taskFilterLabel('closed')"),'Finished');});
 
-test('routine monitoring leaves meaningful notices untouched and separates connection warnings from the draft',()=>{const ui=view();let writes=0;const main={dataset:{notice:'Saved quantity needs checking'},get innerHTML(){return 'Saved quantity needs checking';},set innerHTML(v){writes++;}},warning={textContent:'',hidden:true};ui.root.querySelector=s=>s==='#work-notice'?main:s==='#work-connection-warning'?warning:null;ui.context.window={scrollY:120,scrollTo(){}};ui.run("notice='Saved quantity needs checking';snapshot.tasks=[]");const live=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').split('function patchLiveRows(){')[1].split('async function backgroundRefresh')[0];ui.run('function patchLiveRows(){'+live);ui.run('patchLiveRows()');assert.equal(writes,0);assert.equal(warning.hidden,true);ui.run("online=false;connectionWarning='Connection lost. Saved updates remain on this phone.';patchLiveRows()");assert.equal(writes,0);assert.equal(warning.hidden,false);assert.match(warning.textContent,/Connection lost/);ui.run("online=true;connectionWarning='';patchLiveRows()");assert.equal(warning.hidden,true);assert.equal(writes,0);});
+test('routine monitoring keeps the draft and sends connection warnings to the global bell',()=>{
+ const ui=view(),sent=[],cleared=[];let writes=0;
+ Object.defineProperty(ui.root,'innerHTML',{get:()=>'<input value="saved draft">',set:()=>writes++});
+ ui.root.querySelector=()=>null;ui.context.window={scrollY:120,scrollTo(){}};
+ ui.context.WarehouseNotifications={notify:(message,options)=>sent.push({message,options}),clearKey:key=>cleared.push(key)};
+ ui.run("notice='Saved quantity needs checking';snapshot.tasks=[]");
+ const live=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').split('function patchLiveRows(){')[1].split('async function backgroundRefresh')[0];ui.run('function patchLiveRows(){'+live);
+ ui.run('patchLiveRows()');assert.equal(writes,0);assert.equal(sent.length,1);
+ ui.run("online=false;connectionWarning='Connection lost. Saved updates remain on this phone.';patchLiveRows();patchLiveRows()");
+ assert.equal(writes,0);assert.equal(sent.length,2);assert.match(sent[1].message,/Connection lost/);assert.equal(sent[1].options.key,'work-connection');
+ ui.run("online=true;connectionWarning='';patchLiveRows()");assert.deepEqual(cleared,['work-connection']);assert.equal(writes,0);
+});
 
 test('restoring a review draft exposes required evidence even when its disclosure was previously collapsed',()=>{
  const ui=view(),summary={},details={dataset:{disclosure:'verification-note-entry'},open:false,querySelector:()=>summary};
@@ -415,7 +427,7 @@ test('own and team review entry never executes physical work; verified followup 
 });
 
 test('My Work and returned tables link products separately from tasks and respect product rights',()=>{
- const ui=view({role:'admin'});ui.context.t={id:66,type:'pick',assignee_id:1,assignment_state:'started',review_followup:1,attention:1,lines:[line]};for(const fn of ['myTaskRow','returnedRow']){let html=ui.run(fn+'(t)');assert.match(html,/href="\/products\/1"/);assert.match(html,/href="\/tasks\/66">#66 · Pick/);assert.doesNotMatch(html,/View check/);}ui.run('snapshot.capabilities={view:true,execute:true,productsView:false}');assert.doesNotMatch(ui.run('myTaskRow(t)'),/href="\/products/);assert.match(ui.run('home()'),/colspan="12"/);
+ const ui=view({role:'admin'});ui.context.t={id:66,type:'pick',assignee_id:1,assignment_state:'started',review_followup:1,attention:1,lines:[line]};for(const fn of ['myTaskRow','returnedRow']){let html=ui.run(fn+'(t)');assert.match(html,/href="\/products\/1"/);assert.match(html,/href="\/tasks\/66"[^>]*>#66 · Pick/);assert.doesNotMatch(html,/View check/);}ui.run('snapshot.capabilities={view:true,execute:true,productsView:false}');assert.doesNotMatch(ui.run('myTaskRow(t)'),/href="\/products/);assert.match(ui.run('home()'),/colspan="12"/);
 });
 test('recovery is a dialog-only form and its instruction generation and dataset belong in the draft identity',()=>{
  const ui=view();ui.context.l=line;assert.doesNotMatch(ui.run('lineCard(l)'),/data-work-action="report"/);const content=ui.run('recoveryDialogContent(l)');assert.match(content,/Actual quantity \(pieces\)/);assert.match(content,/Actual location/);assert.match(content,/What happened/);assert.match(content,/name="assignmentGeneration" value="1"/);
@@ -548,4 +560,16 @@ test('Record Movement permits mixed rows with constrained Pick locations and all
  ui.context.entry={taskId:5,time:'2026-10-01T10:00:00Z',step:'Pick recorded',product:'Boots',quantity:-2,unit:'pairs',before:5,after:3,assignedBy:'Admin',assignedTo:'Worker',actor:'Worker',inventoryMovement:true};
  const html=ui.run('activityTable([entry])');assert.match(html,/Details before/);assert.match(html,/Details after/);assert.match(html,/>5 pairs</);assert.match(html,/>3 pairs</);assert.match(html,/taskId=5/);
  ui.context.entry.before=null;assert.match(ui.run('activityTable([entry])'),/Not recorded/);
+});
+
+
+test('My Work task links open the permission-scoped editor while History retains its history popup',()=>{
+ const ui=view({role:'admin'});ui.context.t={id:91,type:'put',assignee_id:1,assignee_name:'Alex',assignment_generation:3,progress_token:'latest',assignment_state:'offered',requested_quantity:10,recorded_quantity:2,remaining_quantity:8,plan_cell_id:4,lines:[line]};
+ ui.run("snapshot.cells=[{id:4,logical_code:'Shelf B'}];snapshot.operators=[{id:1,name:'Alex',status:'active',eligible:true}]");
+ assert.match(ui.run('myTaskRow(t)'),/data-task-edit="91"/);assert.doesNotMatch(ui.run('myTaskRow(t)'),/data-task-history=/);
+ const html=ui.run('taskEditorContent(t)');assert.match(html,/data-work-action="updateReviewTask"/);assert.match(html,/name="progressToken" value="latest"/);assert.match(html,/name="remainingQuantity"[^>]*value="8"/);assert.match(html,/name="assigneeId"[^>]*>[\s\S]*value="1" selected/);assert.match(html,/Preferred location<select data-searchable name="planCellId"/);assert.match(html,/value="4" selected>Shelf B/);assert.match(html,/name="deadlineChoice"/);assert.match(html,/data-task-history="91">Task history/);assert.doesNotMatch(html,/data-task-timeline|data-review-align|data-review-discard/);
+ ui.run("path='/work/history'");assert.match(ui.run('myTaskRow(t)'),/data-task-history="91"/);assert.doesNotMatch(ui.run('myTaskRow(t)'),/data-task-edit=/);
+ ui.run("snapshot.capabilities={view:true}");assert.doesNotMatch(ui.run('taskEditorContent(t)'),/data-work-action="updateReviewTask"/);assert.match(ui.run('taskEditorContent(t)'),/data-task-history="91"/);
+ ui.run("snapshot.capabilities={view:true,assign:true};t.completed_at='2026-10-07T12:00:00Z'");assert.doesNotMatch(ui.run('taskEditorContent(t)'),/data-work-action="updateReviewTask"/);
+ ui.run("t.completed_at=null;t.outcome='stopped'");assert.doesNotMatch(ui.run('taskEditorContent(t)'),/data-work-action="updateReviewTask"/);
 });

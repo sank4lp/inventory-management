@@ -6,7 +6,7 @@ import {guidanceBinding,displayOwner,waitingMessage} from './guidance.js';
 import {taskSelection,reviewSelection,workloads,returnedSelection} from './queries.js';
 import {postMovement} from "../inventory/ledger.js";
 import {currentActor,effectiveUser} from "../access/service.js";
-import {can,assertCan} from "../access/catalog.js";
+import {can,assertCan,workTabs} from "../access/catalog.js";
 import { describeLocation, validLocationLabel, saveLocationDescription } from "./location-contract.js";
 import { workCapabilities } from "./access.js";
 import { readPendingReviewTimeoutSettings, savePendingReviewTimeoutSettings } from "../../services/task-timeout-settings.js";
@@ -1177,7 +1177,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function snapshot(actor,query={}) {
     const current=actorNow(actor);
     if(query.view==='assign')assertCan(current,'work.assign');
-    if(!can(current,'work.view'))return {...identity(),user:current,capabilities:workCapabilities(current),timing:{},operators:[],performers:[],reports:db.prepare('SELECT id,status FROM work_reports WHERE reporter_id=?').all(current.id),tasks:[],products:[],cells:can(current,'locations.labels')?db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1').all().map(c=>({...c,description:describeLocation(db,c.id)})):[],pending:[],postedReports:[],contents:[],discrepancies:[],generatedAt:now()};
+    if(!can(current,'work.view'))return {...identity(),user:current,workTabs:workTabs(current),capabilities:workCapabilities(current),timing:{},operators:[],performers:[],reports:db.prepare('SELECT id,status FROM work_reports WHERE reporter_id=?').all(current.id),tasks:[],products:[],cells:can(current,'locations.labels')?db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1').all().map(c=>({...c,description:describeLocation(db,c.id)})):[],pending:[],postedReports:[],contents:[],discrepancies:[],generatedAt:now()};
     const selection=taskSelection(db,current,query),taskList=query.taskId?[task(current,Number(query.taskId))].filter(Boolean):selection.ids.map(id=>({...task(current,id),...selection.metrics?.get(id)}));
     const watchedTasks=[...new Set(String(query.watch||'').split(',').map(Number).filter(id=>id>0&&!selection.ids.includes(id)))].slice(0,100).flatMap(id=>{try{const value=task(current,id);return value?[value]:[];}catch{return [];}});
     const returned=returnedSelection(db,current,query);
@@ -1190,7 +1190,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const effective=effectiveUser(db,u),load=loads.find(v=>v.id===u.id);
       return {...u,role_name:effective.role_name,eligible:workCapabilities(effective).execute,...(can(current,'work.assign')?{assignedTaskCount:load?.open||0}:{}),...((can(current,'work.team')||can(current,'review.view'))?load:{})};
     }):[];
-    return {...identity(),user:current,capabilities:workCapabilities(current),timing:timingSettings(),operators,performers:operators,...(query.view==='activity'?{activity:history.activityHistory(current,query)}:{}),
+    return {...identity(),user:current,workTabs:workTabs(current),capabilities:workCapabilities(current),timing:timingSettings(),operators,performers:operators,...(query.view==='activity'?{activity:history.activityHistory(current,query)}:{}),
       reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(can(current,"review.view")?"admin":"own",current.id,current.id),
       tasks:taskList,watchedTasks,returnedTasks:returned.ids.map(id=>task(current,id)),returnedPage:returned.page,myWorkPriority:selection.priority,myWorkNextTask:selection.priority?task(current,selection.priority.id):null,taskPage:selection.page,taskCounts:selection.counts,inactivityAlerts:inactivityAlerts(current),reviewPage:reviews.page,reviewTotal:reviews.total,reviewGroups:reviews.groups,products:visibleProducts,cells:visibleCells,pending:pending.map(r=>({...r,...(JSON.parse(r.payload).taskClosure?{closureTask:task(current,r.task_id),closureActuals:JSON.parse(r.payload).actuals,closureCounts:db.prepare('SELECT o.id,o.lines_json,i.cell_id,c.logical_code,r.title FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_runs r ON r.id=i.run_id JOIN cells c ON c.id=i.cell_id JOIN stocktake_settlements s ON s.observation_id=o.id ORDER BY s.created_at DESC LIMIT 100').all()}:{}),reviewFollowup:r.task_id?Boolean(db.prepare('SELECT review_followup FROM tasks WHERE id=?').get(r.task_id)?.review_followup):false,observations:r.task_id?task(current,r.task_id).review_observations:[],countOverlap:Boolean(countBoundary(db,r,r.line_id?line(r.line_id):null)),countEvidence:countBoundary(db,r,r.line_id?line(r.line_id):null)?countCandidates(current,{reportId:r.id})[0]||null:null,accounting:!r.line_id&&r.direction!=='count'?manualAccounting(r):null})),generatedAt:now(),
       postedReports:can(current,'review.view')?db.prepare(`SELECT r.*,p.name AS product_name,c.logical_code,u.name AS performer_name FROM work_reports r

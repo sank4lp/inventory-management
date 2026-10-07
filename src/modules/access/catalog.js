@@ -94,3 +94,20 @@ export const SETTINGS = [
   ['/work/timing','Timing settings','work.timing'],['/settings/system','System','system.view'],['/reports?format=1','Report appearance','reports.format'],
 ];
 export function navigation(user) {return [['Work','/work','pick','work.view'],['Products','/products','products','products.view'],['Locations','/cells','locations','locations.view'],['Stocktaking','/stocktaking','reports','count.view'],['Reports','/reports','reports','reports.view']].filter(x=>can(user,x[3]));}
+
+// Shared by the sidebar, Work tabs and cached mobile snapshots.
+export const WORK_TABS = [
+  {href:'/work',label:'My Work',permission:'work.view',capability:'view'},
+  {href:'/work/overview',label:'Assign Work',permission:'work.assign',capability:'assign'},
+  {href:'/work/history',label:'History',permission:'work.view',capability:'view'},
+  {href:'/work/task-history',label:'Task History',permission:'work.view',capability:'view'},
+  {href:'/record-movement',label:'Record Movement',permission:'work.report',capability:'report'},
+  {href:'/recommended-actions',label:'Recommended Actions',permission:'work.view',capability:'view'},
+];
+export function workTabs(user){return WORK_TABS.filter(tab=>can(user,tab.permission));}
+export function currentWorkTab(path){
+  const pathname=String(path||'').split('?')[0];
+  return WORK_TABS.find(tab=>tab.href===pathname)?.href||
+    (/^\/tasks\/\d+$/.test(pathname)||['/pick','/put','/pending-confirmations'].includes(pathname)?'/work':
+      pathname.startsWith('/recommended-actions')?'/recommended-actions':null);
+}

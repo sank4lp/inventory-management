@@ -150,7 +150,7 @@ function wireSystemHealthNotice() {
       const payload = await response.json();
       if (payload.degraded) {
         notice.textContent = `System warning: ${payload.message || "System is running with warnings."}`;
-        notice.hidden = false;
+        notice.hidden = true;
       } else {
         notice.textContent = "";
         notice.hidden = true;
@@ -250,26 +250,6 @@ async function submitLedCommandFormAsync(form, button) {
     button.setAttribute("title", error.message || "Command failed.");
     window.setTimeout(restoreButton, 1400);
   }
-}
-
-function wireToasts() {
-  document.querySelectorAll("[data-toast]").forEach((toast) => {
-    if (toast.dataset.toastBound === "true") {
-      return;
-    }
-    toast.dataset.toastBound = "true";
-
-    const close = toast.querySelector("[data-toast-close]");
-    const dismiss = () => {
-      toast.hidden = true;
-      if (!toast.parentElement?.querySelector("[data-toast]:not([hidden])")) {
-        toast.parentElement?.remove();
-      }
-    };
-
-    close?.addEventListener("click", dismiss);
-    window.setTimeout(dismiss, 7000);
-  });
 }
 
 function wireCopyButtons() {
@@ -4838,7 +4818,6 @@ function wireRowCollapsers(root = document) {
 document.addEventListener("DOMContentLoaded", () => {
   wireActionScrollRestore();
   wireSystemHealthNotice();
-  wireToasts();
   wireCopyButtons();
   wireNavState();
   wireDashboardSectionFilter();

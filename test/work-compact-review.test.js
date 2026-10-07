@@ -103,3 +103,19 @@ test('History active-only checkbox is immediate and preserves unapplied filters,
  c.run("path='/work'");assert.doesNotMatch(c.run('workTableFilters()'),/See only active assignments/);
  const options=c.run("workFilterOptions(workFilterColumns.find(c=>c.key==='progress'))");assert.match(options,/value="below-0"[^>]*>&lt;0%/);assert.match(options,/value="above-100"[^>]*>&gt;100%/);
 });
+
+
+test('My Work opens the fresh task editor and its history button saves the draft before opening read-only history',async()=>{
+ const c=client(),events=[];c.context.a=task(1);c.context.events=events;let click;c.context.capture=(name,fn)=>{if(name==='click')click=fn;};
+ c.run("root.addEventListener=capture;fetchDialogTask=async id=>{events.push('fetch:'+id);return a;};openTaskDialog=(t,mode)=>events.push('open:'+mode);saveModalDrafts=async()=>events.push('save draft');immediate=async()=>{throw new Error('Viewing a popup cannot mutate work');};");
+ c.run(source.slice(source.indexOf("root.addEventListener('click'"),source.indexOf('let stopCamera=null;')));
+ await click({preventDefault(){events.push('prevent navigation');},target:{closest:s=>s==='[data-task-edit]'?{dataset:{taskEdit:'1'}}:null}});
+ assert.deepEqual(events,['prevent navigation','fetch:1','open:edit']);events.length=0;c.root.querySelector=s=>s==='[data-task-dialog]'?{open:true}:null;
+ await click({preventDefault(){},target:{closest:s=>s==='[data-task-history]'?{dataset:{taskHistory:'1'}}:null}});
+ assert.deepEqual(events,['save draft','fetch:1','open:details']);
+});
+test('Back from task history restores the task editor rather than opening another page',async()=>{
+ const c=client(),opened=[];c.context.a=task(1);c.context.opened=opened;c.context.window={history:{state:null,replaceState(s){this.state=s;},pushState(s){this.state=s;}}};
+ c.run("rememberModal({task:a,mode:'edit',identity:key()+':'+snapshot.dataset});rememberModal({task:a,mode:'details',identity:key()+':'+snapshot.dataset});saveModalDrafts=async()=>{};openTaskDialog=(t,mode,line,navigation)=>opened.push({id:t.id,mode,navigation});");
+ await c.run('handleModalPop({state:{workModal:{session:modalSession,depth:1}}})');assert.deepEqual(JSON.parse(JSON.stringify(opened)),[{id:1,mode:'edit',navigation:'restore'}]);
+});

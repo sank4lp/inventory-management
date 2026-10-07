@@ -1,6 +1,6 @@
 /* Shared responsive additions keep every existing function reachable. */
 :root{--work-ink:#143a35;--work-muted:#5c726e;--work-border:#dce6e2;--work-tint:#eff7f3;--work-warn:#865117}
-#work-app{color:var(--work-ink);max-width:1280px;margin:auto;line-height:1.55;overflow-wrap:anywhere}
+#work-app{color:var(--work-ink);width:100%;max-width:none;margin:0;line-height:1.55;overflow-wrap:anywhere}
 .work-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--work-border);padding:0 0 18px}
 .work-toolbar nav{display:flex;gap:8px 20px;flex-wrap:wrap}.work-toolbar a,.work-footer a{color:var(--work-ink);font-weight:650;text-decoration:none;padding:8px 0}.work-toolbar a:hover{text-decoration:underline}
 .work-intro{padding:30px 0 28px;max-width:780px}.work-intro h2{font-size:clamp(26px,4vw,38px);line-height:1.18;letter-spacing:-.025em;margin:8px 0 14px}.work-intro p{font-size:16px;color:var(--work-muted);margin:0 0 16px}
@@ -140,7 +140,7 @@
 #work-app .product-stock details{border:0;margin-top:4px;padding-top:0}
 #work-app .product-stock summary{font-size:12px;font-weight:500;min-height:32px;padding:3px 0;align-content:center}
 
-.task-work-screen{max-width:960px;margin:auto}.task-work-intro{padding:4px 0 0}.task-work-intro>a{display:inline-block;margin-bottom:6px}.task-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.task-title-row h2{font-size:clamp(21px,2.5vw,28px);line-height:1.25;margin:4px 0;min-width:0;flex:1}.task-title-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.task-title-actions form{margin:0!important;padding:0!important;border:0!important}.task-title-actions button{white-space:nowrap;min-height:40px!important;padding:8px 14px!important}
+.task-work-screen{max-width:960px;margin:0}.task-work-intro{padding:4px 0 0}.task-work-intro>a{display:inline-block;margin-bottom:6px}.task-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.task-title-row h2{font-size:clamp(21px,2.5vw,28px);line-height:1.25;margin:4px 0;min-width:0;flex:1}.task-title-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.task-title-actions form{margin:0!important;padding:0!important;border:0!important}.task-title-actions button{white-space:nowrap;min-height:40px!important;padding:8px 14px!important}
 .cell-confirmation-dialog{width:min(480px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;border:1px solid var(--work-border);border-radius:16px;color:var(--work-ink);background:#fff}
 .cell-confirmation-dialog h2{margin:0 0 12px;font-size:clamp(20px,3vw,25px)}.cell-confirmation-dialog>p{margin:8px 0}.cell-confirmation-dialog .cell-confirmation-product{font-size:17px}
 #work-app .cell-confirmation-dialog form{margin:12px 0 0;padding:12px 0 0;gap:12px}.cell-confirmation-quantity{display:flex;align-items:center;gap:8px}.cell-confirmation-quantity input{flex:1;min-width:0}.cell-confirmation-quantity span{flex:none;white-space:nowrap;font-weight:650}
@@ -166,10 +166,6 @@
 @media(max-width:600px){.task-title-row{align-items:flex-start}.task-title-row h2{flex-basis:100%}.task-title-actions{width:100%;justify-content:flex-end}.task-info-grid{grid-template-columns:minmax(0,1fr)}.cell-confirmation-fields{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:480px){.task-context{padding:12px}.task-assignee-editor{gap:8px}.task-edit-dialog{padding:16px}.task-location-card{flex-basis:min(68vw,190px)}}
 
-#work-app .work-notifications{position:relative;margin:0 0 0 auto;padding:0;border:0;z-index:45}#work-app .work-notifications summary{list-style:none;display:flex;align-items:center;gap:6px;min-height:40px;padding:6px 10px;border:1px solid var(--work-border);border-radius:9px;background:#fff;color:var(--work-ink);white-space:nowrap}#work-app .work-notifications summary::-webkit-details-marker{display:none}.notification-count{display:inline-grid;place-items:center;min-width:19px;height:19px;border-radius:99px;background:#1c6553;color:#fff;font-size:11px}.notification-count:empty{display:none}.notification-panel{position:absolute;right:0;top:calc(100% + 6px);width:min(340px,calc(100vw - 32px));max-height:min(340px,55dvh);overflow:auto;padding:12px;background:#fff;border:1px solid var(--work-border);border-radius:12px;box-shadow:0 12px 28px #143a3529;box-sizing:border-box}.notification-panel ol{list-style:none;margin:0;padding:0}.notification-panel li{display:grid;gap:3px;padding:9px 0;border-bottom:1px solid var(--work-border);font-size:13px}.notification-panel li:last-child{border-bottom:0}.notification-panel time{font-size:11px;color:var(--work-muted)}.notification-panel p{margin:0;font-size:13px}
-#work-app #work-notice:empty{display:none}#work-app #work-notice{position:fixed;top:76px;right:16px;z-index:90;width:min(380px,calc(100vw - 32px));pointer-events:none}#work-app .work-toast{display:flex;align-items:start;gap:8px;max-height:min(150px,30dvh);overflow:auto;padding:10px 10px 10px 14px;border:1px solid #a9cdbc;border-radius:12px;background:#f2faf5;box-shadow:0 10px 30px #143a3530;pointer-events:auto}#work-app .work-toast p{margin:0;flex:1;font-size:13px;line-height:1.4}#work-app #work-notice .work-toast button{flex:none;width:36px;min-height:36px;padding:0;font-size:20px;line-height:1}
-@media print{#work-app .work-notifications,#work-app #work-notice{display:none!important}}
-
 /* One visible search/selection field; the select retains form values and validation. */
 .searchable-select{position:relative;display:block;min-width:0;width:100%;font-weight:400}
 .searchable-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none;overflow:hidden;padding:0!important;border:0!important}
@@ -183,6 +179,8 @@
 .searchable-status{display:block;padding:10px 12px;font-size:13px;color:#526761;line-height:1.4}
 
 .searchable-select.opens-up .searchable-panel{top:auto;bottom:100%}
+/* Float outside scroll boxes; native popovers also escape modal clipping. */
+.searchable-select .searchable-panel[data-floating],.searchable-panel[data-floating]{position:fixed;inset:auto;margin:0;box-sizing:border-box;font:inherit;z-index:1000;text-align:left;color:#173f34}
 
 #work-app table.my-work-table{min-width:1260px}
 #work-app .task-edit-dialog.check-dialog{width:min(820px,calc(100vw - 32px))}
@@ -403,3 +401,5 @@
 [data-record-movement] .task-actual-table th:first-child{min-width:85px}
 [data-record-movement] .task-actual-table select,[data-record-movement] .task-actual-table input{min-width:0;width:100%}
 .task-timeline td small{display:block;white-space:normal}
+
+#work-app .task-editor-actions{display:flex;justify-content:flex-end;margin:12px 0;gap:8px}

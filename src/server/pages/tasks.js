@@ -549,6 +549,7 @@ export function createTaskPages({ db }) {
       );
       return page({
         title: "Recommended Actions",
+        currentPath: "/recommended-actions",
         user,
         flash,
         content: `
@@ -597,6 +598,7 @@ export function createTaskPages({ db }) {
 
     return page({
       title: selectedKey ? "Recommended Action" : "Recommended Actions",
+      currentPath: "/recommended-actions",
       user,
       flash,
       content: `

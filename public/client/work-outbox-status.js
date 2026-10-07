@@ -1,5 +1,6 @@
 // Read-only, account-scoped notice on every signed-in page. Delivery stays in Work.
 const account=document.body.dataset.accountId;
+let notificationScope;try{notificationScope=JSON.parse(document.body.dataset.notificationScope||'null');}catch{}
 if(account && !document.querySelector('#work-app')) {
   const request=indexedDB.open('lytguide-work',1);
   request.onupgradeneeded=()=>{for(const name of ['cache','outbox'])if(!request.result.objectStoreNames.contains(name))request.result.createObjectStore(name,{keyPath:'id'});};
@@ -8,12 +9,11 @@ if(account && !document.querySelector('#work-app')) {
     const read=()=>{
       const tx=db.transaction('outbox'),get=tx.objectStore('outbox').getAll();
       get.onsuccess=()=>{
-        const pending=get.result.filter(o=>o.partition?.endsWith(':'+account)&&!(o.action==='recordMovement'&&o.state==='not-applied')&&['local','sending','error','rejected','not-applied','activation-pending','activation-unknown'].includes(o.state));
-        let strip=document.querySelector('#saved-work-status');
-        if(!pending.length){strip?.remove();return;}
-        if(!strip){strip=document.createElement('aside');strip.id='saved-work-status';strip.className='work-callout warning';strip.setAttribute('role','status');document.querySelector('main')?.prepend(strip);}
-        strip.replaceChildren(document.createTextNode(`${pending.length} saved work update(s) need attention. They stay with this account after sign out. `));
-        const link=document.createElement('a');link.href='/work';link.textContent='Open saved work';strip.append(link);
+        const pending=get.result.filter(o=>(notificationScope?o.partition===`${notificationScope[0]}:${account}`:o.partition?.endsWith(':'+account))&&!(o.action==='recordMovement'&&o.state==='not-applied')&&['local','sending','error','rejected','not-applied','activation-pending','activation-unknown'].includes(o.state));
+        if(!pending.length){globalThis.WarehouseNotifications?.clearKey?.('saved-work');return;}
+        const item={message:`${pending.length} saved work update(s) need attention. Open My Work to check or retry.`,options:{key:'saved-work',tone:'warning',href:'/work'}};
+        if(globalThis.WarehouseNotifications)globalThis.WarehouseNotifications.notify(item.message,item.options);
+        else(globalThis.warehouseNotificationQueue||=[]).push(item);
       };
     };read();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')read();});
   };

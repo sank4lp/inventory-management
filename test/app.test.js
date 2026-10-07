@@ -597,7 +597,7 @@ test("profile page shows account details and activity summary", async () => {
   assert.match(html, /data-nav-links/);
   assert.doesNotMatch(html, /<summary[^>]*>(?:(?!<\/summary>)[\s\S])*<a\b/);
   assert.match(html, /aria-label="Primary areas"/);
-  const operatorHtml=pages.renderProfile(operator,null),operatorNav=operatorHtml.split('aria-label="Primary areas"')[1].split('</nav>')[0];
+  const operatorHtml=pages.renderProfile(operator,null),operatorNav=operatorHtml.split('aria-label="Primary areas"')[1].split('<div class="sidebar-footer">')[0].replace(/<nav class="side-nav-sublist"[\s\S]*?<\/nav>/g,'');
   assert.deepEqual([...operatorNav.matchAll(/href="([^"]+)"/g)].map(m=>m[1]),['/work','/products','/cells','/stocktaking','/reports']);
   assert.match(operatorHtml,/href="\/profile"/);assert.doesNotMatch(operatorHtml,/href="\/settings"/);
   assert.match(html, /Signed In As/);
