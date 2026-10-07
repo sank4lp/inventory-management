@@ -1,3 +1,10 @@
+export async function mount() {
+const pageScope=globalThis.WarehousePageLifecycle?.current;
+const setTimeout=(...args)=>pageScope?pageScope.timeout(...args):globalThis.setTimeout(...args);
+const setInterval=(...args)=>pageScope?pageScope.interval(...args):globalThis.setInterval(...args);
+const requestAnimationFrame=(...args)=>pageScope?pageScope.frame(...args):globalThis.requestAnimationFrame(...args);
+const fetch=(...args)=>pageScope?pageScope.fetch(...args):globalThis.fetch(...args);
+const onPage=(target,...args)=>pageScope?pageScope.listen(target,...args):target.addEventListener?.(...args);
 const root=document.querySelector('#work-app');
 const boot=JSON.parse(document.querySelector('#work-boot')?.textContent||'null');
 let snapshot=boot?.snapshot, path=boot?.path||location.pathname, outbox=[],notice='',connectionWarning='', db,online=Boolean(boot),cameraStream;
@@ -370,7 +377,7 @@ async function modalBack(){if(bulkBusy||submitting)return;try{await saveModalDra
 async function handleModalPop(event){
  if(modalMoving){modalMoving=false;return;}
  const state=event.state?.workModal,target=state?.session===modalSession?state.depth:null;
- if(target===null){try{await pauseActiveWork();location.reload();}catch(error){notice=error.message;window.history.pushState({},'',path);render();}return;}
+ if(target===null){if(globalThis.WarehouseNavigation){if(location.pathname===path&&/^\/tasks\/\d+$/.test(path))render();return;}try{await pauseActiveWork();location.reload();}catch(error){notice=error.message;window.history.pushState({},'',path);render();}return;}
  if(bulkBusy||submitting){modalMoving=true;window.history.go(modalDepth-target);return;}
  try{await saveModalDrafts();}catch(error){modalMoving=true;window.history.go(modalDepth-target);modalError(error);return;}
  modalDepth=target;const frame=modalFrames[target-1],d=root.querySelector('[data-task-dialog]');
@@ -1020,9 +1027,12 @@ function workViewsMarkup(){
 function sectionNavigation(utility){
  if(path==='/labels')return `<nav class="work-views" aria-label="Location views">${allowed('locationsView')?'<a href="/cells">Locations</a>':''}<a href="/labels" aria-current="page">Location Labels</a></nav>`;
  if(path==='/work/timing')return '<nav class="work-views" aria-label="Settings"><a href="/settings">← Settings</a></nav>';
- return `<nav class="work-views" aria-label="Work views">${workViewsMarkup()}${utility}</nav>`;
+ // Cached offline shells have no sidebar; retain their only navigation.
+ const fallback=!online&&!document.querySelector('.dashboard-sidebar')?`<nav class="work-views" aria-label="Work views">${workViewsMarkup()}</nav>`:'';
+ return fallback+(utility?`<div class="work-tools">${utility}</div>`:'');
 }
-function render(){
+function render(){if(pageScope?.active===false)return;
+ globalThis.WarehouseNavigation?.adopt(location.href);
  const disclosures=new Map([...root.querySelectorAll('details[data-disclosure]')].map(d=>[d.dataset.disclosure,d.open]));
  dirty=false;
  if(!snapshot){root.innerHTML='<section class="work-empty"><h2>No saved work on this device</h2><p>Connect to the warehouse and sign in to save your allocations.</p><a href="/login">Sign in</a></section>';return;}
@@ -1350,8 +1360,9 @@ async function scanQR(l){
   }requestAnimationFrame(frame);
  }catch(error){if(stopped)return;stop();await showSummary(l,'manual','','No camera / camera unavailable');}
 }
-document.addEventListener?.('click',async e=>{
+onPage(document,'click',async e=>{
  const link=e.target.closest?.('a[href]');
+ if(globalThis.WarehouseNavigation)return;
  if(!link||!activeWork||!/^\/tasks\/\d+$/.test(path)||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||link.target==='_blank'||link.hasAttribute('download'))return;
  const destination=new URL(link.href,location.href);
  if(destination.pathname===path)return;
@@ -1359,9 +1370,9 @@ document.addEventListener?.('click',async e=>{
  try{await pauseActiveWork();location.assign(destination.href);}
  catch(error){notice=error.message;render();}
 },true);
-window.addEventListener('pagehide',()=>{stopCamera?.();void pauseActiveWork({keepalive:true});});
-window.addEventListener('popstate',handleModalPop);
-window.addEventListener('offline',()=>{online=false;productStockReads.clear();refreshProductStocks();patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();}paintNotifications();});
+onPage(window,'pagehide',()=>{stopCamera?.();void pauseActiveWork({keepalive:true});});
+onPage(window,'popstate',handleModalPop);
+onPage(window,'offline',()=>{online=false;productStockReads.clear();refreshProductStocks();patchGuidanceHints();patchTaskDialog();connectionWarning='Connection lost. Saved updates remain on this phone.';if(!dirty&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open)render();else{if(path==='/work')patchLiveRows();}paintNotifications();});
 const canRefresh=()=>!bulkBusy&&!root.querySelector('[data-operation-dialog]')?.open&&!root.querySelector('[data-my-work-dialog]')?.open&&!root.querySelector('[data-task-dialog]')?.open&&!root.querySelector('[data-cell-confirmation]')?.open&&!dirty&&!root.contains(document.activeElement)&&!stopCamera&&!submitting;
 let monitoring=false,pollDelay=5000;
 function patchLiveRows(){
@@ -1394,16 +1405,21 @@ function patchLiveRows(){
  for(const [el,x,y] of scrolls){el.scrollLeft=x;el.scrollTop=y;}window.scrollTo({top:pageTop+anchorShift,behavior:'instant'});
 }
 async function backgroundRefresh(){
+ if(pageScope?.active===false)return;
  if(monitoring||submitting||bulkBusy||cameraStream?.active)return;monitoring=true;
- try{const wasOffline=!online;await sync();if(wasOffline&&online)refreshProductStocks(true);pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
+ try{const wasOffline=!online;await sync();if(pageScope?.active===false)return;if(wasOffline&&online)refreshProductStocks(true);pollDelay=online?5000:Math.min(60000,pollDelay*2);if(canRefresh()){
   const positions=[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].map(el=>[el.scrollLeft,el.scrollTop]);const top=window.scrollY;render();[...root.querySelectorAll('.work-table-wrap,.my-work-table-wrap')].forEach((el,i)=>{if(positions[i]){el.scrollLeft=positions[i][0];el.scrollTop=positions[i][1];}});window.scrollTo({top,behavior:'instant'});
  }else patchLiveRows();}finally{monitoring=false;}
 }
-window.addEventListener('online',backgroundRefresh);
-window.addEventListener('pageshow',e=>{if(e.persisted){activeWork=null;void backgroundRefresh();}});
-document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='hidden')stopCamera?.();else await backgroundRefresh();});
+onPage(window,'online',backgroundRefresh);
+onPage(window,'pageshow',e=>{if(e.persisted){activeWork=null;void backgroundRefresh();}});
+onPage(document,'visibilitychange',async()=>{if(document.visibilityState==='hidden')stopCamera?.();else await backgroundRefresh();});
+pageScope?.beforeLeave(async()=>{if(submitting||bulkBusy)throw new Error('Wait for this task update to finish before leaving.');await saveModalDrafts();for(const form of root.querySelectorAll('form[data-work-action]'))if(form.dataset.edited)await saveDraft(form);await pauseActiveWork();stopCamera?.();});
+if(pageScope)pageScope.ownsPop=event=>location.pathname===path&&Boolean(event.state?.workModal||/^\/tasks\/\d+$/.test(path));
+pageScope?.own(()=>db?.close());
 try{
  db=await openDB();
+ if(pageScope?.active===false){db.close();return;}
  if(snapshot)await cacheSnapshot();else{const active=await store('cache','readonly',s=>s.get('active'));snapshot=(await store('cache','readonly',s=>s.get(active?.key||'')))?.snapshot;}
  for(const row of await all('cache')){if(row.stage)stages.set(row.id,row.stage);if(row.values)drafts.set(row.id,row.values);}
  outbox=await all('outbox');
@@ -1413,3 +1429,8 @@ render();
 if(boot)await backgroundRefresh();
 if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 async function pollWork(){if(document.visibilityState==='visible')await backgroundRefresh();setTimeout(pollWork,pollDelay);}setTimeout(pollWork,pollDelay);
+
+
+
+}
+if(typeof document!=='undefined'&&!globalThis.WarehouseNavigation?.mounting)await mount();

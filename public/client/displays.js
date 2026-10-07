@@ -1,3 +1,10 @@
+export async function mount() {
+const pageScope=globalThis.WarehousePageLifecycle?.current;
+const setTimeout=(...args)=>pageScope?pageScope.timeout(...args):globalThis.setTimeout(...args);
+const setInterval=(...args)=>pageScope?pageScope.interval(...args):globalThis.setInterval(...args);
+const requestAnimationFrame=(...args)=>pageScope?pageScope.frame(...args):globalThis.requestAnimationFrame(...args);
+const fetch=(...args)=>pageScope?pageScope.fetch(...args):globalThis.fetch(...args);
+const onPage=(target,...args)=>pageScope?pageScope.listen(target,...args):target.addEventListener(...args);
 const root=document.querySelector('[data-display-console]');
 if (root) {
  const message = root.querySelector('[data-display-message]');
@@ -49,10 +56,13 @@ if (root) {
  };
  show();
  setInterval(show, 20000);
- window.addEventListener('online', show);
+ onPage(window,'online', show);
 }
 // Old utility controls lead to the same scope-aware, owner-safe display workspace.
-document.addEventListener('click',event=>{const b=event.target.closest('[data-locate-cell],[data-ping-cell]');if(!b||b.disabled)return;event.preventDefault();event.stopImmediatePropagation();const cell=b.dataset.cellId,q=new URLSearchParams();if(cell)q.set('cellId',cell);q.set('kind','locate');location.href='/quantities?'+q;},true);
+onPage(document,'click',event=>{const b=event.target.closest('[data-locate-cell],[data-ping-cell]');if(!b||b.disabled)return;event.preventDefault();event.stopImmediatePropagation();const cell=b.dataset.cellId,q=new URLSearchParams();if(cell)q.set('cellId',cell);q.set('kind','locate');location.href='/quantities?'+q;},true);
 const currentPath=location.pathname;
-const currentArea=/^\/(settings|admin|devices|backups|location-setup)(\/|$)/.test(currentPath)?'/settings':currentPath==='/profile'?null:/^\/products(\/|$)/.test(currentPath)?'/products':/^\/(cells|locations|labels|recommended-actions)(\/|$)/.test(currentPath)?'/cells':currentPath==='/quantities'?(new URLSearchParams(location.search).has('productId')?'/products':'/cells'):/^\/stocktaking(\/|$)/.test(currentPath)?'/stocktaking':/^\/reports(\/|$)/.test(currentPath)?'/reports':'work';
+const currentArea=/^\/(settings|admin|devices|backups|location-setup)(\/|$)/.test(currentPath)?'/settings':currentPath==='/work/timing'?'/settings':currentPath==='/profile'?null:/^\/products(\/|$)/.test(currentPath)?'/products':/^\/(cells|locations|labels)(\/|$)/.test(currentPath)?'/cells':currentPath==='/quantities'?(new URLSearchParams(location.search).has('productId')?'/products':'/cells'):/^\/stocktaking(\/|$)/.test(currentPath)?'/stocktaking':/^\/reports(\/|$)/.test(currentPath)?'/reports':'work';
 for(const link of document.querySelectorAll('.sidebar-footer>a,[data-nav-links]>a')){const active=currentArea==='work'?['/work','/work/overview'].includes(link.getAttribute('href')):link.getAttribute('href')===currentArea;link.classList.toggle('nav-link-active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
+
+}
+if(typeof document!=='undefined'&&!globalThis.WarehouseNavigation?.mounting)await mount();

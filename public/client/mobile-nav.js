@@ -32,4 +32,5 @@ if (toggle) {
     if (!compact.matches && active === toggle) sidebar.querySelector('.side-nav-direct')?.focus();
   });
   window.addEventListener('pageshow', () => setOpen(false));
+  window.addEventListener('warehouse:page-loaded',()=>setOpen(false));
 }

@@ -36,3 +36,15 @@ test('global bell is in the shared page title header; flashes feed the center, n
  const sw=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8');
  assert.match(sw,/notification-store.js/);assert.match(sw,/client\/notifications.js/);
 });
+
+test('dismissal and Clear all survive reload and other tabs without resurrecting reminders; a new run can notify',()=>{
+ const storage=memory(),a=new NotificationStore(options(storage));a.add('Stocktaking pending',{key:'stocktaking-run:10'});
+ const b=new NotificationStore(options(storage));a.dismiss(a.rows[0].id);b.sync();assert.equal(b.rows.length,0);assert.equal(b.add('Stocktaking overdue',{key:'stocktaking-run:10'}),null);
+ b.add('New count due',{key:'stocktaking-run:11'});b.add('Saved work');b.clear();a.sync();assert.equal(a.rows.length,0);assert.equal(a.add('New count due',{key:'stocktaking-run:11'}),null);
+ a.add('Next month count',{key:'stocktaking-run:12'});assert.equal(a.rows.length,1);assert.equal(new NotificationStore(options(storage)).rows.length,1);
+});
+test('one stocktaking run updates in place and migration removes duplicate reminders from older page loads',()=>{
+ const storage=memory(),store=new NotificationStore(options(storage));store.add('Stocktaking pending',{key:'stocktaking-run:3'});assert.equal(store.add('Stocktaking in progress',{key:'stocktaking-run:3'}),null);assert.equal(store.rows.length,1);assert.equal(store.rows[0].message,'Stocktaking in progress');
+ storage.setItem(store.key,JSON.stringify([1,2,3].map(n=>({id:'old-'+n,key:'stocktaking-reminder',message:'Stocktaking pending',href:'/stocktaking?run=3',at:n}))));
+ const migrated=new NotificationStore(options(storage));assert.equal(migrated.rows.length,1);assert.equal(migrated.add('Stocktaking pending',{key:'stocktaking-run:3'}),null);
+});

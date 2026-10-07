@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
-const source=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8');
+const source=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').replace('export async function mount() {','');
 function client(){
  const root={innerHTML:'',querySelectorAll:()=>[],contains:()=>false,addEventListener:()=>{}};
  const context=vm.createContext({document:{querySelector:s=>s==='#work-app'?root:null},crypto:{randomUUID:()=> 'test-device'},localStorage:{getItem:()=> 'test-device',setItem:()=>{}},URLSearchParams,location:{pathname:'/work',search:''},AbortSignal,Date,Map});
@@ -48,7 +48,7 @@ function scanner(){
  context.window={isSecureContext:true,jsQR:()=>({data:'expected-label'})};context.navigator={mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){stopped++;}}]})}};
  context.requestAnimationFrame=fn=>frames.push(fn);context.commands=commands;context.summaries=summaries;
  run("immediate=async(action,input)=>{commands.push({action,input});return {message:'Verified'};};showSummary=async(l,method,label)=>summaries.push({l,method,label});render=()=>{};");
- const a=source.indexOf('let stopCamera=null;'),b=source.indexOf("window.addEventListener('pagehide'",a);run(source.slice(a,b));
+ const a=source.indexOf('let stopCamera=null;'),b=source.indexOf("onPage(window,'pagehide'",a);run(source.slice(a,b));
  context.l={id:7,revision:2,current_generation:1,product_name:'Part',type:'pick',planned_quantity:5,unit_of_measure:'pieces',logical_code:'A'};
  return {context,run,frames,commands,summaries,buttons,counts:()=>({stopped,removed})};
 }
@@ -134,7 +134,7 @@ test('legacy queued start/create require explicit retry while saved physical evi
  await c.run('sync()');assert.equal(c.records.get('start').state,'activation-unknown');assert.equal(c.records.get('create').state,'activation-unknown');assert.deepEqual(c.sent.map(x=>x.url),['/api/work/report']);
 });
 test('passive polls and reconnects never send a light or activation request',async()=>{
- const c=activationClient();c.context.window.scrollY=0;c.context.window.scrollTo=()=>{};c.run('let monitoring=false,submitting=false,pollDelay=5000;canRefresh=()=>false;patchLiveRows=()=>{};');c.run(source.slice(source.indexOf('async function backgroundRefresh(){'),source.indexOf("window.addEventListener('online'")));
+ const c=activationClient();c.context.window.scrollY=0;c.context.window.scrollTo=()=>{};c.run('let monitoring=false,submitting=false,pollDelay=5000;canRefresh=()=>false;patchLiveRows=()=>{};');c.run(source.slice(source.indexOf('async function backgroundRefresh(){'),source.indexOf("onPage(window,'online'")));
  for(let i=0;i<3;i++)await c.run('backgroundRefresh()');c.run('online=false');await c.run('backgroundRefresh()');assert.equal(c.sent.length,0);assert.equal(c.run('activeWork'),null);
 });
 test('clear local data refuses to erase an unconfirmed activation receipt',async()=>{

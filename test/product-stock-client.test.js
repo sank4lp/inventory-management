@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
-const source=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').split('let syncing=false;')[0];
+const source=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').replace('export async function mount() {','').split('let syncing=false;')[0];
 function client(){
  const status={textContent:'',innerHTML:'',attrs:{},setAttribute(k,v){this.attrs[k]=v;}},disclosure={open:false},details={innerHTML:'',querySelector:()=>disclosure};
  const box={hidden:true,querySelector:s=>s==='[data-stock-status]'?status:details};const form={dataset:{workAction:'create'},elements:{productId:{value:'1'},direction:{value:'pick'},quantity:{value:'7'}},querySelector:s=>s==='[data-product-stock]'?box:null};

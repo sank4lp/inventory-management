@@ -1,4 +1,4 @@
-(()=>{
+export function mount(){
  const form=document.querySelector('[data-role-editor]');if(!form)return;
  const {catalog,settings}=JSON.parse(document.querySelector('#role-catalog').textContent);
  const selected=()=>new Set([...form.querySelectorAll('[data-capability]:checked')].map(x=>x.dataset.capability));
@@ -17,4 +17,5 @@
  };
  form.querySelector('[data-include-required]').addEventListener('click',()=>{const missing=new Set(requiredAccess(selected()).map(c=>c.id));for(const box of form.querySelectorAll('[data-capability]'))if(missing.has(box.dataset.capability))box.checked=true;refresh();});
  form.addEventListener('change',refresh);refresh();
-})();
+}
+if(typeof document!=='undefined'&&!globalThis.WarehouseNavigation?.mounting)mount();

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
-const source=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8');
+const source=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').replace('export async function mount() {','');
 function client(){
  const root={innerHTML:'',querySelector:()=>null,querySelectorAll:()=>[],addEventListener(){}};
  const context=vm.createContext({document:{querySelector:s=>s==='#work-app'?root:null},crypto:{randomUUID:(()=>{let n=0;return()=>`request-${++n}`;})()},localStorage:{getItem:()=> 'device'},URLSearchParams,location:{pathname:'/work',search:''},AbortSignal,Date,Map});

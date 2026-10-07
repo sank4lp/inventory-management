@@ -57,7 +57,7 @@ test("static asset server exposes browser modules and rejects traversal", async 
   assert.match(appResult.response.body, /sendLocationCountClearCommand/);
   assert.match(appResult.response.body, /wireCatalogProductQuantity/);
   assert.match(appResult.response.body, /sendProductFindLedClearEndpoint/);
-  assert.match(appResult.response.body, /window\.addEventListener\("pagehide"/);
+  assert.match(appResult.response.body, /onPage\(window,"pagehide"/);
 
   const stylesResult = await serve("/styles.css");
   assert.equal(stylesResult.response.statusCode, 200);

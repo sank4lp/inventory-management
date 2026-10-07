@@ -11,7 +11,7 @@ test('searchable selection requires an explicit choice, filters unavailable opti
 });
 function harness(){
  const root={querySelectorAll:()=>[]};const ctx=vm.createContext({document:{querySelector:()=>root},location:{pathname:'/pending-confirmations',search:''},localStorage:{getItem:()=>null},crypto:{randomUUID:()=>1},URLSearchParams,AbortSignal});
- vm.runInContext(readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').split('let syncing=false;')[0],ctx);
+ vm.runInContext(readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').replace('export async function mount() {','').split('let syncing=false;')[0],ctx);
  vm.runInContext("snapshot={site:'s',dataset:'d',user:{id:1,role:'admin'},pending:[{id:'r'}]};online=true",ctx);
  const form={elements:{reportId:{value:'r'}}};ctx.select={dataset:{searchRemote:'movements'},isConnected:true,closest:()=>form};ctx.signal={aborted:false};
  // A real signal is required by the timeout composition.
@@ -32,7 +32,7 @@ test('count lookup retains complete server candidates and useful errors',async()
  h.ctx.fetch=async()=>({ok:false,json:async()=>({error:'Review no longer available'})});await assert.rejects(h.run("searchCombo(select,'Annual',signal)"),/Review no longer available/);
 });
 test('all duplicated work search/select pairs share enhancement and offline shell caches the module',()=>{
- const source=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8');assert.doesNotMatch(source,/data-(operator|product|count|movement|people)-search|data-search-counts|data-search-history/);assert.match(source,/data-search-remote="counts"/);assert.match(source,/data-search-remote="movements"/);
+ const source=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').replace('export async function mount() {','');assert.doesNotMatch(source,/data-(operator|product|count|movement|people)-search|data-search-counts|data-search-history/);assert.match(source,/data-search-remote="counts"/);assert.match(source,/data-search-remote="movements"/);
  for(const file of ['../public/sw.js','../src/modules/operations/routes.js','../src/render.js'])assert.match(readFileSync(new URL(file,import.meta.url),'utf8'),/client\/searchable-select.js/);
  const routes=readFileSync(new URL('../src/modules/operations/routes.js',import.meta.url),'utf8');assert.match(routes,/identity\(\),actorId:user.id,counts/);assert.match(routes,/identity\(\),actorId:user.id,movements/);
 });

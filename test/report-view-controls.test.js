@@ -567,7 +567,7 @@ test("client controller binds multi-select stock controls, curated hashes, and r
     /window\.history\.pushState\(null, "", `\$\{window\.location\.pathname\}\$\{window\.location\.search\}#\$\{key\}`\)/,
   );
   assert.match(appSource, /const syncReportFromLocation = \(\) =>/);
-  assert.match(appSource, /window\.addEventListener\("hashchange", syncReportFromLocation\)/);
+  assert.match(appSource, /onPage\(window,"hashchange", syncReportFromLocation\)/);
   assert.match(
     appSource,
     /window\.history\.replaceState\([\s\S]*?#\$\{defaultReportKey\}`/,
@@ -575,9 +575,9 @@ test("client controller binds multi-select stock controls, curated hashes, and r
   assert.match(appSource, /button\.dataset\.reportPrintOption/);
   assert.match(appSource, /openReport\(key, \{ updateHash: true, focus: false, scroll: false \}\)/);
   assert.match(appSource, /document\.body\.classList\.add\("report-printing"\)/);
-  assert.match(appSource, /window\.requestAnimationFrame\(\(\) => window\.print\(\)\)/);
-  assert.match(appSource, /window\.addEventListener\("beforeprint"/);
-  assert.match(appSource, /window\.addEventListener\("afterprint"/);
+  assert.match(appSource, /requestAnimationFrame\(\(\) => window\.print\(\)\)/);
+  assert.match(appSource, /onPage\(window,"beforeprint"/);
+  assert.match(appSource, /onPage\(window,"afterprint"/);
 });
 
 test("paper-preview and print report styles retain compact stock typography", () => {

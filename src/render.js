@@ -166,6 +166,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <link rel="stylesheet" href="/work.css" />
     <link rel="stylesheet" href="/responsive.css" />
     <link rel="stylesheet" href="/layout.css" />
+    <script type="module" src="/client/navigation.js"></script>
     <script type="module" src="/client/searchable-select.js"></script>
     <script type="module" src="/client/notifications.js"></script>
     <script type="module" src="/app.js"></script>
@@ -184,7 +185,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
             ${user ? `<button type="button" class="global-notifications-button" data-notifications-button aria-label="Notifications" aria-expanded="false" aria-controls="global-notifications">${iconSvg('bell')}<span class="global-notification-count" data-notification-count hidden>0</span></button>` : ''}
           </header>
           ${systemNotice}
-          ${user ? `<aside data-stocktake-reminder data-notification-source data-notification-key="stocktaking-reminder" data-notification-tone="warning" class="stocktake-reminder" hidden></aside>` : ""}
+          ${user ? `<aside data-stocktake-reminder class="stocktake-reminder" hidden></aside>` : ""}
           <div class="page-body">${content}</div>
         </main>
       </div>

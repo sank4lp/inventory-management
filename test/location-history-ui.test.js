@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-const source=readFileSync(new URL('../public/client/location-history.js',import.meta.url),'utf8').replace('export function','function');
+const source=readFileSync(new URL('../public/client/location-history.js',import.meta.url),'utf8').split('export async function mount()')[0].replace('export function','function');
 test('cell timeline renders ledger quantities, separate identities, scoped access and paging without editable controls',()=>{
  const context=vm.createContext({document:{querySelector:()=>null}});vm.runInContext(source,context);
  context.data={scope:'own',cell:{display_name:'<img onerror=alert(1)>',logical_code:'A'},entries:[{time:'2026-10-01T10:00:00Z',taskId:9,type:'pick',quantity:-2,unit:'cases',product:'Part <A>',performer:null,recorder:'Admin',reason:'<script>bad</script>'}],page:{number:1,pages:2,total:51}};

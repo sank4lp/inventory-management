@@ -101,3 +101,8 @@ html { scrollbar-gutter: stable; }
 @keyframes notification-leave { to { opacity: 0; transform: translateY(5px) scale(.98); } }
 @media (prefers-reduced-motion: reduce) { .global-toast, .global-toast.is-leaving { animation: none; } .global-toast.is-leaving { visibility: hidden; } }
 @media print { .global-notifications-button, .global-notification-panel, .global-toast-host { display: none !important; } }
+
+.global-notification-panel li {position:relative;padding-right:36px;}
+.global-notification-panel li>.notification-close {position:absolute;right:4px;top:8px;}
+.global-notification-panel .notification-clear {margin:8px 0;width:100%;}
+.page-body[aria-busy="true"] {cursor:progress;}

@@ -73,7 +73,7 @@ test('inline assignee save rejects no change/stale/ineligible requests and uses 
  }finally{f.db.close();}
 });
 
-const taskClientSource=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').split('let syncing=false;')[0];
+const taskClientSource=readFileSync(new URL('../public/client/work.js',import.meta.url),'utf8').replace('export async function mount() {','').split('let syncing=false;')[0];
 test('real pending task and transferred check render the original performer, reporter, quantity and reason',()=>{
  const f=fixture();try{let t=f.create(),l=t.lines[0];f.cmd(f.op,'report',{lineId:l.id,revision:l.revision,assignmentGeneration:t.assignment_generation,cellId:l.cell_id,unit:l.unit_of_measure,quantity:2,manual:true,reason:'Moved two before connection failed',deviceId:'old-device'});t=f.get(t.id);
  const render=task=>{const context=vm.createContext({document:{querySelector:()=>null},crypto:{randomUUID:()=> 'test'},localStorage:{getItem:()=> 'test',setItem(){}},URLSearchParams,location:{pathname:'/tasks/'+task.id,search:''}});vm.runInContext(taskClientSource,context);context.task=task;context.user=f.admin;return vm.runInContext("snapshot={site:'test',user,operators:[],cells:[],tasks:[task]};online=true;taskPage(task.id)",context);};

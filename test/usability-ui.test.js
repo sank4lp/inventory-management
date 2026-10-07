@@ -6,7 +6,7 @@ import {CAPABILITIES,SETTINGS,OPERATOR_CAPABILITIES} from '../src/modules/access
 
 function countUI(){
  const root={querySelectorAll:()=>[]},context=vm.createContext({document:{querySelector:s=>s==='#stocktaking-app'?root:null},localStorage:{getItem:()=>null},location:{pathname:'/stocktaking',search:''},URLSearchParams,FormData:class{constructor(f){this.values=new Map(Object.entries(f.data));}entries(){return this.values.entries();}get(k){return this.values.get(k)??null;}has(k){return this.values.has(k);}}});
- vm.runInContext(readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8').split("root.addEventListener('submit'")[0],context);
+ vm.runInContext(readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8').replace('export async function mount() {','').split("root.addEventListener('submit'")[0],context);
  vm.runInContext("snapshot={site:'test',user:{id:1},capabilities:{count:true,schedule:true,manage:true},products:[],cells:[],runs:[],counters:[],warehouseTimezone:'Europe/London'}",context);
  return{context,run:code=>vm.runInContext(code,context)};
 }
@@ -30,7 +30,7 @@ test('schedule uses warehouse timezone and only enables cadence-relevant interva
 test('role editor previews transitive requirements and adds them only after explicit inclusion',()=>{
  const boxes=CAPABILITIES.map(c=>({dataset:{capability:c.id},checked:OPERATOR_CAPABILITIES.includes(c.id)})),nodes={'[data-role-preview]':{},'[data-role-prerequisites]':{},'[data-include-required]':{addEventListener(_,f){this.click=f;}}};let change;
  const form={querySelector:s=>nodes[s],querySelectorAll:s=>s.includes(':checked')?boxes.filter(b=>b.checked):boxes,addEventListener(_,f){change=f;}};
- vm.runInNewContext(readFileSync(new URL('../public/client/roles.js',import.meta.url),'utf8'),{document:{querySelector:s=>s==='[data-role-editor]'?form:{textContent:JSON.stringify({catalog:CAPABILITIES,settings:SETTINGS})}}});
+ vm.runInNewContext(readFileSync(new URL('../public/client/roles.js',import.meta.url),'utf8').replace('export function mount','function mount'),{document:{querySelector:s=>s==='[data-role-editor]'?form:{textContent:JSON.stringify({catalog:CAPABILITIES,settings:SETTINGS})}}});
  boxes.find(b=>b.dataset.capability==='work.assign').checked=true;change();assert.equal(nodes['[data-include-required]'].hidden,true);assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,false);
  boxes.find(b=>b.dataset.capability==='work.timing').checked=true;change();assert.match(nodes['[data-role-prerequisites]'].textContent,/View team work/);assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,false);
  nodes['[data-include-required]'].click();assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,true);assert.equal(boxes.find(b=>b.dataset.capability==='hardware.flash').checked,false);assert.equal(nodes['[data-include-required]'].hidden,true);
@@ -43,7 +43,7 @@ test('setup scan confirms a read label, focuses its name and keeps physical conf
  const panel={querySelector:s=>({'[data-camera-view]':host,'[name="label"]':input,'[data-label-status]':status,'[data-manual-label]':manual,'[name="displayName"]':name})[s]};
  const root={addEventListener(){}},boot={site:'fixture',user:{id:1}};
  const context=vm.createContext({document:{querySelector:s=>s==='#location-setup-app'?root:{textContent:JSON.stringify(boot)},createElement:()=>({getContext:()=>({drawImage(){},getImageData:()=>({data:[],width:1,height:1})})})},localStorage:{getItem:()=>null},navigator:{mediaDevices:{getUserMedia:async()=>{if(failed)throw new Error('No camera');return{getTracks:()=>[{stop(){stopped=true;}}]};}}},Event:class{},jsQR:()=>({data:'lytguide:fixture:sticker:1'}),panel});
- vm.runInContext(readFileSync(new URL('../public/client/location-setup.js',import.meta.url),'utf8').split("window.addEventListener('pagehide'")[0],context);
+ vm.runInContext(readFileSync(new URL('../public/client/location-setup.js',import.meta.url),'utf8').replace('export async function mount() {','').split("onPage(window,'pagehide'")[0],context);
  await vm.runInContext('scan(panel)',context);assert.equal(input.value,'lytguide:fixture:sticker:1');assert.equal(manual.open,false);assert.equal(focused,true);assert.equal(stopped,true);assert.equal(status.textContent,'Sticker read. Check that it is beside the blinking light.');
  failed=true;await vm.runInContext('scan(panel)',context);assert.equal(manual.open,true);assert.match(host.textContent,/manual QR text option/);
 });

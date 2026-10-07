@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
-const countSource=readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8').split("root.addEventListener('submit'")[0];
-const setupSource=readFileSync(new URL('../public/client/location-setup.js',import.meta.url),'utf8').split("root.addEventListener('invalid'")[0];
+const countSource=readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8').replace('export async function mount() {','').split("root.addEventListener('submit'")[0];
+const setupSource=readFileSync(new URL('../public/client/location-setup.js',import.meta.url),'utf8').replace('export async function mount() {','').split("root.addEventListener('invalid'")[0];
 const storage=()=>{const m=new Map();return {get length(){return m.size;},key:i=>[...m.keys()][i],getItem:k=>m.get(k)||null,setItem:(k,v)=>m.set(k,v)};};
 class FormValues extends Map {constructor(f){super(f.elements.filter(e=>e.name&&(!['checkbox','radio'].includes(e.type)||e.checked)).map(e=>[e.name,e.value]));}getAll(n){return this.has(n)?[this.get(n)]:[];}}
 function countView(search='?run=1&cell=10'){
@@ -79,11 +79,14 @@ test('setup excludes zero declared output controllers without inferring mappings
  const button={},f={elements:{controllerId:{value:'1'}},querySelector:()=>button};v.root.querySelector=()=>f;v.run('setupStartControls()');assert.equal(button.disabled,true);f.elements.controllerId.value='2';v.run('setupStartControls()');assert.equal(button.disabled,false);
 });
 
-test('Stocktaking keeps its local progress without a duplicate global reminder while other pages retain assignment-aware reminders',async()=>{
+test('Stocktaking has one run-scoped global reminder on all pages, without a page banner',async()=>{
  const code=readFileSync(new URL('../public/client/stocktake-status.js',import.meta.url),'utf8').split('update();setInterval')[0];
- const check=async pathname=>{const reminder={hidden:true,children:[],replaceChildren(){this.children=[];},append(v){this.children.push(v);}},badge={};const state={user:{id:1},site:'test',badge:1,capabilities:{count:true,manage:true},runs:[{id:1,actionable:true,reviews:0,items:[{...item,assignee_id:2}]}]};const c=vm.createContext({location:{pathname},document:{body:{dataset:{accountId:'1'}},querySelector:s=>s==='[data-stocktake-reminder]'?reminder:badge,createElement:()=>({})},fetch:async()=>({ok:true,json:async()=>state}),AbortSignal,localStorage:storage()});vm.runInContext(code,c);await vm.runInContext('update()',c);return{reminder,badge};};
- const local=await check('/stocktaking/results');assert.equal(local.reminder.hidden,true);assert.equal(local.reminder.children.length,0);assert.equal(local.badge.textContent,1);
- const work=await check('/work');assert.equal(work.reminder.hidden,false);assert.equal(work.reminder.children[0].textContent,'Stocktaking — assign / review locations');
+ for(const pathname of ['/stocktaking','/work']){
+  const notifications=[],badge={},state={user:{id:1},site:'test',badge:1,capabilities:{count:true,manage:true},runs:[{id:1,actionable:true,reviews:0,items:[{...item,assignee_id:2}]}]};
+  const c=vm.createContext({location:{pathname},document:{body:{dataset:{accountId:'1'}},querySelector:()=>badge},fetch:async()=>({ok:true,json:async()=>state}),AbortSignal,localStorage:storage(),WarehouseNotifications:{notify:(message,options)=>notifications.push({message,options})}});
+  vm.runInContext(code,c);await vm.runInContext('update()',c);
+  assert.equal(badge.textContent,1);assert.equal(notifications[0].message,'Stocktaking — assign / review locations');assert.equal(notifications[0].options.key,'stocktaking-run:1');assert.equal(notifications[0].options.href,'/stocktaking?run=1');
+ }
 });
 
 test('explicit stale-field recovery loads the latest revision without silently rebasing or discarding other drafts or unconfirmed requests',async()=>{
@@ -95,6 +98,6 @@ test('explicit stale-field recovery loads the latest revision without silently r
 
 test('live count ownership status changes while a focused count draft remains untouched',()=>{
  const v=countView(),hint={dataset:{countGuidance:'10'},textContent:''},draft={value:'7'},scan={dataset:{countBeginItem:'10',countGeneration:'1'},disabled:false},manual={dataset:{countBeginItem:'10',countGeneration:'1'},disabled:false};v.c.r=runFixture();v.c.r.items[0].guidance={state:'waiting',message:'Waiting for Sam · Task #41.'};v.root.querySelectorAll=selector=>selector==='[data-count-guidance]'?[hint]:selector==='[data-count-begin-item]'?[scan,manual]:[];v.c.document.activeElement=draft;
- const full=readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8');v.run(full.slice(full.indexOf('function patchCountGuidance()'),full.indexOf('setInterval(async()=>')));v.run('snapshot.runs=[r];online=true;patchCountGuidance()');assert.match(hint.textContent,/Sam.*Task #41/);assert.equal(scan.disabled,true);assert.equal(manual.disabled,true);const waiting=v.run('countForm(r,r.items[0])');assert.match(waiting,/Wait until this location is available/);assert.match(waiting,/data-count-begin-item="10" data-count-generation="1" disabled/);
+ const full=readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8').replace('export async function mount() {','');v.run(full.slice(full.indexOf('function patchCountGuidance()'),full.indexOf('setInterval(async()=>')));v.run('snapshot.runs=[r];online=true;patchCountGuidance()');assert.match(hint.textContent,/Sam.*Task #41/);assert.equal(scan.disabled,true);assert.equal(manual.disabled,true);const waiting=v.run('countForm(r,r.items[0])');assert.match(waiting,/Wait until this location is available/);assert.match(waiting,/data-count-begin-item="10" data-count-generation="1" disabled/);
  v.run("r.items[0].guidance={state:'sent',message:'Count locator sent. Identify this location before counting.'};patchCountGuidance()");assert.match(hint.textContent,/Count locator sent/);assert.equal(scan.disabled,false);assert.equal(manual.disabled,false);assert.equal(draft.value,'7');assert.equal(v.c.document.activeElement,draft);v.run('online=false;patchCountGuidance()');assert.match(hint.textContent,/Offline/);
 });
