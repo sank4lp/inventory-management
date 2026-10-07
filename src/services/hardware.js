@@ -81,7 +81,7 @@ export function createHardwareService({ db, config, logger }) {
           if(!display)return {ok:false,degraded:true,message:'Superseded display request ignored.',events:[]};
           for(const target of targets){const owned=JSON.parse(display.targets_json).find(t=>t.controllerId===target.controller_id&&t.channel===target.hardware_channel);const work=db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(target.id||null)?.generation||null;if(!owned||owned.workGeneration!==work)return {ok:false,degraded:true,message:'Newer task guidance is protected.',events:[]};}
           const scope=JSON.parse(display.scope_json);
-          if(targets.some(t=>activeWorkGuidance(db,targetCellId(t))&&!(['quantity','capacity_total','capacity_available','locate'].includes(scope.kind)&&scope.overrideWork===true&&displayOwner(db,targetCellId(t))?.kind==='task')))return {ok:false,degraded:true,message:'Task or stocktake guidance is active.',events:[]};
+          if(targets.some(t=>activeWorkGuidance(db,targetCellId(t))&&!(['quantity','capacity_total','capacity_available','locate','ping'].includes(scope.kind)&&scope.overrideWork===true&&displayOwner(db,targetCellId(t))?.kind==='task')))return {ok:false,degraded:true,message:'Task or stocktake guidance is active.',events:[]};
         } else if(context.source==="work_coordinator") {
           const desired=db.prepare("SELECT generation FROM work_guidance WHERE cell_id=?").get(context.workCellId);
           if(!desired || desired.generation!==context.workGeneration || context.workBinding&&context.workBinding!==guidanceBinding(db,context.workCellId)) return {ok:false,degraded:true,message:"Superseded guidance ignored.",events:[]};
@@ -162,11 +162,12 @@ export function createHardwareService({ db, config, logger }) {
         controllerId: controller.id,
       });
     },
-    sendCellTest(cell, color = "amber") {
+    sendCellTest(cell, color = "green", context = {}) {
       return run("cell_test", adapter.sendCellTest.bind(adapter), [cell, color], {
         cellId: cell.id,
         controllerId: cell.controller_id,
         color,
+        ...context,
       });
     },
     showCellQuantity(cell, quantity, color = "yellow", context = {}) {
@@ -195,11 +196,12 @@ export function createHardwareService({ db, config, logger }) {
         },
       );
     },
-    setCellLocate(cell, active = true) {
-      return run("cell_locate", adapter.setCellLocate.bind(adapter), [cell, active], {
+    setCellLocate(cell, active = true, context = {}) {
+      return run("cell_locate", adapter.setCellLocate.bind(adapter), [cell, active, {managed:context.source==='display_coordinator'}], {
         cellId: cell.id,
         controllerId: cell.controller_id,
         active,
+        ...context,
       });
     },
     clearAllCellLocates(cells = []) {

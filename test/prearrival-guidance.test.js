@@ -68,7 +68,7 @@ test('verified over-plan actuals update or clear untouched sibling quantities wi
 
 test('an older adapter locator timer cannot clear newly started quantity guidance',t=>{
  t.mock.timers.enable({apis:['setTimeout']});const f=fixture();f.stock(f.cells[0],3);const cell=f.db.prepare('SELECT c.*,ctrl.address controller_address FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(f.cells[0].id);
- f.hardware.setCellLocate(cell,true);f.create(f.op,'pick',2);const after=f.writes.filter(s=>s.includes('clear 1')).length;t.mock.timers.tick(121000);assert.equal(f.writes.filter(s=>s.includes('clear 1')).length,after);assert.ok(f.writes.some(s=>s.includes('digit 1 "2" green')));f.end();
+ f.hardware.setCellLocate(cell,true);f.create(f.op,'pick',2);const after=f.writes.filter(s=>s.includes('clear 1')).length;t.mock.timers.tick(301000);assert.equal(f.writes.filter(s=>s.includes('clear 1')).length,after);assert.ok(f.writes.some(s=>s.includes('digit 1 "2" green')));f.end();
 });
 
 const guideInput=(t,l=t.lines[0])=>({taskId:t.id,generation:t.assignment_generation,lineId:l.id,revision:l.revision,bindingRevision:l.binding_revision});

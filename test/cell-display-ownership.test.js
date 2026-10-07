@@ -96,9 +96,9 @@ for(const ending of ['stop','expire'])test(`Locate overrides PICK/PUT only after
   const scope={kind:'locate',cellId:f.cells[0].id},before=f.writes.length;
   const preview=display.start(f.admin,scope,{previewOnly:true,promptOnBusy:true});assert.equal(preview.state,'confirmation_required');assert.equal(preview.conflicts[0].taskId,task.id);assert.equal(f.writes.length,before);
   assert.throws(()=>display.start(f.admin,{...scope,overrideWork:true}),/Confirm/);assert.equal(f.writes.length,before);
-  const shown=display.start(f.admin,{...scope,overrideWork:true},{confirmOverride:true});assert.equal(shown.targets[0].status,'sent');assert.equal(shown.targets[0].value,'LOC');assert.match(f.writes.at(-1),/text 1 "LOC" yellow/);
+  const shown=display.start(f.admin,{...scope,overrideWork:true},{confirmOverride:true});assert.equal(shown.targets[0].status,'sent');assert.equal(shown.targets[0].value,'LOC');assert.match(f.writes.at(-1),/locate 1 red 100 300000/);
   assert.throws(()=>display.stop(f.op,shown.id),/another operator/);
-  const n=f.writes.length;if(ending==='stop')display.stop(f.admin,shown.id);else{time=new Date(time.getTime()+121000);display.expire();}
+  const n=f.writes.length;if(ending==='stop')display.stop(f.admin,shown.id);else{time=new Date(time.getTime()+301000);display.expire();}
   assert.ok(f.writes.slice(n).some(s=>/digit 1 "2" green/.test(s)));assert.equal(f.work.task(f.op,task.id).lines[0].guidance.state,'sent');
   const after=f.writes.length;display.stop(f.admin,shown.id);assert.equal(f.writes.length,after,'duplicate stop does not clear restored task lights');
  }finally{f.end();}
@@ -209,5 +209,31 @@ test('quantity LEDs show recorded on-shelf quantities without subtracting Pick r
   display.stop(f.admin,shown.id);
   const all=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id,overrideWork:true},{confirmOverride:true});
   assert.deepEqual(all.targets[0].sequence.map(p=>p.value),[8,2]);
+ }finally{f.end();}
+});
+
+
+test('Locate uses the inward red firmware pattern for five minutes, not two, and stop retains inventory',()=>{
+ const f=fixture();try{
+  let time=new Date();const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work,clock:()=>time});
+  const balances=f.db.prepare('SELECT * FROM inventory_balances').all(),requestId=randomUUID(),scope={kind:'locate',cellId:f.cells[0].id};
+  const started=display.start(f.admin,scope,{requestId});assert.equal(Date.parse(started.expires_at)-time.getTime(),300000);assert.match(f.writes.at(-1),/locate 1 red 100 300000/);
+  const n=f.writes.length;display.start(f.admin,scope,{requestId});assert.equal(f.writes.length,n);
+  time=new Date(time.getTime()+121000);display.expire();assert.equal(display.status(f.admin)[0].state,'active');
+  time=new Date(time.getTime()+180000);display.expire();assert.equal(display.status(f.admin).length,0);assert.match(f.writes.at(-1),/clear 1/);
+  assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),balances);
+ }finally{f.end();}
+});
+test('Ping emits a green outward blink for five seconds then restores PICK guidance without changing task state',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],8);const t=f.work.task(f.op,f.create(f.op,'pick',2).taskId);let time=new Date();
+  const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work,clock:()=>time});
+  assert.equal(display.start(f.admin,{kind:'ping',cellId:f.cells[0].id},{previewOnly:true,promptOnBusy:true}).state,'confirmation_required');
+  const quantities=f.db.prepare('SELECT * FROM inventory_balances').all(),started=display.start(f.admin,{kind:'ping',cellId:f.cells[0].id,overrideWork:true},{confirmOverride:true});
+  assert.equal(Date.parse(started.expires_at)-time.getTime(),5000);assert.match(f.writes.at(-1),/blink 1 green 100 5000/);
+  time=new Date(time.getTime()+4999);display.expire();assert.equal(display.status(f.admin).length,1);
+  time=new Date(time.getTime()+1);display.expire();assert.match(f.writes.at(-1),/digit 1 "2" green/);assert.equal(f.work.task(f.op,t.id).completed_at,null);
+  assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),quantities);
+  const n=f.writes.length;display.stop(f.admin,started.id);assert.equal(f.writes.length,n);
  }finally{f.end();}
 });

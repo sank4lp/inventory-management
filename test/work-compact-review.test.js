@@ -75,8 +75,8 @@ test('history reopens a closed task read-only and refuses a bulk frame from anot
 test('column dropdowns use displayed tasks, deduplicate values and preserve a disappeared choice',()=>{
  const c=client();c.context.a=task(1);c.context.b=task(2,{type:'put'});c.run('snapshot.tasks=[a,b];snapshot.taskPage={unified:true};snapshot.products=[{name:"Unrelated product"}]');
  const product=c.run('tableFilterOptions("product")');assert.equal(product.length,1);assert.equal(product[0].label,'Packing cases');
- const html=c.run('workTableFilters()');assert.match(html,/select name="taskSearch"/);assert.match(html,/select name="productSearch"/);assert.match(html,/select name="statusSearch"/);assert.doesNotMatch(html,/type="search"|Unrelated product/);
- assert.match(html,/>#1 · Pick</);assert.match(html,/>#2 · Put</);assert.match(html,/value="50" selected>Items per page: 50/);
+ const html=c.run('workTableFilters()');assert.match(html,/input type="search" name="taskSearch"/);assert.match(html,/select name="productSearch"/);assert.match(html,/select name="statusSearch"/);assert.doesNotMatch(html,/select name="taskSearch"|Unrelated product/);
+assert.match(html,/value="50" selected>Items per page: 50/);
  c.run('snapshot.tasks=[]');assert.match(c.run('workFilterOptions(workFilterColumns[1],"Packing cases",true)'),/value="Packing cases" selected data-exact="1"/);
 });
 test('page size changes immediately, reset pagination and preserve unapplied filter drafts',async()=>{

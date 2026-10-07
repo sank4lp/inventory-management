@@ -1747,6 +1747,14 @@ button[disabled] {
   border-color: #d8b4fe;
 }
 
+.locate-button-active,
+.locate-button[aria-pressed="true"],
+#work-app .locate-button[aria-pressed="true"] {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
 .mini-actions {
   display: flex;
   align-items: center;

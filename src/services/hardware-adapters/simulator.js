@@ -221,6 +221,8 @@ export function createSimulatorAdapter({ config = {}, logger }) {
       const payload = {
         ts: stamp(),
         type: "cell-test",
+        pattern: "outward-ripple",
+        timeoutMs: 5000,
         controllerId: cell.controller_id,
         cell: cell.logical_code,
         hardwareChannel: cell.hardware_channel,
@@ -328,13 +330,14 @@ export function createSimulatorAdapter({ config = {}, logger }) {
       const payload = {
         ts: stamp(),
         type: "cell-locate",
+        pattern: "inward-ripple",
         controllerId: cell.controller_id,
         cell: cell.logical_code,
         hardwareChannel: cell.hardware_channel,
         color: "red",
         active,
         ...brightness,
-        timeoutMs: 120000,
+        timeoutMs: 300000,
       };
       emit(payload);
       return wrap([

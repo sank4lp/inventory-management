@@ -58,8 +58,7 @@ if (root) {
  setInterval(show, 20000);
  onPage(window,'online', show);
 }
-// Old utility controls lead to the same scope-aware, owner-safe display workspace.
-onPage(document,'click',event=>{const b=event.target.closest('[data-ping-cell]');if(!b||b.disabled)return;event.preventDefault();event.stopImmediatePropagation();const cell=b.dataset.cellId,q=new URLSearchParams();if(cell)q.set('cellId',cell);q.set('kind','locate');location.href='/quantities?'+q;},true);
+// Locate and Ping use the shared inline controls in app.js.
 const currentPath=location.pathname;
 const currentArea=/^\/(settings|admin|devices|backups|location-setup)(\/|$)/.test(currentPath)?'/settings':currentPath==='/work/timing'?'/settings':currentPath==='/profile'?null:/^\/products(\/|$)/.test(currentPath)?'/products':/^\/(cells|locations|labels)(\/|$)/.test(currentPath)?'/cells':currentPath==='/quantities'?(new URLSearchParams(location.search).has('productId')?'/products':'/cells'):/^\/stocktaking(\/|$)/.test(currentPath)?'/stocktaking':/^\/reports(\/|$)/.test(currentPath)?'/reports':'work';
 for(const link of document.querySelectorAll('.sidebar-footer>a,[data-nav-links]>a')){const active=currentArea==='work'?['/work','/work/overview'].includes(link.getAttribute('href')):link.getAttribute('href')===currentArea;link.classList.toggle('nav-link-active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}

@@ -12,7 +12,7 @@ class Target {
   removeEventListener(type,fn){this.handlers.get(type)?.delete(fn);}
   async fire(type,event){for(const handler of this.handlers.get(type)||[])await handler(event);}
 }
-function button(dataset){const attributes={};return {dataset,matches:()=>Boolean(dataset.locateCell!==undefined||dataset.adjustmentLocateCell!==undefined),closest:()=>null,disabled:false,textContent:dataset.locateCell!==undefined?'Locate':'Show Quantity',classList:{toggle(){}},getAttribute:key=>attributes[key]??null,setAttribute:(key,value)=>attributes[key]=value,attributes};}
+function button(dataset){const attributes={};return {dataset,matches:selector=>selector.includes('[data-locate-cell]')&&dataset.locateCell!==undefined||selector.includes('[data-adjustment-locate-cell]')&&dataset.adjustmentLocateCell!==undefined||selector.includes('[data-ping-cell]')&&dataset.pingCell!==undefined,closest:()=>null,disabled:false,textContent:dataset.locateCell!==undefined?'Locate':'Show Quantity',classList:{toggle(){}},getAttribute:key=>attributes[key]??null,setAttribute:(key,value)=>attributes[key]=value,attributes};}
 
 test('quantity handlers work after repeated content-only navigation without duplicate commands',async()=>{
   const document=new Target(),window=new Target(),requests=[],clears=[];
@@ -34,6 +34,7 @@ test('quantity handlers work after repeated content-only navigation without dupl
     {quantityKey:'catalog-audit',activateEndpoint:'/products/quantities',clearEndpoint:'/products/quantities/clear'},
     {quantityKey:'locations-audit',activateEndpoint:'/cells/quantities',clearEndpoint:'/cells/quantities/clear'},
     {locateCell:'',cellId:'3'},
+    {pingCell:'',cellId:'5'},
     {adjustmentLocateCell:'',cellId:'4',showLabel:'Locate Cell'},
   ]){
     const scope=new PageScope(host),control=button(dataset);buttons=[control];mount(scope);
@@ -43,16 +44,17 @@ test('quantity handlers work after repeated content-only navigation without dupl
     if(dataset.locateCell!==undefined||dataset.adjustmentLocateCell!==undefined){
       assert.ok(requests.slice(before).every(r=>r.kind==='locate'&&r.cellId===dataset.cellId&&r.endpoint===`/api/cells/${dataset.cellId}/locate`));
     }
-    assert.equal(control.attributes['aria-pressed'],'true');assert.equal(control.textContent,dataset.locateCell!==undefined||dataset.adjustmentLocateCell!==undefined?'Locating':'Showing Quantity');
+    if(dataset.pingCell!==undefined)assert.ok(requests.slice(before).every(r=>r.kind==='ping'&&r.endpoint===`/api/cells/${dataset.cellId}/ping`));
+    assert.equal(control.attributes['aria-pressed'],'true');assert.equal(control.textContent,dataset.pingCell!==undefined?'Pinging':dataset.locateCell!==undefined||dataset.adjustmentLocateCell!==undefined?'Locating':'Showing Quantity');
     await document.fire('click',{target:{closest:()=>control},preventDefault(){}});
     assert.equal(requests.at(-1).displayId,'display-'+(before+2),'stop uses the original display ownership receipt');
-    assert.equal(control.attributes['aria-pressed'],'false');assert.equal(control.textContent,dataset.showLabel||(dataset.locateCell!==undefined?'Locate':'Show Quantity'),'loading restoration must not leave the button labelled as active');
+    assert.equal(control.attributes['aria-pressed'],'false');assert.equal(control.textContent,dataset.showLabel||(dataset.pingCell!==undefined?'Ping':dataset.locateCell!==undefined?'Locate':'Show Quantity'),'loading restoration must not leave the button labelled as active');
     await document.fire('click',{target:{closest:()=>control},preventDefault(){}});
     assert.equal(control.attributes['aria-pressed'],'true');
     scope.dispose();assert.equal(document.handlers.get('click').size,0);assert.equal(document.documentElement.dataset.catalogProductQuantityBound,undefined);
     assert.equal(clears.at(-1).endpoint,dataset.clearEndpoint||'/api/displays/stop','leave cleans the display owned by this page');
   }
-  assert.equal(clears.length,6);
+  assert.equal(clears.length,7);
 });
 
 test('legacy location utility listeners are reattached to the retained document after leaving',()=>{

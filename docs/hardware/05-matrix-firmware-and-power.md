@@ -20,7 +20,7 @@ RS485_RX    = RX2 / GPIO16
 RS485_TX    = TX2 / GPIO17
 LED_PIN     = D18 / GPIO18
 MODULES     = 4
-DEFAULT_BRIGHTNESS_PERCENT = 8
+DEFAULT_BRIGHTNESS_PERCENT = 100
 ```
 
 ## RS-485 command format
@@ -39,7 +39,7 @@ Examples:
 0 6 red
 1 0987654321 green
 2 "GOOD MORNING" cyan 80
-3 A+B ff00aa 100 8
+3 A+B ff00aa 100 100
 ```
 
 Rules:
@@ -48,33 +48,22 @@ Rules:
 - if the text is too wide, it scrolls automatically,
 - text with spaces must be wrapped in double quotes,
 - speed is optional and defaults to `120` ms per pixel step,
-- brightness is optional and defaults to `8` percent,
+- brightness is optional and defaults to `100` percent,
 - brightness is clamped from `0` to `100`,
 - each module keeps its own state, so changing module `3` does not stop module `1`.
 
 ## Software brightness policy
 
-The inventory application now sends an explicit brightness value with every task,
-test, locate, and adjustment-preview LED command:
+The application sends **100% brightness** for Pick, Put, stocktaking, Locate,
+Ping, quantity/capacity displays, setup and adjustment previews. Time of day
+and legacy `LED_DAY_*` / `LED_NIGHT_*` settings cannot reduce it. Hardware
+logs identify this policy as `maximum`.
 
-```text
-daytime: 20%
-night: 8%
-```
-
-By default, daytime is `06:00` through `17:59` in the server's local time.
-Night is `18:00` through `05:59`. These values can be changed without code
-changes:
-
-```text
-LED_DAY_BRIGHTNESS_PERCENT=20
-LED_NIGHT_BRIGHTNESS_PERCENT=8
-LED_DAY_START_HOUR=6
-LED_NIGHT_START_HOUR=18
-```
-
-The `8%` night value matches the current firmware default/minimum operating
-brightness used in the power estimates below.
+The current firmware uses 100% defaults for text, tasks and test patterns,
+and full red for the idle heartbeat. The older `esp32-rs485-matrix` sketch
+uses NeoPixel brightness `255` (its 0–255 maximum). Firmware-only defaults
+and idle heartbeat changes require reflashing; explicit app commands at
+100% already work with firmware supporting the brightness argument.
 
 ### Control commands
 
@@ -135,7 +124,7 @@ Use hex without `#` in shell commands to avoid shell/comment parsing issues.
 printf '%s\n' '0 6 red' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 printf '%s\n' '1 0987654321 green 80' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 printf '%s\n' '2 "GOOD MORNING" cyan 80 8' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
-printf '%s\n' '3 A+B ff00aa 100 8' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+printf '%s\n' '3 A+B ff00aa 100 100' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 ```
 
 For four modules physically in a row, stagger the commands by one module width:
@@ -161,7 +150,7 @@ sleep seconds = 8 * speed-ms / 1000
 The current firmware default uses:
 
 ```text
-DEFAULT_BRIGHTNESS_PERCENT = 8%
+DEFAULT_BRIGHTNESS_PERCENT = 100%
 ```
 
 The firmware does not normally light all 64 pixels in a module. It lights only the pixels needed for the displayed character/string.
@@ -196,7 +185,7 @@ white = 3
 | Scrolling digits | 22 | ~35mA | ~440mA | ~106mA | ~1.32A |
 | Scrolling letters/symbols | 27 | ~43mA | ~540mA | ~130mA | ~1.62A |
 
-Real module current is higher than this because each WS2812 package also has control electronics. For planning current text-only operation, use a conservative module budget of:
+Real module current is higher than this because each WS2812 package also has control electronics. The following budgets are historical 8% text-only estimates, not the current 100% operating budget:
 
 ```text
 0.20A per module for green/blue/cyan text at 8% brightness
@@ -230,10 +219,10 @@ Worst-case full white at full brightness:
 At the current default brightness:
 
 ```text
-3.84A * 8% = about 0.31A per module
+3.84A * 100% = 3.84A per module
 ```
 
-Use this `0.30A` per module as the minimum design expectation if a module might ever be commanded full-white at the current default brightness.
+Use `3.84A` per module as the full-white planning estimate at the current default brightness. The 8% estimates do not size the current operating power requirements.
 
 If a command uses `100` percent brightness:
 
@@ -241,7 +230,7 @@ If a command uses `100` percent brightness:
 one 8x8 module can draw up to 3.84A at full-white
 ```
 
-Use 100% brightness only for brief tests unless the power zone is sized for it.
+The application now uses 100% continuously; size the power zone for the actual simultaneously lit modules, with full-white operation included in the worst case.
 
 ## 24V 5A SMPS limit
 
@@ -286,9 +275,11 @@ all grounds/common negatives are connected
 each zone should be fused
 ```
 
-### Conservative module count per buck
+### Historical module count per buck at 8%
 
-For text-only green/blue/cyan operation at current brightness:
+These examples used the old 8% brightness budget and must not be used for the current 100% setting. Use the full-brightness estimates above with the M/N formula below.
+
+For text-only green/blue/cyan operation at 8% brightness:
 
 ```text
 budget = 0.20A per module

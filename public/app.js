@@ -3551,6 +3551,7 @@ function sendProductFindLedClearEndpoint(endpoint, { beacon = true, body = new U
 }
 
 function catalogProductQuantityKey(button) {
+  if (button?.matches?.("[data-ping-cell]")) return button.dataset.cellId ? `cell:${button.dataset.cellId}:ping` : "";
   if (button?.matches?.("[data-locate-cell], [data-adjustment-locate-cell]")) {
     const cellId = button.dataset.cellId || button.closest("form")?.querySelector('input[name="cell_id"]')?.value;
     return cellId ? `cell:${cellId}:locate` : "";
@@ -3571,7 +3572,8 @@ function setCatalogProductQuantityButtonState(button, active) {
   if (!("quantityOriginalTitle" in button.dataset)) {
     button.dataset.quantityOriginalTitle = button.getAttribute("title") || "";
   }
-  const label = active
+  const pinging = button.matches?.("[data-ping-cell]");
+  const label = pinging ? (active ? "Pinging" : "Ping") : active
     ? button.dataset.activeLabel || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Locating" : "Showing Quantity")
     : button.dataset.showLabel || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Locate" : "Show Quantity");
   button.classList.toggle("count-button-active", active);
@@ -3581,7 +3583,7 @@ function setCatalogProductQuantityButtonState(button, active) {
   if (active) {
     button.setAttribute(
       "title",
-      button.dataset.activeTitle || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Location light is on. Click to stop locating." : "Showing this product's quantity on every mapped LED. Click to clear."),
+      button.dataset.activeTitle || (pinging ? "Green ripple ends after five seconds. Click to stop." : button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Location light is on. Click to stop locating." : "Showing this product's quantity on every mapped LED. Click to clear."),
     );
   } else if (button.dataset.quantityOriginalTitle) {
     button.setAttribute("title", button.dataset.quantityOriginalTitle);
@@ -3589,7 +3591,7 @@ function setCatalogProductQuantityButtonState(button, active) {
 }
 
 function syncCatalogProductQuantityButtons() {
-  document.querySelectorAll("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell]").forEach((button) => {
+  document.querySelectorAll("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell]").forEach((button) => {
     const active =
       activeCatalogProductQuantity &&
       activeCatalogProductQuantity.key === catalogProductQuantityKey(button);
@@ -3597,7 +3599,7 @@ function syncCatalogProductQuantityButtons() {
   });
 }
 
-function confirmQuantityOverride(conflicts = [], locating = false) {
+function confirmQuantityOverride(conflicts = [], locating = false, pinging = false) {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
     dialog.className = "quantity-override-dialog";
@@ -3608,9 +3610,15 @@ function confirmQuantityOverride(conflicts = [], locating = false) {
       dialog.querySelector("p").textContent = "This temporarily replaces the PICK/PUT light at this location.";
       dialog.querySelector("[data-confirm]").textContent = "Locate anyway";
     }
+    if (pinging) {
+      dialog.querySelector("h2").textContent = "Ping this cell?";
+      dialog.querySelector("p").textContent = "This replaces the PICK/PUT light with a green ripple for five seconds.";
+      dialog.querySelector("[data-confirm]").textContent = "Ping anyway";
+    }
     const taskIds = [...new Set(conflicts.map((entry) => Number(entry.taskId)).filter(Number.isInteger))];
     dialog.querySelector("[data-conflict-detail]").textContent = `This temporarily replaces the lights for ${taskIds.length ? taskIds.slice(0, 5).map((id) => `Task #${id}`).join(", ") : "active PICK/PUT work"}${taskIds.length > 5 ? ` and ${taskIds.length - 5} more` : ""}. The task lights return when quantity display ends.`;
     if (locating) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "Locate ends");
+    if (pinging) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "Ping ends");
     const checkbox = dialog.querySelector('input[type="checkbox"]');
     const confirm = dialog.querySelector("[data-confirm]");
     checkbox.addEventListener("change", () => { confirm.disabled = !checkbox.checked; });
@@ -3624,9 +3632,10 @@ function confirmQuantityOverride(conflicts = [], locating = false) {
 }
 
 async function activateCatalogProductQuantity(button, { previewOnly = false, overrideWork = false } = {}) {
+  const pinging = button.matches?.("[data-ping-cell]");
   const locating = button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]");
   const cellId = button.dataset.cellId || (locating ? button.closest("form")?.querySelector('input[name="cell_id"]')?.value : "");
-  const endpoint = button.dataset.activateEndpoint || (locating && cellId ? `/api/cells/${encodeURIComponent(cellId)}/locate` : "");
+  const endpoint = button.dataset.activateEndpoint || ((locating || pinging) && cellId ? `/api/cells/${encodeURIComponent(cellId)}/${pinging ? "ping" : "locate"}` : "");
   if (!endpoint) {
     throw new Error("Quantity display endpoint is unavailable.");
   }
@@ -3635,7 +3644,7 @@ async function activateCatalogProductQuantity(button, { previewOnly = false, ove
   body.set("requestId", crypto.randomUUID());
   body.set("promptOnBusy", "1");
   if (button.dataset.displayKind) body.set("displayKind", button.dataset.displayKind);
-  if (locating) { body.set("kind", "locate"); body.set("displayKind", "locate"); body.set("cellId", cellId); }
+  if (locating || pinging) { const kind=pinging?"ping":"locate";body.set("kind",kind);body.set("displayKind",kind);body.set("cellId",cellId); }
   if (button.dataset.productId) body.set("product_id", button.dataset.productId);
   if (previewOnly) body.set("previewOnly", "1");
   if (overrideWork) {
@@ -3677,7 +3686,7 @@ function wireCatalogProductQuantity() {
   document.documentElement.dataset.catalogProductQuantityBound = "true";
   pageScope?.own(() => { delete document.documentElement.dataset.catalogProductQuantityBound; });
   if (typeof MutationObserver === "function") {
-    const selector = "[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell]";
+    const selector = "[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell]";
     const observer = new MutationObserver(records => {
       if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector))))) syncCatalogProductQuantityButtons();
     });
@@ -3687,7 +3696,7 @@ function wireCatalogProductQuantity() {
   }
 
   onPage(document,"click", async (event) => {
-    const button = event.target.closest("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell]");
+    const button = event.target.closest("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell]");
     if (!button || button.disabled) {
       return;
     }
@@ -3696,13 +3705,15 @@ function wireCatalogProductQuantity() {
       return;
     }
     event.preventDefault();
+    event.stopImmediatePropagation?.();
+    const pinging = button.matches?.("[data-ping-cell]");
     const locating = button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]");
     const togglingActive =
       activeCatalogProductQuantity &&
       activeCatalogProductQuantity.key === quantityKey;
     setButtonLoading(button, true, {
-      label: togglingActive ? "Clearing" : button.dataset.ledLoadingLabel || (locating ? "Locating" : "Showing"),
-      title: togglingActive ? "Clearing the light display" : locating ? "Lighting this location" : "Showing product quantities on the LEDs",
+      label: togglingActive ? "Clearing" : button.dataset.ledLoadingLabel || (locating ? "Locating" : pinging ? "Pinging" : "Showing"),
+      title: togglingActive ? "Clearing the light display" : locating ? "Lighting this location" : pinging ? "Pinging this location" : "Showing product quantities on the LEDs",
     });
 
     try {
@@ -3716,7 +3727,7 @@ function wireCatalogProductQuantity() {
       const preview = await activateCatalogProductQuantity(button, { previewOnly: true });
       let overrideWork = false;
       if (preview.state === "confirmation_required") {
-        overrideWork = await confirmQuantityOverride(preview.conflicts, locating);
+        overrideWork = await confirmQuantityOverride(preview.conflicts, locating, pinging);
         if (!overrideWork) return;
       }
       if (activeCatalogProductQuantity) {
@@ -3726,7 +3737,7 @@ function wireCatalogProductQuantity() {
       }
       let payload = await activateCatalogProductQuantity(button, { overrideWork });
       if (payload.state === "confirmation_required") {
-        overrideWork = await confirmQuantityOverride(payload.conflicts, locating);
+        overrideWork = await confirmQuantityOverride(payload.conflicts, locating, pinging);
         if (!overrideWork) return;
         payload = await activateCatalogProductQuantity(button, { overrideWork: true });
       }
@@ -3736,6 +3747,16 @@ function wireCatalogProductQuantity() {
         clearEndpoint: button.dataset.clearEndpoint || "/api/displays/stop",
         displayId: payload.displayId,
       };
+      const currentDisplay = activeCatalogProductQuantity;
+      const expiry = Date.parse(payload.expires_at);
+      if (Number.isFinite(expiry)) setTimeout(async () => {
+        if (activeCatalogProductQuantity !== currentDisplay) return;
+        try {
+          await clearCatalogProductQuantity(currentDisplay);
+          if (activeCatalogProductQuantity === currentDisplay) activeCatalogProductQuantity = null;
+          syncCatalogProductQuantityButtons();
+        } catch (error) { globalThis.WarehouseNotifications?.notify(error.message, {tone:"error"}); }
+      }, Math.max(0, expiry - Date.now()));
       setButtonLoading(button, false);
       syncCatalogProductQuantityButtons();
       if (payload.message) {
@@ -3754,7 +3775,7 @@ function wireCatalogProductQuantity() {
     } finally {
       setButtonLoading(button, false);
     }
-  });
+  }, true);
 
   onPage(window,"pagehide", () => {
     if (!activeCatalogProductQuantity) {

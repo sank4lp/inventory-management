@@ -28,8 +28,8 @@ function firmwareAddress(value) {
   return /^[A-Za-z0-9._:-]+$/.test(address) ? address : "";
 }
 
-const LOCATE_TIMEOUT_MS = 120000;
-const BLINK_TEST_DURATION_MS = 2250;
+const LOCATE_TIMEOUT_MS = 300000;
+const BLINK_TEST_DURATION_MS = 5000;
 const DEFAULT_RS485_WRITE_REPEATS = 3;
 const DEFAULT_RS485_WRITE_REPEAT_DELAY_MS = 90;
 const DEFAULT_RS485_INTER_COMMAND_DELAY_MS = 35;
@@ -749,7 +749,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         ],
       };
     },
-    setCellLocate(cell, active = true) {
+    setCellLocate(cell, active = true, {managed=false} = {}) {
       const brightness = currentBrightness();
       if (!hasModuleTarget(cell)) {
         return {
@@ -786,7 +786,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       } else {
         send(command, { repeats: Math.max(writeRepeats, DEFAULT_RS485_CLEAR_REPEATS) });
       }
-      if (active) {
+      if (active && !managed) {
         scheduleLocateClear(cell);
       }
       return {
