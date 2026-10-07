@@ -69,7 +69,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       if(numberDisplayKinds.has(scope.kind)){
         if(products.some(p=>p.uncertain))status=status==='ready'?'uncertain':status;
         else if(products.length){
-          const displayValue=p=>scope.kind==='capacity_total'?p.items_per_cell:scope.kind==='capacity_available'?Math.max(0,Math.floor((1-row.occupiedFraction)*p.items_per_cell+1e-9)):p.available;
+          const displayValue=p=>scope.kind==='capacity_total'?p.items_per_cell:scope.kind==='capacity_available'?Math.max(0,Math.floor((1-row.occupiedFraction)*p.items_per_cell+1e-9)):p.on_hand;
           if(products.some(p=>!Number.isInteger(displayValue(p))||displayValue(p)<0||displayValue(p)>999))status=status==='ready'?'unsupported':status;
           else if(products.length===1)value=displayValue(products[0]);
           else{sequence=products.map((p,index)=>({productId:p.product_id,sku:p.sku,value:displayValue(p),color:mixedColors[index%mixedColors.length]}));value=sequence[0].value;color=sequence[0].color;}

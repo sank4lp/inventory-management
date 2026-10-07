@@ -193,3 +193,21 @@ test('queued count precedes a newer task and stale mapping is never reported sen
 test('utility preempts a failed obsolete clear with a new generation; pending cleanup cannot erase it',()=>{
  const f=fixture();try{f.stock(f.cells[0],8);const t=f.work.task(f.op,f.create(f.op,'pick',2).taskId);f.command(f.op,'cancel',{lineId:t.lines[0].id,revision:t.lines[0].revision});f.db.prepare('UPDATE work_guidance SET delivered=0').run();const old=f.db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(f.cells[0].id),display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work});const d=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id});assert.equal(d.targets[0].status,'sent');const n=f.writes.length;f.work.flushGuidance();assert.equal(f.writes.length,n);assert.notEqual(f.db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(f.cells[0].id).generation,old.generation);}finally{f.end();}
 });
+
+test('quantity LEDs show recorded on-shelf quantities without subtracting Pick reservations, including mixed-cell sequences',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],8);f.stock(f.cells[1],5);
+  f.create(f.op,'pick',3);
+  const other=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.product.id);
+  f.db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,2,1)').run(other.id,f.cells[0].id);
+  const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work});
+  const shown=display.start(f.admin,{kind:'quantity',productId:f.product.id,overrideWork:true},{confirmOverride:true});
+  assert.equal(shown.targets.find(t=>t.cellId===f.cells[0].id).value,8);
+  assert.equal(shown.targets.find(t=>t.cellId===f.cells[1].id).value,5);
+  assert.equal(shown.targets.reduce((n,t)=>n+t.value,0),13);
+  assert.ok(f.writes.some(s=>/text 1 "8"/.test(s)));
+  display.stop(f.admin,shown.id);
+  const all=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id,overrideWork:true},{confirmOverride:true});
+  assert.deepEqual(all.targets[0].sequence.map(p=>p.value),[8,2]);
+ }finally{f.end();}
+});

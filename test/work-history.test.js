@@ -101,13 +101,30 @@ test('Task History lists every task step with exact movement snapshots, scoped f
  for(const l of f.work.task(f.op,id).lines)f.finish(f.op,l);
  const task=f.work.task(f.admin,id);assert.equal(task.quantity_before,9);assert.equal(task.quantity_after,4);assert.equal(task.quantity_before_unit,f.product.unit_of_measure);for(const sort of ['before','after'])assert.equal(f.work.snapshot(f.admin,{view:'history',sort,order:'asc'}).taskPage.sort,sort);
  const timeline=f.work.activityHistory(f.op,{taskId:String(id)}),moves=timeline.entries.filter(e=>e.inventoryMovement);
- assert.deepEqual(moves.map(e=>[e.before,e.after]),[[3,0],[3,1]]);assert.ok(moves.every(e=>e.assignedBy===f.admin.name&&e.assignedTo===f.op.name));
+ assert.deepEqual(moves.map(e=>[e.before,e.after]).sort((a,b)=>a[1]-b[1]),[[3,0],[3,1]]);assert.ok(moves.every(e=>e.assignedBy===f.admin.name&&e.assignedTo===f.op.name));
  const all=f.work.activityHistory(f.op);for(const step of ['Task created','Assigned','Work started','Pick recorded','Task completed'])assert.ok(all.entries.some(e=>e.step===step),step);
- assert.equal(f.work.activityHistory(f.other).entries.length,0);assert.throws(()=>f.work.activityHistory(f.other,{taskId:id}),/another operator/);assert.throws(()=>f.work.activityHistory(f.admin,{taskId:'abc'}),/valid Task ID/);
+ assert.equal(f.work.activityHistory(f.other).entries.length,0);assert.equal(f.work.activityHistory(f.other,{taskId:id}).entries.length,0);assert.throws(()=>f.work.activityHistory(f.admin,{taskId:'abc'}),/valid Task ID/);
  const line=task.lines[0],insert=f.db.prepare('INSERT INTO work_events(line_id,actor_id,event_type,payload,created_at) VALUES(?,?,?,?,?)');
  for(let i=0;i<104;i++)insert.run(line.id,f.op.id,'review_observation',JSON.stringify({quantity:1,note:'Check '+i}),'2099-01-01T10:00:00.000Z');
  const a=f.work.activityHistory(f.op),b=f.work.activityHistory(f.op,{page:2});assert.equal(a.entries.length,100);assert.equal(new Set([...a.entries,...b.entries].map(e=>e.id)).size,a.page.total);
  f.db.prepare('INSERT INTO transactions(type,product_id,cell_id,quantity_delta,user_id,task_id,created_at,reason) VALUES(?,?,?,?,?,?,?,?)').run('pick',f.product.id,line.cell_id,-1,f.op.id,id,'2099-01-02T00:00:00.000Z','Legacy entry');
  const legacy=f.work.activityHistory(f.op).entries[0];assert.equal(legacy.inventoryMovement,true);assert.equal(legacy.before,null);assert.equal(legacy.after,null);
+ }finally{f.db.close();}
+});
+
+test('Task History matches digits anywhere in an ID and returns no records for missing or inaccessible matches',()=>{
+ const f=fixture();try{
+  const add=f.db.prepare("INSERT INTO tasks(id,type,status,summary,created_by,started_at,last_touched_at,workflow_version,assignee_id) VALUES(?,'pick','planned','Search fixture',?,'2026-10-07T10:00:00Z','2026-10-07T10:00:00Z',2,?)");
+  for(const id of [99,199,990])add.run(id,f.admin.id,f.op.id);
+  add.run(299,f.admin.id,f.other.id);add.run(12,f.admin.id,f.op.id);
+  const matched=f.work.activityHistory(f.op,{taskId:'99'});
+  assert.deepEqual(matched.entries.map(e=>e.taskId).sort((a,b)=>a-b),[99,199,990]);
+  assert.equal(f.work.activityHistory(f.admin,{taskId:'#99'}).page.total,4);
+  assert.equal(f.work.activityHistory(f.op,{taskId:'777'}).page.total,0);
+  assert.equal(f.work.activityHistory(f.op,{taskId:'777'}).entries.length,0);
+  const snapshot=f.work.snapshot(f.op,{view:'activity',taskId:'777'});
+  assert.equal(snapshot.activity.entries.length,0);assert.equal(snapshot.tasks.length,0);
+  assert.equal(f.work.activityHistory(f.op,{taskId:''}).page.total,4);
+  assert.throws(()=>f.work.activityHistory(f.op,{taskId:"99%' OR 1=1"}),/valid Task ID/);
  }finally{f.db.close();}
 });

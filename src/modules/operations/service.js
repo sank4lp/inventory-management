@@ -1,4 +1,4 @@
-import {protectedPicks,putRoom,usedSpace,taskPrioritySql} from './planning-policy.js';
+import {protectedPicks,putRoom,usedSpace,taskPrioritySql,yieldableClaim,reviewClaim} from './planning-policy.js';
 import {createPlanningRecovery} from './planning-recovery.js';
 import {createWorkHistory} from './history.js';
 import {createTaskClosure} from './task-closure.js';
@@ -66,10 +66,10 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function occupancy(cellId) {
     return Number(db.prepare("SELECT COALESCE(SUM(available_quantity),0) AS qty FROM inventory_balances WHERE cell_id=?").get(cellId).qty);
   }
-  function compatible(cellId, productId, excluding = 0) {
+  function compatible(cellId, productId, excluding = 0, protectUnstarted = false) {
     return !db.prepare("SELECT 1 FROM inventory_balances WHERE cell_id=? AND product_id!=? AND available_quantity>0").get(cellId, productId)
-      && !db.prepare(`SELECT 1 FROM work_reservations r JOIN task_lines l ON l.id=r.line_id
-        WHERE r.state='held' AND r.kind='put' AND l.cell_id=? AND l.product_id!=? AND l.id!=?`).get(cellId, productId, excluding);
+      && !db.prepare(`SELECT 1 FROM work_reservations r JOIN task_lines l ON l.id=r.line_id JOIN tasks t ON t.id=l.task_id
+        WHERE r.state='held' AND r.kind='put' AND l.cell_id=? AND l.product_id!=? AND l.id!=? AND NOT ${protectUnstarted?reviewClaim():yieldableClaim()}`).get(cellId, productId, excluding);
   }
   function syncReservations() {
     db.exec(`UPDATE inventory_balances SET reserved_quantity=COALESCE((SELECT SUM(r.quantity)
@@ -155,7 +155,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const r=db.prepare("SELECT quantity FROM work_reservations WHERE line_id=? AND state='held'").get(l.id);
     if(!r||r.quantity<l.planned_quantity)return 'This task no longer has its expected reservation. Refresh or ask a supervisor.';
     if(l.type==='pick'&&balance(l.product_id,l.cell_id)+1e-9<protectedPicks(db,l.cell_id,l.product_id))return 'Recorded stock cannot cover the reserved picks. Ask a supervisor to reconcile stock.';
-    if(l.type==='put'&&((!l.allow_mixed_put&&!compatible(l.cell_id,l.product_id))||usedSpace(db,l.cell_id)>1+1e-9))return 'Recorded put capacity cannot cover these reservations. Ask a supervisor to reconcile capacity.';
+    if(l.type==='put'&&((!l.allow_mixed_put&&!compatible(l.cell_id,l.product_id))||usedSpace(db,l.cell_id,{protectActiveOnly:true})>1+1e-9))return 'Recorded put capacity cannot cover these reservations. Ask a supervisor to reconcile capacity.';
     return null;
   }
   function reconcileGuidance() {
@@ -285,7 +285,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     } else if(!originPosted) {
       if (!allocation.allow_mixed_put && !compatible(report.cell_id, report.product_id, allocation.id) && !supervisor) return review(report, "This put conflicts with another product in the location. Keep the actual entry for reconciliation.");
       if(!allocation.allow_mixed_put&&!compatible(report.cell_id,report.product_id,allocation.id)) markDiscrepancy(report.cell_id,report.product_id,"Verified physical put left mixed products; reconcile this location.");
-      const excess = rounded((usedSpace(db,report.cell_id,{excludingLine:allocation.id}) + qty/allocation.items_per_cell - 1)*allocation.items_per_cell);
+      const excess = rounded((usedSpace(db,report.cell_id,{excludingLine:allocation.id,protectActiveOnly:true}) + qty/allocation.items_per_cell - 1)*allocation.items_per_cell);
       if (excess > 1e-9 && !supervisor) return review(report, "The put quantity exceeds the space available after other reservations. An admin must check the actual quantity and location capacity.");
       if (excess > 1e-9) markDiscrepancy(report.cell_id, report.product_id, `Capacity exceeded by ${excess} ${report.unit}; physical entry verified by admin.`);
     }
@@ -331,8 +331,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       if(controlledCell(db,cell.id))continue;
       if (db.prepare("SELECT 1 FROM work_discrepancies WHERE cell_id=? AND product_id=?").get(cell.id, product.id)) continue;
       const room = input.direction === "pick"
-        ? rounded(balance(product.id, cell.id) - protectedPicks(db,cell.id,product.id))
-        : (allowMixed||compatible(cell.id, product.id)) ? putRoom(db,cell.id,product) : 0;
+        ? rounded(balance(product.id, cell.id) - protectedPicks(db,cell.id,product.id,0,0,{protectUnstarted:input.protectUnstarted}))
+        : (allowMixed||compatible(cell.id, product.id,0,input.protectUnstarted)) ? putRoom(db,cell.id,product,{protectUnstarted:input.protectUnstarted}) : 0;
       if (room <= 0) continue;
       const quantity = Math.min(room, remaining);
       allocations.push({ product_id: product.id, cell_id: cell.id, planned_quantity: quantity, guidance_color: input.direction === "pick" ? "green" : "red" });
@@ -341,11 +341,70 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (remaining > 0) {
       const recorded=Number(db.prepare('SELECT COALESCE(SUM(MAX(0,available_quantity)),0) n FROM inventory_balances WHERE product_id=?').get(product.id).n);
       const overStock=input.direction==='pick'&&Number(input.quantity??remaining)>recorded;
-      const error=new Error(input.direction==='put'?'Not enough put capacity. Choose a larger capacity or another suitable location.':overStock?`Not enough recorded stock: ${recorded} ${product.unit_of_measure}. Reduce the pick or confirm the actual stock in the cells first.`:'Not enough stock after active reservations and location checks. Review reservations can be used; active picks remain protected. Reduce the quantity or finish active work first.');
+      const error=new Error(input.direction==='put'?`Not enough put capacity. Space for ${rounded(allocations.reduce((n,l)=>n+l.planned_quantity,0))} ${product.unit_of_measure} is available now${restricted?' at the selected location':''}. Active work and locations needing checks are protected. Choose another location or check items per cell.`:overStock?`Not enough recorded stock: ${recorded} ${product.unit_of_measure}. Reduce the pick or confirm the actual stock in the cells first.`:'Not enough stock after active reservations and location checks. Unstarted or review reservations can be used; active picks remain protected. Reduce the quantity or finish active work first.');
       if(input.recovery?.mode==='count')error.message='Not enough stock in the confirmed cells for this pick. Nothing was saved. Check the counts or go back and reduce the pick quantity.';
       error.planning={direction:input.direction,productId:product.id,code:input.direction==='put'?'put_capacity':overStock?'pick_count':'pick_reserved'};throw error;
     }
     return allocations;
+  }
+  // New work may take over only unstarted/review claims, never active stock or space.
+  // Keep old claims and physical evidence for supervisor review instead of deleting them.
+  function relocateUnstartedTask(actor,taskId,replacementTaskId) {
+    const oldTask=db.prepare('SELECT * FROM tasks WHERE id=?').get(taskId);
+    const old=db.prepare("SELECT * FROM task_lines WHERE task_id=? AND execution_state!='superseded'").all(taskId);
+    if(oldTask.assignment_state!=='offered'||!old.length||old.some(l=>l.execution_state!=='ready'||l.started_at||hasEvidence(l.id)))return false;
+    db.exec('SAVEPOINT relocate_offer');
+    try{
+      for(const l of old)db.prepare("UPDATE work_reservations SET state='released' WHERE line_id=?").run(l.id);
+      const product=db.prepare('SELECT * FROM products WHERE id=? AND active=1').get(old[0].product_id);
+      const next=plan(product,{direction:oldTask.type,allow_mixed_put:oldTask.allow_mixed_put,plan_cell_id:oldTask.plan_cell_id,protectUnstarted:true},rounded(old.reduce((n,l)=>n+l.planned_quantity,0)));
+      for(const l of old)db.prepare("UPDATE task_lines SET execution_state='superseded',revision=revision+1 WHERE id=?").run(l.id);
+      for(const allocation of next){
+        tasks.addLine(taskId,allocation);
+        const l=db.prepare('SELECT * FROM task_lines WHERE task_id=? ORDER BY id DESC LIMIT 1').get(taskId);
+        db.prepare("UPDATE task_lines SET execution_state='ready',unit_of_measure=? WHERE id=?").run(product.unit_of_measure,l.id);
+        db.prepare('INSERT INTO work_reservations(line_id,kind,quantity) VALUES(?,?,?)').run(l.id,oldTask.type,l.planned_quantity);
+        captureInstruction(l.id);
+      }
+      db.prepare('UPDATE tasks SET plan_revision=plan_revision+1 WHERE id=?').run(taskId);
+      event('unissued_plan_replaced',actor,null,{taskId,previousLines:old.map(l=>l.id),replacementTaskId,reason:'Unstarted work moved to other available locations after newer work took priority.'});
+      db.exec('RELEASE relocate_offer');syncReservations();return true;
+    }catch(error){
+      db.exec('ROLLBACK TO relocate_offer; RELEASE relocate_offer');
+      if(error.planning)return false;
+      throw error;
+    }
+  }
+  function flagDisplacedReservations(actor,taskId) {
+    const t=db.prepare('SELECT * FROM tasks WHERE id=?').get(Number(taskId));
+    if(!t||t.attention||t.review_followup)return;
+    const own=db.prepare("SELECT l.*,p.items_per_cell FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=? AND l.execution_state!='superseded'").all(t.id);
+    for(const cellId of new Set(own.map(l=>l.cell_id))){
+      const claims=db.prepare(`SELECT l.id,r.quantity,p.items_per_cell,l.product_id FROM work_reservations r JOIN task_lines l ON l.id=r.line_id JOIN tasks old ON old.id=l.task_id JOIN products p ON p.id=l.product_id
+        WHERE r.state='held' AND r.kind=? AND l.cell_id=? AND l.task_id!=? AND ${yieldableClaim('l','old')}
+        ${t.type==='pick'?'AND l.product_id=?':''} ORDER BY old.assigned_at,old.id,l.id`).all(t.type,cellId,t.id,...(t.type==='pick'?[own[0].product_id]:[]));
+      const heldHere=db.prepare("SELECT r.quantity,l.product_id,p.items_per_cell FROM work_reservations r JOIN task_lines l ON l.id=r.line_id JOIN products p ON p.id=l.product_id WHERE l.task_id=? AND l.cell_id=? AND r.state='held'").all(t.id,cellId);
+      let remaining=t.type==='pick'?balance(own[0].product_id,cellId)-protectedPicks(db,cellId,own[0].product_id,0,t.id)-heldHere.reduce((n,r)=>n+r.quantity,0)
+        :1-usedSpace(db,cellId,{excludingTask:t.id,protectActiveOnly:true})-heldHere.reduce((n,r)=>n+r.quantity/r.items_per_cell,0);
+      for(const claim of claims){
+        const amount=t.type==='pick'?claim.quantity:claim.quantity/claim.items_per_cell;
+        const incompatible=t.type==='put'&&!t.allow_mixed_put&&heldHere.some(r=>r.product_id!==claim.product_id);
+        if(!incompatible&&amount<=remaining+1e-9){remaining-=amount;continue;}
+        const l=line(claim.id);
+        if(relocateUnstartedTask(actor,l.task_id,t.id)){
+          const replacementClaims=db.prepare("SELECT r.quantity,p.items_per_cell FROM work_reservations r JOIN task_lines l ON l.id=r.line_id JOIN products p ON p.id=l.product_id WHERE r.state='held' AND l.task_id=? AND l.cell_id=?").all(l.task_id,cellId);
+          remaining-=replacementClaims.reduce((n,r)=>n+(t.type==='pick'?r.quantity:r.quantity/r.items_per_cell),0);
+          continue;
+        }
+        const reason=`Stock or space reserved here was taken over by Task #${t.id}. Update the remaining work or close this task.`;
+        if(db.prepare("SELECT 1 FROM work_events WHERE line_id=? AND event_type='reservation_displaced' AND json_extract(payload,'$.replacementTaskId')=?").get(l.id,t.id))continue;
+        let report=db.prepare("SELECT * FROM work_reports WHERE line_id=? AND status IN ('review','received') ORDER BY created_at LIMIT 1").get(l.id);
+        if(!report)report=insertReport(actor,{quantity:0,unknown:true,origin:`reservation-conflict:${l.id}:${t.id}`,reason},l);
+        review(report,report.reason&&report.reason!==reason?report.reason+' '+reason:reason);
+        event('reservation_displaced',actor,l.id,{replacementTaskId:t.id,reason},report.id);
+        taskProgress(l.task_id);
+      }
+    }
   }
   function timingSettings() {
     const raw=metadata('assignment_warning_minutes');
@@ -407,6 +466,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const t=currentTask(actor,input);
     if(input.progressToken&&input.progressToken!==progressToken(t.id))throw new Error('Task instructions changed. Refresh before starting.');
     if(t.review_followup)throw new Error('Check moved quantity first. Resume verified remaining work after the check.');
+    if(db.prepare("SELECT 1 FROM work_events e JOIN task_lines l ON l.id=e.line_id JOIN work_reports r ON r.id=e.report_id WHERE l.task_id=? AND e.event_type='reservation_displaced' AND r.status IN ('review','received')").get(t.id))throw new Error('Stock or space for this task was taken over by newer work. Ask a supervisor to update or close it before starting.');
     if(t.assignee_id!==actor.id)throw new Error('Only the assigned operator can start this task.');
     if(!['offered','legacy','started'].includes(t.assignment_state)||t.completed_at)throw new Error('This task is no longer available to start.');
     if(t.assignment_state!=='started') {
@@ -1040,6 +1100,10 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         if(Number(input.assigneeId)===t.assignee_id)throw new Error('Choose another person to change the assignment.');
       }
       const value = actions[action](current, input);
+      if(['create','assign','start','reopen','updateReturned','updateReviewTask','resumeFollowup','replan','report'].includes(action)){
+        const taskId=value.taskId||input.taskId||(input.lineId?line(input.lineId).task_id:null);
+        if(taskId)flagDisplacedReservations(current,taskId);
+      }
       reconcileGuidance();
       db.prepare("INSERT INTO operation_receipts(actor_id,request_id,fingerprint,result_json,created_at) VALUES(?,?,?,?,?)")
         .run(current.id, id, fingerprint, JSON.stringify(value), now());
@@ -1178,7 +1242,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const current=actorNow(actor);
     if(query.view==='assign')assertCan(current,'work.assign');
     if(!can(current,'work.view'))return {...identity(),user:current,workTabs:workTabs(current),capabilities:workCapabilities(current),timing:{},operators:[],performers:[],reports:db.prepare('SELECT id,status FROM work_reports WHERE reporter_id=?').all(current.id),tasks:[],products:[],cells:can(current,'locations.labels')?db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1').all().map(c=>({...c,description:describeLocation(db,c.id)})):[],pending:[],postedReports:[],contents:[],discrepancies:[],generatedAt:now()};
-    const selection=taskSelection(db,current,query),taskList=query.taskId?[task(current,Number(query.taskId))].filter(Boolean):selection.ids.map(id=>({...task(current,id),...selection.metrics?.get(id)}));
+    const selection=taskSelection(db,current,query),taskList=query.view==='activity'?[]:query.taskId?[task(current,Number(query.taskId))].filter(Boolean):selection.ids.map(id=>({...task(current,id),...selection.metrics?.get(id)}));
     const watchedTasks=[...new Set(String(query.watch||'').split(',').map(Number).filter(id=>id>0&&!selection.ids.includes(id)))].slice(0,100).flatMap(id=>{try{const value=task(current,id);return value?[value]:[];}catch{return [];}});
     const returned=returnedSelection(db,current,query);
     const products=db.prepare('SELECT id,sku,name,unit_of_measure,items_per_cell FROM products WHERE active=1 ORDER BY name').all();

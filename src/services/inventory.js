@@ -1095,6 +1095,16 @@ export function detectAnomalies(db) {
 }
 
 export function getRecommendedActions(db) {
+  const conflicts=db.prepare(`SELECT t.id taskId,l.product_id productId,p.sku productSku,c.logical_code logicalCode,l.cell_id cellId,e.payload
+    FROM work_events e JOIN work_reports r ON r.id=e.report_id JOIN task_lines l ON l.id=e.line_id JOIN tasks t ON t.id=l.task_id
+    JOIN products p ON p.id=l.product_id JOIN cells c ON c.id=l.cell_id
+    WHERE e.event_type='reservation_displaced' AND r.status IN ('review','received') AND t.completed_at IS NULL ORDER BY e.id DESC`).all();
+  const seen=new Set(),taskActions=conflicts.filter(r=>{if(seen.has(r.taskId))return false;seen.add(r.taskId);return true;}).map(r=>{
+    const replacement=JSON.parse(r.payload).replacementTaskId;
+    return {...r,key:`task-reservation:${r.taskId}`,type:'task_reservation_conflict',title:`Task #${r.taskId} needs review`,priority:'high',
+      actionSummary:`Stock or space was taken over by Task #${replacement}. Update or close the earlier task.`,
+      description:'Check any work already done before closing the task.',taskHref:`/tasks/${r.taskId}`,freedLocationCount:0,freedLocations:[],recommendedMoves:[]};
+  });
   const anomalyActions = detectAnomalies(db).map((anomaly) => {
     const cell = db.prepare("SELECT id, logical_code FROM cells WHERE id = ?").get(anomaly.cellId);
     return {
@@ -1105,6 +1115,7 @@ export function getRecommendedActions(db) {
     };
   });
   return [
+    ...taskActions,
     ...anomalyActions,
     ...buildWarehouseOptimizationRecommendations(db),
   ];

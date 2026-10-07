@@ -75,3 +75,35 @@ test('a busy turn preserves its active reservation but permits planning against 
  t=f.work.task(f.op,f.create(f.op,'pick',3,a).taskId);const l=t.lines[0];f.command(f.op,'acquire',{lineId:l.id,revision:l.revision,method:'arrival',deviceId:'uncertain-device'});f.db.prepare('UPDATE cell_turns SET uncertain=1 WHERE cell_id=?').run(a.id);const s=f.read(f.admin);assert.equal(s.recorded,8);assert.equal(s.availableToPick,5);assert.equal(s.unavailableUnreserved,0);assert.equal(s.putCapacity,22);
  }finally{f.db.close();}
 });
+
+test('83 on shelf, 52 physical spaces, 23 pick claims and 7 put claims still allow a new 7-item Put assignment',()=>{
+ const f=fixture();try{
+  const cells=f.db.prepare('SELECT * FROM cells ORDER BY id LIMIT 9').all();
+  f.db.exec('UPDATE cells SET active=0');
+  for(const c of cells)f.db.prepare('UPDATE cells SET active=1 WHERE id=?').run(c.id);
+  f.db.prepare('UPDATE products SET items_per_cell=15 WHERE id=?').run(f.p.id);
+  for(const [i,c] of cells.entries())if(i<6)f.stock(c,i<5?15:8);
+  f.command(f.admin,'create',{direction:'pick',productId:f.p.id,quantity:23,assigneeId:f.op.id});
+  f.command(f.admin,'create',{direction:'put',productId:f.p.id,quantity:7,assigneeId:f.op.id});
+  const before=f.read(f.admin);
+  assert.deepEqual([before.recorded,before.spaceForMore,before.totalCapacity,before.pickReserved,before.incomingReserved,before.putCapacity],[83,52,135,23,7,52]);
+  const added=f.command(f.admin,'assign',{direction:'put',productId:f.p.id,quantity:7,assigneeId:f.op.id,dueDuration:8,dueUnit:'hours'});
+  assert.equal(f.work.task(f.admin,added.taskId).requested_quantity,7);
+  assert.equal(f.read(f.admin).putCapacity,52);
+  assert.equal(f.read(f.admin).recorded,83);
+ }finally{f.db.close();}
+});
+
+test('blocked locations and other products incoming claims do not appear as usable Put space',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],8);
+  const other=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.p.id);
+  f.db.prepare('UPDATE products SET items_per_cell=10 WHERE id=?').run(other.id);
+  f.command(f.admin,'create',{direction:'put',productId:other.id,quantity:8,preferredCellId:f.cells[1].id});
+  f.db.prepare('INSERT INTO work_discrepancies(cell_id,product_id,reason,updated_at) VALUES(?,?,?,?)').run(f.cells[2].id,f.p.id,'Check stock',new Date().toISOString());
+  const stock=f.read(f.admin);
+  assert.equal(stock.spaceForMore,22);assert.equal(stock.putCapacity,2);
+  assert.throws(()=>f.command(f.admin,'assign',{direction:'put',productId:f.p.id,quantity:7,assigneeId:f.op.id,dueDuration:8,dueUnit:'hours'}),/Space for 2/);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tasks').get().n,1);
+ }finally{f.db.close();}
+});

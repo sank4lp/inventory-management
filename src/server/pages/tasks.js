@@ -519,7 +519,7 @@ export function createTaskPages({ db }) {
   }
 
   function renderRecommendedActions(user, flash, selectedKey = "", options = {}) {
-    const allActions = getRecommendedActions(db);
+    const allActions = getRecommendedActions(db).filter(a=>a.type!=='task_reservation_conflict'||can(user,'review.view')||can(user,'work.team'));
     const returnTo = safeRecommendedReturnPath(options.returnTo);
     const openedFromCapacityUpdate = options.source === "capacity" && Boolean(selectedKey);
     const openedFromPutCapacity = options.source === "put-capacity";
@@ -532,6 +532,7 @@ export function createTaskPages({ db }) {
       ? `<input type="hidden" name="recommendation_source" value="${escapeHtml(options.source)}" />`
       : "";
     const recommendationLink = (action) => {
+      if(action.taskHref)return action.taskHref;
       const params = new URLSearchParams({ key: action.key });
       if (["capacity", "put-capacity"].includes(options.source)) {
         params.set("source", options.source);
@@ -620,6 +621,7 @@ export function createTaskPages({ db }) {
         ${actions.length
           ? actions
               .map((action) => {
+                if(action.type==='task_reservation_conflict')return card(action.title,`<p>${escapeHtml(action.actionSummary)}</p><a class="mini-link" href="${escapeHtml(action.taskHref)}">Review task</a>`);
                 const activeMoveIndex =
                   action.optimizationPlan && fullOptimizationLedReady ? "all" : activeLedMoveIndex;
                 const ledClearAttrs = activeMoveIndex
@@ -691,10 +693,10 @@ export function createTaskPages({ db }) {
                               <div class="recommendation-fields">
                                 <input type="hidden" name="move_source_${index}" value="${escapeHtml(sourceCellId)}" />
                                 <label>Suggested move quantity
-                                  <input type="number" min="0" step="0.01" name="move_qty_${index}" value="${escapeHtml(move.quantity)}" />
+                                  <input type="number" min="0" step="1" name="move_qty_${index}" value="${escapeHtml(move.quantity)}" />
                                 </label>
-                                <label>Actual picked from source<input type="number" min="0" step="0.000001" name="actual_pick_${index}" required placeholder="Actual, including 0"></label>
-                                <label>Actual put at target<input type="number" min="0" step="0.000001" name="actual_put_${index}" required placeholder="Actual, including 0"></label>
+                                <label>Actual picked from source<input type="number" min="0" step="1" name="actual_pick_${index}" required placeholder="Actual, including 0"></label>
+                                <label>Actual put at target<input type="number" min="0" step="1" name="actual_put_${index}" required placeholder="Actual, including 0"></label>
                                 <label>Target Cell
                                   ${cellPickerField(
                                     cells,

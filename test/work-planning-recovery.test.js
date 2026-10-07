@@ -111,3 +111,71 @@ test('capacity recovery requires the capacity permission and commits only with a
  assert.throws(()=>cmd(admin,'create',{...input,quantity:3}),/Not enough/);assert.equal(db.prepare('SELECT items_per_cell n FROM products WHERE id=?').get(p.id).n,2);
  assert.equal(cmd(admin,'create',input).status,'reserved');assert.equal(db.prepare('SELECT items_per_cell n FROM products WHERE id=?').get(p.id).n,3);db.close();
 });
+
+for(const direction of ['pick','put'])test(`${direction}: a new task takes over unstarted claims, marks the displaced task high-priority and retains its evidence`,()=>{
+ const f=fixture();try{
+  const c=f.cells[0];f.db.prepare('UPDATE cells SET active=0 WHERE id!=?').run(c.id);f.db.prepare('UPDATE products SET items_per_cell=10 WHERE id=?').run(f.p.id);
+  f.stock(f.p.id,c.id,direction==='pick'?10:3);
+  const old=f.cmd(f.admin,'assign',{direction,productId:f.p.id,quantity:direction==='pick'?8:5,assigneeId:f.op.id,dueDuration:8,dueUnit:'hours'});
+  const request={requestId:randomUUID(),direction,productId:f.p.id,quantity:direction==='pick'?5:7};
+  const next=f.w.command(f.admin,'create',request),displaced=f.w.task(f.admin,old.taskId),task=f.w.task(f.admin,next.taskId);
+  assert.equal(displaced.attention,1);assert.equal(displaced.work_priority,'high');assert.equal(displaced.outcome,'needs_review');
+  assert.equal(displaced.recorded_quantity,0);assert.equal(displaced.lines[0].planned_quantity,direction==='pick'?8:5);
+  assert.match(displaced.lines[0].reports[0].reason,new RegExp('Task #'+next.taskId));
+  assert.equal(displaced.lines[0].reports[0].quantity_known,0);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,0);
+  assert.throws(()=>f.cmd(f.op,'start',{taskId:displaced.id,generation:displaced.assignment_generation}),/taken over/);
+  assert.equal(f.w.snapshot(f.admin,{view:'mine',reviewOnly:'1'}).tasks[0].work_priority,'high');
+  const rec=getRecommendedActions(f.db).find(r=>r.type==='task_reservation_conflict'&&r.taskId===old.taskId);
+  assert.equal(rec.taskHref,'/tasks/'+old.taskId);assert.match(rec.actionSummary,new RegExp('Task #'+next.taskId));
+  assert.equal(f.w.command(f.admin,'create',request).replayed,true);
+  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM work_events WHERE event_type='reservation_displaced'").get().n,1);
+  assert.throws(()=>f.cmd(f.op,'create',{direction,productId:f.p.id,quantity:6}),/Not enough/);
+  let l=task.lines[0];f.cmd(f.admin,'acquire',{lineId:l.id,revision:l.revision,method:'arrival',deviceId:'takeover'});l=f.w.line(l.id);
+  assert.equal(f.cmd(f.admin,'report',{lineId:l.id,revision:l.revision,cellId:l.cell_id,quantity:task.requested_quantity,unit:l.unit_of_measure,deviceId:'takeover'}).status,'recorded');
+  assert.equal(f.quantity(c.id),direction==='pick'?5:10);
+  assert.equal(f.w.task(f.admin,old.taskId).work_priority,'high');
+ }finally{f.db.close();}
+});
+
+test('a Put awaiting review yields space; active sibling work remains protected',()=>{
+ const f=fixture();try{
+  const [a,b]=f.cells;f.db.prepare('UPDATE cells SET active=0 WHERE id NOT IN (?,?)').run(a.id,b.id);f.db.prepare('UPDATE products SET items_per_cell=10 WHERE id=?').run(f.p.id);
+  const old=f.cmd(f.op,'create',{direction:'put',productId:f.p.id,quantity:15}),lines=f.w.task(f.op,old.taskId).lines;
+  f.cmd(f.op,'askReview',{lineId:lines[0].id,reason:'Phone died'});
+  const next=f.cmd(f.admin,'create',{direction:'put',productId:f.p.id,quantity:15}),t=f.w.task(f.admin,next.taskId);
+  assert.equal(t.lines.find(l=>l.cell_id===b.id).planned_quantity,5);
+  assert.equal(f.w.task(f.admin,old.taskId).work_priority,'high');
+  assert.throws(()=>f.cmd(f.admin,'create',{direction:'put',productId:f.p.id,quantity:1}),/Not enough/);
+ }finally{f.db.close();}
+});
+
+test('a different product unstarted Put cannot reserve an otherwise empty location away from new work',()=>{
+ const f=fixture();try{
+  f.db.prepare('UPDATE cells SET active=0 WHERE id!=?').run(f.cells[0].id);
+  const old=f.cmd(f.admin,'assign',{direction:'put',productId:f.b.id,quantity:1,assigneeId:f.op.id,dueDuration:8,dueUnit:'hours'});
+  const next=f.cmd(f.op,'create',{direction:'put',productId:f.p.id,quantity:1});
+  assert.equal(f.w.task(f.admin,old.taskId).work_priority,'high');
+  assert.equal(f.w.task(f.op,next.taskId).attention,0);
+ }finally{f.db.close();}
+});
+
+for(const direction of ['pick','put'])test(`${direction}: an unstarted task is safely replanned instead of sent to review when other locations still fit it`,()=>{
+ const f=fixture();try{
+  const [a,b]=f.cells;f.db.prepare('UPDATE cells SET active=0 WHERE id NOT IN (?,?)').run(a.id,b.id);f.db.prepare('UPDATE products SET items_per_cell=10 WHERE id=?').run(f.p.id);
+  if(direction==='pick'){f.stock(f.p.id,a.id,10);f.stock(f.p.id,b.id,10);}
+  const old=f.cmd(f.admin,'assign',{direction,productId:f.p.id,quantity:8,assigneeId:f.op.id,dueDuration:8,dueUnit:'hours'});
+  const original=f.w.task(f.admin,old.taskId),oldLine=original.lines[0];
+  const newer=f.cmd(f.admin,'create',{direction,productId:f.p.id,quantity:5});
+  const replanned=f.w.task(f.admin,old.taskId);
+  assert.equal(replanned.attention,0);assert.equal(replanned.assignee_id,f.op.id);assert.equal(replanned.due_at,original.due_at);assert.equal(replanned.requested_quantity,8);
+  assert.equal(replanned.lines.find(l=>l.id===oldLine.id).execution_state,'superseded');
+  assert.equal(replanned.lines.filter(l=>l.execution_state==='ready').reduce((n,l)=>n+l.planned_quantity,0),8);
+  assert.ok(replanned.lines.some(l=>l.execution_state==='ready'&&l.cell_id===b.id));
+  assert.ok(f.w.taskHistory(f.admin,{taskId:old.taskId}).entries.some(e=>e.step==='Locations replanned'));
+  assert.equal(getRecommendedActions(f.db).some(r=>r.taskId===old.taskId),false);
+  f.cmd(f.op,'start',{taskId:old.taskId,generation:replanned.assignment_generation});
+  assert.equal(f.w.task(f.admin,newer.taskId).attention,0);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,0);
+ }finally{f.db.close();}
+});

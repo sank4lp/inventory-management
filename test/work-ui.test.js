@@ -576,3 +576,13 @@ test('My Work task links open the permission-scoped editor while History retains
  ui.run("snapshot.capabilities={view:true,assign:true};t.completed_at='2026-10-07T12:00:00Z'");assert.doesNotMatch(ui.run('taskEditorContent(t)'),/data-work-action="updateReviewTask"/);
  ui.run("t.completed_at=null;t.outcome='stopped'");assert.doesNotMatch(ui.run('taskEditorContent(t)'),/data-work-action="updateReviewTask"/);
 });
+
+test('Pick and Put quantity controls increment whole numbers without changing duration controls',()=>{
+ const ui=view({role:'admin'});ui.context.state.products=[{id:1,name:'Boots',sku:'B',unit_of_measure:'pairs'}];ui.context.state.operators=[{id:1,name:'Admin',eligible:true,status:'active'}];
+ const create=ui.run("createPage('put')"),assignment=ui.run('assignmentPage()');
+ assert.match(create,/name="quantity"[^>]*step="1"/);assert.match(assignment,/name="quantity"[^>]*step="1"/);
+ assert.match(assignment,/name="dueDuration"[^>]*step="any"/);
+ const actual=ui.run('actualRow({lines:[{unit_of_measure:"pairs"}]},{cellId:3,quantity:2},0)');
+ assert.match(actual,/name="actualQuantity0"[^>]*step="1"/);
+ const history=ui.run('activityHistoryPage()');assert.match(history,/type="search" name="taskId"/);
+});

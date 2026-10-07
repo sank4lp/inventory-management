@@ -2,7 +2,7 @@ import {can} from '../access/catalog.js';
 
 const parse=value=>{try{return JSON.parse(value||'{}');}catch{return {};}};
 const labels={
- reopened:'Remaining work reopened',reopened_from:'Reopened from earlier task',assigned:'Assigned',started:'Work started',resumed:'Work resumed',reassigned:'Reassigned',returned:'Work returned',
+ reservation_displaced:'Reservation taken over by newer work',reopened:'Remaining work reopened',reopened_from:'Reopened from earlier task',assigned:'Assigned',started:'Work started',resumed:'Work resumed',reassigned:'Reassigned',returned:'Work returned',
  returned_task_updated:'Returned work updated',review_assigned:'Review assigned',review_intent_updated:'Review assignment updated',review_task_updated:'Assignment updated',
  verified_work_resumed:'Remaining work assigned',deadline_changed:'Deadline changed',stop_requested:'Remaining work stopped',return_acknowledged:'Return acknowledged',closure_review_requested:'Closure sent for review',closed_actuals:'Task closed',
  task_reserved:'Stock reserved',unissued_plan_replaced:'Locations replanned',location_ready:'Arrived at location',location_verified:'QR checked',
@@ -81,10 +81,8 @@ export function createWorkHistory({db,actorNow,task,identity}){
  }
  function activityHistory(actor,input={}){
   const current=actorNow(actor,'work.view');
-  if(input.taskId!=null&&String(input.taskId).trim()){
-   if(!/^\d+$/.test(String(input.taskId))||Number(input.taskId)<1)throw new Error('Enter a valid Task ID.');
-   return taskHistory(current,input);
-  }
+  const taskSearch=String(input.taskId??'').trim().replace(/^#\s*/, '');
+  if(taskSearch&&!/^\d+$/.test(taskSearch))throw new Error('Enter a valid Task ID.');
   const team=can(current,'work.team'),scope=team?'1':'(t.assignee_id=? OR t.created_by=? OR EXISTS(SELECT 1 FROM task_assignment_events a WHERE a.task_id=t.id AND (a.assignee_id=? OR a.previous_assignee=?)))';
   const args=team?[]:[current.id,current.id,current.id,current.id],candidates=`WITH allowed_tasks AS (SELECT t.id FROM tasks t WHERE ${scope}),
   activity AS (
@@ -95,7 +93,9 @@ export function createWorkHistory({db,actorNow,task,identity}){
    UNION ALL SELECT 'created',CAST(t.id AS TEXT),t.started_at,t.id FROM tasks t WHERE t.id IN (SELECT id FROM allowed_tasks)
   )`;
   if(!team)args.push(current.id,current.id);
-  const total=db.prepare(candidates+' SELECT COUNT(*) n FROM activity').get(...args).n,page=pageOf(input,total),raw=db.prepare(candidates+' SELECT * FROM activity ORDER BY time DESC,source,CAST(id AS INTEGER) DESC,id DESC LIMIT ? OFFSET ?').all(...args,page.limit,(page.number-1)*page.limit);
+  const filter=taskSearch?' WHERE CAST(taskId AS TEXT) LIKE ?':'';
+  if(taskSearch)args.push('%'+taskSearch+'%');
+  const total=db.prepare(candidates+' SELECT COUNT(*) n FROM activity'+filter).get(...args).n,page=pageOf(input,total),raw=db.prepare(candidates+' SELECT * FROM activity'+filter+' ORDER BY time DESC,source,CAST(id AS INTEGER) DESC,id DESC LIMIT ? OFFSET ?').all(...args,page.limit,(page.number-1)*page.limit);
   const people=new Map(db.prepare('SELECT id,name FROM users').all().map(u=>[u.id,u.name]));
   const entries=raw.map(item=>{
    let row={id:item.source+':'+item.id,time:item.time,taskId:item.taskId,quantity:null,unit:null,location:null,actor:null,product:null,before:null,after:null,inventoryMovement:false};

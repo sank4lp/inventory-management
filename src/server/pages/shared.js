@@ -359,7 +359,7 @@ export function renderAdjustmentLine(products, index, options = {}) {
           <input
             type="number"
             min="0"
-            step="0.01"
+            step="1"
             inputmode="decimal"
             name="absolute_quantity_${index}"
             value="${escapeHtml(quantityValue)}"
