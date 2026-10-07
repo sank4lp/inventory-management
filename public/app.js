@@ -2430,6 +2430,7 @@ function wireComboBoxes(root = document) {
 
   if (document.body.dataset.comboDocumentBound !== "true") {
     document.body.dataset.comboDocumentBound = "true";
+    pageScope?.own(() => { delete document.body.dataset.comboDocumentBound; });
     onPage(document,"click", (event) => {
       const combo = event.target.closest("[data-combo-box]");
       if (!combo) {
@@ -2528,7 +2529,9 @@ function wireAdjustmentForms() {
       addButton.disabled = !cellId;
       if (locateButton) {
         locateButton.disabled = !cellId;
-        setLocateButtonState(locateButton, Boolean(cellId && activeLocates.has(String(cellId))));
+        locateButton.dataset.cellId = cellId;
+        locateButton.dataset.showLabel = "Locate Cell";
+        setCatalogProductQuantityButtonState(locateButton, Boolean(cellId && activeCatalogProductQuantity?.key === `cell:${cellId}:locate`));
       }
       if (lightQuantityButton) {
         lightQuantityButton.disabled = !cellId || enteredQuantities().length === 0;
@@ -2660,56 +2663,6 @@ function wireAdjustmentForms() {
           refreshLineControls();
           refreshActionControls();
         }
-      }
-    });
-
-    locateButton?.addEventListener("click", async () => {
-      const cellId = selectedCellId();
-      if (!cellId || locateButton.disabled) {
-        setAdjustmentStatus("Choose a cell before locating it.", "warning");
-        return;
-      }
-
-      for (const [activeCellId, activeEntry] of Array.from(activeLocates.entries())) {
-        if (activeEntry.button === locateButton && activeCellId !== String(cellId)) {
-          await sendLocateCommand(activeCellId, false).catch(() => {});
-          clearLocateUi(activeCellId);
-        }
-      }
-
-      const activeEntry = activeLocates.get(String(cellId));
-      setButtonLoading(locateButton, true, {
-        label: activeEntry ? "Clearing" : "Sending",
-        title: activeEntry ? "Clearing locate command" : "Sending locate command",
-      });
-
-      try {
-        if (activeEntry) {
-          await sendLocateCommand(cellId, false);
-          setButtonLoading(locateButton, false);
-          clearLocateUi(cellId);
-          setAdjustmentStatus("Locate cleared.", "info");
-          return;
-        }
-
-        const payload = await sendLocateCommand(cellId, true);
-        setButtonLoading(locateButton, false);
-        setLocateButtonState(locateButton, true);
-        activeLocates.set(String(cellId), {
-          button: locateButton,
-          timeoutId: setTimeout(() => {
-            if (!activeLocates.has(String(cellId))) {
-              return;
-            }
-            sendLocateCommand(cellId, false).catch(() => {}).finally(() => clearLocateUi(cellId));
-          }, LOCATION_LOCATE_TIMEOUT_MS),
-        });
-        setAdjustmentStatus(`Locating ${payload.cell?.logicalCode || "selected cell"}.`, "success");
-      } catch (error) {
-        setButtonLoading(locateButton, false);
-        setAdjustmentStatus(error.message || "Locate command failed.", "error");
-      } finally {
-        refreshActionControls();
       }
     });
 
@@ -3534,87 +3487,8 @@ function wireFirmwareFlash() {
   }
 }
 
-const LOCATION_LOCATE_TIMEOUT_MS = 120000;
-const activeLocates = new Map();
 const activeCounts = new Map();
 let activeCatalogProductQuantity = null;
-
-function setLocateButtonState(button, active) {
-  if (!button) {
-    return;
-  }
-  button.classList.toggle("locate-button-active", active);
-  button.setAttribute("aria-pressed", active ? "true" : "false");
-  button.textContent = active ? "Locating" : "Locate";
-}
-
-async function sendLocateCommand(cellId, active) {
-  const body = new URLSearchParams();
-  body.set("active", active ? "1" : "0");
-
-  const response = await fetch(`/api/cells/${encodeURIComponent(cellId)}/locate`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "X-Requested-With": "fetch",
-    },
-    body,
-  });
-  const payload = await response.json();
-  if (!response.ok || payload.degraded) {
-    throw new Error(payload.error || payload.message || "Locate command failed.");
-  }
-  return payload;
-}
-
-function clearLocateUi(cellId) {
-  const activeLocate = activeLocates.get(String(cellId));
-  if (!activeLocate) {
-    return;
-  }
-  window.clearTimeout(activeLocate.timeoutId);
-  setLocateButtonState(activeLocate.button, false);
-  activeLocates.delete(String(cellId));
-}
-
-function clearAllLocateUi() {
-  for (const cellId of Array.from(activeLocates.keys())) {
-    clearLocateUi(cellId);
-  }
-}
-
-function activeLocateCellIds() {
-  return Array.from(activeLocates.keys());
-}
-
-function locateClearAllBody() {
-  const body = new URLSearchParams();
-  body.set("active", "0");
-  body.set("cell_ids", activeLocateCellIds().join(","));
-  return body;
-}
-
-function sendLocateClearAll({ beacon = true } = {}) {
-  const body = locateClearAllBody();
-  if (navigator.sendBeacon) {
-    const blob = new Blob([body.toString()], {
-      type: "application/x-www-form-urlencoded; charset=UTF-8",
-    });
-    if (beacon && navigator.sendBeacon("/api/cells/locate/clear-all", blob)) {
-      return Promise.resolve();
-    }
-  }
-
-  return fetch("/api/cells/locate/clear-all", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "X-Requested-With": "fetch",
-    },
-    body,
-    keepalive: true,
-  }).catch(() => {});
-}
 
 function formLedClearBody(form) {
   const body = new URLSearchParams(new FormData(form));
@@ -3677,6 +3551,10 @@ function sendProductFindLedClearEndpoint(endpoint, { beacon = true, body = new U
 }
 
 function catalogProductQuantityKey(button) {
+  if (button?.matches?.("[data-locate-cell], [data-adjustment-locate-cell]")) {
+    const cellId = button.dataset.cellId || button.closest("form")?.querySelector('input[name="cell_id"]')?.value;
+    return cellId ? `cell:${cellId}:locate` : "";
+  }
   const explicitKey = String(button?.dataset.quantityKey || "").trim();
   if (explicitKey) {
     return explicitKey;
@@ -3694,15 +3572,16 @@ function setCatalogProductQuantityButtonState(button, active) {
     button.dataset.quantityOriginalTitle = button.getAttribute("title") || "";
   }
   const label = active
-    ? button.dataset.activeLabel || "Showing Quantity"
-    : button.dataset.showLabel || "Show Quantity";
+    ? button.dataset.activeLabel || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Locating" : "Showing Quantity")
+    : button.dataset.showLabel || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Locate" : "Show Quantity");
   button.classList.toggle("count-button-active", active);
+  if (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]")) button.classList.toggle("locate-button-active", active);
   button.setAttribute("aria-pressed", active ? "true" : "false");
   button.textContent = label;
   if (active) {
     button.setAttribute(
       "title",
-      button.dataset.activeTitle || "Showing this product's quantity on every mapped LED. Click to clear.",
+      button.dataset.activeTitle || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Location light is on. Click to stop locating." : "Showing this product's quantity on every mapped LED. Click to clear."),
     );
   } else if (button.dataset.quantityOriginalTitle) {
     button.setAttribute("title", button.dataset.quantityOriginalTitle);
@@ -3710,7 +3589,7 @@ function setCatalogProductQuantityButtonState(button, active) {
 }
 
 function syncCatalogProductQuantityButtons() {
-  document.querySelectorAll("[data-show-product-quantity], [data-show-location-count]").forEach((button) => {
+  document.querySelectorAll("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell]").forEach((button) => {
     const active =
       activeCatalogProductQuantity &&
       activeCatalogProductQuantity.key === catalogProductQuantityKey(button);
@@ -3718,14 +3597,20 @@ function syncCatalogProductQuantityButtons() {
   });
 }
 
-function confirmQuantityOverride(conflicts = []) {
+function confirmQuantityOverride(conflicts = [], locating = false) {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
     dialog.className = "quantity-override-dialog";
     dialog.setAttribute("aria-labelledby", "quantity-override-title");
     dialog.innerHTML = `<h2 id="quantity-override-title">Show quantities?</h2><p>Are you sure you want to see quantities of selected products?</p><p data-conflict-detail></p><label><input type="checkbox" />Yes, I want to override the current PICK/PUT task</label><div class="modal-actions"><button type="button" class="ghost-button" data-cancel>Cancel</button><button type="button" class="blue-button" data-confirm disabled>Show quantities anyways</button></div>`;
+    if (locating) {
+      dialog.querySelector("h2").textContent = "Locate this cell?";
+      dialog.querySelector("p").textContent = "This temporarily replaces the PICK/PUT light at this location.";
+      dialog.querySelector("[data-confirm]").textContent = "Locate anyway";
+    }
     const taskIds = [...new Set(conflicts.map((entry) => Number(entry.taskId)).filter(Number.isInteger))];
     dialog.querySelector("[data-conflict-detail]").textContent = `This temporarily replaces the lights for ${taskIds.length ? taskIds.slice(0, 5).map((id) => `Task #${id}`).join(", ") : "active PICK/PUT work"}${taskIds.length > 5 ? ` and ${taskIds.length - 5} more` : ""}. The task lights return when quantity display ends.`;
+    if (locating) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "Locate ends");
     const checkbox = dialog.querySelector('input[type="checkbox"]');
     const confirm = dialog.querySelector("[data-confirm]");
     checkbox.addEventListener("change", () => { confirm.disabled = !checkbox.checked; });
@@ -3734,11 +3619,14 @@ function confirmQuantityOverride(conflicts = []) {
     dialog.addEventListener("close", () => { const accepted = dialog.returnValue === "confirm"; dialog.remove(); resolve(accepted); }, { once: true });
     document.body.append(dialog);
     dialog.showModal();
+    pageScope?.own(() => { if (dialog.isConnected) dialog.close("cancel"); });
   });
 }
 
 async function activateCatalogProductQuantity(button, { previewOnly = false, overrideWork = false } = {}) {
-  const endpoint = button.dataset.activateEndpoint;
+  const locating = button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]");
+  const cellId = button.dataset.cellId || (locating ? button.closest("form")?.querySelector('input[name="cell_id"]')?.value : "");
+  const endpoint = button.dataset.activateEndpoint || (locating && cellId ? `/api/cells/${encodeURIComponent(cellId)}/locate` : "");
   if (!endpoint) {
     throw new Error("Quantity display endpoint is unavailable.");
   }
@@ -3747,6 +3635,7 @@ async function activateCatalogProductQuantity(button, { previewOnly = false, ove
   body.set("requestId", crypto.randomUUID());
   body.set("promptOnBusy", "1");
   if (button.dataset.displayKind) body.set("displayKind", button.dataset.displayKind);
+  if (locating) { body.set("kind", "locate"); body.set("displayKind", "locate"); body.set("cellId", cellId); }
   if (button.dataset.productId) body.set("product_id", button.dataset.productId);
   if (previewOnly) body.set("previewOnly", "1");
   if (overrideWork) {
@@ -3786,9 +3675,19 @@ function wireCatalogProductQuantity() {
     return;
   }
   document.documentElement.dataset.catalogProductQuantityBound = "true";
+  pageScope?.own(() => { delete document.documentElement.dataset.catalogProductQuantityBound; });
+  if (typeof MutationObserver === "function") {
+    const selector = "[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell]";
+    const observer = new MutationObserver(records => {
+      if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector))))) syncCatalogProductQuantityButtons();
+    });
+    const content = document.querySelector(".page-body");
+    if (content) observer.observe(content, {childList:true, subtree:true});
+    pageScope?.own(() => observer.disconnect());
+  }
 
   onPage(document,"click", async (event) => {
-    const button = event.target.closest("[data-show-product-quantity], [data-show-location-count]");
+    const button = event.target.closest("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell]");
     if (!button || button.disabled) {
       return;
     }
@@ -3796,25 +3695,28 @@ function wireCatalogProductQuantity() {
     if (!quantityKey) {
       return;
     }
+    event.preventDefault();
+    const locating = button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]");
     const togglingActive =
       activeCatalogProductQuantity &&
       activeCatalogProductQuantity.key === quantityKey;
     setButtonLoading(button, true, {
-      label: togglingActive ? "Clearing" : button.dataset.ledLoadingLabel || "Showing",
-      title: togglingActive ? "Clearing product quantities from the LEDs" : "Showing product quantities on the LEDs",
+      label: togglingActive ? "Clearing" : button.dataset.ledLoadingLabel || (locating ? "Locating" : "Showing"),
+      title: togglingActive ? "Clearing the light display" : locating ? "Lighting this location" : "Showing product quantities on the LEDs",
     });
 
     try {
       if (togglingActive) {
         await clearCatalogProductQuantity(activeCatalogProductQuantity);
         activeCatalogProductQuantity = null;
+        setButtonLoading(button, false);
         syncCatalogProductQuantityButtons();
         return;
       }
       const preview = await activateCatalogProductQuantity(button, { previewOnly: true });
       let overrideWork = false;
       if (preview.state === "confirmation_required") {
-        overrideWork = await confirmQuantityOverride(preview.conflicts);
+        overrideWork = await confirmQuantityOverride(preview.conflicts, locating);
         if (!overrideWork) return;
       }
       if (activeCatalogProductQuantity) {
@@ -3824,14 +3726,14 @@ function wireCatalogProductQuantity() {
       }
       let payload = await activateCatalogProductQuantity(button, { overrideWork });
       if (payload.state === "confirmation_required") {
-        overrideWork = await confirmQuantityOverride(payload.conflicts);
+        overrideWork = await confirmQuantityOverride(payload.conflicts, locating);
         if (!overrideWork) return;
         payload = await activateCatalogProductQuantity(button, { overrideWork: true });
       }
       if (!payload.displayId || !payload.targets?.some((target) => target.status === "sent")) throw new Error(payload.message || "No location could show this quantity.");
       activeCatalogProductQuantity = {
         key: quantityKey,
-        clearEndpoint: button.dataset.clearEndpoint,
+        clearEndpoint: button.dataset.clearEndpoint || "/api/displays/stop",
         displayId: payload.displayId,
       };
       setButtonLoading(button, false);
@@ -3844,6 +3746,7 @@ function wireCatalogProductQuantity() {
       button.textContent = "Failed";
       button.disabled = true;
       button.setAttribute("title", error.message || "Product quantity display failed.");
+      globalThis.WarehouseNotifications?.notify(error.message || "The light could not be switched on. Try again.", {tone:"error"});
       setTimeout(() => {
         button.disabled = false;
         syncCatalogProductQuantityButtons();
@@ -3931,99 +3834,6 @@ function wireRecommendationLedCleanup() {
       }
       sendRecommendationLedClear(form);
     });
-  });
-}
-
-function wireLocationLocate() {
-  const page = document.querySelector("[data-location-page], [data-config-workspace]");
-  if (!page || page.dataset.locateBound === "true") {
-    return;
-  }
-  page.dataset.locateBound = "true";
-
-  page.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-locate-cell]");
-    if (!button) {
-      return;
-    }
-
-    const cellId = button.dataset.cellId;
-    if (!cellId || button.disabled) {
-      return;
-    }
-
-    const activeEntry = activeLocates.get(String(cellId));
-    setButtonLoading(button, true, {
-      label: activeEntry ? "Clearing" : "Sending",
-      title: activeEntry ? "Clearing locate command" : "Sending locate command",
-    });
-
-    try {
-      if (activeEntry) {
-        await sendLocateCommand(cellId, false);
-        setButtonLoading(button, false);
-        clearLocateUi(cellId);
-        return;
-      }
-
-      if (activeCounts.has(String(cellId))) {
-        await sendLocationCountClearCommand(cellId, { beacon: false });
-        clearCountUi(cellId);
-      }
-
-      await sendLocateCommand(cellId, true);
-      setButtonLoading(button, false);
-      setLocateButtonState(button, true);
-      activeLocates.set(String(cellId), {
-        button,
-        timeoutId: setTimeout(() => {
-          if (!activeLocates.has(String(cellId))) {
-            return;
-          }
-          sendLocateCommand(cellId, false).catch(() => {}).finally(() => clearLocateUi(cellId));
-        }, LOCATION_LOCATE_TIMEOUT_MS),
-      });
-    } catch (error) {
-      setButtonLoading(button, false);
-      button.textContent = "Failed";
-      setTimeout(() => {
-        if (!activeLocates.has(String(cellId))) {
-          setLocateButtonState(button, false);
-        }
-      }, 1400);
-    } finally {
-      setButtonLoading(button, false);
-    }
-  });
-
-  onPage(document,
-    "click",
-    async (event) => {
-      const link = event.target.closest("a[href]");
-      if (globalThis.WarehouseNavigation || !link || activeLocates.size === 0) {
-        return;
-      }
-      if (link.target || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-        return;
-      }
-
-      const nextUrl = new URL(link.href, window.location.href);
-      if (nextUrl.origin !== window.location.origin || nextUrl.pathname === window.location.pathname) {
-        return;
-      }
-
-      event.preventDefault();
-      await sendLocateClearAll({ beacon: false });
-      clearAllLocateUi();
-      window.location.href = nextUrl.href;
-    },
-    { capture: true },
-  );
-
-  pageScope?.beforeLeave(async()=>{if(activeLocates.size){await sendLocateClearAll({beacon:false});clearAllLocateUi();}});
-  onPage(window,"pagehide", () => {
-    sendLocateClearAll();
-    clearAllLocateUi();
   });
 }
 
@@ -4154,6 +3964,7 @@ function wireLocationUtilityActions() {
     return;
   }
   bindingTarget.dataset.locationUtilityActionsBound = "true";
+  pageScope?.own(() => { delete bindingTarget.dataset.locationUtilityActionsBound; });
 
   onPage(document,"click", async (event) => {
     const legacyCountButton = event.target.closest("[data-show-location-count]");
@@ -4186,11 +3997,6 @@ function wireLocationUtilityActions() {
             label: countButton.dataset.ledLoadingLabel || "Showing",
             title: countButton.dataset.ledLoadingTitle || "Showing quantity on LED",
           });
-        }
-
-        if (activeLocates.has(String(cellId))) {
-          await sendLocateCommand(cellId, false);
-          clearLocateUi(cellId);
         }
 
         await sendLocationCountCommand(cellId, productId);
@@ -4862,7 +4668,6 @@ function mountPage() {
   wireAdjustmentForms();
   wirePutPlanForms();
   wireFirmwareFlash();
-  wireLocationLocate();
   wireLocationUtilityActions();
   wireCatalogProductQuantity();
   wireControllerHealthForms();

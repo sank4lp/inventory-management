@@ -89,6 +89,29 @@ test('confirmed quantity override restores the same PICK guidance when stopped o
   assert.ok(f.writes.slice(beforeStop).filter(line=>/digit 1 "2" green/.test(line)).length>=2);
  }finally{f.end();}
 });
+for(const ending of ['stop','expire'])test(`Locate overrides PICK/PUT only after confirmation and restores its guidance on ${ending}`,()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],8);const task=f.work.task(f.op,f.create(f.op,'pick',2).taskId);
+  let time=new Date();const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work,clock:()=>time});
+  const scope={kind:'locate',cellId:f.cells[0].id},before=f.writes.length;
+  const preview=display.start(f.admin,scope,{previewOnly:true,promptOnBusy:true});assert.equal(preview.state,'confirmation_required');assert.equal(preview.conflicts[0].taskId,task.id);assert.equal(f.writes.length,before);
+  assert.throws(()=>display.start(f.admin,{...scope,overrideWork:true}),/Confirm/);assert.equal(f.writes.length,before);
+  const shown=display.start(f.admin,{...scope,overrideWork:true},{confirmOverride:true});assert.equal(shown.targets[0].status,'sent');assert.equal(shown.targets[0].value,'LOC');assert.match(f.writes.at(-1),/text 1 "LOC" yellow/);
+  assert.throws(()=>display.stop(f.op,shown.id),/another operator/);
+  const n=f.writes.length;if(ending==='stop')display.stop(f.admin,shown.id);else{time=new Date(time.getTime()+121000);display.expire();}
+  assert.ok(f.writes.slice(n).some(s=>/digit 1 "2" green/.test(s)));assert.equal(f.work.task(f.op,task.id).lines[0].guidance.state,'sent');
+  const after=f.writes.length;display.stop(f.admin,shown.id);assert.equal(f.writes.length,after,'duplicate stop does not clear restored task lights');
+ }finally{f.end();}
+});
+test('Locate preserves active stocktake lights and cannot clear newer work',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],8);const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work});
+  const old=display.start(f.admin,{kind:'locate',cellId:f.cells[0].id});const task=f.work.task(f.op,f.create(f.op,'pick',2).taskId),before=f.writes.length;
+  display.stop(f.admin,old.id);assert.equal(f.writes.length,before);assert.equal(f.work.task(f.op,task.id).lines[0].guidance.state,'sent');
+  f.command(f.op,'cancel',{lineId:task.lines[0].id,revision:task.lines[0].revision});const count=countFixture(f);count.begin();const n=f.writes.length;
+  const blocked=display.start(f.admin,{kind:'locate',cellId:f.cells[0].id,overrideWork:true},{confirmOverride:true});assert.equal(blocked.targets[0].status,'busy');assert.equal(f.writes.length,n);display.stop(f.admin,blocked.id);assert.equal(f.writes.length,n);
+ }finally{f.end();}
+});
 test('mixed-product quantity display alternates readable colors while a selected product remains distinct',()=>{
  const f=fixture();try{
   const other=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.product.id);

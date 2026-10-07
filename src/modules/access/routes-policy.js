@@ -51,7 +51,7 @@ export function permittedMarkup(html,user) {
     if(omitted){if(tag?.[2].toLowerCase()===omitted){depth+=tag[1]?-1:1;if(depth===0)omitted=null;}return '';}
     if(!tag||tag[1])return token;
     const name=tag[2].toLowerCase();if(!['a','form','button'].includes(name))return token;
-    const attributePermissions={'data-show-product-quantity':'locations.quantity','data-show-location-count':'locations.quantity','data-ping-cell':'locations.locate','data-locate-cell':'locations.locate','data-location-mode':'locations.mode'};
+    const attributePermissions={'data-show-product-quantity':'locations.quantity','data-show-location-count':'locations.quantity','data-ping-cell':'locations.locate','data-locate-cell':'locations.locate','data-adjustment-locate-cell':'locations.locate','data-location-mode':'locations.mode'};
     const permission=Object.entries(attributePermissions).find(([attr])=>new RegExp('\\b'+attr+'(?:[\\s=>])').test(token))?.[1];
     if(permission&&!can(user,permission)){omitted=name;depth=1;return '';}
     const section=token.match(/data-config-section-link="([^"]+)"/);

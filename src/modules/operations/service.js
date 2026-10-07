@@ -1096,7 +1096,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(!l.controller_id||!l.hardware_channel)return {state:'manual',message:'Manual location — follow the cell name and quantity on your screen.'};
     const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(l.cell_id),d=row?JSON.parse(row.desired):null;
     if(!owner)return {state:'blocked',message:'This task is not eligible for light guidance. Refresh its assignment and permissions.'};
-    if(overridingQuantityDisplay(l.cell_id))return {state:'manual',message:'Light temporarily shows stock quantities. Use the task instructions on screen; task guidance returns when that display ends.'};
+    if(overridingQuantityDisplay(l.cell_id))return {state:'manual',message:'Light temporarily shows another display. Use the task instructions on screen; task guidance returns when that display ends.'};
     if(!row.delivered||d.binding!==guidanceBinding(db,l.cell_id))return {state:'manual',message:'Light not confirmed sent — follow the cell name and quantity on your screen.'};
     return d.action==='locate'?{state:'shared',message:'Your task owns this locator — use your action and quantity on screen.'}:{state:'sent',message:`Quantity guidance sent: ${l.planned_quantity} ${l.unit_of_measure}. Check the cell label on arrival.`};
   }
