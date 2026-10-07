@@ -777,8 +777,9 @@ export function createLocationPages({ db }) {
                     title="Locate ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
                   >Locate</button>
                   <button
-                    type="submit"
-                    form="cell-ping-${cell.id}"
+                    type="button"
+                    data-ping-cell
+                    data-cell-id="${cell.id}"
                     class="green-button ping-button"
                     data-led-command-submit
                     data-led-loading-label="Pinging"
@@ -896,7 +897,8 @@ export function createLocationPages({ db }) {
             <button
               type="submit"
               class="green-button ping-button"
-              data-led-command-submit
+              data-ping-controller
+              data-controller-id="${controller.id}"
               data-led-loading-label="Pinging"
               data-led-loading-title="Pinging ${escapeHtml(controller.controller_code)} modules"
               title="Ping all LED modules on ${escapeHtml(controller.controller_code)}"

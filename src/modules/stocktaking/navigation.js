@@ -23,7 +23,7 @@ export function phaseTwoNavigation(request,response,url,user,state) {
     state.displayCoordinator.start(user,{kind:'recommendation',cellIds,instructions,productId:Number(f.product_id),recommendationKey:f.recommendation_key},{requestId:(f.requestId||randomUUID())+'-light-'+String(f.light_move_index)});
     sendRedirect(response,'/recommended-actions?key='+encodeURIComponent(f.recommendation_key));return true;
   }
-  if(request.method==='POST'&&['/recommended-actions/light-cell/clear','/recommended-actions/clear-leds'].includes(url.pathname)){if(!ensureAuth(response,user))return true;sendRedirect(response,'/quantities');return true;}
+  if(request.method==='POST'&&['/recommended-actions/light-cell/clear','/recommended-actions/clear-leds'].includes(url.pathname)){if(!ensureAuth(response,user))return true;sendRedirect(response,'/recommended-actions');return true;}
   if(request.method!=='GET')return false;
   if(url.pathname==='/settings'||url.pathname==='/admin') {
     if(!ensureAuth(response,user))return true;

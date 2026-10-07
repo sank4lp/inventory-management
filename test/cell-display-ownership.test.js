@@ -237,3 +237,22 @@ test('Ping emits a green outward blink for five seconds then restores PICK guida
   const n=f.writes.length;display.stop(f.admin,started.id);assert.equal(f.writes.length,n);
  }finally{f.end();}
 });
+
+
+test('Show all quantities sends numeric zero to empty mapped cells, including explicit zero balances',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],3);f.stock(f.cells[1],0);
+  const before=f.db.prepare('SELECT * FROM inventory_balances').all();
+  const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work});
+  const result=display.start(f.admin,{kind:'quantity'});
+  const mapped=result.targets.filter(t=>f.cells.some(c=>c.id===t.cellId));
+  assert.equal(mapped.length,8);assert.ok(mapped.every(t=>t.status==='sent'&&t.numeric));
+  assert.equal(mapped.find(t=>t.cellId===f.cells[0].id).value,3);
+  for(const c of f.cells.slice(1)){
+   assert.equal(mapped.find(t=>t.cellId===c.id).value,0);
+   const ch=f.cells.findIndex(v=>v.id===c.id)+1;
+   assert.ok(f.writes.some(s=>s===`to GUIDE text ${ch} "0" yellow 120 100`));
+  }
+  assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),before);display.stop(f.admin,result.id);
+ }finally{f.end();}
+});

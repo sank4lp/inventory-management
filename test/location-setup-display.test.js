@@ -43,17 +43,25 @@ test('zero declared outputs cannot begin setup despite existing mappings and do 
  assert.ok(mapped.length>0);assert.throws(()=>f.command('start',{controllerId:f.controller.id}),/output count/);assert.equal(f.setup.snapshot(f.admin).sessions.length,0);assert.deepEqual(f.db.prepare('SELECT id,controller_id,hardware_channel FROM cells WHERE controller_id=?').all(f.controller.id),mapped);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n,events);f.db.close();
 });
 
-test('opening quantity scopes only reads balances and selecting a product stays distinct from starting a display',async()=>{
+test('retired quantity page returns to normal product or location pages without displaying or changing stock',async()=>{
  const f=fixture(),{displayRoutes}=await import('../src/modules/stocktaking/display-routes.js');
- const c=f.db.prepare('SELECT * FROM cells LIMIT 1').get(),p=f.db.prepare('SELECT * FROM products LIMIT 1').get();
- f.db.prepare('UPDATE inventory_balances SET available_quantity=3,reserved_quantity=3 WHERE cell_id=? AND product_id=?').run(c.id,p.id);
- const balances=f.db.prepare('SELECT * FROM inventory_balances').all(),events=f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n;
- const render=(query,user=f.op)=>{const res={body:'',writeHead(){},end(v){this.body=v;}};assert.equal(displayRoutes({method:'GET'},res,new URL('http://localhost/quantities'+query),user,{displayCoordinator:f.display}),true);return res.body;};
- const selected=render(`?cellId=${c.id}&productId=${p.id}`);
- assert.match(selected,/On shelf 3 · Reserved 3 · Available to pick 0/);assert.match(selected,/Selected product at this location/);assert.match(selected,/Start quantity display/);assert.doesNotMatch(selected,/Show this product on LED|Select this product at this location/);
- assert.match(render(`?cellId=${c.id}`),/Select this product at this location/);
- assert.match(render(`?productId=${p.id}`),/Selected product across its locations/);
- assert.match(render(''),/Entire warehouse/);assert.match(render(`?kind=locate&cellId=${c.id}`),/Start locator display/);
- const readOnly={...f.op,capabilities:['locations.view']};assert.doesNotMatch(render(`?cellId=${c.id}&productId=${p.id}`,readOnly),/data-display-start/);
- assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),balances);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n,events);f.db.close();
+ const before=f.db.prepare('SELECT * FROM inventory_balances').all(),events=f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n;
+ for(const [query,path] of [['','/cells'],['?cellId=1','/cells/1'],['?productId=2','/products/2']]){
+  const res={body:'',writeHead(code,headers){this.code=code;this.headers=headers;},end(body){this.body=body||'';}};
+  assert.equal(displayRoutes({method:'GET'},res,new URL('http://localhost/quantities'+query),f.op,{displayCoordinator:f.display}),true);
+  assert.equal(res.code,302);assert.equal(res.headers.Location,path);assert.doesNotMatch(res.body,/Quantity display|data-display-console/);
+ }
+ assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),before);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n,events);f.db.close();
+});
+
+test('controller Ping responds inline with a five-second receipt and can stop without navigation',async()=>{
+ const f=fixture(),{displayRoutes}=await import('../src/modules/stocktaking/display-routes.js');
+ const call=(path,form)=>{const res={writeHead(code,headers){this.code=code;this.headers=headers;},end(body){this.body=JSON.parse(body);}};displayRoutes({method:'POST',headers:{accept:'application/json'},parsedForm:form},res,new URL('http://localhost'+path),f.admin,{db:f.db,displayCoordinator:f.display});return res;};
+ const before=f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n;
+ const preview=call('/devices/controller-ping',{controller_id:f.controller.id,previewOnly:'1',promptOnBusy:'1'});
+ assert.equal(preview.body.state,'ready');assert.equal(f.db.prepare('SELECT COUNT(*) n FROM device_events').get().n,before);
+ const active=call('/devices/controller-ping',{controller_id:f.controller.id,promptOnBusy:'1'});
+ assert.equal(active.code,200);assert.equal(active.headers.Location,undefined);assert.ok(active.body.displayId);assert.ok(active.body.targets.some(t=>t.status==='sent'));
+ const row=f.db.prepare('SELECT * FROM display_requests WHERE id=?').get(active.body.displayId);assert.equal(Date.parse(row.expires_at)-Date.parse(row.created_at),5000);
+ const stopped=call('/api/displays/stop',{displayId:active.body.displayId});assert.equal(stopped.code,200);assert.equal(f.db.prepare('SELECT state FROM display_requests WHERE id=?').get(active.body.displayId).state,'stopped');f.db.close();
 });

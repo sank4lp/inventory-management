@@ -34,6 +34,17 @@ test("Products summary and out-of-stock checkbox preserve catalog actions", () =
     assert.match(catalog, /Show Quantity/);
     assert.match(catalog, /href="\/pick\?product_id=/);
     assert.match(catalog, /href="\/put\?product_id=/);
+    const stockedHtml = pages.renderProducts(user, null, "Stocked Test", false, new URL("http://localhost/products?inStock=1&q=Stocked%20Test"));
+    const stockedCatalog = stockedHtml.split('id="catalog-product-results">')[1].split("</tbody>")[0];
+    assert.match(stockedHtml, /name="inStock" value="1" checked/);
+    assert.match(stockedHtml, /Show In Stock Products Only/);
+    assert.match(stockedCatalog, /Stocked Test Product/);
+    assert.doesNotMatch(stockedCatalog, /Empty Test Product/);
+    const emptyWarehouse=()=>{db.exec('UPDATE inventory_balances SET available_quantity=0, reserved_quantity=0');return pages.renderProducts(user, null, "", false, new URL("http://localhost/products"));};
+    const allZeroHtml=emptyWarehouse();
+    const showAll=allZeroHtml.match(/<button[\s\S]*?data-quantity-key="catalog-audit"[\s\S]*?<\/button>/)[0];
+    assert.doesNotMatch(showAll,/disabled aria-disabled/);
+
   } finally {
     db.close();
     process.chdir(previousDirectory);

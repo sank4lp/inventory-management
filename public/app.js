@@ -364,8 +364,11 @@ function wireLiveSearch() {
 
 function wireProductStockFilter() {
   const form = document.querySelector("[data-product-stock-filter]");
-  const checkbox = form?.querySelector('input[name="outOfStock"]');
-  checkbox?.addEventListener("change", () => form.requestSubmit());
+  const checkboxes = form?.querySelectorAll('input[name="outOfStock"], input[name="inStock"]') || [];
+  checkboxes.forEach(checkbox => checkbox.addEventListener("change", () => {
+    if (checkbox.checked) checkboxes.forEach(other => { if (other !== checkbox) other.checked = false; });
+    form.requestSubmit();
+  }));
 }
 
 function wireQuantityShortcuts() {
@@ -3551,6 +3554,7 @@ function sendProductFindLedClearEndpoint(endpoint, { beacon = true, body = new U
 }
 
 function catalogProductQuantityKey(button) {
+  if (button?.matches?.("[data-ping-controller]")) return button.dataset.controllerId ? `controller:${button.dataset.controllerId}:ping` : "";
   if (button?.matches?.("[data-ping-cell]")) return button.dataset.cellId ? `cell:${button.dataset.cellId}:ping` : "";
   if (button?.matches?.("[data-locate-cell], [data-adjustment-locate-cell]")) {
     const cellId = button.dataset.cellId || button.closest("form")?.querySelector('input[name="cell_id"]')?.value;
@@ -3572,7 +3576,7 @@ function setCatalogProductQuantityButtonState(button, active) {
   if (!("quantityOriginalTitle" in button.dataset)) {
     button.dataset.quantityOriginalTitle = button.getAttribute("title") || "";
   }
-  const pinging = button.matches?.("[data-ping-cell]");
+  const pinging = button.matches?.("[data-ping-cell], [data-ping-controller]");
   const label = pinging ? (active ? "Pinging" : "Ping") : active
     ? button.dataset.activeLabel || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Locating" : "Showing Quantity")
     : button.dataset.showLabel || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Locate" : "Show Quantity");
@@ -3591,7 +3595,7 @@ function setCatalogProductQuantityButtonState(button, active) {
 }
 
 function syncCatalogProductQuantityButtons() {
-  document.querySelectorAll("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell]").forEach((button) => {
+  document.querySelectorAll("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell], [data-ping-controller]").forEach((button) => {
     const active =
       activeCatalogProductQuantity &&
       activeCatalogProductQuantity.key === catalogProductQuantityKey(button);
@@ -3632,10 +3636,10 @@ function confirmQuantityOverride(conflicts = [], locating = false, pinging = fal
 }
 
 async function activateCatalogProductQuantity(button, { previewOnly = false, overrideWork = false } = {}) {
-  const pinging = button.matches?.("[data-ping-cell]");
+  const pinging = button.matches?.("[data-ping-cell], [data-ping-controller]");
   const locating = button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]");
   const cellId = button.dataset.cellId || (locating ? button.closest("form")?.querySelector('input[name="cell_id"]')?.value : "");
-  const endpoint = button.dataset.activateEndpoint || ((locating || pinging) && cellId ? `/api/cells/${encodeURIComponent(cellId)}/${pinging ? "ping" : "locate"}` : "");
+  const endpoint = button.dataset.activateEndpoint || (pinging && button.dataset.controllerId ? "/devices/controller-ping" : "") || ((locating || pinging) && cellId ? `/api/cells/${encodeURIComponent(cellId)}/${pinging ? "ping" : "locate"}` : "");
   if (!endpoint) {
     throw new Error("Quantity display endpoint is unavailable.");
   }
@@ -3645,6 +3649,7 @@ async function activateCatalogProductQuantity(button, { previewOnly = false, ove
   body.set("promptOnBusy", "1");
   if (button.dataset.displayKind) body.set("displayKind", button.dataset.displayKind);
   if (locating || pinging) { const kind=pinging?"ping":"locate";body.set("kind",kind);body.set("displayKind",kind);body.set("cellId",cellId); }
+  if (button.dataset.controllerId) body.set("controller_id", button.dataset.controllerId);
   if (button.dataset.productId) body.set("product_id", button.dataset.productId);
   if (previewOnly) body.set("previewOnly", "1");
   if (overrideWork) {
@@ -3686,7 +3691,7 @@ function wireCatalogProductQuantity() {
   document.documentElement.dataset.catalogProductQuantityBound = "true";
   pageScope?.own(() => { delete document.documentElement.dataset.catalogProductQuantityBound; });
   if (typeof MutationObserver === "function") {
-    const selector = "[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell]";
+    const selector = "[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell], [data-ping-controller]";
     const observer = new MutationObserver(records => {
       if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector))))) syncCatalogProductQuantityButtons();
     });
@@ -3696,7 +3701,7 @@ function wireCatalogProductQuantity() {
   }
 
   onPage(document,"click", async (event) => {
-    const button = event.target.closest("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell]");
+    const button = event.target.closest("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell], [data-ping-controller]");
     if (!button || button.disabled) {
       return;
     }
@@ -3706,7 +3711,7 @@ function wireCatalogProductQuantity() {
     }
     event.preventDefault();
     event.stopImmediatePropagation?.();
-    const pinging = button.matches?.("[data-ping-cell]");
+    const pinging = button.matches?.("[data-ping-cell], [data-ping-controller]");
     const locating = button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]");
     const togglingActive =
       activeCatalogProductQuantity &&
@@ -4039,7 +4044,7 @@ function wireLocationUtilityActions() {
       return;
     }
 
-    const pingButton = event.target.closest("[data-ping-cell]");
+    const pingButton = event.target.closest("[data-ping-cell], [data-ping-controller]");
     if (!pingButton || pingButton.disabled) {
       return;
     }

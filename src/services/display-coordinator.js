@@ -64,7 +64,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     if(input.previewOnly)return {state:conflicts.length?'confirmation_required':'ready',conflicts:conflicts.map(row=>({cellId:row.cellId,taskId:row.owner.taskId,name:row.owner.name})),message:conflicts.length?'These cells are showing PICK/PUT work. Confirm before temporarily replacing those lights.':'Quantity display can start without replacing PICK/PUT lights.'};
     if(input.promptOnBusy&&!scope.overrideWork&&conflicts.length)return {state:'confirmation_required',conflicts:conflicts.map(row=>({cellId:row.cellId,taskId:row.owner.taskId,name:row.owner.name})),message:'These cells are showing PICK/PUT work. Confirm before temporarily replacing those lights.'};
     for(const row of rows) {
-      const c=row.cell,products=row.products;let status='ready',value='LOC',color=scope.kind==='locate'?'red':scope.kind==='ping'?'green':'yellow',sequence=null;
+      const c=row.cell,products=row.products;let status='ready',value=scope.kind==='quantity'?0:'LOC',color=scope.kind==='locate'?'red':scope.kind==='ping'?'green':'yellow',sequence=null;
       if(!c.controller_id||!c.hardware_channel)status='unmapped';else if(c.controller_active===0||c.heartbeat_status&&c.heartbeat_status!=='online')status='unreachable';
       if(numberDisplayKinds.has(scope.kind)){
         if(products.some(p=>p.uncertain))status=status==='ready'?'uncertain':status;

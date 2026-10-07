@@ -513,9 +513,9 @@ export function createProductPages({ db, productFieldService = null }) {
 
   function renderProductStatusReports(reports, generatedAt, reportFormat) {
     return `
-      <dl class="product-status-summary" aria-label="Product status lists">
+      <div class="product-status-container"><dl class="product-status-summary" aria-label="Product status lists">
         ${reports.map(productStatButton).join("")}
-      </dl>
+      </dl></div>
       <section class="report-template-library" hidden>
         ${reports.map((report) => productReportTemplate(report, generatedAt, reportFormat)).join("")}
       </section>
@@ -631,7 +631,7 @@ export function createProductPages({ db, productFieldService = null }) {
     const customFields = visibleCustomFields();
     const allProducts = enrichProductsWithStockTrends(listProducts(db));
     const matchingProductIds = new Set(listProducts(db, search).map((product) => Number(product.id)));
-    const selectedStatus=url.searchParams.get('outOfStock')==='1'?'out-of-stock':url.searchParams.get('status')||'catalog-items';
+    const selectedStatus=url.searchParams.get('outOfStock')==='1'?'out-of-stock':url.searchParams.get('inStock')==='1'?'in-stock':url.searchParams.get('status')||'catalog-items';
     const products = allProducts.filter(product => matchingProductIds.has(Number(product.id)) && (selectedStatus==='in-stock'?product.total_available>0:selectedStatus==='out-of-stock'?product.total_available<=0:selectedStatus==='low-stock'?product.is_low_stock:true));
     const stockedProducts = allProducts.filter((product) => Number(product.total_available || 0) > 0);
     const outOfStockProducts = allProducts.filter((product) => Number(product.total_available || 0) <= 0);
@@ -708,6 +708,7 @@ export function createProductPages({ db, productFieldService = null }) {
                     ${search ? `<input type="hidden" name="q" value="${escapeHtml(search)}" />` : ""}
                     ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
                     <label><input type="checkbox" name="outOfStock" value="1" ${selectedStatus === "out-of-stock" ? "checked" : ""} />Show Out of Stock Products</label>
+                    <label><input type="checkbox" name="inStock" value="1" ${selectedStatus === "in-stock" ? "checked" : ""} />Show In Stock Products Only</label>
                     <noscript><button type="submit">Apply</button></noscript>
                   </form>
                   <button
@@ -720,10 +721,9 @@ export function createProductPages({ db, productFieldService = null }) {
                     data-show-label="Show All Quantities"
                     data-active-label="Showing All Quantities"
                     data-led-loading-label="Showing All"
-                    data-active-title="Showing total available stock on every mapped stocked cell. Click to clear."
+                    data-active-title="Showing total available stock on every mapped cell. Click to clear."
                     aria-pressed="false"
-                    title="Show total available stock on every mapped stocked cell in yellow."
-                    ${stockedProducts.length ? "" : "disabled aria-disabled=\"true\""}
+                    title="Show total available stock on every mapped cell in yellow."
                   >Show all quantities — entire warehouse</button>
                 </div>
                 <div id="catalog-product-results">

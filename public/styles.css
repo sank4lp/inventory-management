@@ -1884,7 +1884,10 @@ button[disabled] {
   flex: 0 0 auto;
 }
 
+.product-status-container { container-type: inline-size; container-name: product-summary; }
 .product-status-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0 0 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1902,7 +1905,15 @@ button[disabled] {
   border-bottom: 1px solid var(--line);
 }
 
+.product-status-row { min-width: 0; border-inline-end: 1px solid var(--line); }
 .product-status-row:last-child { border-bottom: 0; }
+@container product-summary (max-width: 900px) {
+  .product-status-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container product-summary (max-width: 580px) {
+  .product-status-summary { grid-template-columns: minmax(0, 1fr); }
+  .product-status-row { border-inline-end: 0; }
+}
 .product-status-row:nth-child(odd) { background: #f5f8fa; }
 .product-status-row dt { margin: 0; color: var(--muted); font-size: 14px; font-weight: 650; }
 .product-status-row dd { display: grid; grid-template-columns: minmax(2ch,auto) 36px; align-items: center; gap: 12px; margin: 0; font-size: 15px; font-weight: 750; text-align: right; }
@@ -1925,7 +1936,7 @@ button[disabled] {
 .product-status-print:hover { background: var(--panel-soft); border-color: var(--primary); }
 .product-status-print svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-.product-stock-filter { display: flex; align-items: center; margin: 0; }
+.product-stock-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin: 0; }
 .product-stock-filter label { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; font-size: 13px; font-weight: 650; white-space: nowrap; }
 .product-stock-filter input { width: 16px; height: 16px; min-width: 16px; margin: 0; accent-color: #1c6553; }
 

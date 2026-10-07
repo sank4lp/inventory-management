@@ -30,3 +30,13 @@ All app lighting actions now resolve to 100% brightness, including restored patt
 Both firmware sketches now default to maximum brightness; the current sketch’s idle heartbeat also uses full red. App-command brightness takes effect after updating/restarting the Pi service; firmware defaults and idle heartbeat require flashing the updated sketch. Real LED intensity and firmware compilation/flashing remain unverified here (Arduino CLI is unavailable locally).
 
 Validation: 62 focused checks passed; the full suite passed 496 tests with zero failures/skips. RS485 command checks cover Pick, Put, quantity display, Locate and Ping at noon and night with legacy lower-brightness values supplied. Ownership/expiry/restoration regression tests remain passing. The isolated simulator preview was restarted on port 3210 with the new policy.
+
+## Inline Ping and Products follow-up
+
+- Hardware mapping Ping buttons now use the shared inline cell control instead of submitting the older hidden form. Controller Ping also uses an inline receipt with preview, stop and five-second expiry. These controls show Pinging and allow an early stop. Hardware-test permission is retained for controller Ping.
+- The standalone quantity-display screen is removed. Old bookmarks return to the normal product/location pages; current controls no longer navigate there. Recommended Actions retains its own status/stop controls.
+- Warehouse-wide Show All Quantities sends numeric 0 to empty mapped locations, whether they have no balance row or an explicit zero balance. It remains enabled even if every product is out of stock. Existing ownership and uncertainty protections remain.
+- Products adds Show In Stock Products Only. Selecting either stock checkbox clears the other; search remains available.
+- Product status summaries use an available-width container with three columns above 900px, two up to 900px and one up to 580px. Print controls remain available on each entry.
+
+Validation: full suite 498 passed, zero failed/skipped. Focused checks cover controller Ping JSON receipts, early stop, repeated navigation, empty-cell zero commands, product search with stock filtering and retired-page redirects without inventory changes. Browser checks verified mapping Ping stays at /devices#cell-mapping, returns to Ping after expiry and stops on a second click. Stock checkbox exclusivity, all three summary layouts and print controls were checked in the isolated preview. No browser warnings/errors observed. Actual Pi/LED verification remains a field check.

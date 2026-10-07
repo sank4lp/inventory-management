@@ -1959,7 +1959,7 @@ export function createReportsPages({ db }) {
         body: stockCompositionBody(
           { ...stockCompositionReport, groupBy: "product", labels: stockCompositionReport.labels || productLabels },
           { visualization: "bar", chartKey: "stock-snapshot" },
-        ) + (can(user, "locations.view") ? '<p class="report-availability-link"><a href="/quantities">View on-shelf, reserved and available-to-pick quantities</a></p>' : ""),
+        ) + (can(user, "locations.view") ? '<p class="report-availability-link"><a href="/cells">View stock by location</a></p>' : ""),
       },
       {
         key: "replenishment-watch",
