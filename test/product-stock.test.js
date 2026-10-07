@@ -23,9 +23,33 @@ test('fresh stock read separates recorded, held picks, incoming puts and compati
  // A stale denormalized number must never drive this summary.
  f.db.prepare('UPDATE inventory_balances SET reserved_quantity=99').run();const changes=f.db.prepare('SELECT total_changes() n').get().n;
  let writes=0;const work=createOperationsService({db:f.db,hardwareService:{activateGuidance(){writes++;return {ok:true};}}});
- const value=work.productStock(f.admin,{productId:f.p.id});assert.equal(value.recorded,12);assert.equal(value.pickReserved,5);assert.equal(value.incomingReserved,2);assert.equal(value.availableToPick,7);assert.equal(value.putCapacity,16);assert.equal(value.unit,f.p.unit_of_measure);assert.equal(value.reservationCount,3);assert.equal(value.reservations.length,3);assert.equal(value.detailScope,'team');
+ const value=work.productStock(f.admin,{productId:f.p.id});assert.equal(value.recorded,12);assert.equal(value.pickReserved,5);assert.equal(value.incomingReserved,2);assert.equal(value.availableToPick,7);assert.equal(value.putCapacity,16);assert.equal(value.spaceForMore,18);assert.equal(value.totalCapacity,30);assert.equal(value.unit,f.p.unit_of_measure);assert.equal(value.reservationCount,3);assert.equal(value.reservations.length,3);assert.equal(value.detailScope,'team');
  for(let i=0;i<3;i++)work.productStock(f.admin,{productId:f.p.id});assert.equal(f.db.prepare('SELECT total_changes() n').get().n,changes);assert.equal(writes,0);
  const response={writeHead(status,headers){this.status=status;this.headers=headers;},end(body){this.body=JSON.parse(body);}};await operationsRoutes({method:'GET'},response,new URL('http://test/api/work/productStock?productId='+f.p.id),f.op,{db:f.db,operationsService:work});assert.equal(response.status,200);assert.equal(response.headers['Cache-Control'],'no-store');assert.equal(response.body.availableToPick,7);assert.equal(routeAllowed(currentActor(f.db,f.op),'GET','/api/work/productStock'),true);
+ }finally{f.db.close();}
+});
+test('three current items, capacity five and five empty cells show room for 27 and total capacity 30',()=>{
+ const f=fixture();try{
+  const six=f.db.prepare('SELECT * FROM cells ORDER BY id LIMIT 6').all();
+  for(const c of six)f.db.prepare('UPDATE cells SET active=1 WHERE id=?').run(c.id);
+  f.db.prepare('UPDATE products SET items_per_cell=5 WHERE id=?').run(f.p.id);
+  f.stock(six[0],3);
+  f.create(f.op,'pick',2,six[0]);f.create(f.admin,'put',1,six[0]);
+  const s=f.read(f.admin);
+  assert.equal(s.recorded,3);assert.equal(s.spaceForMore,27);assert.equal(s.totalCapacity,30);
+  assert.equal(s.pickReserved,2);assert.equal(s.incomingReserved,1);assert.equal(s.putCapacity,26);
+  assert.equal(s.reservations.length,2);
+ }finally{f.db.close();}
+});
+test('physical capacity includes a mixed location’s spare share but excludes other-product-only locations',()=>{
+ const f=fixture();try{
+  const other=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.p.id);
+  f.db.prepare('UPDATE products SET items_per_cell=10 WHERE id=?').run(other.id);
+  f.stock(f.cells[0],4);
+  const add=f.db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,?,0)');
+  add.run(other.id,f.cells[0].id,3);add.run(other.id,f.cells[2].id,2);
+  const s=f.read(f.admin);
+  assert.equal(s.recorded,4);assert.equal(s.spaceForMore,13);assert.equal(s.totalCapacity,17);
  }finally{f.db.close();}
 });
 test('operator sees aggregate reservations but only own tasks; assignment capability alone does not grant team details',()=>{

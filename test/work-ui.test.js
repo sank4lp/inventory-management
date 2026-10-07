@@ -279,10 +279,10 @@ test('Work tools use snapshot capabilities online and offline, including older c
  for(const online of [true,false]){
   const ui=view({online,role:'custom'});
   ui.run("snapshot.capabilities={view:true};render()");
-  assert.match(ui.root.innerHTML,/href="\/"/);assert.match(ui.root.innerHTML,/href="\/recommended-actions"/);
+  assert.doesNotMatch(ui.root.innerHTML,/href="\/"/);assert.match(ui.root.innerHTML,/href="\/recommended-actions"/);
   assert.doesNotMatch(ui.root.innerHTML,/href="\/(?:stocktaking|cells|labels|work\/overview|pending-confirmations|work\/timing)"/);
   ui.run("snapshot.capabilities.countView=true;snapshot.capabilities.locationsView=true;render()");
-  assert.match(ui.root.innerHTML,/href="\/stocktaking"/);assert.equal(ui.run("allowed(workLinkCapability('/cells/1'))"),true);
+  assert.doesNotMatch(ui.root.innerHTML,/href="\/stocktaking"/);assert.equal(ui.run("allowed(workLinkCapability('/cells/1'))"),true);
  }
 });
 
@@ -303,7 +303,7 @@ test('My work live patch inserts arrivals first, preserves focused row and horiz
  ui.root.querySelector=s=>s==='[data-my-work-table]'?body:null;
  ui.context.fixture=tasks;ui.run('snapshot.tasks=fixture.slice(0,2)');rows=[2,1].map(id=>{ui.context.task=tasks[id-1];return makeRow(ui.run('myTaskRow(task)'));});
  const protectedNode=rows[1];const protectedAction=protectedNode.children.find(c=>c.hasAttribute('data-my-actions-cell'));protectedAction.innerHTML='Focused action and draft';active=protectedNode;ui.context.document.activeElement=protectedNode;
- ui.run('snapshot.tasks=[fixture[2],fixture[1],fixture[0]]');assert.equal(ui.run('patchMyWorkRows()'),64);assert.deepEqual(rows.map(r=>r.dataset.taskRow),['3','2','1']);assert.equal(rows[2],protectedNode);assert.equal(rows[2].children[10],protectedAction);assert.equal(protectedAction.innerHTML,'Focused action and draft');assert.notEqual(rows[2].children[5].innerHTML,'Focused action and draft');
+ ui.run('snapshot.tasks=[fixture[2],fixture[1],fixture[0]]');assert.equal(ui.run('patchMyWorkRows()'),64);assert.deepEqual(rows.map(r=>r.dataset.taskRow),['3','2','1']);assert.equal(rows[2],protectedNode);assert.equal(rows[2].children[11],protectedAction);assert.equal(protectedAction.innerHTML,'Focused action and draft');assert.notEqual(rows[2].children[5].innerHTML,'Focused action and draft');
  ui.run('snapshot.tasks=[fixture[2]];snapshot.watchedTasks=[{...fixture[0],completed_at:"2026-09-28",outcome:"completed"}]');ui.run('patchMyWorkRows()');assert.deepEqual(rows.map(r=>r.dataset.taskRow),['3','1']);assert.equal(rows[1],protectedNode);
  active=null;ui.context.document.activeElement=null;ui.run('patchMyWorkRows()');assert.deepEqual(rows.map(r=>r.dataset.taskRow),['3']);
 });
@@ -328,8 +328,8 @@ test('focused Start, next-task and action-dialog controls disable stale actions 
 
 test('Assign Work is a single open form with eight-hour default, actual-direction permissions and all account choices',()=>{
  for(const direction of ['pick','put']){
-  const ui=view({role:'custom'});ui.run(`snapshot.capabilities={view:true,assign:true,${direction}:true};snapshot.products=[{id:1,name:'Boots',sku:'B1',unit_of_measure:'pairs'}];snapshot.operators=[{id:1,name:'Admin',username:'admin',eligible:true,status:'active'},{id:2,name:'Custom',username:'custom',eligible:true,status:'active'},{id:3,name:'Reader',username:'reader',eligible:false,status:'active'},{id:4,name:'Inactive',username:'inactive',eligible:false,status:'inactive'}];path='/work/overview';render()`);
-  const html=ui.root.innerHTML;assert.match(html,/>Assign Work</);assert.match(html,/data-work-action="assign"/);assert.match(html,new RegExp('value="'+direction+'" checked'));assert.match(html,new RegExp('value="'+(direction==='pick'?'put':'pick')+'"  disabled'));assert.match(html,/name="dueDuration"[^>]+value="8"/);assert.match(html,/value="hours" selected/);assert.match(html,/value="days">Days/);assert.match(html,/value="3" disabled>Reader · reader — Cannot take tasks/);assert.match(html,/value="4" disabled>Inactive · inactive — Inactive/);assert.match(html,/>Assigned to<select/);assert.match(html,/>Assign Task</);
+  const ui=view({role:'custom'});ui.run(`snapshot.capabilities={view:true,assign:true,${direction}:true};snapshot.products=[{id:1,name:'Boots',sku:'B1',unit_of_measure:'pairs'}];snapshot.operators=[{id:1,name:'Admin',username:'admin',role_name:'Admin',assignedTaskCount:2,eligible:true,status:'active'},{id:2,name:'Custom',username:'custom',role_name:'Warehouse lead',assignedTaskCount:1,eligible:true,status:'active'},{id:3,name:'Reader',username:'reader',eligible:false,status:'active'},{id:4,name:'Inactive',username:'inactive',eligible:false,status:'inactive'}];path='/work/overview';render()`);
+  const html=ui.root.innerHTML;assert.match(html,/>Assign Work</);assert.match(html,/data-work-action="assign"/);assert.match(html,new RegExp('value="'+direction+'" checked'));assert.match(html,new RegExp('value="'+(direction==='pick'?'put':'pick')+'"  disabled'));assert.match(html,/name="dueDuration"[^>]+value="8"/);assert.match(html,/value="hours" selected/);assert.match(html,/value="days">Days/);assert.match(html,/value="3" disabled>Reader · reader · User · 0 assigned tasks — Cannot take tasks/);assert.match(html,/value="4" disabled>Inactive · inactive · User · 0 assigned tasks — Inactive/);assert.match(html,/>Assigned to<select/);assert.match(html,/Admin · admin · Admin · 2 assigned tasks/);assert.match(html,/Custom · custom · Warehouse lead · 1 assigned task</);assert.match(html,/>Assign Task</);
   assert.doesNotMatch(html,/data-task-table|Team task status|Workloads|productSearch|operatorSearch|name="dueAt"|name="note"|work-toolbar|work-footer/);
   ui.run("outbox=[{partition:key(),action:'assign',state:'error',input:{}}]");assert.match(ui.run('assignmentPage()'),/<button disabled>Waiting for warehouse confirmation/);
   ui.run('outbox=[];snapshot.products=[]');assert.match(ui.run('assignmentPage()'),/No active products available/);
@@ -415,7 +415,7 @@ test('own and team review entry never executes physical work; verified followup 
 });
 
 test('My Work and returned tables link products separately from tasks and respect product rights',()=>{
- const ui=view({role:'admin'});ui.context.t={id:66,type:'pick',assignee_id:1,assignment_state:'started',review_followup:1,attention:1,lines:[line]};for(const fn of ['myTaskRow','returnedRow']){let html=ui.run(fn+'(t)');assert.match(html,/href="\/products\/1"/);assert.match(html,/href="\/tasks\/66">#66 · Pick/);assert.doesNotMatch(html,/View check/);}ui.run('snapshot.capabilities={view:true,execute:true,productsView:false}');assert.doesNotMatch(ui.run('myTaskRow(t)'),/href="\/products/);assert.match(ui.run('home()'),/colspan="10"/);
+ const ui=view({role:'admin'});ui.context.t={id:66,type:'pick',assignee_id:1,assignment_state:'started',review_followup:1,attention:1,lines:[line]};for(const fn of ['myTaskRow','returnedRow']){let html=ui.run(fn+'(t)');assert.match(html,/href="\/products\/1"/);assert.match(html,/href="\/tasks\/66">#66 · Pick/);assert.doesNotMatch(html,/View check/);}ui.run('snapshot.capabilities={view:true,execute:true,productsView:false}');assert.doesNotMatch(ui.run('myTaskRow(t)'),/href="\/products/);assert.match(ui.run('home()'),/colspan="12"/);
 });
 test('recovery is a dialog-only form and its instruction generation and dataset belong in the draft identity',()=>{
  const ui=view();ui.context.l=line;assert.doesNotMatch(ui.run('lineCard(l)'),/data-work-action="report"/);const content=ui.run('recoveryDialogContent(l)');assert.match(content,/Actual quantity \(pieces\)/);assert.match(content,/Actual location/);assert.match(content,/What happened/);assert.match(content,/name="assignmentGeneration" value="1"/);
@@ -523,6 +523,29 @@ test('History shows assignee and a prefilled reopen form; hides recovery footer 
  const popup=ui.run('reopenTaskContent(task)');assert.match(popup,/name="productId"[^>]*><option value="1" selected>Part/);assert.match(popup,/name="quantity"[^>]*value="3"/);assert.match(popup,/value="2" selected/);assert.match(popup,/name="assigneeId"/);assert.match(popup,/data-searchable/);assert.match(popup,/value="8"/);assert.match(popup,/Create a linked pick task/);assert.doesNotMatch(popup,/name="actualQuantity|name="actualCell/);
  ui.run('task.remaining_quantity=0');assert.match(ui.run('reopenTaskContent(task)'),/name="quantity"[^>]*value="0"/);assert.match(ui.run('reopenTaskContent(task)'),/Nothing remains/);
  ui.run('task.reopened_task_id=91');assert.doesNotMatch(ui.run('myTaskRow(task)'),/data-task-reopen/);assert.match(ui.run('myTaskRow(task)'),/Reopened as #91/);
- ui.run("path='/work'");assert.doesNotMatch(ui.run('workTableHead()'),/Assigned To/);assert.equal((ui.run('myTaskRow(task)').match(/<td[ >]/g)||[]).length,11);
+ ui.run("path='/work'");assert.doesNotMatch(ui.run('workTableHead()'),/Assigned To/);assert.equal((ui.run('myTaskRow(task)').match(/<td[ >]/g)||[]).length,12);
  ui.run("path='/work/history';snapshot.user.role='operator';task.reopened_task_id=null");assert.doesNotMatch(ui.run('myTaskRow(task)'),/data-task-reopen/);
+});
+
+test('Work tabs retain role-scoped Record Movement and Recommended Actions, while labels and timing have their own homes',()=>{
+ const ui=view({role:'admin'});ui.run('render()');
+ assert.match(ui.root.innerHTML,/href="\/record-movement"[^>]*>Record Movement/);assert.match(ui.root.innerHTML,/href="\/recommended-actions"[^>]*>Recommended Actions/);
+ for(const href of ['/stocktaking','/labels','/work/timing','/movement-history','/work?reviewOnly=1'])assert.ok(!ui.run('workShortcuts()').includes(href));
+ assert.doesNotMatch(ui.root.innerHTML,/data-disclosure="my-work-tools"/);
+ ui.run("snapshot.capabilities={view:true,report:false};render()");assert.doesNotMatch(ui.root.innerHTML,/href="\/record-movement"/);
+ ui.run("snapshot.capabilities={labels:true,locationsView:true};path='/labels';render()");assert.match(ui.root.innerHTML,/aria-label="Location views"/);assert.doesNotMatch(ui.root.innerHTML,/aria-label="Work views"/);
+ ui.run("snapshot.capabilities={timing:true};snapshot.timing={minutes:480,inactivityMinutes:15};path='/work/timing';render()");assert.match(ui.root.innerHTML,/href="\/settings"/);assert.doesNotMatch(ui.root.innerHTML,/aria-label="Work views"/);
+ ui.context.task={id:91,type:'put',requested_quantity:5,recorded_quantity:0,lines:[line],work_status:'Not started'};ui.run("path='/work'");
+ const row=ui.run('myTaskRow(task)');assert.match(row,/badge badge-put">Put/);assert.match(row,/badge badge-not-started">Not started/);assert.match(ui.run('workTableHead()'),/>Type /);
+});
+
+
+test('Record Movement permits mixed rows with constrained Pick locations and all Put locations, and Task History retains snapshots',()=>{
+ const ui=view({role:'admin'});ui.run("snapshot.products=[{id:1,name:'Boots',sku:'B1',unit_of_measure:'pairs'}];snapshot.cells=[{id:1,logical_code:'A'},{id:2,logical_code:'B'}];snapshot.contents=[{cell_id:1,product_id:1,available_quantity:3}]");
+ const picks=ui.run("recordLocationOptions(1,'pick')"),puts=ui.run("recordLocationOptions(1,'put')");assert.match(picks,/>A</);assert.doesNotMatch(picks,/>B</);assert.match(puts,/>A</);assert.match(puts,/>B</);
+ assert.match(ui.run("recordRow({direction:'put',cellId:2,quantity:3},1,1)"),/aria-label="Location, row 2"/);
+ ui.run("path='/record-movement';render()");assert.match(ui.root.innerHTML,/data-add-record/);assert.match(ui.root.innerHTML,/data-record-movement/);assert.match(ui.root.innerHTML,/These items have already been moved/);assert.doesNotMatch(ui.root.innerHTML,/supervisor will check/);
+ ui.context.entry={taskId:5,time:'2026-10-01T10:00:00Z',step:'Pick recorded',product:'Boots',quantity:-2,unit:'pairs',before:5,after:3,assignedBy:'Admin',assignedTo:'Worker',actor:'Worker',inventoryMovement:true};
+ const html=ui.run('activityTable([entry])');assert.match(html,/Details before/);assert.match(html,/Details after/);assert.match(html,/>5 pairs</);assert.match(html,/>3 pairs</);assert.match(html,/taskId=5/);
+ ui.context.entry.before=null;assert.match(ui.run('activityTable([entry])'),/Not recorded/);
 });

@@ -93,3 +93,13 @@ test('Apply marks dropdown values as exact and keeps page size when sorting',asy
 test('physical alignment has one final save action and no Send for review or overlap disclosure',()=>{
  const c=client();c.context.t=task(1);c.run('snapshot.cells=[{id:1,logical_code:"A1"}]');const html=c.run('reviewMovementContent(t)');assert.match(html,/data-review-movement/);assert.match(html,/Accept movement and close task/);assert.doesNotMatch(html,/data-send-task-review|Send for review|Stocktake overlap/);
 });
+
+test('History active-only checkbox is immediate and preserves unapplied filters, with rollback on failure',async()=>{
+ const c=filterClient();c.run("path='/work/history';f.elements.workState.value='all';");c.elements.activeOnly={checked:true};c.elements.productSearch.value='Gloves';
+ await c.run('applyWorkFilters(f,true)');assert.equal(c.context.location.search,'?activeOnly=1');assert.equal(c.elements.productSearch.value,'Gloves');assert.equal(c.apply.disabled,false);
+ c.elements.reviewOnly.checked=true;await c.run('applyWorkFilters(f,true)');assert.match(c.context.location.search,/activeOnly=1/);assert.match(c.context.location.search,/reviewOnly=1/);
+ c.elements.activeOnly.checked=false;c.run("refresh=async()=>{throw new Error('Offline');}");await c.run('applyWorkFilters(f,true)');assert.equal(c.elements.activeOnly.checked,true);assert.match(c.context.location.search,/activeOnly=1/);assert.equal(c.elements.productSearch.value,'Gloves');
+ assert.match(c.run('workTableFilters()'),/See only active assignments/);assert.match(c.run('workColumn("task","Task")'),/activeOnly=1/);
+ c.run("path='/work'");assert.doesNotMatch(c.run('workTableFilters()'),/See only active assignments/);
+ const options=c.run("workFilterOptions(workFilterColumns.find(c=>c.key==='progress'))");assert.match(options,/value="below-0"[^>]*>&lt;0%/);assert.match(options,/value="above-100"[^>]*>&gt;100%/);
+});

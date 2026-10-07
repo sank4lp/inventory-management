@@ -30,6 +30,7 @@ export function migrateOperations(db) {
   add("transactions", "task_line_id", "INTEGER REFERENCES task_lines(id)");
   add("transactions", "origin_ref", "TEXT");
   add("transactions", "performed_by", "INTEGER REFERENCES users(id)");
+  for(const name of ["quantity_before","quantity_after","product_quantity_before","product_quantity_after"])add("transactions",name,"REAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS operation_receipts (
       actor_id INTEGER NOT NULL REFERENCES users(id), request_id TEXT NOT NULL,

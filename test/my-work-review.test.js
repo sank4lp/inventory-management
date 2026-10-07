@@ -82,11 +82,11 @@ test('State sorting follows displayed labels A–Z and Z–A across all four sta
 
 test('progress bands include each boundary once, include 100%, and preserve operator scope',()=>{
  const f=fixture();try{
-  const values=[0,24.9,25,49.9,50,74.9,75,100,125],ids=values.map(progress=>{const t=f.create();f.db.prepare('UPDATE tasks SET requested_quantity=100 WHERE id=?').run(t.id);f.db.prepare("UPDATE task_lines SET execution_state='settled',actual_quantity=? WHERE id=?").run(progress,t.lines[0].id);return t.id;});
-  for(const [range,indexes] of [['0-25',[0,1]],['25-50',[2,3]],['50-75',[4,5]],['75-100',[6,7]]]){
-   const page=f.page(f.op,{progressRange:range,sort:'task',order:'asc'});assert.deepEqual(page.tasks.map(t=>t.id),indexes.map(i=>ids[i]));assert.equal(page.taskPage.total,2);assert.equal(f.page(f.second,{progressRange:range}).taskPage.total,0);
+  const values=[0,24.9,25,49.9,50,74.9,75,100,125,-1],ids=values.map(progress=>{const t=f.create();f.db.prepare('UPDATE tasks SET requested_quantity=100 WHERE id=?').run(t.id);f.db.prepare("UPDATE task_lines SET execution_state='settled',actual_quantity=? WHERE id=?").run(progress,t.lines[0].id);return t.id;});
+  for(const [range,indexes] of [['0-25',[0,1]],['25-50',[2,3]],['50-75',[4,5]],['75-100',[6,7]],['below-0',[9]],['above-100',[8]]]){
+   const page=f.page(f.op,{progressRange:range,sort:'task',order:'asc'});assert.deepEqual(page.tasks.map(t=>t.id),indexes.map(i=>ids[i]));assert.equal(page.taskPage.total,indexes.length);assert.equal(f.page(f.second,{progressRange:range}).taskPage.total,0);
   }
-  assert.equal(f.page(f.op).taskPage.total,9);assert.throws(()=>f.page(f.op,{progressRange:'0-100'}),/listed progress range/);
+  assert.equal(f.page(f.op).taskPage.total,10);assert.throws(()=>f.page(f.op,{progressRange:'0-100'}),/listed progress range/);
  }finally{f.db.close();}
 });
 
@@ -102,5 +102,20 @@ test('dropdown task and product selections match exact values while old search l
   assert.equal(f.page(f.op,{statusSearch:'started',statusSearchExact:'1'}).taskPage.total,0);
   assert.equal(f.page(f.op,{statusSearch:'Not started',statusSearchExact:'1'}).taskPage.total,12);
   assert.equal(f.page(f.second,{productSearch:'Boot',productSearchExact:'1',pageSize:100}).taskPage.total,0);
+ }finally{f.db.close();}
+});
+
+test('History active assignments excludes closed and returned work, composes with review and retains account scope',()=>{
+ const f=fixture();try{
+  const offered=f.create(),started=f.create(),review=f.create(),returned=f.create(),closed=f.create(),other=f.create(f.second);
+  f.cmd(f.op,'start',f.fields(started));f.cmd(f.op,'pause',f.fields(f.get(started.id)));
+  f.cmd(f.op,'askReview',{lineId:review.lines[0].id,reason:'Check actual quantity'});
+  f.cmd(f.op,'decline',{...f.fields(returned),reason:'Busy'});f.cmd(f.op,'stop',f.fields(closed));
+  const history=query=>f.page(f.op,{view:'history',activeOnly:'1',sort:'task',order:'asc',...query});
+  assert.deepEqual(history().tasks.map(t=>t.id),[offered.id,started.id,review.id]);
+  assert.deepEqual(history({reviewOnly:'1'}).tasks.map(t=>t.id),[review.id]);
+  assert.equal(history().taskPage.total,3);assert.equal(history({pageSize:20}).taskPage.limit,20);
+  assert.ok(f.page(f.admin,{view:'history',scope:'team',activeOnly:'1'}).tasks.some(t=>t.id===other.id));
+  assert.throws(()=>history({scope:'team'}),/not permitted/);
  }finally{f.db.close();}
 });

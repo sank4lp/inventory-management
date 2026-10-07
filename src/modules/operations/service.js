@@ -949,6 +949,30 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     event('allocation_replanned',actor,old.id,{replacementLineId:fresh.id,oldCell:old.cell_id,cellId:cell.id,quantity});
     return {status:'recorded',message:'Unstarted allocation replanned. Earlier instructions remain in the audit history.'};
   }
+  function recordMovement(actor,input){
+    actorNow(actor,'work.report');
+    if(input.confirmed!==true)throw new Error('Confirm that these items have already been moved.');
+    const product=db.prepare('SELECT * FROM products WHERE id=? AND active=1').get(Number(input.productId));
+    if(!product)throw new Error('Choose an active product.');
+    if(input.unit!==product.unit_of_measure)throw new Error('The product unit changed. Refresh the product before saving.');
+    if(!Array.isArray(input.rows)||!input.rows.length||input.rows.length>100)throw new Error('Add between 1 and 100 movement rows.');
+    const performer=performerFor(actor,input,actor.id),picks=new Map();
+    const rows=input.rows.map((row,index)=>{
+      if(!['pick','put'].includes(row.direction))throw new Error(`Row ${index+1}: choose Pick or Put.`);
+      assertCan(actor,row.direction==='pick'?'work.pick':'work.put');
+      const cell=db.prepare('SELECT id,logical_code FROM cells WHERE id=? AND active=1').get(Number(row.cellId));
+      if(!cell)throw new Error(`Row ${index+1}: choose an active location.`);
+      const quantity=workQuantity(row.quantity,true);
+      if(row.direction==='pick')picks.set(cell.id,rounded((picks.get(cell.id)||0)+quantity));
+      return {...row,cellId:cell.id,quantity,location:cell.logical_code};
+    });
+    for(const [cellId,quantity] of picks){const stock=balance(product.id,cellId);if(stock<=0||quantity>stock+1e-9){const name=rows.find(r=>r.cellId===cellId).location;throw new Error(`${name}: ${stock} ${product.unit_of_measure} recorded here; cannot record a pick of ${quantity}. Choose a location holding this product or correct its stock in Stocktaking first.`);}}
+    const transactionIds=rows.map((row,index)=>movement({actor,performer,productId:product.id,cellId:row.cellId,quantity:row.quantity*(row.direction==='pick'?-1:1),type:row.direction,origin:'record-movement:'+input.requestId+':'+index,reason:String(input.note||'Work already completed').slice(0,2000),unit:product.unit_of_measure}));
+    for(const row of rows)if(held(row.cellId,product.id,'pick')>balance(product.id,row.cellId))markDiscrepancy(row.cellId,product.id,'Recorded movement left reserved picks short. Check outstanding tasks.');
+    syncReservations();
+    event('completed_movements_recorded',actor,null,{productId:product.id,rows,transactionIds});
+    return {status:'recorded',transactionIds,message:'Movement saved. Stock updated.'};
+  }
   const actions = {
     recommendation(actor,input) {
       if(input.physicalConfirmed!==true||!String(input.reason||'').trim())throw new Error('Confirm the actual physical movements and record what happened.');
@@ -979,6 +1003,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       return {status:'recorded',message:'Verified location reconciled and available for new plans.'};
     },
     create, resume:resumeTask, pause:pauseTask, guide, acquire, report: reportActual, resolve, resolveAndAssignRemaining, cancel, rejectCell, correct,
+    recordMovement,
     manual(actor, input) { const report = insertReport(actor, {...input,unknown:false}); return review(report, input.direction === "count" ? "Count observation during ongoing work; no balance replacement was made." : "Completed movement received for supervisor verification. No new instructions were activated."); },
     mode(actor, input) {
       actorNow(actor, "locations.mode");
@@ -1004,7 +1029,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
-      const permissions={reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',pause:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recommendation:'work.report',cancel:'work.stop',rejectCell:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
+      const permissions={reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',pause:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recordMovement:'work.report',recommendation:'work.report',cancel:'work.stop',rejectCell:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       if(['reassign','stop','handBack','decline'].includes(action)&&input.progressToken&&input.progressToken!==progressToken(Number(input.taskId)))throw new Error('Task quantities changed. Refresh before changing this task.');
@@ -1082,6 +1107,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const wasAssigned=result.created_by===current.id||history.some(e=>e.assignee_id===current.id||e.previous_assignee===current.id);
     assertCan(current,'work.view');
     if(!can(current,'work.team')&&!(can(current,'review.view')&&db.prepare("SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.status IN ('review','received')").get(result.id))&&result.assignee_id!==current.id&&!wasAssigned)throw new Error('This task belongs to another operator.');
+    const firstMovement=db.prepare('SELECT product_quantity_before,unit_of_measure FROM transactions WHERE task_id=? ORDER BY id LIMIT 1').get(result.id),lastMovement=db.prepare('SELECT product_quantity_after,unit_of_measure FROM transactions WHERE task_id=? ORDER BY id DESC LIMIT 1').get(result.id);
+    result.quantity_before=firstMovement?.product_quantity_before??null;result.quantity_after=lastMovement?.product_quantity_after??null;result.quantity_before_unit=firstMovement?.unit_of_measure;result.quantity_after_unit=lastMovement?.unit_of_measure;
     result.canAct=can(current,"work.execute")&&result.assignee_id===current.id;
     const assignee=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assignee_id);result.assignee_name=assignee?.name||null;result.assignee_username=assignee?.username||null;
     const assigner=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assigned_by);result.assigned_by_name=assigner?.name||null;result.assigned_by_username=assigner?.username||null;
@@ -1120,10 +1147,14 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const product=db.prepare('SELECT id,unit_of_measure,items_per_cell FROM products WHERE id=? AND active=1').get(Number(query.productId));
     if(!product)throw new Error('Choose an active product.');
     const cells=db.prepare('SELECT id,active FROM cells').all();
-    let recorded=0,pickReserved=0,incomingReserved=0,availableToPick=0,putCapacity=0,unavailableUnreserved=0;
+    let recorded=0,pickReserved=0,incomingReserved=0,availableToPick=0,putCapacity=0,unavailableUnreserved=0,spaceForMore=0;
     for(const cell of cells){
       const stock=balance(product.id,cell.id),pick=held(cell.id,product.id,'pick'),incoming=held(cell.id,product.id,'put');
       recorded+=stock;pickReserved+=pick;incomingReserved+=incoming;
+      // Physical room is separate from reservations and temporary work locks.
+      // Include empty cells and spare room where this product already lives.
+      // In mixed cells, putRoom accounts for every product's share of space.
+      if(cell.active&&(stock>0||occupancy(cell.id)===0))spaceForMore+=putRoom(db,cell.id,product,{reservations:false});
       const free=Math.max(0,rounded(stock-protectedPicks(db,cell.id,product.id)));
       const blocked=!cell.active||controlledCell(db,cell.id)
         ||db.prepare('SELECT 1 FROM work_discrepancies WHERE cell_id=? AND product_id=?').get(cell.id,product.id)
@@ -1140,6 +1171,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       WHERE r.state='held' AND l.product_id=? AND (? OR t.assignee_id=?) ORDER BY t.id DESC,l.id LIMIT 101`).all(product.id,Number(team),current.id);
     return {...identity(),actorId:current.id,productId:product.id,unit:product.unit_of_measure,generatedAt:now(),
       recorded:rounded(recorded),pickReserved:rounded(pickReserved),incomingReserved:rounded(incomingReserved),availableToPick:rounded(availableToPick),putCapacity:rounded(putCapacity),unavailableUnreserved:rounded(unavailableUnreserved),
+      spaceForMore:rounded(spaceForMore),totalCapacity:rounded(recorded+spaceForMore),itemsPerCell:product.items_per_cell,
       reservationCount:total,reservations:visible.slice(0,100),moreReservations:visible.length>100,detailScope:team?'team':'own'};
   }
   function snapshot(actor,query={}) {
@@ -1155,9 +1187,10 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const planner=['work.pick','work.put','work.report'].some(cap=>can(current,cap)),productIds=new Set([...taskList.flatMap(t=>t.lines.map(l=>l.product_id)),...pending.map(r=>r.product_id)]),cellIds=new Set([...taskList.flatMap(t=>t.lines.map(l=>l.cell_id)),...pending.map(r=>r.cell_id)]);
     const visibleProducts=can(current,'products.view')||planner?products:products.filter(p=>productIds.has(p.id)),visibleCells=can(current,'locations.view')||can(current,'work.stop')||can(current,'work.teamStop')||planner?cells:cells.filter(c=>cellIds.has(c.id));
     const operators=(can(current,'work.assign')||can(current,'work.team')||can(current,'review.view'))?db.prepare('SELECT id,name,username,status,role FROM users ORDER BY name').all().map(u=>{
-      return {...u,eligible:workCapabilities(effectiveUser(db,u)).execute,...((can(current,'work.team')||can(current,'review.view'))?loads.find(v=>v.id===u.id):{})};
+      const effective=effectiveUser(db,u),load=loads.find(v=>v.id===u.id);
+      return {...u,role_name:effective.role_name,eligible:workCapabilities(effective).execute,...(can(current,'work.assign')?{assignedTaskCount:load?.open||0}:{}),...((can(current,'work.team')||can(current,'review.view'))?load:{})};
     }):[];
-    return {...identity(),user:current,capabilities:workCapabilities(current),timing:timingSettings(),operators,performers:operators,
+    return {...identity(),user:current,capabilities:workCapabilities(current),timing:timingSettings(),operators,performers:operators,...(query.view==='activity'?{activity:history.activityHistory(current,query)}:{}),
       reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(can(current,"review.view")?"admin":"own",current.id,current.id),
       tasks:taskList,watchedTasks,returnedTasks:returned.ids.map(id=>task(current,id)),returnedPage:returned.page,myWorkPriority:selection.priority,myWorkNextTask:selection.priority?task(current,selection.priority.id):null,taskPage:selection.page,taskCounts:selection.counts,inactivityAlerts:inactivityAlerts(current),reviewPage:reviews.page,reviewTotal:reviews.total,reviewGroups:reviews.groups,products:visibleProducts,cells:visibleCells,pending:pending.map(r=>({...r,...(JSON.parse(r.payload).taskClosure?{closureTask:task(current,r.task_id),closureActuals:JSON.parse(r.payload).actuals,closureCounts:db.prepare('SELECT o.id,o.lines_json,i.cell_id,c.logical_code,r.title FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_runs r ON r.id=i.run_id JOIN cells c ON c.id=i.cell_id JOIN stocktake_settlements s ON s.observation_id=o.id ORDER BY s.created_at DESC LIMIT 100').all()}:{}),reviewFollowup:r.task_id?Boolean(db.prepare('SELECT review_followup FROM tasks WHERE id=?').get(r.task_id)?.review_followup):false,observations:r.task_id?task(current,r.task_id).review_observations:[],countOverlap:Boolean(countBoundary(db,r,r.line_id?line(r.line_id):null)),countEvidence:countBoundary(db,r,r.line_id?line(r.line_id):null)?countCandidates(current,{reportId:r.id})[0]||null:null,accounting:!r.line_id&&r.direction!=='count'?manualAccounting(r):null})),generatedAt:now(),
       postedReports:can(current,'review.view')?db.prepare(`SELECT r.*,p.name AS product_name,c.logical_code,u.name AS performer_name FROM work_reports r

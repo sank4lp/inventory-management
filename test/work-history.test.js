@@ -93,3 +93,21 @@ test('completed task defaults remain zero; explicitly requested extra work gets 
  assert.throws(()=>f.cmd(f.admin,'reopen',input),/quantity/i);const result=f.cmd(f.admin,'reopen',{...input,quantity:1}),next=f.work.task(f.admin,result.taskId);assert.equal(next.assignee_id,f.other.id);assert.equal(Date.parse(next.due_at)-Date.parse(next.assigned_at),3*86400000);assert.equal(f.work.task(f.admin,id).recorded_quantity,1);
  const sorted=f.work.snapshot(f.admin,{view:'history',scope:'team',sort:'assignedTo',order:'asc'});assert.equal(sorted.taskPage.sort,'assignedTo');assert.deepEqual(sorted.tasks.map(t=>t.assignee_name),sorted.tasks.map(t=>t.assignee_name).sort());f.db.close();
 });
+
+
+test('Task History lists every task step with exact movement snapshots, scoped filtering, paging and no invented legacy balances',()=>{
+ const f=fixture();try{
+ const id=f.create(5);f.cmd(f.op,'start',{taskId:id,generation:1});
+ for(const l of f.work.task(f.op,id).lines)f.finish(f.op,l);
+ const task=f.work.task(f.admin,id);assert.equal(task.quantity_before,9);assert.equal(task.quantity_after,4);assert.equal(task.quantity_before_unit,f.product.unit_of_measure);for(const sort of ['before','after'])assert.equal(f.work.snapshot(f.admin,{view:'history',sort,order:'asc'}).taskPage.sort,sort);
+ const timeline=f.work.activityHistory(f.op,{taskId:String(id)}),moves=timeline.entries.filter(e=>e.inventoryMovement);
+ assert.deepEqual(moves.map(e=>[e.before,e.after]),[[3,0],[3,1]]);assert.ok(moves.every(e=>e.assignedBy===f.admin.name&&e.assignedTo===f.op.name));
+ const all=f.work.activityHistory(f.op);for(const step of ['Task created','Assigned','Work started','Pick recorded','Task completed'])assert.ok(all.entries.some(e=>e.step===step),step);
+ assert.equal(f.work.activityHistory(f.other).entries.length,0);assert.throws(()=>f.work.activityHistory(f.other,{taskId:id}),/another operator/);assert.throws(()=>f.work.activityHistory(f.admin,{taskId:'abc'}),/valid Task ID/);
+ const line=task.lines[0],insert=f.db.prepare('INSERT INTO work_events(line_id,actor_id,event_type,payload,created_at) VALUES(?,?,?,?,?)');
+ for(let i=0;i<104;i++)insert.run(line.id,f.op.id,'review_observation',JSON.stringify({quantity:1,note:'Check '+i}),'2099-01-01T10:00:00.000Z');
+ const a=f.work.activityHistory(f.op),b=f.work.activityHistory(f.op,{page:2});assert.equal(a.entries.length,100);assert.equal(new Set([...a.entries,...b.entries].map(e=>e.id)).size,a.page.total);
+ f.db.prepare('INSERT INTO transactions(type,product_id,cell_id,quantity_delta,user_id,task_id,created_at,reason) VALUES(?,?,?,?,?,?,?,?)').run('pick',f.product.id,line.cell_id,-1,f.op.id,id,'2099-01-02T00:00:00.000Z','Legacy entry');
+ const legacy=f.work.activityHistory(f.op).entries[0];assert.equal(legacy.inventoryMovement,true);assert.equal(legacy.before,null);assert.equal(legacy.after,null);
+ }finally{f.db.close();}
+});

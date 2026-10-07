@@ -50,3 +50,16 @@ test('all account types are listed, eligible admins and custom roles can receive
  for(const u of [f.admin,f.op,custom]){const t=f.work.task(f.admin,f.assign(f.admin,{assigneeId:u.id}).taskId);assert.equal(t.assignee_id,u.id);assert.equal(t.assignment_state,'offered');}
  for(const u of [readonly,inactive,{id:999999}])assert.throws(()=>f.assign(f.admin,{assigneeId:u.id}),/eligible to execute/);f.db.close();
 });
+
+test('assignment dropdown counts all unfinished tasks, follows reassignment and excludes closed tasks without granting team access',()=>{
+ const f=fixture(),delegate=f.person('assign-only',['work.view','work.assign','work.pick']),lead=f.person('shift-lead',['work.view','work.execute','work.pick']);
+ const row=id=>f.work.snapshot(delegate,{view:'assign'}).operators.find(u=>u.id===id);
+ assert.equal(row(f.op.id).assignedTaskCount,0);assert.equal(row(lead.id).role_name,'shift-lead');assert.equal(row(f.admin.id).role_name,'Admin');
+ const first=f.assign(f.admin).taskId,second=f.assign(f.admin).taskId;
+ assert.equal(row(f.op.id).assignedTaskCount,2);
+ const task=f.work.task(f.admin,first);f.command(f.admin,'reassign',{taskId:first,generation:task.assignment_generation,assigneeId:lead.id});
+ assert.equal(row(f.op.id).assignedTaskCount,1);assert.equal(row(lead.id).assignedTaskCount,1);
+ const remaining=f.work.task(f.op,second);f.command(f.op,'stop',{taskId:second,generation:remaining.assignment_generation});
+ assert.equal(row(f.op.id).assignedTaskCount,0);
+ const view=f.work.snapshot(delegate,{view:'assign'});assert.equal(view.tasks.length,0);assert.equal(view.capabilities.teamView,false);assert.equal('inProgress' in row(lead.id),false);f.db.close();
+});

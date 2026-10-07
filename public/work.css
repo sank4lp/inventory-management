@@ -129,6 +129,9 @@
 .work-product-field{min-width:0}.work-product-field>label{margin-bottom:6px!important}
 .product-stock{font-size:12px;line-height:1.5;color:var(--work-muted);margin:0 0 14px;overflow-wrap:anywhere}
 .product-stock[hidden]{display:none}.product-stock small{display:block}.product-stock details{margin-top:4px}
+.product-stock-main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,9rem),1fr));gap:8px;margin:0 0 6px;border-bottom:1px solid var(--work-line,#dce5e0);padding:6px 0}
+.product-stock-main>div{min-width:0}.product-stock-main dt{font-size:12px;font-weight:600}.product-stock-main dd{margin:2px 0 0;font-size:15px;font-weight:750;color:var(--work-text,#24372f);overflow-wrap:anywhere}.product-stock-main dd span{font-size:12px;font-weight:500;color:var(--work-muted)}
+.product-stock-reserved{margin-bottom:4px}.product-stock-reserved strong{font-weight:650}
 .product-stock summary{cursor:pointer;text-decoration:underline;text-underline-offset:3px}.product-stock p{font-size:12px;margin:8px 0}
 .product-stock ul{margin:8px 0;padding-left:18px}.product-stock li{margin:5px 0}.product-stock .text-button{font-size:12px;min-height:32px;padding:3px 6px}
 .stock-spinner{display:inline-block;width:12px;height:12px;border:2px solid #c4d4ce;border-top-color:var(--work-accent,#285f50);border-radius:50%;vertical-align:-2px;margin-right:4px;animation:stock-spin .7s linear infinite}
@@ -387,3 +390,16 @@
 #work-app [data-plan-recovery] input[type=number]{width:100%;min-width:85px}
 #work-app .planning-dialog .form-feedback{color:var(--danger,#b42318)}
 @media(max-width:600px){#work-app .planning-choices{grid-template-columns:1fr}#work-app .planning-dialog{padding:14px}}
+
+/* Use the dashboard's compact type/status badges in Work tables. */
+.my-work-table .badge{font-size:12px;line-height:18px;padding:2px 8px}
+.my-work-table .badge-in-progress,.my-work-table .badge-not-started,.my-work-table .badge-paused,.my-work-table .badge-waiting-for-location{background:var(--blue-soft);color:#1e3a8a;border-color:#bfdbfe}
+.my-work-table .badge-quantity-check,.my-work-table .badge-needs-assignment,.my-work-table .badge-overdue,.my-work-table .badge-needs-review{background:var(--warning-soft);color:#92400e;border-color:#fcd34d}
+
+#work-app form.history-task-filter{display:flex;flex-wrap:wrap;align-items:end;gap:8px;margin:0 0 12px;padding:0;border:0}
+#work-app .history-task-filter label{max-width:220px;flex:1 1 140px}
+#work-app .history-task-filter button{margin:0;width:auto}
+[data-record-movement] .task-actual-table{min-width:610px;table-layout:auto}
+[data-record-movement] .task-actual-table th:first-child{min-width:85px}
+[data-record-movement] .task-actual-table select,[data-record-movement] .task-actual-table input{min-width:0;width:100%}
+.task-timeline td small{display:block;white-space:normal}

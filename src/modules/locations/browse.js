@@ -1,3 +1,4 @@
+import {locationNavigation} from '../operations/navigation.js';
 import {can} from "../access/catalog.js";
 import {page,escapeHtml as e} from '../../render.js';
 import {ensureAuth,ensureApiAuth} from '../../server/http/auth-guards.js';
@@ -22,5 +23,5 @@ export function locationBrowseRoutes(request,response,url,user,state){
  }
  const identity=state.operationsService.identity();
  content+=`<dialog class="location-history-dialog" data-cell-history-dialog data-actor="${user.id}" data-site="${e(identity.site)}" data-dataset="${e(identity.dataset)}" aria-labelledby="cell-history-title"><header class="review-task-header"><button type="button" class="secondary" data-cell-history-back>← Back</button><h2 id="cell-history-title">Movement history</h2><button type="button" class="dialog-dismiss" data-cell-history-back aria-label="Close movement history" title="Close"><span aria-hidden="true">×</span></button></header><section data-cell-history-content aria-live="polite"></section></dialog>`;
- sendHtml(response,page({title,user,content:content+'<script src="/client/vendor/jsQR.js"></script><script type="module" src="/client/location-browse.js"></script><script type="module" src="/client/location-history.js"></script>'}));return true;
+ sendHtml(response,page({title,user,content:locationNavigation(user)+content+'<script src="/client/vendor/jsQR.js"></script><script type="module" src="/client/location-browse.js"></script><script type="module" src="/client/location-history.js"></script>'}));return true;
 }

@@ -8,7 +8,7 @@ const groups = {
     ['work.execute','Execute own assignments, start, decline and hand back',true,['work.view']],
     ['work.stop','Confirm actual totals and close own task',true,['work.view']],
     ['work.correct','Report corrections to own records',true,['work.view']],
-    ['work.report','Record earlier physical movement for review',true,['work.view']],
+    ['work.report','Record completed physical movement',true,['work.view']],
     ['work.assign','Assign and reassign team work',false,['work.view']],
     ['work.deadline','Change task deadlines',false,['work.team']],
     ['work.teamStop','Stop team work with existing evidence safeguards',false,['work.team']],
@@ -91,6 +91,6 @@ export const SETTINGS = [
   ['/settings/people','People & access','people.view'],['/settings/roles','Roles and Permissions','access.manage'],
   ['/devices','Hardware','hardware.view'],['/location-setup','Location setup','locations.manage'],
   ['/admin/product-fields','Product fields & units','products.fields'],['/backups','Backups & recovery','backups.view'],
-  ['/settings/system','System','system.view'],['/reports?format=1','Report appearance','reports.format'],
+  ['/work/timing','Timing settings','work.timing'],['/settings/system','System','system.view'],['/reports?format=1','Report appearance','reports.format'],
 ];
 export function navigation(user) {return [['Work','/work','pick','work.view'],['Products','/products','products','products.view'],['Locations','/cells','locations','locations.view'],['Stocktaking','/stocktaking','reports','count.view'],['Reports','/reports','reports','reports.view']].filter(x=>can(user,x[3]));}

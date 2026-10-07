@@ -1,3 +1,4 @@
+import {workNavigation} from '../../modules/operations/navigation.js';
 import {randomUUID} from 'node:crypto';
 import {
   getRecommendedActions,
@@ -551,6 +552,7 @@ export function createTaskPages({ db }) {
         user,
         flash,
         content: `
+          ${workNavigation(user,'/recommended-actions')}
           ${
             openedFromPutCapacity
               ? `<p class="flash flash-warning">Review space-saving actions, apply the useful ones, then return to retry the Put request.</p>`
@@ -598,6 +600,7 @@ export function createTaskPages({ db }) {
       user,
       flash,
       content: `
+          ${workNavigation(user,'/recommended-actions')}
         ${
           selectedKey
             ? `

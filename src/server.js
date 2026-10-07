@@ -685,7 +685,7 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
-      sendHtml(response, pages.renderHome(user, flash, url));
+      sendRedirect(response, "/work");
       return;
     }
 

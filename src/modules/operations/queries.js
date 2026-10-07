@@ -51,6 +51,7 @@ export function taskSelection(db,user,input={}) {
   const where=['1'],filtered=[...params],state=input.workState||(history?'all':'current');
   if(state==='current')where.push("lifecycle!='completed'");else if(['review','not_started','in_progress','completed'].includes(state)){where.push('lifecycle=?');filtered.push(state);}
   if(history){
+    if(['1','true',true].includes(input.activeOnly))where.push("completed_at IS NULL AND outcome NOT IN ('completed','stopped','cancelled') AND assignee_id IS NOT NULL AND assignment_state IN ('offered','started','legacy')");
     if(input.state==='closed')where.push("outcome IN ('completed','stopped','cancelled')");
     else if(input.state==='open')where.push("completed_at IS NULL");
     else if(input.state==='overdue')where.push("completed_at IS NULL AND due_at IS NOT NULL AND julianday(due_at)<julianday('now')");
@@ -63,15 +64,19 @@ export function taskSelection(db,user,input={}) {
   if(['low','medium','high'].includes(input.priority)){where.push('priority_rank=?');filtered.push(['low','medium','high'].indexOf(input.priority));}
   if(input.progressRange){
     const ranges={'0-25':[0,25],'25-50':[25,50],'50-75':[50,75],'75-100':[75,100]};
-    if(!Object.hasOwn(ranges,input.progressRange))throw new Error('Choose a listed progress range.');
-    const [min,max]=ranges[input.progressRange];
-    // Adjacent ranges do not overlap; exactly 100% belongs to the final range.
-    where.push(`progress>=? AND progress${max===100?'<=':'<'}?`);filtered.push(min,max);
+    if(input.progressRange==='below-0')where.push('progress<0');
+    else if(input.progressRange==='above-100')where.push('progress>100');
+    else{
+      if(!Object.hasOwn(ranges,input.progressRange))throw new Error('Choose a listed progress range.');
+      const [min,max]=ranges[input.progressRange];
+      // Adjacent ranges do not overlap; exactly 100% belongs to the final range.
+      where.push(`progress>=? AND progress${max===100?'<=':'<'}?`);filtered.push(min,max);
+    }
   }
   for(const col of ['requested','completed','remaining','progress'])for(const [suffix,op] of [['Min','>='],['Max','<=']])if(input[col+suffix]!=null&&String(input[col+suffix]).trim()!==''){
     const n=Number(input[col+suffix]);if(!Number.isFinite(n)||n<0)throw new Error('Quantity and progress filters must be non-negative numbers.');where.push(`${col==='requested'?'requested_quantity':col}${op}?`);filtered.push(n);
   }
-  const columns={priority:'priority_rank',assignedTo:'assigned_to COLLATE NOCASE',task:'id',product:'product COLLATE NOCASE',unit:'unit COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
+  const columns={before:'(SELECT tr.product_quantity_before FROM transactions tr WHERE tr.task_id=rows.id ORDER BY tr.created_at,tr.id LIMIT 1)',after:'(SELECT tr.product_quantity_after FROM transactions tr WHERE tr.task_id=rows.id ORDER BY tr.created_at DESC,tr.id DESC LIMIT 1)',type:'type',priority:'priority_rank',assignedTo:'assigned_to COLLATE NOCASE',task:'id',product:'product COLLATE NOCASE',unit:'unit COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
   const sort=Object.hasOwn(columns,input.sort)?input.sort:(history?'task':'priority'),direction=input.order==='asc'?'ASC':'DESC';
   const limit=[20,50,100].includes(Number(input.pageSize))?Number(input.pageSize):50;
   const total=db.prepare(`${cte} SELECT COUNT(*) n FROM rows WHERE ${where.join(' AND ')}`).get(...filtered).n,pages=Math.max(1,Math.ceil(total/limit)),number=Math.min(pageNumber(input.page),pages);
