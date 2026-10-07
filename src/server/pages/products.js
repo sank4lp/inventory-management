@@ -159,26 +159,27 @@ export function createProductPages({ db, productFieldService = null }) {
       returnParams.set("q", searchLabel);
     }
     const catalogReturnPath = `/products${returnParams.toString() ? `?${returnParams.toString()}` : ""}`;
-    const catalogQuantityButton = (product) => {
+    const catalogQuantityButton = (product, kind = "quantity") => {
       const hasStock = Number(product.total_available || 0) > 0;
-      const title = hasStock
-        ? `Show ${product.sku} quantity on every mapped LED cell holding this product.`
-        : "Put this product into a mapped location before showing its quantity.";
+      const label = {quantity:"Show Quantity",capacity_total:"Show Total Capacity",capacity_available:"Show Available Capacity"}[kind];
+      const title = hasStock ? `Show ${label.toLowerCase()} for ${product.sku} on every mapped location holding this product.` : "Put this product into a mapped location before using its LED display.";
       return `
         <button
           type="button"
           class="ghost-button count-button"
           data-show-product-quantity
           data-product-id="${escapeHtml(product.id)}"
+          data-display-kind="${kind}"
+          data-quantity-key="product:${escapeHtml(product.id)}:${kind}"
           data-activate-endpoint="/products/${escapeHtml(product.id)}/find"
           data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear"
-          data-show-label="Show Quantity"
-          data-active-label="Showing Quantity"
+          data-show-label="${label}"
+          data-active-label="Showing ${label.slice(5)}"
           data-led-loading-label="Showing"
           aria-pressed="false"
           title="${escapeHtml(title)}"
           ${hasStock ? "" : "disabled aria-disabled=\"true\""}
-        >Show Quantity</button>
+        >${label}</button>
       `;
     };
     const catalogCapacityEditor = (product) => canEditCapacity
@@ -215,7 +216,7 @@ export function createProductPages({ db, productFieldService = null }) {
           quickActionLinks(
             product.id,
             "",
-            `${catalogQuantityButton(product)}${catalogCapacityEditor(product)}`,
+            `${catalogQuantityButton(product)}${catalogQuantityButton(product,"capacity_total")}${catalogQuantityButton(product,"capacity_available")}${catalogCapacityEditor(product)}`,
           ),
         ]),
         emptyMessage,
@@ -375,15 +376,21 @@ export function createProductPages({ db, productFieldService = null }) {
       >
         <span title="${escapeHtml(title)}">
           <button
-            type="submit"
+            type="button"
             class="ghost-button count-button led-action-button ${active ? "count-button-active" : ""}"
-            data-led-command-submit
-            data-product-find-submit
+            data-show-product-quantity
+            data-product-id="${escapeHtml(product.id)}"
+            data-activate-endpoint="/products/${escapeHtml(product.id)}/find"
+            data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear"
+            data-show-label="Show quantities in all locations"
+            data-active-label="Showing quantities"
             data-led-loading-label="Showing"
             title="${escapeHtml(title)}"
             aria-pressed="${active ? "true" : "false"}"
             ${disabled ? "disabled" : ""}
           >${active ? "Showing All Quantities" : "Show quantities in all locations"}</button>
+          <button type="button" class="ghost-button count-button led-action-button" data-show-product-quantity data-product-id="${escapeHtml(product.id)}" data-display-kind="capacity_total" data-quantity-key="product:${escapeHtml(product.id)}:capacity_total" data-activate-endpoint="/products/${escapeHtml(product.id)}/find" data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear" data-show-label="Show Total Capacity" data-active-label="Showing Total Capacity" aria-pressed="false" ${disabled ? "disabled" : ""}>Show Total Capacity</button>
+          <button type="button" class="ghost-button count-button led-action-button" data-show-product-quantity data-product-id="${escapeHtml(product.id)}" data-display-kind="capacity_available" data-quantity-key="product:${escapeHtml(product.id)}:capacity_available" data-activate-endpoint="/products/${escapeHtml(product.id)}/find" data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear" data-show-label="Show Available Capacity" data-active-label="Showing Available Capacity" aria-pressed="false" ${disabled ? "disabled" : ""}>Show Available Capacity</button>
         </span>
       </form>
     `;
@@ -684,7 +691,7 @@ export function createProductPages({ db, productFieldService = null }) {
             ${card(
               "Catalog",
               `
-                <p>Stock values are on shelf, including reserved goods. <a href="/quantities">View on-shelf, reserved and available-to-pick quantities</a>. Locations with unresolved conditions need review.</p><div class="catalog-controls">
+                <p>Stock values are on shelf, including reserved goods. Locations with unresolved conditions need review.</p><div class="catalog-controls">
                   <form
                     method="get"
                     action="/products"
@@ -882,7 +889,7 @@ export function createProductPages({ db, productFieldService = null }) {
             ["Cell", "On shelf", "Last Activity", "Action"],
             product.locations.map((location) => [
               `<a href="/cells/${location.cell_id}">${escapeHtml(location.logical_code)}</a>`,
-              `On shelf ${escapeHtml(formatQuantity(location.available_quantity))} ${escapeHtml(product.unit_of_measure)} · <a href="/quantities?cellId=${location.cell_id}&productId=${product.id}">Availability and holds</a>`,
+              `On shelf ${escapeHtml(formatQuantity(location.available_quantity))} ${escapeHtml(product.unit_of_measure)}`,
               escapeHtml(formatDate(location.last_activity_at)),
               `
                 <div class="mini-actions">
@@ -903,6 +910,8 @@ export function createProductPages({ db, productFieldService = null }) {
                     data-show-location-count
                     data-cell-id="${escapeHtml(location.cell_id)}"
                     data-product-id="${escapeHtml(product.id)}"
+                    data-activate-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count"
+                    data-clear-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count/clear"
                     data-show-label="Show Quantity"
                     data-active-label="Showing Quantity"
                     data-led-loading-label="Showing"
@@ -910,6 +919,8 @@ export function createProductPages({ db, productFieldService = null }) {
                     aria-pressed="false"
                     ${location.controller_id && location.hardware_channel ? `title="Show ${escapeHtml(product.sku)} quantity at ${escapeHtml(location.logical_code)} on its LED module"` : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
                   >Show Quantity</button>
+                  <button type="button" class="ghost-button count-button" data-show-location-count data-cell-id="${escapeHtml(location.cell_id)}" data-product-id="${escapeHtml(product.id)}" data-display-kind="capacity_total" data-quantity-key="cell:${escapeHtml(location.cell_id)}:product:${escapeHtml(product.id)}:capacity_total" data-activate-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count" data-clear-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count/clear" data-show-label="Show Total Capacity" data-active-label="Showing Total Capacity" aria-pressed="false" ${location.controller_id && location.hardware_channel ? "" : "disabled"}>Show Total Capacity</button>
+                  <button type="button" class="ghost-button count-button" data-show-location-count data-cell-id="${escapeHtml(location.cell_id)}" data-product-id="${escapeHtml(product.id)}" data-display-kind="capacity_available" data-quantity-key="cell:${escapeHtml(location.cell_id)}:product:${escapeHtml(product.id)}:capacity_available" data-activate-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count" data-clear-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count/clear" data-show-label="Show Available Capacity" data-active-label="Showing Available Capacity" aria-pressed="false" ${location.controller_id && location.hardware_channel ? "" : "disabled"}>Show Available Capacity</button>
                 </div>
               `,
             ]),
@@ -1304,13 +1315,14 @@ export function createProductPages({ db, productFieldService = null }) {
           </div>
           <div class="put-stock-summary-actions">
             <button
-              type="submit"
+              type="button"
               class="ghost-button led-action-button"
-              formaction="/products/${escapeHtml(product.id)}/find"
-              formmethod="post"
-              formnovalidate
-              data-led-command-submit
-              data-product-find-submit
+              data-show-product-quantity
+              data-product-id="${escapeHtml(product.id)}"
+              data-activate-endpoint="/products/${escapeHtml(product.id)}/find"
+              data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear"
+              data-show-label="Show All Quantities"
+              data-active-label="Showing Quantities"
               data-led-loading-label="Showing"
               title="${escapeHtml(findTitle)}"
               ${locations.length ? "" : "disabled"}

@@ -56,6 +56,103 @@ for(const first of ['work','count'])test(`${first} first: stocktake and work are
 test('Show quantities skips operational cells and stale utility expiry never clears a newer task',()=>{
  const f=fixture();try{f.stock(f.cells[0],8);f.stock(f.cells[1],8);let time=new Date();const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work,clock:()=>time});const receipt=display.start(f.admin,{kind:'quantity',productId:f.product.id});const a=f.work.task(f.op,f.create(f.op,'pick',2).taskId);assert.equal(a.lines[0].guidance.state,'sent');const n=f.writes.length;time=new Date(Date.now()+121000);display.expire();assert.ok(f.writes.slice(n).every(s=>!s.includes('clear 1')));const later=display.start(f.admin,{kind:'quantity',productId:f.product.id});assert.equal(later.targets.find(t=>t.cellId===f.cells[0].id).status,'busy');assert.equal(later.targets.find(t=>t.cellId===f.cells[1].id).status,'sent');}finally{f.end();}
 });
+test('confirmed quantity override restores the same PICK guidance when stopped or expired',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],8);f.stock(f.cells[1],8);
+  const task=f.work.task(f.op,f.create(f.op,'pick',2).taskId);
+  const before=f.db.prepare('SELECT generation,desired FROM work_guidance WHERE cell_id=?').get(f.cells[0].id);
+  let time=new Date();
+  const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work,clock:()=>time});
+  const preview=display.start(f.admin,{kind:'quantity',productId:f.product.id},{previewOnly:true,promptOnBusy:true});
+  assert.equal(preview.state,'confirmation_required');
+  assert.equal(preview.conflicts[0].taskId,task.id);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM display_requests').get().n,0);
+  assert.throws(()=>display.start(f.admin,{kind:'quantity',productId:f.product.id,overrideWork:true}),/Confirm/);
+  const showing=display.start(f.admin,{kind:'quantity',productId:f.product.id,overrideWork:true},{confirmOverride:true});
+  assert.equal(showing.targets.find(t=>t.cellId===f.cells[0].id).status,'sent');
+  assert.equal(f.work.task(f.op,task.id).lines[0].guidance.state,'manual');
+  const sent=f.writes.length;
+  f.work.flushGuidance({restore:true});
+  assert.equal(f.writes.length,sent);
+  const later=f.work.task(f.admin,f.create(f.admin,'pick',2).taskId);
+  assert.equal(later.lines[0].cell_id,f.cells[1].id);
+  assert.equal(later.lines[0].guidance.state,'manual');
+  const beforeStop=f.writes.length;
+  display.stop(f.admin,showing.id);
+  assert.equal(f.db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(f.cells[0].id).generation,before.generation);
+  assert.equal(f.work.task(f.op,task.id).lines[0].guidance.state,'sent');
+  assert.equal(f.work.task(f.admin,later.id).lines[0].guidance.state,'sent');
+  assert.ok(f.writes.slice(beforeStop).some(line=>/digit 1 "2" green/.test(line)));
+  const again=display.start(f.admin,{kind:'quantity',productId:f.product.id,overrideWork:true},{confirmOverride:true});
+  time=new Date(time.getTime()+121000);display.expire();
+  assert.equal(f.db.prepare('SELECT state FROM display_requests WHERE id=?').get(again.id).state,'stopped');
+  assert.ok(f.writes.slice(beforeStop).filter(line=>/digit 1 "2" green/.test(line)).length>=2);
+ }finally{f.end();}
+});
+test('mixed-product quantity display alternates readable colors while a selected product remains distinct',()=>{
+ const f=fixture();try{
+  const other=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.product.id);
+  f.stock(f.cells[0],4);
+  f.db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,7,0)').run(other.id,f.cells[0].id);
+  let time=new Date();const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work,clock:()=>time});
+  const mixed=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id});
+  assert.deepEqual(mixed.targets[0].sequence.map(s=>s.color),['amber','cyan']);
+  assert.deepEqual(mixed.targets[0].sequence.map(s=>s.value),[4,7]);
+  time=new Date(time.getTime()+5000);display.expire();
+  assert.match(f.writes.at(-1),/text 1 "7" cyan/);
+  display.stop(f.admin,mixed.id);
+  const selected=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id,productId:other.id});
+  assert.equal(selected.targets[0].value,7);
+  assert.equal(selected.targets[0].sequence,null);
+  assert.equal(selected.targets[0].color,'yellow');
+ }finally{f.end();}
+});
+test('total and available capacity use each product’s items-per-cell share in mixed locations',()=>{
+ const f=fixture();try{
+  const other=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.product.id);
+  f.db.prepare('UPDATE products SET items_per_cell=10 WHERE id=?').run(other.id);
+  f.stock(f.cells[0],4);
+  f.db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,2,0)').run(other.id,f.cells[0].id);
+  f.db.prepare('UPDATE inventory_balances SET reserved_quantity=1 WHERE cell_id=? AND product_id=?').run(f.cells[0].id,f.product.id);
+  const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work});
+  const total=display.start(f.admin,{kind:'capacity_total',cellId:f.cells[0].id});
+  assert.deepEqual(total.targets[0].sequence.map(s=>s.value),[8,10]);
+  display.stop(f.admin,total.id);
+  const free=display.start(f.admin,{kind:'capacity_available',cellId:f.cells[0].id});
+  assert.deepEqual(free.targets[0].sequence.map(s=>s.value),[2,3]);
+  display.stop(f.admin,free.id);
+  const selected=display.start(f.admin,{kind:'capacity_available',cellId:f.cells[0].id,productId:f.product.id});
+  assert.equal(selected.targets[0].value,2);
+  assert.equal(selected.targets[0].sequence,null);
+ }finally{f.end();}
+});
+test('capacity display uses the same confirmation and restores an overridden Pick light',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],8);
+  const task=f.work.task(f.op,f.create(f.op,'pick',2).taskId);
+  const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work});
+  const scope={kind:'capacity_total',cellId:f.cells[0].id};
+  assert.equal(display.start(f.admin,scope,{previewOnly:true}).state,'confirmation_required');
+  const shown=display.start(f.admin,{...scope,overrideWork:true},{confirmOverride:true});
+  assert.equal(shown.targets[0].value,8);
+  const n=f.writes.length;display.stop(f.admin,shown.id);
+  assert.ok(f.writes.slice(n).some(line=>/digit 1 "2" green/.test(line)));
+  assert.equal(f.work.task(f.op,task.id).lines[0].guidance.state,'sent');
+ }finally{f.end();}
+});
+test('quantity override cannot replace an active stocktake light',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],8);
+  const count=countFixture(f);count.begin();
+  const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work});
+  const before=f.writes.length;
+  const preview=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id},{previewOnly:true,promptOnBusy:true});
+  assert.equal(preview.state,'ready');
+  const result=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id,overrideWork:true},{confirmOverride:true});
+  assert.equal(result.targets[0].status,'busy');
+  assert.equal(f.writes.length,before);
+ }finally{f.end();}
+});
 test('active work retains its owner through inactivity; explicit review releases the light while preserving uncertainty',()=>{
  const f=fixture();try{f.stock(f.cells[0],8);const a=f.work.task(f.op,f.create(f.op,'pick',2).taskId);f.arrive(f.op,a.lines[0]);const b=f.work.task(f.admin,f.create(f.admin,'pick',2).taskId),old=f.db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(f.cells[0].id).generation;f.work.flagInactivity({at:new Date(Date.now()+86400000)});assert.deepEqual(f.work.snapshot(f.admin).inactivityAlerts.map(a=>a.taskId),[a.id]);assert.equal(f.work.snapshot(f.op).inactivityAlerts[0].name,f.op.name);assert.equal(f.db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(f.cells[0].id).generation,old);f.command(f.op,'askReview',{lineId:a.lines[0].id,reason:'Stopped, unsure quantity'});assert.equal(f.work.task(f.admin,b.id).lines[0].guidance.state,'sent');assert.equal(f.work.held(f.cells[0].id,f.product.id,'pick'),4);assert.equal(f.work.snapshot(f.admin).pending.length,1);assert.equal(f.work.snapshot(f.admin).inactivityAlerts.length,0);}finally{f.end();}
 });

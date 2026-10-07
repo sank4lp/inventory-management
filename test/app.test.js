@@ -436,6 +436,9 @@ test("product detail shows the latest activity time for each holding cell", asyn
   assert.match(html, /Last Activity/);
   assert.match(html, new RegExp(`data-ping-cell[\\s\\S]*data-cell-id="${batteryCell.id}"`));
   assert.match(html, /data-show-label="Show Quantity"/);
+  assert.match(html, /data-display-kind="capacity_total"/);
+  assert.match(html, /data-display-kind="capacity_available"/);
+  assert.match(html, /class="product-summary-facts"/);
   assert.match(html, new RegExp(`data-product-id="${battery.id}"`));
   assert.doesNotMatch(html, /data-location-count-value/);
   assert.match(html, />Show Quantity<\/button>/);
@@ -453,6 +456,18 @@ test("product find shows yellow quantity guidance on every mapped holding cell",
   assert.ok(db.prepare('SELECT * FROM display_requests WHERE id=?').get(payload.displayId));
   const stale=new MockResponse();await requestHandler(formRequest({url:"/products/1/find/clear",body:'',cookie,headers:{accept:'application/json'}}),stale);assert.equal(stale.statusCode,400);
   const cleared=new MockResponse();await requestHandler(formRequest({url:'/api/displays/stop',body:new URLSearchParams({displayId:payload.displayId}).toString(),cookie,headers:{accept:'application/json'}}),cleared);assert.equal(cleared.statusCode,200);assert.equal(db.prepare('SELECT state FROM display_requests WHERE id=?').get(payload.displayId).state,'stopped');
+});
+
+test("product capacity display accepts the mode and shows items-per-cell units",async()=>{
+  const sandbox=mkdtempSync(join(tmpdir(),'capacity-route-'));process.chdir(sandbox);process.env.NO_SERVER_LISTEN='1';
+  const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
+  const {db}=getAppState(),auth=await freshImport('../src/services/auth.js'),user=db.prepare("SELECT * FROM users WHERE role='admin'").get(),cookie=auth.createSessionCookie(user).split(';')[0];
+  const {requestHandler}=await import('../src/server.js');
+  db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,6,0) ON CONFLICT(product_id,cell_id) DO UPDATE SET available_quantity=6').run();
+  const product=db.prepare('SELECT items_per_cell FROM products WHERE id=1').get();
+  const response=new MockResponse();await requestHandler(formRequest({url:'/products/1/find',body:new URLSearchParams({displayKind:'capacity_total'}).toString(),cookie,headers:{accept:'application/json'}}),response);
+  assert.equal(response.statusCode,200);
+  const payload=JSON.parse(response.body);assert.equal(payload.targets.find(t=>t.cellId===1).value,product.items_per_cell);
 });
 
 test("product catalog audit shows unambiguous quantities on every mapped stocked cell",async()=>{
@@ -1373,9 +1388,8 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(pickHtml, /data-movement-stock-offset="5"/);
   assert.match(pickHtml, /name="return_to" value="" data-led-command-return-to/);
   assert.match(pickHtml, /Show All Quantities/);
-  assert.match(pickHtml, new RegExp(`formaction="/products/${shoe.id}/find"`));
-  assert.match(pickHtml, /formnovalidate/);
-  assert.match(pickHtml, /data-product-find-submit/);
+  assert.match(pickHtml, new RegExp(`data-activate-endpoint="/products/${shoe.id}/find"`));
+  assert.match(pickHtml, /data-show-product-quantity/);
   assert.match(pickHtml, /Last Activity/);
   assert.match(pickHtml, /Preferred/);
   assert.match(
@@ -1449,9 +1463,8 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(putHtml, /data-movement-stock-offset="5"/);
   assert.match(putHtml, /name="return_to" value="" data-led-command-return-to/);
   assert.match(putHtml, /Show All Quantities/);
-  assert.match(putHtml, new RegExp(`formaction="/products/${shoe.id}/find"`));
-  assert.match(putHtml, /formnovalidate/);
-  assert.match(putHtml, /data-product-find-submit/);
+  assert.match(putHtml, new RegExp(`data-activate-endpoint="/products/${shoe.id}/find"`));
+  assert.match(putHtml, /data-show-product-quantity/);
   assert.match(putHtml, /Preferred/);
   assert.match(
     putHtml,

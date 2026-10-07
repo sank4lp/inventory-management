@@ -1024,13 +1024,20 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     try { flushGuidance(['guide','resume'].includes(action)?{claims:result.guidanceClaims}:{}); } catch (error) { logger?.warn?.("work.guidance.deferred", { error: error.message }); }
     return result;
   }
-  function flushGuidance({restore=false,claims=null}={}) {
+  function overridingQuantityDisplay(cellId) {
+    return !!db.prepare(`SELECT 1 FROM display_requests d, json_each(d.targets_json) t
+      WHERE d.state IN ('active','expiring') AND json_extract(d.scope_json,'$.overrideWork')=1
+      AND json_extract(t.value,'$.cellId')=? AND json_extract(t.value,'$.status')='sent' LIMIT 1`).get(cellId);
+  }
+  function flushGuidance({restore=false,restoreCells=[],claims=null}={}) {
     withTransaction(db,()=>{
       reconcileGuidance();
       if(restore){db.prepare("UPDATE work_guidance SET delivered=0 WHERE json_extract(desired,'$.action') IN ('quantity','locate','count')").run();}
+      for (const cellId of restoreCells) db.prepare("UPDATE work_guidance SET delivered=0 WHERE cell_id=?").run(cellId);
     });
     if (!hardwareService) return;
     for (const row of db.prepare("SELECT * FROM work_guidance WHERE delivered=0").all()) {
+      if (overridingQuantityDisplay(row.cell_id)) continue;
       const desired = JSON.parse(row.desired);
       if(claims&&!claims.some(c=>c.cellId===row.cell_id&&c.generation===row.generation&&c.lineId===desired.lineId))continue;
       const cell = db.prepare("SELECT c.*,ctrl.address AS controller_address FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?").get(row.cell_id);
@@ -1064,6 +1071,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(!l.controller_id||!l.hardware_channel)return {state:'manual',message:'Manual location — follow the cell name and quantity on your screen.'};
     const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(l.cell_id),d=row?JSON.parse(row.desired):null;
     if(!owner)return {state:'blocked',message:'This task is not eligible for light guidance. Refresh its assignment and permissions.'};
+    if(overridingQuantityDisplay(l.cell_id))return {state:'manual',message:'Light temporarily shows stock quantities. Use the task instructions on screen; task guidance returns when that display ends.'};
     if(!row.delivered||d.binding!==guidanceBinding(db,l.cell_id))return {state:'manual',message:'Light not confirmed sent — follow the cell name and quantity on your screen.'};
     return d.action==='locate'?{state:'shared',message:'Your task owns this locator — use your action and quantity on screen.'}:{state:'sent',message:`Quantity guidance sent: ${l.planned_quantity} ${l.unit_of_measure}. Check the cell label on arrival.`};
   }

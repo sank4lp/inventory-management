@@ -201,6 +201,8 @@ function renderLocationCountButton(cell) {
       class="ghost-button count-button"
       data-show-location-count
       data-cell-id="${cell.id}"
+      data-activate-endpoint="/api/cells/${cell.id}/count"
+      data-clear-endpoint="/api/cells/${cell.id}/count/clear"
       data-show-label="Show Count"
       data-active-label="Showing Count"
       data-led-loading-label="Showing"

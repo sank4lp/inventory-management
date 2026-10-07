@@ -3682,7 +3682,8 @@ function catalogProductQuantityKey(button) {
     return explicitKey;
   }
   const productId = String(button?.dataset.productId || "").trim();
-  return productId ? `product:${productId}` : "";
+  const cellId = String(button?.dataset.cellId || "").trim();
+  return cellId ? `cell:${cellId}${productId ? `:product:${productId}` : ""}` : productId ? `product:${productId}` : "";
 }
 
 function setCatalogProductQuantityButtonState(button, active) {
@@ -3709,7 +3710,7 @@ function setCatalogProductQuantityButtonState(button, active) {
 }
 
 function syncCatalogProductQuantityButtons() {
-  document.querySelectorAll("[data-show-product-quantity]").forEach((button) => {
+  document.querySelectorAll("[data-show-product-quantity], [data-show-location-count]").forEach((button) => {
     const active =
       activeCatalogProductQuantity &&
       activeCatalogProductQuantity.key === catalogProductQuantityKey(button);
@@ -3717,13 +3718,41 @@ function syncCatalogProductQuantityButtons() {
   });
 }
 
-async function activateCatalogProductQuantity(button) {
+function confirmQuantityOverride(conflicts = []) {
+  return new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "quantity-override-dialog";
+    dialog.setAttribute("aria-labelledby", "quantity-override-title");
+    dialog.innerHTML = `<h2 id="quantity-override-title">Show quantities?</h2><p>Are you sure you want to see quantities of selected products?</p><p data-conflict-detail></p><label><input type="checkbox" />Yes, I want to override the current PICK/PUT task</label><div class="modal-actions"><button type="button" class="ghost-button" data-cancel>Cancel</button><button type="button" class="blue-button" data-confirm disabled>Show quantities anyways</button></div>`;
+    const taskIds = [...new Set(conflicts.map((entry) => Number(entry.taskId)).filter(Number.isInteger))];
+    dialog.querySelector("[data-conflict-detail]").textContent = `This temporarily replaces the lights for ${taskIds.length ? taskIds.slice(0, 5).map((id) => `Task #${id}`).join(", ") : "active PICK/PUT work"}${taskIds.length > 5 ? ` and ${taskIds.length - 5} more` : ""}. The task lights return when quantity display ends.`;
+    const checkbox = dialog.querySelector('input[type="checkbox"]');
+    const confirm = dialog.querySelector("[data-confirm]");
+    checkbox.addEventListener("change", () => { confirm.disabled = !checkbox.checked; });
+    dialog.querySelector("[data-cancel]").addEventListener("click", () => dialog.close("cancel"));
+    confirm.addEventListener("click", () => dialog.close("confirm"));
+    dialog.addEventListener("close", () => { const accepted = dialog.returnValue === "confirm"; dialog.remove(); resolve(accepted); }, { once: true });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
+async function activateCatalogProductQuantity(button, { previewOnly = false, overrideWork = false } = {}) {
   const endpoint = button.dataset.activateEndpoint;
   if (!endpoint) {
     throw new Error("Quantity display endpoint is unavailable.");
   }
   const body = new URLSearchParams();
   body.set("return_to", `${window.location.pathname}${window.location.search}`);
+  body.set("requestId", crypto.randomUUID());
+  body.set("promptOnBusy", "1");
+  if (button.dataset.displayKind) body.set("displayKind", button.dataset.displayKind);
+  if (button.dataset.productId) body.set("product_id", button.dataset.productId);
+  if (previewOnly) body.set("previewOnly", "1");
+  if (overrideWork) {
+    body.set("overrideWork", "1");
+    body.set("confirmOverride", "1");
+  }
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -3740,6 +3769,18 @@ async function activateCatalogProductQuantity(button) {
   return payload;
 }
 
+async function clearCatalogProductQuantity(active) {
+  const body = new URLSearchParams({ displayId: active.displayId });
+  const response = await fetch(active.clearEndpoint, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "Could not restore the previous lights. Try again.");
+  return payload;
+}
+
 function wireCatalogProductQuantity() {
   if (document.documentElement.dataset.catalogProductQuantityBound === "true") {
     return;
@@ -3747,7 +3788,7 @@ function wireCatalogProductQuantity() {
   document.documentElement.dataset.catalogProductQuantityBound = "true";
 
   document.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-show-product-quantity]");
+    const button = event.target.closest("[data-show-product-quantity], [data-show-location-count]");
     if (!button || button.disabled) {
       return;
     }
@@ -3764,26 +3805,34 @@ function wireCatalogProductQuantity() {
     });
 
     try {
-      if (activeCatalogProductQuantity) {
-        await sendProductFindLedClearEndpoint(activeCatalogProductQuantity.clearEndpoint, {
-          beacon: false,
-        });
+      if (togglingActive) {
+        await clearCatalogProductQuantity(activeCatalogProductQuantity);
         activeCatalogProductQuantity = null;
-        setButtonLoading(button, false);
         syncCatalogProductQuantityButtons();
-        if (togglingActive) {
-          return;
-        }
-        setButtonLoading(button, true, {
-          label: button.dataset.ledLoadingLabel || "Showing",
-          title: "Showing product quantities on the LEDs",
-        });
+        return;
       }
-
-      const payload = await activateCatalogProductQuantity(button);
+      const preview = await activateCatalogProductQuantity(button, { previewOnly: true });
+      let overrideWork = false;
+      if (preview.state === "confirmation_required") {
+        overrideWork = await confirmQuantityOverride(preview.conflicts);
+        if (!overrideWork) return;
+      }
+      if (activeCatalogProductQuantity) {
+        await clearCatalogProductQuantity(activeCatalogProductQuantity);
+        activeCatalogProductQuantity = null;
+        syncCatalogProductQuantityButtons();
+      }
+      let payload = await activateCatalogProductQuantity(button, { overrideWork });
+      if (payload.state === "confirmation_required") {
+        overrideWork = await confirmQuantityOverride(payload.conflicts);
+        if (!overrideWork) return;
+        payload = await activateCatalogProductQuantity(button, { overrideWork: true });
+      }
+      if (!payload.displayId || !payload.targets?.some((target) => target.status === "sent")) throw new Error(payload.message || "No location could show this quantity.");
       activeCatalogProductQuantity = {
         key: quantityKey,
         clearEndpoint: button.dataset.clearEndpoint,
+        displayId: payload.displayId,
       };
       setButtonLoading(button, false);
       syncCatalogProductQuantityButtons();
@@ -3810,6 +3859,7 @@ function wireCatalogProductQuantity() {
     }
     sendProductFindLedClearEndpoint(activeCatalogProductQuantity.clearEndpoint, {
       beacon: true,
+      body: new URLSearchParams({ displayId: activeCatalogProductQuantity.displayId }),
     });
     activeCatalogProductQuantity = null;
   });
@@ -4105,7 +4155,8 @@ function wireLocationUtilityActions() {
   bindingTarget.dataset.locationUtilityActionsBound = "true";
 
   document.addEventListener("click", async (event) => {
-    const countButton = event.target.closest("[data-show-location-count]");
+    const legacyCountButton = event.target.closest("[data-show-location-count]");
+    const countButton = legacyCountButton?.dataset.activateEndpoint ? null : legacyCountButton;
     if (countButton) {
       const cellId = countButton.dataset.cellId;
       if (!cellId || countButton.disabled) {

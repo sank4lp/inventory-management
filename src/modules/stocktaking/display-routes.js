@@ -5,11 +5,12 @@ import {ensureAuth,ensureApiAuth,ensureAdmin} from '../../server/http/auth-guard
 import {sendHtml,sendJson,sendRedirect} from '../../server/http/responses.js';
 export function displayRoutes(request,response,url,user,state) {
  const d=state.displayCoordinator;
+ const displayKind=value=>['capacity_total','capacity_available'].includes(value)?value:'quantity';
  if(url.pathname==='/api/displays/status'){if(!ensureApiAuth(response,user))return true;sendJson(response,d.status(user));return true;}
  if(request.method==='POST'&&['/api/displays/start','/api/displays/stop'].includes(url.pathname)) {
    if(!ensureApiAuth(response,user))return true;const i=request.parsedForm;
-   const scope={kind:i.kind==='locate'?'locate':'quantity',...(i.cellId?{cellId:Number(i.cellId)}:{}),...(i.productId?{productId:Number(i.productId)}:{})};
-   sendJson(response,url.pathname.endsWith('/stop')?d.stop(user,i.displayId):d.start(user,scope,{requestId:i.requestId}));return true;
+   const scope={kind:i.kind==='locate'?'locate':displayKind(i.displayKind||i.kind),...(i.cellId?{cellId:Number(i.cellId)}:{}),...(i.productId?{productId:Number(i.productId)}:{}),...(i.overrideWork==='1'?{overrideWork:true}:{})};
+   sendJson(response,url.pathname.endsWith('/stop')?d.stop(user,i.displayId):d.start(user,scope,{requestId:i.requestId,promptOnBusy:i.promptOnBusy==='1',confirmOverride:i.confirmOverride==='1',previewOnly:i.previewOnly==='1'}));return true;
  }
  if(request.method==='GET'&&url.pathname==='/quantities'){
    if(!ensureAuth(response,user))return true;const scope={kind:url.searchParams.get('kind')==='locate'?'locate':'quantity',...(url.searchParams.get('cellId')?{cellId:Number(url.searchParams.get('cellId'))}:{}),...(url.searchParams.get('productId')?{productId:Number(url.searchParams.get('productId'))}:{})};
@@ -26,8 +27,8 @@ export function displayRoutes(request,response,url,user,state) {
  if(request.method==='POST'&&(oldProduct||oldCell||oldWarehouse)){
    if(!ensureApiAuth(response,user))return true;const input=request.parsedForm;
    if(url.pathname.endsWith('/clear')||input.active===false){if(!input.displayId)throw new Error('Open quantity displays and stop the current request using its ownership receipt. A stale clear cannot stop newer guidance.');sendJson(response,{ok:true,degraded:false,...d.stop(user,input.displayId),...(oldCell?{cell:{id:Number(oldCell[1])}}:{})});return true;}
-   const scope={kind:oldCell&&oldCell[2]!=='count'?'locate':'quantity',...(oldCell?{cellId:Number(oldCell[1])}:{}),...(oldProduct?{productId:Number(oldProduct[1])}:{}),...(input.product_id?{productId:Number(input.product_id)}:{})};
-   const result=d.start(user,scope,{requestId:input.requestId||randomUUID()});
+   const scope={kind:oldCell&&oldCell[2]!=='count'?'locate':displayKind(input.displayKind),...(oldCell?{cellId:Number(oldCell[1])}:{}),...(oldProduct?{productId:Number(oldProduct[1])}:{}),...(input.product_id?{productId:Number(input.product_id)}:{}),...(input.overrideWork==='1'?{overrideWork:true}:{})};
+   const result=d.start(user,scope,{requestId:input.requestId||randomUUID(),promptOnBusy:input.promptOnBusy==='1',confirmOverride:input.confirmOverride==='1',previewOnly:input.previewOnly==='1'});
    if(String(request.headers.accept||'').includes('json')||oldCell)sendJson(response,{...result,ok:result.state!=='busy',degraded:result.state==='busy',displayId:result.id});else sendRedirect(response,'/quantities'+(oldProduct?'?productId='+oldProduct[1]:''));return true;
  }
  return false;

@@ -1,4 +1,4 @@
-import {activeWorkGuidance,guidanceBinding} from '../modules/operations/guidance.js';
+import {activeWorkGuidance,displayOwner,guidanceBinding} from '../modules/operations/guidance.js';
 import { createDegradedAdapter } from "./hardware-adapters/degraded.js";
 import { createRs485Adapter } from "./hardware-adapters/rs485.js";
 import { createSimulatorAdapter } from "./hardware-adapters/simulator.js";
@@ -80,7 +80,8 @@ export function createHardwareService({ db, config, logger }) {
           const display=db.prepare("SELECT * FROM display_requests WHERE id=? AND actor_id=? AND state IN ('active','expiring')").get(context.displayId,context.displayActor);
           if(!display)return {ok:false,degraded:true,message:'Superseded display request ignored.',events:[]};
           for(const target of targets){const owned=JSON.parse(display.targets_json).find(t=>t.controllerId===target.controller_id&&t.channel===target.hardware_channel);const work=db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(target.id||null)?.generation||null;if(!owned||owned.workGeneration!==work)return {ok:false,degraded:true,message:'Newer task guidance is protected.',events:[]};}
-          if(targets.some(t=>activeWorkGuidance(db,targetCellId(t))))return {ok:false,degraded:true,message:'Task guidance is active.',events:[]};
+          const scope=JSON.parse(display.scope_json);
+          if(targets.some(t=>activeWorkGuidance(db,targetCellId(t))&&!(['quantity','capacity_total','capacity_available'].includes(scope.kind)&&scope.overrideWork===true&&displayOwner(db,targetCellId(t))?.kind==='task')))return {ok:false,degraded:true,message:'Task or stocktake guidance is active.',events:[]};
         } else if(context.source==="work_coordinator") {
           const desired=db.prepare("SELECT generation FROM work_guidance WHERE cell_id=?").get(context.workCellId);
           if(!desired || desired.generation!==context.workGeneration || context.workBinding&&context.workBinding!==guidanceBinding(db,context.workCellId)) return {ok:false,degraded:true,message:"Superseded guidance ignored.",events:[]};
