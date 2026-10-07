@@ -149,6 +149,11 @@ export function createProductPages({ db, productFieldService = null }) {
     const unitLabel = fieldLabel(labels, "product.unit_of_measure", "Unit");
     const searchLabel = String(search || "").trim();
     const canEditCapacity = options.canEditCapacity === true;
+    const statusLabel = {
+      "in-stock": "in-stock",
+      "low-stock": "low-stock",
+      "out-of-stock": "out-of-stock",
+    }[options.status];
     const returnParams = new URLSearchParams();
     if (searchLabel) {
       returnParams.set("q", searchLabel);
@@ -194,16 +199,19 @@ export function createProductPages({ db, productFieldService = null }) {
       <p class="muted">${escapeHtml(
         searchLabel
           ? `${formatQuantity(products.length)} product(s) match "${searchLabel}".`
+          : statusLabel
+            ? `Showing ${statusLabel} products.`
           : `Browse all products, or search by ${identifierLabel}/${nameLabel.toLowerCase()} when an operator has an item in hand.`,
       )}</p>
+      <div class="product-catalog-table">
       ${table(
-        [identifierLabel, nameLabel, "On shelf", unitLabel, "Items Per Location", "Action"],
+        [identifierLabel, nameLabel, "Items Per Location", "On shelf", unitLabel, "Action"],
         products.map((product) => [
           `<a href="/products/${product.id}">${escapeHtml(product.sku)}</a>`,
           `<a href="/products/${product.id}">${escapeHtml(product.name)}</a><br /><small>${escapeHtml(product.brand)}</small>`,
+          escapeHtml(formatQuantity(product.items_per_cell)),
           escapeHtml(formatQuantity(product.total_available)),
           escapeHtml(product.unit_of_measure),
-          escapeHtml(formatQuantity(product.items_per_cell)),
           quickActionLinks(
             product.id,
             "",
@@ -212,6 +220,7 @@ export function createProductPages({ db, productFieldService = null }) {
         ]),
         emptyMessage,
       )}
+      </div>
     `;
   }
 
@@ -492,14 +501,14 @@ export function createProductPages({ db, productFieldService = null }) {
   }
 
   function productStatButton(report) {
-    return `<div class="stat-card"><a class="stat-card-action" href="/products?status=${escapeHtml(report.key)}"><span class="stat-label">${escapeHtml(report.label)}</span><span class="stat-value">${escapeHtml(formatQuantity(report.products.length))}</span><span>Filter catalog</span></a><button type="button" class="ghost-button" data-report-open="${escapeHtml(report.key)}" aria-haspopup="dialog" aria-controls="product-status-report-modal">Print this list</button></div>`;
+    return `<div class="product-status-row"><dt><a href="/products?status=${escapeHtml(report.key)}">${escapeHtml(report.label)}</a></dt><dd><a href="/products?status=${escapeHtml(report.key)}">${escapeHtml(formatQuantity(report.products.length))}</a><button type="button" class="product-status-print" data-report-open="${escapeHtml(report.key)}" aria-label="Print ${escapeHtml(report.label)} list" title="Print this list" aria-haspopup="dialog" aria-controls="product-status-report-modal"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 15h12v6H6zM18 12h.01"/></svg></button></dd></div>`;
   }
 
   function renderProductStatusReports(reports, generatedAt, reportFormat) {
     return `
-      <section class="stats-grid product-status-grid" aria-label="Product status lists">
+      <dl class="product-status-summary" aria-label="Product status lists">
         ${reports.map(productStatButton).join("")}
-      </section>
+      </dl>
       <section class="report-template-library" hidden>
         ${reports.map((report) => productReportTemplate(report, generatedAt, reportFormat)).join("")}
       </section>
@@ -615,7 +624,7 @@ export function createProductPages({ db, productFieldService = null }) {
     const customFields = visibleCustomFields();
     const allProducts = enrichProductsWithStockTrends(listProducts(db));
     const matchingProductIds = new Set(listProducts(db, search).map((product) => Number(product.id)));
-    const selectedStatus=url.searchParams.get('status')||'catalog-items';
+    const selectedStatus=url.searchParams.get('outOfStock')==='1'?'out-of-stock':url.searchParams.get('status')||'catalog-items';
     const products = allProducts.filter(product => matchingProductIds.has(Number(product.id)) && (selectedStatus==='in-stock'?product.total_available>0:selectedStatus==='out-of-stock'?product.total_available<=0:selectedStatus==='low-stock'?product.is_low_stock:true));
     const stockedProducts = allProducts.filter((product) => Number(product.total_available || 0) > 0);
     const outOfStockProducts = allProducts.filter((product) => Number(product.total_available || 0) <= 0);
@@ -688,6 +697,12 @@ export function createProductPages({ db, productFieldService = null }) {
                     ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
                     <button type="submit">Search</button>
                   </form>
+                  <form method="get" action="/products" class="product-stock-filter" data-product-stock-filter>
+                    ${search ? `<input type="hidden" name="q" value="${escapeHtml(search)}" />` : ""}
+                    ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
+                    <label><input type="checkbox" name="outOfStock" value="1" ${selectedStatus === "out-of-stock" ? "checked" : ""} />Show Out of Stock Products</label>
+                    <noscript><button type="submit">Apply</button></noscript>
+                  </form>
                   <button
                     type="button"
                     class="ghost-button count-button catalog-audit-button"
@@ -707,9 +722,9 @@ export function createProductPages({ db, productFieldService = null }) {
                 <div id="catalog-product-results">
                   ${renderCatalogProductResults(
                     products,
-                    search ? "No products match that search." : "No products have been added yet.",
+                    search ? "No products match that search." : selectedStatus === "out-of-stock" ? "No out-of-stock products." : selectedStatus === "low-stock" ? "No low-stock products." : selectedStatus === "in-stock" ? "No products currently in stock." : "No products have been added yet.",
                     search,
-                    { canEditCapacity: false },
+                    { canEditCapacity: false, status: selectedStatus },
                   )}
                 </div>
               `,

@@ -374,6 +374,12 @@ function wireLiveSearch() {
   }
 }
 
+function wireProductStockFilter() {
+  const form = document.querySelector("[data-product-stock-filter]");
+  const checkbox = form?.querySelector('input[name="outOfStock"]');
+  checkbox?.addEventListener("change", () => form.requestSubmit());
+}
+
 function wireQuantityShortcuts() {
   const syncQuantityShortcutState = (form) => {
     const quantityInput = form?.querySelector('input[name="quantity"]');
@@ -4792,6 +4798,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireSidebarParentLinks();
   wireNavOverflow();
   wireLiveSearch();
+  wireProductStockFilter();
   wireQuantityShortcuts();
   wireCompletionRedirects();
   wireQuantityChangeConfirmations();
