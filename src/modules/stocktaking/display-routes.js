@@ -7,8 +7,13 @@ export function displayRoutes(request,response,url,user,state) {
  if(url.pathname==='/api/displays/status'){if(!ensureApiAuth(response,user))return true;sendJson(response,d.status(user));return true;}
  if(request.method==='POST'&&['/api/displays/start','/api/displays/stop'].includes(url.pathname)) {
    if(!ensureApiAuth(response,user))return true;const i=request.parsedForm;
-   const scope={kind:['locate','ping','module_number'].includes(i.kind)?i.kind:displayKind(i.displayKind||i.kind),...(i.cellId?{cellId:Number(i.cellId)}:{}),...(i.productId?{productId:Number(i.productId)}:{}),...(i.overrideWork==='1'?{overrideWork:true}:{})};
-   sendJson(response,url.pathname.endsWith('/stop')?d.stop(user,i.displayId):d.start(user,scope,{requestId:i.requestId,promptOnBusy:i.promptOnBusy==='1',confirmOverride:i.confirmOverride==='1',previewOnly:i.previewOnly==='1'}));return true;
+   if(url.pathname.endsWith('/stop')){sendJson(response,d.stop(user,i.displayId));return true;}
+   const selectors=['cellId','shelfId','warehouseId'].filter(key=>i[key]!==undefined);
+   if(selectors.length>1||selectors.some(key=>!Number.isSafeInteger(Number(i[key]))||Number(i[key])<1))throw new Error('Choose one valid cell, shed/shelf or warehouse.');
+   const kind=i.displayKind||i.kind;
+   const scope={kind:['locate','ping','module_number','cell_name'].includes(kind)?kind:displayKind(kind),...Object.fromEntries(selectors.map(key=>[key,Number(i[key])])),...(i.productId?{productId:Number(i.productId)}:{}),...(i.overrideWork==='1'?{overrideWork:true}:{})};
+   const result=d.start(user,scope,{requestId:i.requestId,promptOnBusy:i.promptOnBusy==='1',confirmOverride:i.confirmOverride==='1',previewOnly:i.previewOnly==='1'});
+   sendJson(response,{...result,...(result.id?{displayId:result.id}:{})});return true;
  }
  // Retired display page: old bookmarks return to the normal product/location view.
  if(request.method==='GET'&&url.pathname==='/quantities'){

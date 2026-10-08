@@ -22,7 +22,7 @@ export async function mount() {
  }
  function render(open=null){
   root.classList.toggle('is-editing',editing);
-  root.innerHTML=locationTree(draft,cards,{editing,open});
+  root.innerHTML=locationTree(draft,cards,{editing,open,displayCapabilities:read.displayCapabilities||[]});
   refreshLabels();globalThis.WarehouseCombobox?.init(root);
  }
  function controls(){edit.hidden=editing;save.hidden=cancel.hidden=add.hidden=hint.hidden=!editing;save.disabled=busy||!dirty();cancel.disabled=add.disabled=busy;root.inert=busy;}

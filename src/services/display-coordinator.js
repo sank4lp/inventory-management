@@ -5,7 +5,7 @@ import {withTransaction} from '../db.js';
 export function createDisplayCoordinator({db,hardwareService,operationsService,clock=()=>new Date()}) {
   const mixedColors=['amber','cyan','white','green','red'];
   const numberDisplayKinds=new Set(['quantity','items_per_location','capacity_total','capacity_available']);
-  const overrideDisplayKinds=new Set([...numberDisplayKinds,'locate','ping']);
+  const overrideDisplayKinds=new Set([...numberDisplayKinds,'locate','ping','module_number','cell_name']);
   const activeWork=id=>activeWorkGuidance(db,id);
   const cell=id=>db.prepare('SELECT c.*,ctrl.address AS controller_address,ctrl.heartbeat_status,ctrl.active AS controller_active,ctrl.configured_at AS controller_configured_at FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(id);
   const workGeneration=id=>db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(id)?.generation||null;
@@ -45,7 +45,11 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
   }
   function view(actor,scope={}) {
     assertCan(operationsService.actorNow(actor),"locations.view");
-    const cells=db.prepare('SELECT id FROM cells WHERE active=1 ORDER BY logical_code').all().map(c=>cell(c.id)).filter(c=>(!scope.cellId||c.id===Number(scope.cellId))&&(!scope.cellIds||scope.cellIds.includes(c.id)));
+    for(const [key,table,label] of [['warehouseId','location_warehouses','Warehouse'],['shelfId','location_shelves','Shed/shelf']]){
+      if(scope[key]!==undefined&&(!Number.isSafeInteger(scope[key])||scope[key]<1||!db.prepare(`SELECT 1 FROM ${table} WHERE id=?`).get(scope[key])))throw new Error(label+' not found. Refresh Locations and try again.');
+    }
+    const groupCells=scope.warehouseId?new Set(db.prepare('SELECT c.id FROM cells c JOIN location_shelves s ON s.id=c.shelf_id WHERE s.warehouse_id=?').all(scope.warehouseId).map(c=>c.id)):null;
+    const cells=db.prepare('SELECT id FROM cells WHERE active=1 ORDER BY logical_code').all().map(c=>cell(c.id)).filter(c=>(!scope.cellId||c.id===Number(scope.cellId))&&(!scope.cellIds||scope.cellIds.includes(c.id))&&(!scope.shelfId||c.shelf_id===scope.shelfId)&&(!groupCells||groupCells.has(c.id)));
     return cells.map(c=>{const allProducts=db.prepare(`SELECT b.product_id,p.sku,p.name,p.unit_of_measure,p.items_per_cell,b.available_quantity AS on_hand,b.reserved_quantity,
       (EXISTS(SELECT 1 FROM work_discrepancies d WHERE d.cell_id=b.cell_id AND d.product_id=b.product_id) OR EXISTS(SELECT 1 FROM stocktake_condition_reviews cr WHERE cr.cell_id=b.cell_id AND cr.state='open')) AS uncertain
       FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.cell_id=? AND (b.available_quantity!=0 OR ?)`).all(c.id,scope.cellId?1:0);
@@ -64,7 +68,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     if(input.previewOnly)return {state:conflicts.length?'confirmation_required':'ready',conflicts:conflicts.map(row=>({cellId:row.cellId,taskId:row.owner.taskId,name:row.owner.name})),message:conflicts.length?'These cells are showing PICK/PUT work. Confirm before temporarily replacing those lights.':'Quantity display can start without replacing PICK/PUT lights.'};
     if(input.promptOnBusy&&!scope.overrideWork&&conflicts.length)return {state:'confirmation_required',conflicts:conflicts.map(row=>({cellId:row.cellId,taskId:row.owner.taskId,name:row.owner.name})),message:'These cells are showing PICK/PUT work. Confirm before temporarily replacing those lights.'};
     for(const row of rows) {
-      const c=row.cell,products=row.products;let status='ready',value=scope.kind==='quantity'?0:'LOC',color=scope.kind==='locate'?'red':scope.kind==='ping'?'green':'yellow',sequence=null;
+      const c=row.cell,products=row.products;let status='ready',value=scope.kind==='quantity'?0:'LOC',color=scope.kind==='locate'?'red':scope.kind==='ping'?'green':scope.kind==='cell_name'?'white':'yellow',sequence=null,issue=null;
       if(!c.controller_id||!c.hardware_channel)status='unmapped';else if(c.controller_active===0)status='unreachable';
       if(numberDisplayKinds.has(scope.kind)){
         if(products.some(p=>p.uncertain))status=status==='ready'?'uncertain':status;
@@ -83,15 +87,24 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
         if(!ready?.ok||ready.degraded)status='unreachable';
       }
       if(scope.kind==='module_number'){value=c.hardware_channel;if(!Number.isInteger(value)||value<1||value>999)status='unsupported';}
+      if(scope.kind==='cell_name'){
+        value=String(c.display_name||c.logical_code||'').trim();
+        // The installed matrix firmware has a 55-character ASCII text buffer.
+        // Do not send a shortened or substituted location name to another cell.
+        if(!value||value.length>55||!/^[\x20-\x21\x23-\x7e]+$/.test(value)){if(status==='ready')status='unsupported';issue='This cell name needs 1–55 English letters, numbers or symbols (without double quotes) to display on the LED.';}
+      }
       if(scope.kind==='recommendation'){const instructions=scope.instructions.filter(i=>i.cellId===c.id),directions=new Set(instructions.map(i=>i.direction));if(directions.size===1){value=instructions.reduce((n,i)=>n+i.quantity,0);color=instructions[0].direction==='pick'?'green':'red';if(!Number.isInteger(value)||value>999){value='LOC';}}}
       if(status!=='busy'&&c.id)db.prepare("UPDATE work_guidance SET generation=?,delivered=1 WHERE cell_id=? AND json_extract(desired,'$.action')='clear' AND delivered=0").run(randomUUID(),c.id);
-      targets.push({color,bindingRevision:c.binding_revision??null,controllerSnapshot:JSON.stringify(db.prepare('SELECT address,module_count,configured_at FROM controllers WHERE id=?').get(c.controller_id||null)||null),cellId:c.id||null,controllerId:c.controller_id,channel:c.hardware_channel,hardware:scope.setupTarget||scope.setupTargets?c:null,workGeneration:workGeneration(c.id||null),status,value,overrodeWork,sequence,sequenceIndex:0,lastShownAt:clock().toISOString()});
+      targets.push({color,bindingRevision:c.binding_revision??null,controllerSnapshot:JSON.stringify(db.prepare('SELECT address,module_count,configured_at FROM controllers WHERE id=?').get(c.controller_id||null)||null),cellId:c.id||null,controllerId:c.controller_id,channel:c.hardware_channel,hardware:scope.setupTarget||scope.setupTargets?c:null,workGeneration:workGeneration(c.id||null),status,value,overrodeWork,sequence,sequenceIndex:0,lastShownAt:clock().toISOString(),...(issue?{issue}:{})});
     }
     const created=clock().toISOString(),expires=new Date(clock().getTime()+(scope.kind==='locate'?300000:scope.kind==='ping'?5000:120000)).toISOString();
     db.prepare('INSERT INTO display_requests(id,actor_id,fingerprint,scope_json,targets_json,created_at,expires_at) VALUES(?,?,?,?,?,?,?)').run(id,a.id,fingerprint,JSON.stringify(scope),JSON.stringify(targets),created,expires);
-    for(const target of targets){if(!['ready','selection','unsupported','uncertain'].includes(target.status))continue;const c=target.cellId?cell(target.cellId):target.hardware;const numeric=target.status==='ready'&&target.value!=='LOC';const context={source:'display_coordinator',displayId:id,displayActor:a.id};const result=scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);target.status=result.ok&&!result.degraded?'sent':'unreachable';target.numeric=numeric&&Number.isInteger(target.value)&&target.value<=999;}
+    for(const target of targets){if(!['ready','selection','unsupported','uncertain'].includes(target.status)||scope.kind==='cell_name'&&target.status!=='ready')continue;const c=target.cellId?cell(target.cellId):target.hardware;const numeric=target.status==='ready'&&target.value!=='LOC';const context={source:'display_coordinator',displayId:id,displayActor:a.id};const result=scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);target.status=result.ok&&!result.degraded?'sent':'unreachable';target.numeric=numeric&&Number.isInteger(target.value)&&target.value<=999;}
     db.prepare('UPDATE display_requests SET targets_json=? WHERE id=?').run(JSON.stringify(targets),id);
-    return {id,state:targets.every(t=>t.status==='busy')?'busy':'active',targets,expires_at:expires,message:targets.some(t=>t.status==='sent')?scope.kind==='module_number'?'LED module number shown for up to two minutes. Click Hide module to stop.':scope.kind==='locate'?'Locating in red for up to five minutes. Click Locating to stop.':scope.kind==='ping'?'Pinging in green for five seconds.':'Numbers are showing for up to two minutes. Mixed-product locations alternate colors; task lights return when this display ends.':targets.length&&targets.every(t=>t.status==='unreachable')?'Controller is offline. Check its power and connection, then try again.':scope.kind==='locate'?'This location could not be lit. It may be used for stocktaking or another display, or its controller may be offline.':'No display was sent. Check each location’s status; task and count lights were preserved.'};
+    const sent=targets.filter(t=>t.status==='sent').length,skipped=targets.length-sent;
+    const unsupportedNames=scope.kind==='cell_name'?targets.filter(t=>t.status==='unsupported').length:0;
+    const message=sent?scope.kind==='cell_name'?'Cell names are showing for up to two minutes. Click again to stop.':scope.kind==='module_number'?'LED numbers are showing for up to two minutes. Click again to stop.':scope.kind==='locate'?'Locating in red for up to five minutes. Click Locating to stop.':scope.kind==='ping'?'Pinging in green for five seconds.':'Numbers are showing for up to two minutes. Mixed-product locations alternate colors; task lights return when this display ends.':unsupportedNames?'These cell names cannot be shown on the LEDs. Use up to 55 English letters, numbers or symbols without double quotes.':!targets.length?'No active cells in this group.':targets.every(t=>t.status==='unreachable')?'Controller is offline. Check its power and connection, then try again.':scope.kind==='locate'?'This location could not be lit. It may be used for stocktaking or another display, or its controller may be offline.':'No display was sent. Check each location’s status; task and count lights were preserved.';
+    return {id,state:targets.length&&targets.every(t=>t.status==='busy')?'busy':'active',targets,expires_at:expires,message:message+(sent&&skipped?` ${skipped} cell(s) were skipped: ${unsupportedNames?'some names cannot be shown; ':''}check busy lights, LED mappings or controller power.`:'')};
   }
   function stop(actor,id){const a=operationsService.actorNow(actor),row=db.prepare('SELECT * FROM display_requests WHERE id=? AND actor_id=?').get(id,a.id);if(!row)throw new Error('This display belongs to another operator.');if(['active','expiring'].includes(row.state))clear(row);return {message:'Only this display request was stopped. Newer task guidance was preserved.'};}
   function status(actor){const a=operationsService.actorNow(actor,"locations.view");expire();return db.prepare("SELECT id,actor_id,state,expires_at,scope_json,targets_json FROM display_requests WHERE state IN ('active','expiring')").all().filter(r=>r.actor_id===a.id||can(a,"hardware.view")).map(r=>({...r,canStop:r.actor_id===a.id,scope:JSON.parse(r.scope_json),targets:JSON.parse(r.targets_json)}));}

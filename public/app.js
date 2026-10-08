@@ -3603,7 +3603,7 @@ function syncCatalogProductQuantityButtons() {
   });
 }
 
-function confirmQuantityOverride(conflicts = [], locating = false, pinging = false) {
+function confirmQuantityOverride(conflicts = [], locating = false, pinging = false, displayKind = "quantity") {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
     dialog.className = "quantity-override-dialog";
@@ -3619,10 +3619,17 @@ function confirmQuantityOverride(conflicts = [], locating = false, pinging = fal
       dialog.querySelector("p").textContent = "This replaces the PICK/PUT light with a green ripple for five seconds.";
       dialog.querySelector("[data-confirm]").textContent = "Ping anyway";
     }
+    if (["cell_name", "module_number"].includes(displayKind)) {
+      const label = displayKind === "cell_name" ? "cell names" : "LED numbers";
+      dialog.querySelector("h2").textContent = `Show ${label}?`;
+      dialog.querySelector("p").textContent = "This temporarily replaces the PICK/PUT lights in this group.";
+      dialog.querySelector("[data-confirm]").textContent = `Show ${label} anyway`;
+    }
     const taskIds = [...new Set(conflicts.map((entry) => Number(entry.taskId)).filter(Number.isInteger))];
     dialog.querySelector("[data-conflict-detail]").textContent = `This temporarily replaces the lights for ${taskIds.length ? taskIds.slice(0, 5).map((id) => `Task #${id}`).join(", ") : "active PICK/PUT work"}${taskIds.length > 5 ? ` and ${taskIds.length - 5} more` : ""}. The task lights return when quantity display ends.`;
     if (locating) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "Locate ends");
     if (pinging) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "Ping ends");
+    if (["cell_name", "module_number"].includes(displayKind)) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "this display ends");
     const checkbox = dialog.querySelector('input[type="checkbox"]');
     const confirm = dialog.querySelector("[data-confirm]");
     checkbox.addEventListener("change", () => { confirm.disabled = !checkbox.checked; });
@@ -3648,6 +3655,8 @@ async function activateCatalogProductQuantity(button, { previewOnly = false, ove
   body.set("requestId", crypto.randomUUID());
   body.set("promptOnBusy", "1");
   if (button.dataset.displayKind) body.set("displayKind", button.dataset.displayKind);
+  if (button.dataset.warehouseId) body.set("warehouseId", button.dataset.warehouseId);
+  if (button.dataset.shelfId) body.set("shelfId", button.dataset.shelfId);
   if (locating || pinging) { const kind=pinging?"ping":"locate";body.set("kind",kind);body.set("displayKind",kind);body.set("cellId",cellId); }
   if (button.dataset.controllerId) body.set("controller_id", button.dataset.controllerId);
   if (button.dataset.productId) body.set("product_id", button.dataset.productId);
@@ -3732,7 +3741,7 @@ function wireCatalogProductQuantity() {
       const preview = await activateCatalogProductQuantity(button, { previewOnly: true });
       let overrideWork = false;
       if (preview.state === "confirmation_required") {
-        overrideWork = await confirmQuantityOverride(preview.conflicts, locating, pinging);
+        overrideWork = await confirmQuantityOverride(preview.conflicts, locating, pinging, button.dataset.displayKind);
         if (!overrideWork) return;
       }
       if (activeCatalogProductQuantity) {
@@ -3742,7 +3751,7 @@ function wireCatalogProductQuantity() {
       }
       let payload = await activateCatalogProductQuantity(button, { overrideWork });
       if (payload.state === "confirmation_required") {
-        overrideWork = await confirmQuantityOverride(payload.conflicts, locating, pinging);
+        overrideWork = await confirmQuantityOverride(payload.conflicts, locating, pinging, button.dataset.displayKind);
         if (!overrideWork) return;
         payload = await activateCatalogProductQuantity(button, { overrideWork: true });
       }
