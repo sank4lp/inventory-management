@@ -27,6 +27,10 @@ npm start
 
 Then open [http://localhost:3000](http://localhost:3000).
 
+For phones and tablets on the Pi's warehouse Wi-Fi, use the
+[local HTTPS setup](docs/pi-local-network.md). It adds network access around the
+existing Pi service; the database and hardware connection remain on the Pi.
+
 ## Seeded access
 
 - Admin user: `admin` / `admin123`

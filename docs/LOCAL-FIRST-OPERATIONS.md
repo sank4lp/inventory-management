@@ -40,6 +40,9 @@ Run `npm run preview` (or `PREVIEW_PORT=3211 npm run preview`) from the reposito
 
 ## Local deployment
 
+For the Pi setup script, phone HTTPS certificate enrollment and WAN-loss acceptance
+steps, use [Raspberry Pi local-network setup](pi-local-network.md).
+
 Use a current Node runtime supporting `node:sqlite`, install with `npm ci`, and run one application process with persistent local storage. Back up before first deployment. Schema changes are additive; unfinished older tasks move to explicit verification. Never run the development fixture seeds on a production database.
 
 Expose the Pi through a warehouse hostname and a trusted HTTPS endpoint. The local DNS/router must continue resolving it when the internet is down. Camera access, service-worker installation and offline reload require a secure context: localhost works for development; an ordinary HTTP LAN IP is not enough for phone camera/offline installation. Provision a certificate trusted by the actual phones through the site's managed certificate process. Do not bypass certificate warnings.
