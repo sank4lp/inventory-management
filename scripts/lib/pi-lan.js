@@ -57,7 +57,6 @@ export function renderLanConfig({address,port=443,appPort=3000,cidr,storage=LAN_
   return `${MANAGED_MARKER}
 {
     admin off
-    persist_config off
     auto_https disable_redirects
     skip_install_trust
     storage file_system ${storage}

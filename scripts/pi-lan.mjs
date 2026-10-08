@@ -3,6 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {existsSync,readFileSync,writeFileSync,mkdirSync,renameSync,unlinkSync,chmodSync,chownSync} from 'node:fs';
 import {networkInterfaces} from 'node:os';
 import {dirname} from 'node:path';
+import {adaptLanConfig} from './lib/pi-lan-caddy.js';
 import {
   APP_SERVICE,LAN_SERVICE,LAN_CONFIG,LAN_UNIT,LAN_STORAGE,LAN_ROOT_CERT,
   parseLanArguments,lanNetwork,renderLanConfig,renderLanUnit,checkOwnedFile,checkPortOwner,phoneUrl,
@@ -51,7 +52,7 @@ function preflight(options) {
   checkPortOwner(listeners,pid&&pid!=='0'?pid:null);
   const config=renderLanConfig({...options,cidr:network.cidr});
   // Adapt the complete candidate before replacing any installed configuration.
-  run('/usr/bin/caddy',['adapt','--adapter','caddyfile','--config','-'],{input:config});
+  adaptLanConfig(config);
   return {network,config};
 }
 function install(options) {

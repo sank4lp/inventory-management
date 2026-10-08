@@ -12,6 +12,7 @@ import https from 'node:https';
 import {once} from 'node:events';
 import {setTimeout as delay} from 'node:timers/promises';
 import {renderLanConfig} from './lib/pi-lan.js';
+import {adaptLanConfig} from './lib/pi-lan-caddy.js';
 
 const caddy=process.env.CADDY_BIN;
 if(!caddy)throw new Error('Set CADDY_BIN to an official Caddy executable for this opt-in check.');
@@ -27,10 +28,10 @@ function request(port,path,{ca,method='GET',body,headers={}}={}){return new Prom
 
 try{
   const appPort=await freePort(),port=await freePort();
-  // Validate the actual Pi configuration, including stdin adaptation used by
+  // Validate the actual Pi configuration through the same file-based preflight
   // setup. Only the runtime fixture's listener/subnet is replaced with loopback.
   const piConfig=renderLanConfig({address:'192.168.1.140',cidr:'192.168.1.0/24',port,appPort,storage});
-  const adapted=JSON.parse(execFileSync(caddy,['adapt','--adapter','caddyfile','--config','-'],{input:piConfig,encoding:'utf8',stdio:['pipe','pipe','pipe']}));
+  const adapted=JSON.parse(adaptLanConfig(piConfig,{caddy,tempRoot:dir}));
   assert.deepEqual(Object.values(adapted.apps.http.servers).flatMap(s=>s.listen),[`192.168.1.140:${port}`]);
   assert.equal(adapted.admin.disabled,true);
   writeFileSync(configPath,piConfig.replaceAll('192.168.1.140','127.0.0.1').replaceAll('192.168.1.0/24','127.0.0.1/32'));

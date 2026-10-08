@@ -1,12 +1,45 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
+import {mkdtempSync,readFileSync,readdirSync,statSync,existsSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
+import {adaptLanConfig} from '../scripts/lib/pi-lan-caddy.js';
 import {
   privateIPv4,parseLanArguments,lanNetwork,renderLanConfig,renderLanUnit,
   checkOwnedFile,checkPortOwner,phoneUrl,MANAGED_MARKER,
 } from '../scripts/lib/pi-lan.js';
 
 const interfaces={eth0:[{family:'IPv4',address:'192.168.1.140',netmask:'255.255.255.0',internal:false}],lo:[{family:'IPv4',address:'127.0.0.1',netmask:'255.0.0.0',internal:true}]};
+
+test('Pi LAN preflight supports file-only Caddy builds and cleans up after success or failure',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'lightguide-lan-test-'));
+  const config=renderLanConfig({address:'192.168.1.140',cidr:'192.168.1.0/24'});
+  let candidate;
+  const execute=(command,args,options)=>{
+    assert.equal(command,'/usr/bin/caddy');
+    assert.deepEqual(args.slice(0,4),['adapt','--adapter','caddyfile','--config']);
+    candidate=args[4];
+    // Model the distribution build that cannot read --config - from stdin.
+    if(candidate==='-')throw new Error('reading input file: open -: no such file or directory');
+    assert.equal(readFileSync(candidate,'utf8'),config);
+    assert.equal(statSync(candidate).mode&0o777,0o600);
+    assert.equal(statSync(join(candidate,'..')).mode&0o777,0o700);
+    assert.equal(options.input,undefined);
+    return '{"admin":{"disabled":true}}\n';
+  };
+  try{
+    assert.equal(adaptLanConfig(config,{tempRoot:dir,execute}),'{"admin":{"disabled":true}}');
+    assert.equal(existsSync(candidate),false);
+    assert.deepEqual(readdirSync(dir),[]);
+    assert.throws(()=>adaptLanConfig(config,{tempRoot:dir,execute:(...args)=>{
+      execute(...args);
+      throw Object.assign(new Error('failed'),{stderr:'Error: invalid config'});
+    }}),/\/usr\/bin\/caddy failed: Error: invalid config/);
+    assert.equal(existsSync(candidate),false);
+    assert.deepEqual(readdirSync(dir),[]);
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
 
 test('Pi LAN setup refuses public, loopback, injected and unassigned addresses',()=>{
   for(const address of ['8.8.8.8','0.0.0.0','127.0.0.1','::1','192.168.1.140\nadmin :2019','192.168.1.999']){

@@ -75,11 +75,14 @@ On a Pi where Node is installed only under the user's version manager and sudo
 cannot find it, first run `command -v node`, then use that returned absolute path:
 
 ```sh
-sudo /actual/path/to/node scripts/pi-lan.mjs install --address 192.168.1.140
-sudo /actual/path/to/node scripts/pi-lan.mjs certificate --address 192.168.1.140
+node_bin="$(command -v node)"
+"$node_bin" --version
+sudo "$node_bin" scripts/pi-lan.mjs install --address 192.168.1.140 && \
+  sudo "$node_bin" scripts/pi-lan.mjs certificate --address 192.168.1.140
 ```
 
-Do not guess this path. The wrapper prints this explanation if Node is unavailable.
+Stop if the version command fails. Certificate export runs only after installation
+succeeds. The wrapper prints this explanation if Node is unavailable to sudo.
 
 Read-only preflight and subsequent verification:
 
@@ -227,6 +230,12 @@ curl --noproxy '*' --max-time 10 http://127.0.0.1:3000/login -o /dev/null
 sudo node scripts/pi-lan.mjs verify --address 192.168.1.140
 ```
 
+- `reading input file: open -: no such file or directory`: pull the latest setup
+  files and rerun installation. Older packaged Caddy versions require a file
+  instead of stdin; preflight now uses a private temporary file and removes it
+  on both success and failure. The configuration also avoids the newer
+  `persist_config` Caddyfile option. A subsequent missing-certificate message means
+  the failed installation never reached certificate creation; install first.
 - Local app check fails: inspect the existing app service/port first.
 - Pi HTTPS verification passes but phone cannot connect: check phone Wi-Fi, IP,
   port, guest/client isolation, extender mode and LAN firewall.
@@ -253,8 +262,9 @@ References: [Caddy installation](https://caddyserver.com/docs/install),
 [Caddy local HTTPS](https://caddyserver.com/docs/automatic-https#local-https),
 [browser camera secure contexts](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
 
-Software verification for this change: **549 tests passed**, zero failures. The
-opt-in proxy check passed with official Caddy **2.11.7**, using a disposable
+Software verification for this change: **550 tests passed**, zero failures. The
+opt-in proxy check (`scripts/check-pi-lan-proxy.mjs`, with `CADDY_BIN` set) passed
+with official Caddy **2.6.2 and 2.11.7**, using a disposable
 production-mode app and loopback only: validated TLS, untrusted-root rejection,
 HTTPS login and secure session cookies, certificate export, the origin guard,
 all 24 checked local resources, subnet enforcement despite a spoofed forwarding
