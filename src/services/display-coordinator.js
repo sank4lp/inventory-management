@@ -4,7 +4,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {withTransaction} from '../db.js';
 export function createDisplayCoordinator({db,hardwareService,operationsService,clock=()=>new Date()}) {
   const mixedColors=['amber','cyan','white','green','red'];
-  const numberDisplayKinds=new Set(['quantity','capacity_total','capacity_available']);
+  const numberDisplayKinds=new Set(['quantity','items_per_location','capacity_total','capacity_available']);
   const overrideDisplayKinds=new Set([...numberDisplayKinds,'locate','ping']);
   const activeWork=id=>activeWorkGuidance(db,id);
   const cell=id=>db.prepare('SELECT c.*,ctrl.address AS controller_address,ctrl.heartbeat_status,ctrl.active AS controller_active,ctrl.configured_at AS controller_configured_at FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(id);
@@ -69,7 +69,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       if(numberDisplayKinds.has(scope.kind)){
         if(products.some(p=>p.uncertain))status=status==='ready'?'uncertain':status;
         else if(products.length){
-          const displayValue=p=>scope.kind==='capacity_total'?p.items_per_cell:scope.kind==='capacity_available'?Math.max(0,Math.floor((1-row.occupiedFraction)*p.items_per_cell+1e-9)):p.on_hand;
+          const displayValue=p=>['items_per_location','capacity_total'].includes(scope.kind)?p.items_per_cell:scope.kind==='capacity_available'?Math.max(0,Math.floor((1-row.occupiedFraction)*p.items_per_cell+1e-9)):p.on_hand;
           if(products.some(p=>!Number.isInteger(displayValue(p))||displayValue(p)<0||displayValue(p)>999))status=status==='ready'?'unsupported':status;
           else if(products.length===1)value=displayValue(products[0]);
           else{sequence=products.map((p,index)=>({productId:p.product_id,sku:p.sku,value:displayValue(p),color:mixedColors[index%mixedColors.length]}));value=sequence[0].value;color=sequence[0].color;}

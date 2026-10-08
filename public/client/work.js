@@ -818,7 +818,7 @@ const stockRights=()=>['view','pick','put','assign','teamView'].map(p=>Number(al
 const stockReadKey=productId=>`${key()}:${snapshot.dataset}:${stockRights()}:${productId}`;
 function stockSummaryHtml(s,direction){
  const q=n=>esc(Number(n).toLocaleString(undefined,{maximumFractionDigits:6})),unit=esc(s.unit);
- return `<dl class="product-stock-main">${[['Current Stock',s.recorded],['Space for More',s.putCapacity],['Total Capacity',s.totalCapacity]].map(([label,value])=>`<div><dt${label==='Space for More'?' title="Available after active work and location checks"':''}>${label}</dt><dd>${q(value)} <span>${unit}</span></dd></div>`).join('')}</dl><div class="product-stock-reserved">Reserved for Pick: <strong>${q(s.pickReserved)} ${unit}</strong> · Reserved for Put: <strong>${q(s.incomingReserved)} ${unit}</strong></div>`;
+ return `<dl class="product-stock-main">${[['Current Stock',s.recorded],['Space for More',s.putCapacity]].map(([label,value])=>`<div><dt${label==='Space for More'?' title="Available after active work and location checks"':''}>${label}</dt><dd>${q(value)} <span>${unit}</span></dd></div>`).join('')}</dl><div class="product-stock-reserved">Reserved for Pick: <strong>${q(s.pickReserved)} ${unit}</strong> · Reserved for Put: <strong>${q(s.incomingReserved)} ${unit}</strong></div>`;
 }
 function stockDetailsHtml(s){
  const reservations=s.reservations.length?'<ul>'+s.reservations.map(r=>`<li><a href="/tasks/${Number(r.taskId)}">Task #${Number(r.taskId)}</a> · ${r.kind==='pick'?'Pick reserved':'Incoming put'} ${esc(r.quantity)} ${esc(r.unit)} · ${esc(r.location)}${s.detailScope==='team'?' · '+esc(r.assignee||'Unassigned'):''}${r.attention?' · Needs check':''}</li>`).join('')+'</ul>':'<p>No reservations visible in your scope.</p>';

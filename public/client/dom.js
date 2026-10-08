@@ -1,3 +1,5 @@
+import {reserveButtonSize} from './stable-buttons.js';
+
 export function debounce(callback, delay) {
   let timeoutId = null;
   const scope=globalThis.WarehousePageLifecycle?.current;
@@ -82,6 +84,7 @@ export function setButtonLoading(button, loading, options = {}) {
       "Working";
     const title = options.title || button.dataset.loadingTitle || label;
 
+    reserveButtonSize(button,[label]);
     lockButtonSize(button);
     button.dataset.loadingActive = "true";
     button.dataset.loadingOriginalHtml = button.innerHTML;

@@ -107,10 +107,17 @@ html { scrollbar-gutter: stable; }
 .global-notification-panel .notification-clear {margin:8px 0;width:100%;}
 .page-body[aria-busy="true"] {cursor:progress;}
 
+@media screen {
+  button[data-stable-button-size] {
+    min-inline-size: min(100%, var(--stable-button-width)) !important;
+    min-block-size: var(--stable-button-height, 44px) !important;
+  }
+}
+
 /* One text-action scale, including actions rendered as links. Icon-only controls
    keep their square shape; embedded combobox arrows are part of the input. */
 @media screen {
-  :is(button, a.mini-link, a.ghost-button, a.action-cta-button, a.work-primary, a.work-secondary):not(.searchable-toggle):not(.combo-toggle):not(.notification-close):not(.global-notifications-button):not([data-remove-actual]) {
+  :is(button, a.mini-link, a.ghost-button, a.action-cta-button, a.work-primary, a.work-secondary):where(:not(.searchable-toggle):not(.combo-toggle):not(.notification-close):not(.global-notifications-button):not([data-remove-actual])) {
     /* Override older page-specific compact/large text-action rules. */
     min-height: var(--ui-control-height, 44px) !important;
     font-size: var(--ui-label-size, 14px) !important;

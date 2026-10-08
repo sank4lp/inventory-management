@@ -9,7 +9,7 @@ if(shell&&body){
  document.body.dataset.shellId=crypto.randomUUID();
  const identity=document.body.dataset.notificationScope;
  const loadedClassic=new Set([...document.querySelectorAll('script[src]:not([type="module"])')].map(s=>new URL(s.src,location.href).pathname));
- const persistent=new Set(['/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
+ const persistent=new Set(['/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
  const currentScope=()=>globalThis.WarehousePageLifecycle.current;
  const savedPositions=new Map();let deciding=false;
  async function permitLeave(pop){if(deciding)return false;deciding=true;try{const permitted=await currentScope().canLeave();if(!permitted&&pop){history.pushState({warehousePage:true},'',current);window.dispatchEvent(new CustomEvent('warehouse:navigation-cancelled'));}return permitted;}finally{deciding=false;}}

@@ -161,7 +161,7 @@ export function createProductPages({ db, productFieldService = null }) {
     const catalogReturnPath = `/products${returnParams.toString() ? `?${returnParams.toString()}` : ""}`;
     const catalogQuantityButton = (product, kind = "quantity") => {
       const hasStock = Number(product.total_available || 0) > 0;
-      const label = {quantity:"Show Quantity",capacity_total:"Show Total Capacity",capacity_available:"Show Available Capacity"}[kind];
+      const label = {quantity:"Show Quantity",items_per_location:"Show items per location",capacity_available:"Show Available Capacity"}[kind];
       const title = hasStock ? `Show ${label.toLowerCase()} for ${product.sku} on every mapped location holding this product.` : "Put this product into a mapped location before using its LED display.";
       return `
         <button
@@ -174,7 +174,7 @@ export function createProductPages({ db, productFieldService = null }) {
           data-activate-endpoint="/products/${escapeHtml(product.id)}/find"
           data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear"
           data-show-label="${label}"
-          data-active-label="Showing ${label.slice(5)}"
+          data-active-label="${kind === "items_per_location" ? "Showing items per location" : `Showing ${label.slice(5)}`}"
           data-led-loading-label="Showing"
           aria-pressed="false"
           title="${escapeHtml(title)}"
@@ -216,7 +216,7 @@ export function createProductPages({ db, productFieldService = null }) {
           quickActionLinks(
             product.id,
             "",
-            `${catalogQuantityButton(product)}${catalogQuantityButton(product,"capacity_total")}${catalogQuantityButton(product,"capacity_available")}${catalogCapacityEditor(product)}${options.canStocktake?`<a class="ghost-button" href="/stocktaking?productId=${product.id}">Stocktake</a>`:''}`,
+            `${catalogQuantityButton(product)}${catalogQuantityButton(product,"items_per_location")}${catalogQuantityButton(product,"capacity_available")}${catalogCapacityEditor(product)}${options.canStocktake?`<a class="ghost-button" href="/stocktaking?productId=${product.id}">Stocktake</a>`:''}`,
           ),
         ]),
         emptyMessage,
@@ -389,7 +389,6 @@ export function createProductPages({ db, productFieldService = null }) {
             aria-pressed="${active ? "true" : "false"}"
             ${disabled ? "disabled" : ""}
           >${active ? "Showing All Quantities" : "Show quantities in all locations"}</button>
-          <button type="button" class="ghost-button count-button led-action-button" data-show-product-quantity data-product-id="${escapeHtml(product.id)}" data-display-kind="capacity_total" data-quantity-key="product:${escapeHtml(product.id)}:capacity_total" data-activate-endpoint="/products/${escapeHtml(product.id)}/find" data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear" data-show-label="Show Total Capacity" data-active-label="Showing Total Capacity" aria-pressed="false" ${disabled ? "disabled" : ""}>Show Total Capacity</button>
           <button type="button" class="ghost-button count-button led-action-button" data-show-product-quantity data-product-id="${escapeHtml(product.id)}" data-display-kind="capacity_available" data-quantity-key="product:${escapeHtml(product.id)}:capacity_available" data-activate-endpoint="/products/${escapeHtml(product.id)}/find" data-clear-endpoint="/products/${escapeHtml(product.id)}/find/clear" data-show-label="Show Available Capacity" data-active-label="Showing Available Capacity" aria-pressed="false" ${disabled ? "disabled" : ""}>Show Available Capacity</button>
         </span>
       </form>
@@ -809,6 +808,7 @@ export function createProductPages({ db, productFieldService = null }) {
             <div class="product-summary-layout">
               <section class="product-summary-overview" aria-label="Product details">
                 <dl class="task-info-grid product-summary-facts">
+                  ${[["name", "Name"], ["category", "Category"], ["variant", "Variant / Size"], ["description", "Description"]].map(([key, label]) => `<div class="task-info-field"><dt>${escapeHtml(fieldLabel(labels, `product.${key}`, label))}</dt><dd>${escapeHtml(product[key] || "—")}</dd></div>`).join("") }
                   <div class="task-info-field">
                     <dt>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}</dt>
                     <dd>${escapeHtml(product.sku)}</dd>
@@ -881,7 +881,6 @@ export function createProductPages({ db, productFieldService = null }) {
                     aria-pressed="false"
                     ${location.controller_id && location.hardware_channel ? `title="Show ${escapeHtml(product.sku)} quantity at ${escapeHtml(location.logical_code)} on its LED module"` : `disabled aria-disabled="true" title="Manual location has no LED mapped"`}
                   >Show Quantity</button>
-                  <button type="button" class="ghost-button count-button" data-show-location-count data-cell-id="${escapeHtml(location.cell_id)}" data-product-id="${escapeHtml(product.id)}" data-display-kind="capacity_total" data-quantity-key="cell:${escapeHtml(location.cell_id)}:product:${escapeHtml(product.id)}:capacity_total" data-activate-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count" data-clear-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count/clear" data-show-label="Show Total Capacity" data-active-label="Showing Total Capacity" aria-pressed="false" ${location.controller_id && location.hardware_channel ? "" : "disabled"}>Show Total Capacity</button>
                   <button type="button" class="ghost-button count-button" data-show-location-count data-cell-id="${escapeHtml(location.cell_id)}" data-product-id="${escapeHtml(product.id)}" data-display-kind="capacity_available" data-quantity-key="cell:${escapeHtml(location.cell_id)}:product:${escapeHtml(product.id)}:capacity_available" data-activate-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count" data-clear-endpoint="/api/cells/${escapeHtml(location.cell_id)}/count/clear" data-show-label="Show Available Capacity" data-active-label="Showing Available Capacity" aria-pressed="false" ${location.controller_id && location.hardware_channel ? "" : "disabled"}>Show Available Capacity</button>
                 </div>
               `,

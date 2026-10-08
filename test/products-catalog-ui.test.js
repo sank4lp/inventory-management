@@ -40,6 +40,15 @@ test("Products summary and out-of-stock checkbox preserve catalog actions", () =
     assert.match(stockedHtml, /Show In Stock Products Only/);
     assert.match(stockedCatalog, /Stocked Test Product/);
     assert.doesNotMatch(stockedCatalog, /Empty Test Product/);
+    assert.match(stockedCatalog, /data-display-kind="items_per_location"/);
+    assert.match(stockedCatalog, /data-active-label="Showing items per location"/);
+    assert.doesNotMatch(stockedHtml, /Total Capacity|capacity_total/);
+    db.prepare('UPDATE products SET category=?, variant=?, description=? WHERE id=?').run('Uniforms', 'Large', 'Canvas <carry> case', stockedId);
+    const product={...db.prepare('SELECT * FROM products WHERE id=?').get(stockedId),total_available:4,locations:[]};
+    const detail=pages.renderProductDetail(user,null,product);
+    const summary=detail.split('class="task-info-grid product-summary-facts">')[1].split('</dl>')[0];
+    for(const value of ['Stocked Test Product','Uniforms','Large','Canvas &lt;carry&gt; case'])assert.ok(summary.includes(value));
+    assert.doesNotMatch(detail, /Show Total Capacity|capacity_total/);
     const emptyWarehouse=()=>{db.exec('UPDATE inventory_balances SET available_quantity=0, reserved_quantity=0');return pages.renderProducts(user, null, "", false, new URL("http://localhost/products"));};
     const allZeroHtml=emptyWarehouse();
     const showAll=allZeroHtml.match(/<button[\s\S]*?data-quantity-key="catalog-audit"[\s\S]*?<\/button>/)[0];

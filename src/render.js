@@ -167,6 +167,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <link rel="stylesheet" href="/responsive.css" />
     <link rel="stylesheet" href="/layout.css" />
     <script type="module" src="/client/navigation.js"></script>
+    <script type="module" src="/client/stable-buttons.js"></script>
     <script type="module" src="/client/searchable-select.js"></script>
     <script type="module" src="/client/notifications.js"></script>
     <script type="module" src="/app.js"></script>

@@ -436,7 +436,7 @@ test("product detail shows the latest activity time for each holding cell", asyn
   assert.match(html, /Last Activity/);
   assert.match(html, new RegExp(`data-ping-cell[\\s\\S]*data-cell-id="${batteryCell.id}"`));
   assert.match(html, /data-show-label="Show Quantity"/);
-  assert.match(html, /data-display-kind="capacity_total"/);
+  assert.doesNotMatch(html, /data-display-kind="capacity_total"|Show Total Capacity/);
   assert.match(html, /data-display-kind="capacity_available"/);
   assert.match(html, /class="task-info-grid product-summary-facts"/);
   assert.match(html, new RegExp(`data-product-id="${battery.id}"`));
@@ -458,14 +458,14 @@ test("product find shows yellow quantity guidance on every mapped holding cell",
   const cleared=new MockResponse();await requestHandler(formRequest({url:'/api/displays/stop',body:new URLSearchParams({displayId:payload.displayId}).toString(),cookie,headers:{accept:'application/json'}}),cleared);assert.equal(cleared.statusCode,200);assert.equal(db.prepare('SELECT state FROM display_requests WHERE id=?').get(payload.displayId).state,'stopped');
 });
 
-test("product capacity display accepts the mode and shows items-per-cell units",async()=>{
+test("product items-per-location display accepts the mode and shows configured units",async()=>{
   const sandbox=mkdtempSync(join(tmpdir(),'capacity-route-'));process.chdir(sandbox);process.env.NO_SERVER_LISTEN='1';
   const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
   const {db}=getAppState(),auth=await freshImport('../src/services/auth.js'),user=db.prepare("SELECT * FROM users WHERE role='admin'").get(),cookie=auth.createSessionCookie(user).split(';')[0];
   const {requestHandler}=await import('../src/server.js');
   db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,6,0) ON CONFLICT(product_id,cell_id) DO UPDATE SET available_quantity=6').run();
   const product=db.prepare('SELECT items_per_cell FROM products WHERE id=1').get();
-  const response=new MockResponse();await requestHandler(formRequest({url:'/products/1/find',body:new URLSearchParams({displayKind:'capacity_total'}).toString(),cookie,headers:{accept:'application/json'}}),response);
+  const response=new MockResponse();await requestHandler(formRequest({url:'/products/1/find',body:new URLSearchParams({displayKind:'items_per_location'}).toString(),cookie,headers:{accept:'application/json'}}),response);
   assert.equal(response.statusCode,200);
   const payload=JSON.parse(response.body);assert.equal(payload.targets.find(t=>t.cellId===1).value,product.items_per_cell);
 });

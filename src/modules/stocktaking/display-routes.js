@@ -3,7 +3,7 @@ import {ensureAuth,ensureApiAuth} from '../../server/http/auth-guards.js';
 import {sendJson,sendRedirect} from '../../server/http/responses.js';
 export function displayRoutes(request,response,url,user,state) {
  const d=state.displayCoordinator;
- const displayKind=value=>['capacity_total','capacity_available'].includes(value)?value:'quantity';
+ const displayKind=value=>['items_per_location','capacity_total','capacity_available'].includes(value)?value:'quantity';
  if(url.pathname==='/api/displays/status'){if(!ensureApiAuth(response,user))return true;sendJson(response,d.status(user));return true;}
  if(request.method==='POST'&&['/api/displays/start','/api/displays/stop'].includes(url.pathname)) {
    if(!ensureApiAuth(response,user))return true;const i=request.parsedForm;
