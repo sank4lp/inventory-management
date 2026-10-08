@@ -1,0 +1,36 @@
+<span hidden data-notification-source data-notification-key="stocktaking-run:fixture-42">Stocktaking pending — start</span>
+<section class="card"><h2>Notification checks</h2><button type="button" id="run-notification-checks">Run notification checks</button><ol id="notification-check-results"></ol></section>
+<script type="module">
+import '/client/notifications.js';
+const results=document.querySelector('#notification-check-results');
+const check=(ok,message)=>{const li=document.createElement('li');li.textContent=(ok?'PASS: ':'FAIL: ')+message;results.append(li);};
+document.querySelector('#run-notification-checks').onclick=async()=>{
+ results.replaceChildren();const before=document.querySelectorAll('#global-notifications li').length;
+ let compact=true;
+ for(let n=1;n<=20;n++){
+  WarehouseNotifications.notify(`Notification ${n}`);
+  if(document.querySelectorAll('.global-toast').length>2)compact=false;
+ }
+ check(compact,'Rapid arrivals keep at most two overlapping layers');
+ check(document.querySelector('.global-toast:not(.is-leaving) p').textContent==='Notification 20','Latest notification replaces the previous alert');
+ const bounds=document.querySelector('.global-toast-host').getBoundingClientRect();
+ check(bounds.height<160&&bounds.width<=innerWidth-30,'Toast stays compact and within the viewport');
+ check(document.querySelectorAll('#global-notifications li').length===before+20,'Every notification remains in the bell history');
+ await new Promise(resolve=>setTimeout(resolve,280));
+ check(document.querySelectorAll('.global-toast').length===1,'Leaving alert is removed after animation');
+ document.querySelector('[data-notifications-button]').click();
+ check(document.querySelector('#global-notifications').matches(':popover-open'),'Bell opens the global notification list');
+ const panel=document.querySelector('#global-notifications').getBoundingClientRect();check(panel.left>=0&&panel.right<=document.documentElement.clientWidth,'Notification list stays inside the screen');
+ check(document.querySelector('[data-notification-count]').hidden,'Opening the list clears the unread badge');
+ document.querySelector('[aria-label="Close notifications"]').click();
+ document.querySelector('[aria-label="Dismiss notification"]').click();
+ check(document.querySelectorAll('.global-toast').length===0&&document.querySelectorAll('#global-notifications li').length===before+19,'Dismiss removes the notification from history');
+ document.querySelector('[data-clear-notifications]').click();
+ check(document.querySelectorAll('#global-notifications li').length===0,'Clear all empties notification history');
+ WarehouseNotifications.notify('Stocktaking pending — start',{key:'stocktaking-run:fixture-42'});
+ check(document.querySelectorAll('#global-notifications li').length===0,'Cleared stocktaking reminder stays dismissed');
+ WarehouseNotifications.notify('Auto-dismiss check');
+ await new Promise(resolve=>setTimeout(resolve,10100));
+ check(!document.querySelector('.global-toast-host').matches(':popover-open'),'Toast disappears after ten seconds');
+};
+</script>

@@ -1,0 +1,146 @@
+/* Shared page() template: one content edge and spacing scale for every screen.
+   Keep page-specific styles inside this frame rather than centering their roots. */
+:root {
+  --page-content-max: 1520px;
+  --page-content-gutter: 24px;
+  --page-section-gap: 18px;
+}
+/* Reserve the scrollbar space so long and short pages share the same edge. */
+html { scrollbar-gutter: stable; }
+.page-shell {
+  width: 100%;
+  max-width: var(--page-content-max);
+  margin: 0 auto;
+  padding: var(--page-content-gutter);
+  box-sizing: border-box;
+}
+.page-body {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.page-body > #work-app {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+.page-body .work-views { margin-bottom: var(--page-section-gap); }
+.offline-shell {
+  max-width: var(--page-content-max);
+  padding: var(--page-content-gutter);
+  box-sizing: border-box;
+}
+.sidebar-work-area { min-width: 0; }
+.sidebar-work-area .side-nav-sublist {
+  padding: 4px 0 8px 28px;
+  gap: 2px;
+}
+.sidebar-work-area .side-nav-link {
+  min-height: 36px;
+  padding: 6px 10px;
+  line-height: 1.35;
+}
+@media (max-width: 1020px) {
+  :root { --page-content-gutter: 16px; }
+  .sidebar-work-area .side-nav-link { min-height: 44px; }
+}
+@media print {
+  .page-shell { max-width: none; padding: 0; }
+  .sidebar-work-area { display: none; }
+}
+
+/* The shared header owns notifications on every screen. */
+.page-header { display: flex; flex-direction: row; align-items: center; gap: 16px; }
+.page-header h1 { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.page-header .global-notifications-button {
+  position: relative; display: inline-grid; place-items: center; flex: none;
+  width: 44px; height: 44px; min-height: 44px; padding: 10px;
+  border: 1px solid var(--work-border, #d3dfda); border-radius: 12px;
+  background: #fff; color: var(--work-ink, #173f35); cursor: pointer;
+}
+.global-notifications-button:hover, .global-notifications-button[aria-expanded="true"] { background: #eef6f2; }
+.global-notifications-button .ui-icon { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.8; }
+.global-notification-count {
+  position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px;
+  padding: 0 4px; border: 2px solid #fff; border-radius: 20px;
+  background: #236752; color: #fff; font-size: 10px; line-height: 18px;
+}
+.global-notification-count[hidden], [data-notification-source] { display: none !important; }
+.global-notification-panel {
+  position: fixed; inset: auto; margin: 0; width: min(380px, calc(100vw - 32px));
+  max-height: min(520px, 70dvh); overflow: auto; box-sizing: border-box;
+  border: 1px solid #d3dfda; border-radius: 14px; padding: 14px;
+  background: #fff; color: #173f35; box-shadow: 0 12px 36px #163d3526;
+}
+.global-notification-panel::backdrop, .global-toast-host::backdrop { background: transparent; pointer-events: none; }
+.global-notification-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.global-notification-panel h2 { margin: 0; font-size: 17px; }
+.global-notification-panel ol { list-style: none; padding: 0; margin: 8px 0 0; }
+.global-notification-panel li { padding: 12px 0; border-top: 1px solid #e0e8e4; overflow-wrap: anywhere; }
+.global-notification-panel p, .global-notification-panel a { margin: 0; font-size: 14px; line-height: 1.45; }
+.global-notification-panel time { display: block; margin-top: 4px; font-size: 11px; color: #5e746a; }
+.global-toast-host {
+  position: fixed; inset: 76px 16px auto auto; margin: 0; padding: 0; border: 0;
+  width: min(360px, calc(100vw - 32px)); overflow: visible; background: transparent;
+}
+.global-toast-host:popover-open, .global-toast-host.is-open { display: grid; }
+.global-notification-panel[hidden], .global-toast-host[hidden] { display: none !important; }
+.global-toast {
+  grid-area: 1 / 1; display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px; border: 1px solid #b9d3c6; border-radius: 12px;
+  background: #f3faf6; color: #173f35; box-shadow: 0 8px 24px #163d3526;
+  animation: notification-arrive .22s ease-out both;
+}
+.global-toast[data-tone="warning"] { background: #fff8e9; border-color: #e8d4a7; }
+.global-toast[data-tone="error"] { background: #fff2f1; border-color: #e0b7b2; }
+.global-toast p { flex: 1; margin: 0; max-height: min(100px, 20dvh); overflow: auto; overflow-wrap: anywhere; font-size: 14px; line-height: 1.45; }
+.global-notification-panel .notification-close, .global-toast .notification-close { flex: none; display: inline-grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; font-size: 22px; cursor: pointer; }
+.notification-close:hover { background: #173f3510; }
+.global-toast.is-leaving { pointer-events: none; animation: notification-leave .22s ease-in both; }
+@keyframes notification-arrive { from { opacity: 0; transform: translateY(-8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes notification-leave { to { opacity: 0; transform: translateY(5px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .global-toast, .global-toast.is-leaving { animation: none; } .global-toast.is-leaving { visibility: hidden; } }
+@media print { .global-notifications-button, .global-notification-panel, .global-toast-host { display: none !important; } }
+
+.global-notification-panel li {position:relative;padding-right:36px;}
+.global-notification-panel li>.notification-close {position:absolute;right:4px;top:8px;}
+.global-notification-panel .notification-clear {margin:8px 0;width:100%;}
+.page-body[aria-busy="true"] {cursor:progress;}
+
+@media screen {
+  button[data-stable-button-size] {
+    min-inline-size: min(100%, var(--stable-button-width)) !important;
+    min-block-size: var(--stable-button-height, 44px) !important;
+  }
+}
+
+/* One text-action scale, including actions rendered as links. Icon-only controls
+   keep their square shape; embedded combobox arrows are part of the input. */
+@media screen {
+  :is(button, a.mini-link, a.ghost-button, a.action-cta-button, a.work-primary, a.work-secondary):where(:not(.searchable-toggle):not(.combo-toggle):not(.notification-close):not(.global-notifications-button):not([data-remove-actual])) {
+    /* Override older page-specific compact/large text-action rules. */
+    min-height: var(--ui-control-height, 44px) !important;
+    font-size: var(--ui-label-size, 14px) !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+    padding: .625rem .875rem;
+  }
+  .location-history-button { width: var(--ui-control-height, 44px); height: var(--ui-control-height, 44px); flex-basis: var(--ui-control-height, 44px); padding: 10px; }
+  .active-assignments .searchable-select,
+  .active-assignments [data-active-assignee] { min-width: 0; max-width: 100%; width: 100%; }
+  #work-app .active-assignments .searchable-input { min-width: 0; width: 100%; }
+  #work-app .active-assignments [data-active-quantity] { width: 100%; min-width: 0; margin: 0; }
+  .active-assignments-toolbar [data-fit-columns] { margin-left: auto; }
+  #work-app table[data-resizable-table] { table-layout: fixed; width: 100%; min-width: 0; }
+  #work-app table[data-resizable-table] :is(th, td) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #work-app table[data-resizable-table] th { position: relative; padding-right: 16px; }
+  #work-app table[data-resizable-table] th > a { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .table-column-resizer {
+    position: absolute; inset: 0 0 0 auto; width: 12px; cursor: col-resize;
+    touch-action: none; user-select: none;
+  }
+  .table-column-resizer::after { content: ''; position: absolute; right: 5px; top: 25%; bottom: 25%; width: 2px; background: #bacbc3; }
+  .table-column-resizer:hover::after, .table-column-resizer:focus-visible::after { background: #236752; width: 3px; }
+  .table-column-resizer:focus-visible { outline: 2px solid #236752; outline-offset: -2px; }
+  .table-resizing, .table-resizing * { cursor: col-resize !important; user-select: none !important; }
+}

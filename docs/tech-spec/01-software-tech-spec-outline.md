@@ -4,6 +4,8 @@
 
 This document now acts as a lightweight technical baseline for the implemented phase-1 software and a checklist for future expansion.
 
+Current implemented behavior is described in [Local-first operations](../LOCAL-FIRST-OPERATIONS.md). The future [Pi/cloud deployment plan](../architecture/03-pi-cloud-deployment-plan.md) and [company-controlled warehouse sharing specification](02-company-warehouse-sharing.md) are required inputs to the next detailed implementation specification. Cloud multitenancy, Separate / Groups / All warehouse sharing, scoped replication and durable cross-warehouse transfers remain unimplemented and block multi-company cloud readiness. Company isolation cannot be disabled by internal sharing policy.
+
 ## 1. Scope
 
 - local-first warehouse inventory software
@@ -100,7 +102,8 @@ Include tables/entities such as:
 - sessions
 
 Current implementation note:
-- operational stock logic should use actual available quantity in cells rather than a separate reservation workflow.
+- the development branch tracks actual cell quantities together with planned reservations and cell turns; see the local release notes for current behavior.
+- the future schema must introduce explicit company/warehouse ownership, memberships, policy/category grants, device authority generations and transfer records before cloud rollout; shared visibility never merges physical stock ledgers.
 
 ## 7. API / internal service contracts
 
@@ -185,6 +188,8 @@ These need to be decided before the detailed tech spec is complete:
 3. Printer integration details
 4. Future clustering strategy rules for similar items
 5. Device-event behavior when controllers are partially offline
+6. Company-controlled warehouse sharing: category scope, warehouse/action assignments, overlapping groups, catalog ownership, offline policy changes and retention, transfer lifecycle, compatible migration and authority fencing; see the [detailed decisions and phased plan](02-company-warehouse-sharing.md).
+7. LightGuide company invitation, default-group onboarding, download/local installation, device enrollment, scoped bootstrap and replacement; see the [onboarding proposal and acceptance cases](03-lightguide-onboarding.md). Requirements and recommended implementation choices are distinguished there; implementation remains pending.
 
 ## Ongoing implementation guidance
 

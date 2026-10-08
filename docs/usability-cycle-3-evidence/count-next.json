@@ -1,0 +1,15 @@
+{
+  "counters": [
+    "Sam Patel · second",
+    "Sam Patel · third",
+    "System Admin · admin",
+    "Warehouse Operator · operator"
+  ],
+  "duplicateLinks": 0,
+  "manualOpen": false,
+  "reminderHidden": true,
+  "scanButtons": 1,
+  "starts": 0,
+  "status": "Connected to warehouse",
+  "width": 390
+}

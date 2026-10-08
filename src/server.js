@@ -1,12 +1,21 @@
+import {createMaintenanceCommands} from './modules/maintenance/service.js';
+import {can} from "./modules/access/catalog.js";
+import {effectiveUser} from "./modules/access/service.js";
+import {routeAllowed,routeCapability,permittedMarkup} from "./modules/access/routes-policy.js";
+import {accessRoutes} from "./modules/access/routes.js";
+import { operationsRoutes } from "./modules/operations/routes.js";
 import { createServer } from "node:http";
+import {stocktakingRoutes} from './modules/stocktaking/routes.js';
+import {phaseTwoNavigation} from './modules/stocktaking/navigation.js';
+import {locationBrowseRoutes} from './modules/locations/browse.js';
+import {locationSetupRoutes} from './modules/locations/routes.js';
+import {displayRoutes} from './modules/stocktaking/display-routes.js';
 import { join } from "node:path";
 import { URL } from "node:url";
 
 import { withTransaction } from "./db.js";
 import { getAppState, logger } from "./server/app-state.js";
 import {
-  ensureAdmin,
-  ensureApiAdmin,
   ensureApiAuth,
   ensureAuth,
 } from "./server/http/auth-guards.js";
@@ -495,6 +504,12 @@ function backupAwareFlash(message, tone, backupResult) {
 }
 
 export const requestHandler = async (request, response) => {
+  if (request.method === "POST") {
+    try {
+      if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) throw new Error("Open this action from the warehouse website.");
+      await parseForm(request);
+    } catch (error) { sendJson(response, { error: error.message }, error.statusCode || 400); return; }
+  }
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   const {
     adminService,
@@ -519,6 +534,20 @@ export const requestHandler = async (request, response) => {
   }
 
   try {
+    if (!routeCapability(request.method,url.pathname)){sendJson(response,{error:"Route not found."},404);return;}
+    if ( !routeAllowed(user,request.method,url.pathname+url.search)) {
+      if(!user){if(url.pathname.startsWith("/api/"))sendJson(response,{error:"Authentication is required."},401);else sendRedirect(response,"/login");}
+      else if(url.pathname.startsWith("/api/"))sendJson(response,{error:"This action is not permitted. Saved evidence remains available."},403);
+      else sendRedirect(response,appendFlash(can(user,"work.view")?"/":"/profile","Admin access is required, or a role permitting this action. Saved physical evidence remains available in device help.","error"));
+      return;
+    }
+    if(await accessRoutes(request,response,url,user,getAppState()))return;
+    if(locationBrowseRoutes(request,response,url,user,getAppState()))return;
+    if(await locationSetupRoutes(request,response,url,user,getAppState()))return;
+    if(displayRoutes(request,response,url,user,getAppState()))return;
+    if(phaseTwoNavigation(request,response,url,user,getAppState()))return;
+    if(await stocktakingRoutes(request,response,url,user,getAppState()))return;
+    if (await operationsRoutes(request,response,url,user,getAppState())) return;
     if (user) {
       updateUserLastActive(db, user.id);
     }
@@ -550,7 +579,7 @@ export const requestHandler = async (request, response) => {
           listProducts(db, q),
           q ? "No products match that search." : "No products have been added yet.",
           q,
-          { canEditCapacity: user.role === "admin" },
+          { canEditCapacity: can(user,"products.capacity"), canStocktake:can(user,"count.create")||can(user,"count.manage") },
         ),
       );
       return;
@@ -598,7 +627,7 @@ export const requestHandler = async (request, response) => {
         userId: signedInUser.id,
         username: signedInUser.username,
       });
-      sendRedirect(response, appendFlash("/", "Signed in successfully.", "success"), {
+      sendRedirect(response, appendFlash(can(effectiveUser(db,signedInUser),"work.view") ? "/work" : "/profile", "Signed in successfully.", "success"), {
         "Set-Cookie": createSessionCookie(signedInUser),
       });
       return;
@@ -656,7 +685,7 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
-      sendHtml(response, pages.renderHome(user, flash, url));
+      sendRedirect(response, "/work");
       return;
     }
 
@@ -887,12 +916,13 @@ export const requestHandler = async (request, response) => {
 
     const productCapacityMatch = url.pathname.match(/^\/products\/(\d+)\/items-per-cell$/);
     if (request.method === "POST" && productCapacityMatch) {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
       const productId = Number(productCapacityMatch[1]);
       catalogService.updateProductItemsPerCell({
+        actor:user,
         productId,
         itemsPerCell: form.items_per_cell,
       });
@@ -942,9 +972,46 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    const productSettingsMatch = url.pathname.match(/^\/products\/(\d+)\/settings$/);
+    if (request.method === "POST" && productSettingsMatch) {
+      if (!ensureAuth(response,user)) return;
+      const productId=Number(productSettingsMatch[1]), form=await parseForm(request), wantsJson=requestWantsJson(request);
+      const editDetails=form.edit_details === "1" || form.edit_details === true;
+      const editCapacity=Object.hasOwn(form,"items_per_cell");
+      const previous=catalogService.getProductDetail(productId);
+      try {
+        if (form.confirmed !== "1" && form.confirmed !== true) throw new Error("Confirm these changes before saving.");
+        if (!previous) throw new Error("Product not found.");
+        if (!editDetails && !editCapacity) throw new Error("No editable settings were supplied.");
+        withTransaction(db,()=>{
+          if (editDetails) {
+            catalogService.updateProductDetails({actor:user,productId,name:form.name,brand:form.brand,category:form.category,variant:form.variant,unit_of_measure:form.unit_of_measure,description:form.description});
+            saveCustomProductFields(productFieldService,{productId,form,actor:user});
+          }
+          if (editCapacity) catalogService.updateProductItemsPerCell({actor:user,productId,itemsPerCell:form.items_per_cell});
+        });
+      } catch (error) {
+        if (wantsJson) sendJson(response,{error:error.message},400);
+        else sendRedirect(response,appendFlash(`/products/${productId}`,error.message,"error"));
+        return;
+      }
+      const backupResult=createAutomaticBackup("product-settings-update");
+      let returnTo=`/products/${productId}`;
+      if (editCapacity && Number(form.items_per_cell)!==Number(previous.items_per_cell)) {
+        const recommendation=anomalyService.getRecommendedActions().filter(action=>Number(action.productId)===productId)
+          .sort((left,right)=>Number(right.freedLocationCount||0)-Number(left.freedLocationCount||0))[0];
+        if (recommendation) returnTo=capacityRecommendationPromptPath(returnTo,recommendation.key);
+      }
+      const nextFlash=backupAwareFlash("Product settings saved.","success",backupResult);
+      const redirectUrl=appendFlash(returnTo,nextFlash.message,nextFlash.tone);
+      if (wantsJson) sendJson(response,{message:nextFlash.message,redirectUrl});
+      else sendRedirect(response,redirectUrl);
+      return;
+    }
+
     const productDetailsMatch = url.pathname.match(/^\/products\/(\d+)\/details$/);
     if (request.method === "POST" && productDetailsMatch) {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const productId = Number(productDetailsMatch[1]);
@@ -952,6 +1019,7 @@ export const requestHandler = async (request, response) => {
       try {
         withTransaction(db, () => {
           catalogService.updateProductDetails({
+        actor:user,
             productId,
             name: form.name,
             brand: form.brand,
@@ -978,12 +1046,12 @@ export const requestHandler = async (request, response) => {
 
     const productDeleteMatch = url.pathname.match(/^\/products\/(\d+)\/delete$/);
     if (request.method === "POST" && productDeleteMatch) {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const productId = Number(productDeleteMatch[1]);
       try {
-        catalogService.removeProduct(productId);
+        catalogService.removeProduct(productId,user);
       } catch (error) {
         sendRedirect(response, appendFlash(`/products/${productId}`, error.message, "error"));
         return;
@@ -1000,7 +1068,7 @@ export const requestHandler = async (request, response) => {
       }
       const form = await parseForm(request);
       const product = withTransaction(db, () => {
-        const created = catalogService.createProduct(form);
+        const created = catalogService.createProduct({...form,actor:user});
         saveCustomProductFields(productFieldService, {
           productId: created.id,
           form,
@@ -1504,7 +1572,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/reports/format") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -1517,7 +1585,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/reports/format/reset") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -1530,7 +1598,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/backups") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       sendHtml(response, pages.renderBackups(user, flash));
@@ -1538,10 +1606,10 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/backups/create") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
-      const backup = backupService.createBackup({
+      const backup = createMaintenanceCommands({db,backupService}).create(user,{
         kind: "manual",
         source: `manual-${user.username || user.id}`,
       });
@@ -1557,11 +1625,11 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/backups/schedule") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
-      const schedule = backupService.updateAutomaticBackupSchedule({
+      const schedule = createMaintenanceCommands({db,backupService}).schedule(user,{
         cadence: form.cadence,
         startTime: form.start_time,
       });
@@ -1578,11 +1646,11 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/backups/retention") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
-      const result = backupService.updateBackupRetention({
+      const result = createMaintenanceCommands({db,backupService}).retention(user,{
         retentionDays: form.retention_days,
       });
       const returnTo = safeLocalPath(form.return_to, "/backups");
@@ -1598,7 +1666,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/backups/restore") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -1609,7 +1677,7 @@ export const requestHandler = async (request, response) => {
         );
         return;
       }
-      const restore = backupService.restoreBackup(form.filename);
+      const restore = createMaintenanceCommands({db,backupService}).restore(user,form.filename);
       sendRedirect(
         response,
         appendFlash(
@@ -1813,7 +1881,7 @@ export const requestHandler = async (request, response) => {
 
     const deviceSectionMatch = url.pathname.match(/^\/devices\/sections\/([a-z-]+)$/);
     if (request.method === "GET" && deviceSectionMatch) {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1]);
@@ -1821,12 +1889,12 @@ export const requestHandler = async (request, response) => {
         sendText(response, "Unknown configuration section.", 404);
         return;
       }
-      sendHtml(response, sectionHtml, 200, { "Cache-Control": "no-store" });
+      sendHtml(response, permittedMarkup(sectionHtml,user), 200, { "Cache-Control": "no-store" });
       return;
     }
 
     if (request.method === "GET" && url.pathname === "/devices") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       sendHtml(response, pages.renderDevices(user, flash));
@@ -1834,7 +1902,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/firmware/options") {
-      if (!ensureApiAdmin(response, user)) {
+      if (!ensureApiAuth(response, user)) {
         return;
       }
       sendJson(response, firmwareService.getFlashOptions());
@@ -1842,7 +1910,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/firmware/flash") {
-      if (!ensureApiAdmin(response, user)) {
+      if (!ensureApiAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -1853,7 +1921,7 @@ export const requestHandler = async (request, response) => {
 
     const firmwareJobMatch = url.pathname.match(/^\/api\/firmware\/jobs\/([A-Za-z0-9-]+)$/);
     if (request.method === "GET" && firmwareJobMatch) {
-      if (!ensureApiAdmin(response, user)) {
+      if (!ensureApiAuth(response, user)) {
         return;
       }
       const job = firmwareService.getJob(firmwareJobMatch[1]);
@@ -1866,7 +1934,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/devices/controller-test") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -1893,7 +1961,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/devices/controller-ping") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -1966,7 +2034,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/devices/controller-delete") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -1983,7 +2051,7 @@ export const requestHandler = async (request, response) => {
         hardwareService.clearAllCellLocates(controllerCells);
       }
       createRequiredCriticalBackup("pre-controller-delete");
-      const deleted = locationService.deleteController({ controllerId: controller.id });
+      const deleted = locationService.deleteController({ controllerId: controller.id,actor:user });
       const backupResult = createCriticalBackup("controller-deleted");
       const nextFlash = backupAwareFlash(
         `${controller.controller_code} was deleted. ${deleted.detachedCellCount} cell(s) remain active for manual pick/put until remapped.`,
@@ -2003,7 +2071,7 @@ export const requestHandler = async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/devices/cell-test") {
       const wantsJson = requestWantsJson(request);
-      if (wantsJson ? !ensureApiAdmin(response, user) : !ensureAdmin(response, user)) {
+      if (wantsJson ? !ensureApiAuth(response, user) : !ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2045,11 +2113,12 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/mapping") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
       locationService.updateCellMapping({
+        actor:user,
         cellId: form.cell_id,
         hardwareChannel: form.hardware_channel,
         targetCellId: form.target_cell_id,
@@ -2062,7 +2131,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/mapping/bulk") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2076,6 +2145,7 @@ export const requestHandler = async (request, response) => {
 
       for (const mapping of mappings) {
         locationService.updateCellMapping({
+        actor:user,
           cellId: mapping.sourceCellId,
           hardwareChannel: mapping.hardwareChannel,
           targetCellId: mapping.targetCellId,
@@ -2093,12 +2163,14 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/devices/cells") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
       const cell = locationService.createCell({
+        actor:user,
         logicalCode: form.logical_code,
+        travelInstructions: form.travelInstructions,
         createdBy: user.id,
       });
       const backupResult = createCriticalBackup("cell-created");
@@ -2108,11 +2180,12 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/devices/cells/rename") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
       const cell = locationService.renameCell({
+        actor:user,
         cellId: form.cell_id,
         logicalCode: form.logical_code,
         renamedBy: user.id,
@@ -2124,7 +2197,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/devices/cells/delete") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2139,11 +2212,12 @@ export const requestHandler = async (request, response) => {
         impact.hasData ? "cell-delete-with-history-before" : "cell-delete-before",
       );
       const deleted = locationService.deleteCell({
+        actor:user,
         cellId: form.cell_id,
         deletedBy: user.id,
       });
       const moduleSummary = deleted.modulePlaceholder
-        ? ` LED module ${deleted.modulePlaceholder.hardware_channel} remains available in Cell Mapping.`
+        ? ` LED module ${deleted.modulePlaceholder.hardware_channel} remains available in Manage Locations.`
         : "";
       const dataSummary = deleted.preservedHistory
         ? " Historical task and hardware records were preserved."
@@ -2153,12 +2227,12 @@ export const requestHandler = async (request, response) => {
         "success",
         createCriticalBackup(deleted.hasData ? "cell-delete-with-history" : "cell-delete"),
       );
-      sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash(safeLocalPath(form.return_to,"/locations/manage"), nextFlash.message, nextFlash.tone));
       return;
     }
 
     if (request.method === "GET" && url.pathname === "/admin/product-fields") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       sendHtml(response, pages.renderProductFields(user, flash));
@@ -2166,7 +2240,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/admin/product-unit-conversions/preview") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2182,7 +2256,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/admin/product-unit-conversions/apply") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2210,7 +2284,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/admin/product-fields") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2237,7 +2311,7 @@ export const requestHandler = async (request, response) => {
 
     const productFieldMatch = url.pathname.match(/^\/admin\/product-fields\/(\d+)$/);
     if (request.method === "POST" && productFieldMatch) {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2266,7 +2340,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/admin") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       sendHtml(response, pages.renderAdmin(user, flash));
@@ -2275,7 +2349,7 @@ export const requestHandler = async (request, response) => {
 
     const adminUserMatch = url.pathname.match(/^\/admin\/users\/(\d+)$/);
     if (request.method === "GET" && adminUserMatch) {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       sendHtml(response, pages.renderAdminUserProfile(user, flash, Number(adminUserMatch[1])));
@@ -2283,7 +2357,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/admin/registration-keys") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2294,7 +2368,7 @@ export const requestHandler = async (request, response) => {
         userId: user.id,
       });
       const backupResult = createAutomaticBackup("registration-key-issue");
-      const roleLabel = key.role === "admin" ? "Admin" : "Operator";
+      const roleLabel = db.prepare("SELECT name FROM access_roles WHERE id=?").get(key.role_id)?.name || "Operator";
       const keyLabel = key.usage_policy === "global" ? "global registration key" : "registration key";
       const nextFlash = backupAwareFlash(`${roleLabel} ${keyLabel} issued.`, "success", backupResult);
       sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
@@ -2302,11 +2376,12 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/admin/registration-keys/revoke") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
       adminService.revokeRegistrationKey({
+        actor:user,
         keyId: form.key_id,
       });
       const backupResult = createAutomaticBackup("registration-key-revoke");
@@ -2316,7 +2391,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/admin/users/status") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2337,7 +2412,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/admin/task-timeout") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2357,7 +2432,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/admin/adjustments/cell-products") {
-      if (!ensureApiAdmin(response, user)) {
+      if (!ensureApiAuth(response, user)) {
         return;
       }
 
@@ -2400,7 +2475,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/admin/adjustments/light") {
-      if (!ensureApiAdmin(response, user)) {
+      if (!ensureApiAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2432,7 +2507,7 @@ export const requestHandler = async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/admin/adjustments") {
-      if (!ensureAdmin(response, user)) {
+      if (!ensureAuth(response, user)) {
         return;
       }
       const form = await parseForm(request);
@@ -2459,7 +2534,7 @@ export const requestHandler = async (request, response) => {
     sendHtml(response, pages.renderNotFound(user), 404);
   } catch (error) {
     if (url.pathname.startsWith("/api/") || requestWantsJson(request)) {
-      sendJson(response, { error: error.message }, 400);
+      sendJson(response, { error: error.message }, error.statusCode || 400);
       return;
     }
     let target = user ? url.pathname : "/login";

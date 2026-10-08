@@ -1,0 +1,39 @@
+{
+  "host": "darwin arm64",
+  "target": "esp32:esp32:esp32",
+  "protocol": "simple-matrix-v12-rs485-addressed",
+  "versions": {
+    "cli": "1.3.1",
+    "core": "3.0.7",
+    "NeoPixel": "1.12.3"
+  },
+  "network": "Both compile runs completed under the default network-restricted sandbox after release preparation. No device upload attempted.",
+  "physicalPiVerified": false,
+  "proofFiles": [
+    {
+      "name": "firmware/esp32-simple-matrix/esp32-simple-matrix.ino",
+      "bytes": 32852,
+      "sha256": "3cd53b51d5c38e9b27cd1a142cca8c8d90b74e8d212ba345f1d2d517cab93a2d"
+    },
+    {
+      "name": "temporary-toolchain/bin/arduino-cli",
+      "bytes": 34859872,
+      "sha256": "3576ea7c47ed10e88d11abb4eccecad37ed1b1ad766e8cc99d1fb6858f8a9b29"
+    },
+    {
+      "name": "temporary-toolchain/toolchain.json",
+      "bytes": 6021823,
+      "sha256": "b1ab466f8053be725f035140c7d7745905c014ae8a8685eea12f8619fbd9021f"
+    },
+    {
+      "name": "temporary-toolchain/build-1/esp32-simple-matrix.ino.bin",
+      "bytes": 305776,
+      "sha256": "c6d2b8d8e2432dcd4adc184517cafb7ec94d23a720e84f5af311b1186f0f52f5"
+    },
+    {
+      "name": "temporary-toolchain/build-64/esp32-simple-matrix.ino.bin",
+      "bytes": 306032,
+      "sha256": "602b2413ad04a19ad31a202a9b0a0cd58ff3ac6f238f70727b1b459d419487e6"
+    }
+  ]
+}

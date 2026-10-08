@@ -1,5 +1,8 @@
-import { accessSync, closeSync, constants, openSync, readSync, writeSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import {createHostAdapter} from "../../modules/hardware/host-adapter.js";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { accessSync, closeSync, constants, openSync, readSync, writeSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 
 import { resolveLedBrightness } from "../hardware-brightness.js";
 
@@ -25,8 +28,8 @@ function firmwareAddress(value) {
   return /^[A-Za-z0-9._:-]+$/.test(address) ? address : "";
 }
 
-const LOCATE_TIMEOUT_MS = 120000;
-const BLINK_TEST_DURATION_MS = 2250;
+const LOCATE_TIMEOUT_MS = 300000;
+const BLINK_TEST_DURATION_MS = 5000;
 const DEFAULT_RS485_WRITE_REPEATS = 3;
 const DEFAULT_RS485_WRITE_REPEAT_DELAY_MS = 90;
 const DEFAULT_RS485_INTER_COMMAND_DELAY_MS = 35;
@@ -67,6 +70,7 @@ function parseJsonLines(text) {
 }
 
 export function createRs485Adapter({ config = {}, logger }) {
+  const host=createHostAdapter({config});
   const port = config.rs485SerialPort || process.env.RS485_SERIAL_PORT || "";
   const writeRepeats = numberSetting(
     config.rs485WriteRepeats ?? process.env.RS485_WRITE_REPEATS,
@@ -94,6 +98,19 @@ export function createRs485Adapter({ config = {}, logger }) {
     { min: 0, max: 500 },
   );
   const writeLine = typeof config.rs485WriteLine === "function" ? config.rs485WriteLine : null;
+  let disposed=false, lockFd=null;
+  const lockPath=join(tmpdir(),`lytguide-rs485-${createHash('sha256').update(String(port)).digest('hex').slice(0,20)}.lock`);
+  function ownPort(){
+    if(lockFd!==null||writeLine)return;
+    try { lockFd=openSync(lockPath,'wx',0o600);writeFileSync(lockFd,String(process.pid)); }
+    catch(error){
+      if(error.code!=='EEXIST')throw error;
+      const pid=Number(readFileSync(lockPath,'utf8'));
+      try {if(!Number.isInteger(pid)||pid<=0)throw new Error('Invalid owner');process.kill(pid,0);}
+      catch(probe){if(probe.code==='ESRCH'){unlinkSync(lockPath);return ownPort();}}
+      throw new Error('Another process owns this RS485 port. Keep manual guidance until that writer is stopped.');
+    }
+  }
   let configured = false;
   let portFd = null;
   let lastWriteAt = 0;
@@ -114,6 +131,8 @@ export function createRs485Adapter({ config = {}, logger }) {
   }
 
   function ensureReady() {
+    if(disposed)throw new Error("Hardware adapter disposed.");
+    ownPort();
     if (writeLine) {
       startHeartbeatSync();
       return;
@@ -123,18 +142,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     }
     accessSync(port, constants.W_OK);
     if (!configured) {
-      const result = spawnSync("stty", [
-        "-F",
-        port,
-        "115200",
-        "cs8",
-        "-cstopb",
-        "-parenb",
-        "-ixon",
-        "-ixoff",
-        "raw",
-        "-echo",
-      ]);
+      const result = host.configureSerial(port);
       if (result.status !== 0) {
         throw new Error(`Could not configure RS485 serial port ${port}.`);
       }
@@ -153,10 +161,11 @@ export function createRs485Adapter({ config = {}, logger }) {
       const now = Date.now();
       const sinceLastWrite = now - lastWriteAt;
       if (lastWriteAt > 0 && sinceLastWrite < interCommandDelayMs) {
-        sleepMs(interCommandDelayMs - sinceLastWrite);
+        sleepMs(options.deadlineAt ? Math.min(interCommandDelayMs - sinceLastWrite, Math.max(0, options.deadlineAt-Date.now())) : interCommandDelayMs - sinceLastWrite);
       }
 
       for (let attempt = 1; attempt <= repeats; attempt += 1) {
+        if (options.deadlineAt && Date.now() >= options.deadlineAt) throw new Error('Controller connection check timed out.');
         if (writeLine) {
           writeLine(`${command}\n`, { command, attempt, repeats });
         } else {
@@ -164,7 +173,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         }
         lastWriteAt = Date.now();
         if (attempt < repeats) {
-          sleepMs(writeRepeatDelayMs);
+          sleepMs(options.deadlineAt ? Math.min(writeRepeatDelayMs, Math.max(0, options.deadlineAt-Date.now())) : writeRepeatDelayMs);
         }
       }
     } catch (error) {
@@ -203,6 +212,8 @@ export function createRs485Adapter({ config = {}, logger }) {
   }
 
   function readSerialWindow(timeoutMs) {
+    if (timeoutMs <= 0) return '';
+    if (typeof config.rs485ReadWindow === 'function') return config.rs485ReadWindow(timeoutMs);
     const startedAt = Date.now();
     const chunks = [];
     const buffer = Buffer.alloc(512);
@@ -216,11 +227,11 @@ export function createRs485Adapter({ config = {}, logger }) {
           if (bytesRead > 0) {
             chunks.push(buffer.subarray(0, bytesRead).toString("utf8"));
           } else {
-            sleepMs(20);
+            sleepMs(Math.min(20, Math.max(0, timeoutMs-(Date.now()-startedAt))));
           }
         } catch (error) {
           if (["EAGAIN", "EWOULDBLOCK"].includes(error.code)) {
-            sleepMs(20);
+            sleepMs(Math.min(20, Math.max(0, timeoutMs-(Date.now()-startedAt))));
             continue;
           }
           throw error;
@@ -235,7 +246,9 @@ export function createRs485Adapter({ config = {}, logger }) {
     return chunks.join("");
   }
 
-  function checkControllerHealth(controller) {
+  function checkControllerHealth(controller, {timeoutMs=2000}={}) {
+    const deadlineAt=Date.now()+numberSetting(timeoutMs,2000,{min:1,max:2000});
+    const readWithinBudget=limit=>readSerialWindow(Math.min(limit,Math.max(0,deadlineAt-Date.now())));
     const controllerAddress = controllerAddressFor(controller);
     if (!controllerAddress) {
       return {
@@ -248,10 +261,10 @@ export function createRs485Adapter({ config = {}, logger }) {
     }
 
     ensureReady();
-    readSerialWindow(80);
+    readWithinBudget(80);
     const command = addressedCommand(controllerAddress, "ping");
-    send(command, { repeats: Math.max(2, Math.min(writeRepeats, 3)) });
-    const raw = readSerialWindow(CONTROLLER_PROBE_TIMEOUT_MS);
+    send(command, { repeats: Math.max(2, Math.min(writeRepeats, 3)), deadlineAt });
+    const raw = readWithinBudget(CONTROLLER_PROBE_TIMEOUT_MS);
     const replies = parseJsonLines(raw);
     const matchedReply = replies.find(
       (reply) =>
@@ -446,6 +459,13 @@ export function createRs485Adapter({ config = {}, logger }) {
 
   return {
     name: "rs485",
+    dispose() {
+      disposed=true;clearTimeout(heartbeatSyncTimer);clearInterval(heartbeatSyncTimer);
+      for(const timer of locateTimers.values())clearTimeout(timer.timeout);
+      locateTimers.clear();
+      if(portFd!==null){try{closeSync(portFd);}catch{}portFd=null;}
+      if(lockFd!==null){try{closeSync(lockFd);unlinkSync(lockPath);}catch{}lockFd=null;}
+    },
     healthCheck() {
       try {
         ensureReady();
@@ -734,7 +754,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         ],
       };
     },
-    setCellLocate(cell, active = true) {
+    setCellLocate(cell, active = true, {managed=false} = {}) {
       const brightness = currentBrightness();
       if (!hasModuleTarget(cell)) {
         return {
@@ -771,7 +791,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       } else {
         send(command, { repeats: Math.max(writeRepeats, DEFAULT_RS485_CLEAR_REPEATS) });
       }
-      if (active) {
+      if (active && !managed) {
         scheduleLocateClear(cell);
       }
       return {

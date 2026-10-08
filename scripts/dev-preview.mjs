@@ -1,0 +1,13 @@
+import {mkdtempSync,symlinkSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {spawn} from 'node:child_process';
+const repo=dirname(dirname(fileURLToPath(import.meta.url)));
+const fixture=mkdtempSync(join(tmpdir(),'lytguide-preview-'));
+symlinkSync(join(repo,'public'),join(fixture,'public'),'dir');
+const port=process.env.PREVIEW_PORT||'3210';
+console.log(`Isolated simulator preview: http://localhost:${port}/work\nFixture: ${fixture}\nDemo accounts: admin/admin123 and operator/operator123`);
+const child=spawn(process.execPath,[join(repo,'src/server.js')],{cwd:fixture,stdio:'inherit',env:{...process.env,PORT:port,NODE_ENV:'development',HARDWARE_ADAPTER:'simulator',DEMO_INVENTORY_SEED:'1'}});
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>child.kill(signal));
+child.on('exit',code=>process.exit(code||0));

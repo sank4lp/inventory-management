@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Inventory Management
+Comment=Open the local warehouse portal
+Exec=/usr/bin/chromium --user-data-dir=/home/admin/.config/inventory-management-browser --password-store=basic --no-first-run --no-default-browser-check --app=http://127.0.0.1:3000
+Icon=web-browser
+Terminal=false
+Categories=Office;

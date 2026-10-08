@@ -23,11 +23,11 @@
 #define H 8
 #define LEDS_PER_MODULE 64
 #define LED_COUNT (MODULES * LEDS_PER_MODULE)
-#define DEFAULT_BRIGHTNESS_PERCENT 8
-#define DEFAULT_TASK_BRIGHTNESS_PERCENT 80
-#define DEFAULT_TEST_BRIGHTNESS_PERCENT 80
-#define DEFAULT_TEST_DURATION_MS 2250
-#define DEFAULT_LOCATE_DURATION_MS 120000
+#define DEFAULT_BRIGHTNESS_PERCENT 100
+#define DEFAULT_TASK_BRIGHTNESS_PERCENT 100
+#define DEFAULT_TEST_BRIGHTNESS_PERCENT 100
+#define DEFAULT_TEST_DURATION_MS 5000
+#define DEFAULT_LOCATE_DURATION_MS 300000
 #define RIPPLE_STEP_MS 150
 #define RIPPLE_STEP_COUNT 5
 #define IDLE_HEARTBEAT_STEP_MS 5000
@@ -421,7 +421,7 @@ void renderScrollModule(int module) {
 void renderIdleModule(int module) {
   clearModulePixels(module);
   if (heartbeatPulseOn) {
-    pixels.setPixelColor(pixelIndex(module, heartbeatColumn, H - 1), pixels.Color(32, 0, 0));
+    pixels.setPixelColor(pixelIndex(module, heartbeatColumn, H - 1), pixels.Color(255, 0, 0));
   }
 }
 

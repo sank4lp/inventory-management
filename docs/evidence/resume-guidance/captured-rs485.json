@@ -1,0 +1,78 @@
+[
+  {
+    "direction": "pick",
+    "assignment": "self",
+    "initialCommands": [
+      "to GUIDE digit 1 \"3\" green 120 20",
+      "to GUIDE digit 2 \"2\" green 120 20"
+    ],
+    "resumeCommands": [
+      "to GUIDE digit 1 \"3\" green 120 20"
+    ],
+    "before": {
+      "ledger": 0,
+      "turns": 0
+    },
+    "after": {
+      "ledger": 0,
+      "turns": 0
+    }
+  },
+  {
+    "direction": "pick",
+    "assignment": "assigned",
+    "initialCommands": [
+      "to GUIDE digit 1 \"3\" green 120 20",
+      "to GUIDE digit 2 \"2\" green 120 20"
+    ],
+    "resumeCommands": [
+      "to GUIDE digit 1 \"3\" green 120 20"
+    ],
+    "before": {
+      "ledger": 0,
+      "turns": 0
+    },
+    "after": {
+      "ledger": 0,
+      "turns": 0
+    }
+  },
+  {
+    "direction": "put",
+    "assignment": "self",
+    "initialCommands": [
+      "to GUIDE digit 1 \"3\" red 120 20",
+      "to GUIDE digit 2 \"2\" red 120 20"
+    ],
+    "resumeCommands": [
+      "to GUIDE digit 1 \"3\" red 120 20"
+    ],
+    "before": {
+      "ledger": 0,
+      "turns": 0
+    },
+    "after": {
+      "ledger": 0,
+      "turns": 0
+    }
+  },
+  {
+    "direction": "put",
+    "assignment": "assigned",
+    "initialCommands": [
+      "to GUIDE digit 1 \"3\" red 120 20",
+      "to GUIDE digit 2 \"2\" red 120 20"
+    ],
+    "resumeCommands": [
+      "to GUIDE digit 1 \"3\" red 120 20"
+    ],
+    "before": {
+      "ledger": 0,
+      "turns": 0
+    },
+    "after": {
+      "ledger": 0,
+      "turns": 0
+    }
+  }
+]

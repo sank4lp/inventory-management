@@ -1,0 +1,75 @@
+import {can,assertCan} from "../access/catalog.js";
+import { createHash } from "node:crypto";
+import {locationQrValue} from './location-contract.js';
+import QRCode from 'qrcode';
+import { page, escapeHtml } from '../../render.js';
+import { sendHtml, sendJson, sendRedirect, appendFlash } from '../../server/http/responses.js';
+import { ensureAuth, ensureApiAuth } from '../../server/http/auth-guards.js';
+
+const paths = new Set(['/work','/work/overview','/work/timing','/work/history','/work/active-assignments','/work/task-history','/pick','/put','/pending-confirmations','/record-movement','/movement-history','/labels']);
+export async function operationsRoutes(request,response,url,user,state) {
+  const {operationsService:work,db}=state;
+  if (url.pathname === '/offline') {
+    sendHtml(response, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Saved work · LytGuide</title><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/work.css"><link rel="stylesheet" href="/responsive.css"><link rel="stylesheet" href="/layout.css"><body><main class="offline-shell"><a href="/work">LytGuide · Work</a><h1>Saved warehouse work</h1><p>Continue saved work or record new physical work provisionally using the warehouse manual procedure. Updates stay on this device until received for supervisor verification. No new stock reservation or exclusive turn is granted offline. Use paper if no usable device is available.</p><div id="work-app"></div></main><script src="/client/vendor/jsQR.js"></script><script type="module" src="/client/stable-buttons.js"></script><script type="module" src="/client/searchable-select.js"></script><script type="module" src="/client/notifications.js"></script><script type="module" src="/client/work.js"></script></body></html>`); return true;
+  }
+  if (url.pathname.startsWith('/api/work/')) {
+    if (!ensureApiAuth(response,user)) return true;
+    const action=url.pathname.slice('/api/work/'.length);
+    if(request.method==='GET' && action==='snapshot') {const data=work.snapshot(user,Object.fromEntries(url.searchParams));const taskId=Number(url.searchParams.get('taskId'));if(!['activity','active'].includes(url.searchParams.get('view'))&&taskId&&data.capabilities.view&&!data.tasks.some(t=>t.id===taskId)){const task=work.task(user,taskId);if(task)data.tasks.unshift(task);}sendJson(response,data);}
+    else if(request.method==='GET' && action==='taskHistory') sendJson(response,work.taskHistory(user,Object.fromEntries(url.searchParams)));
+    else if(request.method==='GET' && action==='activityHistory') sendJson(response,work.activityHistory(user,Object.fromEntries(url.searchParams)));
+    else if(request.method==='GET' && action==='cellHistory') sendJson(response,work.cellHistory(user,Object.fromEntries(url.searchParams)));
+    else if(request.method==='GET' && action==='planningOptions') sendJson(response,work.planningOptions(user,Object.fromEntries(url.searchParams)));
+    else if(request.method==='GET' && action==='productStock') sendJson(response,work.productStock(user,Object.fromEntries(url.searchParams)));
+    else if(request.method==='GET' && action==='countCandidates') sendJson(response,{...work.identity(),actorId:user.id,counts:work.countCandidates(user,Object.fromEntries(url.searchParams))});
+    else if(request.method==='GET' && action==='movements') sendJson(response,{...work.identity(),actorId:user.id,movements:work.searchMovements(user,Object.fromEntries(url.searchParams))});
+    else if(request.method==='POST') {try{sendJson(response,work.command(user,action,request.parsedForm));}catch(error){if(!error.planning)throw error;sendJson(response,{error:error.message,planning:error.planning},400);}}
+    else sendJson(response,{error:'Action not found.'},404);
+    return true;
+  }
+  const details=url.pathname.match(/^\/cells\/(\d+)\/directions$/);
+  if(request.method==='POST'&&details) {
+    if(!ensureAuth(response,user))return true;
+    const result=work.command(user,'locationDetails',{...request.parsedForm,cellId:Number(details[1])});
+    sendRedirect(response,appendFlash('/cells/'+details[1],result.message,'success'));return true;
+  }
+  const qr=url.pathname.match(/^\/labels\/(\d+)\.svg$/);
+  if(qr) {
+    if(!ensureAuth(response,user)) return true;
+    const c=db.prepare('SELECT * FROM cells WHERE id=?').get(Number(qr[1]));
+    if(!c) {sendJson(response,{error:'Location not found'},404);return true;}
+    const svg=await QRCode.toString(locationQrValue(db,work.identity().site,c),{type:'svg',errorCorrectionLevel:'M',margin:3});
+    response.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});response.end(svg);return true;
+  }
+  const older=url.pathname.match(/^\/tasks\/(\d+)\/(confirm|correct)$/);
+  if(request.method==='POST'&&older&&db.prepare('SELECT workflow_version FROM tasks WHERE id=?').get(Number(older[1]))?.workflow_version===2) {
+    if(!ensureAuth(response,user))return true;
+    const f=request.parsedForm;
+    const actuals=Object.entries(f).filter(([k,v])=>/^actual_\d+$/.test(k)&&String(v).trim()!=='');
+    if(!actuals.length)throw new Error('No explicit actual quantities were supplied. Open the allocation and report the physical work, including explicit zero when verified.');
+    for(const [name,quantity] of actuals){
+      const l=work.line(Number(name.slice(7)));
+      if(l.task_id!==Number(older[1]))throw new Error('The submitted allocation does not belong to this task.');
+      work.command(user,'report',{requestId:'older:'+createHash('sha256').update(JSON.stringify({actor:user.id,task:older[1],line:l.id,form:f})).digest('hex'),lineId:l.id,revision:-1,cellId:Number(f['actual_cell_'+l.id]||l.cell_id),unit:l.unit_of_measure,quantity,manual:true,reason:f.note||'Actual received from an older task form; verify original instructions.'});
+    }
+    sendRedirect(response,appendFlash('/tasks/'+older[1],'Actual entries received for supervisor verification. No replacement planned quantity was posted.','warning'));return true;
+  }
+  const match=url.pathname.match(/^\/tasks\/(\d+)$/);
+  const task=match ? db.prepare('SELECT workflow_version FROM tasks WHERE id=?').get(Number(match[1])) : null;
+  if (request.method==='POST' && ['/pick','/put'].includes(url.pathname)) {
+    throw new Error('This older planning form has changed. Open Pick or Put again to reserve work safely.');
+  }
+  if(request.method!=='GET'|| (!paths.has(url.pathname) && task?.workflow_version!==2)) return false;
+  if(!ensureAuth(response,user)) return true;
+  if(url.pathname==='/movement-history'){sendRedirect(response,'/work/task-history');return true;}
+  if(url.pathname==='/work/overview'){
+    assertCan(user,'work.assign');
+    if(can(user,'work.team')&&['state','operator','action','source','date','page'].some(k=>url.searchParams.has(k))){const q=new URLSearchParams(url.searchParams);q.set('scope','team');sendRedirect(response,'/work/history?'+q);return true;}
+  }
+  const snapshot=work.snapshot(user,{...Object.fromEntries(url.searchParams),taskId:match?.[1]||(url.pathname==='/work/task-history'?url.searchParams.get('taskId')||undefined:undefined),view:url.pathname==='/work/active-assignments'?'active':url.pathname==='/work/overview'?'assign':url.pathname==='/work/history'?'history':url.pathname==='/work/task-history'?'activity':url.pathname==='/work'?'mine':'accessible'});
+  if(match) { const requested=work.task(user,match[1]); if(requested&&!snapshot.tasks.some(t=>t.id===requested.id))snapshot.tasks.unshift(requested); }
+  const titles={'/work':'My work','/work/overview':'Assign Work','/work/timing':'Work timing','/work/active-assignments':'Active Assignments','/work/history':'History','/work/task-history':'Task History','/pick':'Pick','/put':'Put','/pending-confirmations':'Needs review','/record-movement':'Record Movement','/movement-history':'Movement history','/labels':'Location labels'};
+  const boot=JSON.stringify({snapshot,path:url.pathname}).replace(/</g,'\\u003c');
+  sendHtml(response,page({currentPath:url.pathname,title:titles[url.pathname]||`Task #${match[1]} - ${snapshot.tasks[0]?.type==='put'?'Put':'Pick'} ${snapshot.tasks[0]?.lines[0]?.product_name||''}`,user,content:`<link rel="manifest" href="/manifest.webmanifest"><div id="work-app"><p>Loading your warehouse work…</p></div><noscript>Work confirmations require JavaScript for durable receipts. Enable JavaScript to continue.</noscript><script id="work-boot" type="application/json">${boot}</script><script src="/client/vendor/jsQR.js"></script><script type="module" src="/client/stable-buttons.js"></script><script type="module" src="/client/searchable-select.js"></script><script type="module" src="/client/work.js"></script>`}),200,{'Cache-Control':'no-store'});
+  return true;
+}
