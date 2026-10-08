@@ -17,7 +17,7 @@ export async function mount() {
   const warehouses=new Map(draft.warehouses.map(w=>[String(w.id),w])),shelves=new Map(draft.shelves.map(s=>[String(s.id),s]));
   for(const node of root.querySelectorAll('[data-warehouse-zone]'))node.querySelector('summary [data-group-label]').textContent=warehouses.get(node.dataset.warehouseZone).name;
   for(const node of root.querySelectorAll('[data-shelf-zone]')){const shelf=shelves.get(node.dataset.shelfZone);node.querySelector('summary [data-group-label]').textContent=shelf.name;node.querySelector('[data-drag-kind="shelf"]')?.setAttribute('aria-label','Drag '+shelf.name);}
-  for(const node of root.querySelectorAll('[data-tree-cell]')){const c=draft.cells.find(v=>String(v.id)===node.dataset.treeCell),s=shelves.get(String(c.shelf_id)),w=warehouses.get(String(s.warehouse_id));node.querySelector('.location-card-subtitle').textContent=s.name+' · '+w.name;}
+  for(const node of root.querySelectorAll('[data-tree-cell]')){const c=draft.cells.find(v=>String(v.id)===node.dataset.treeCell),s=shelves.get(String(c.shelf_id)),w=warehouses.get(String(s.warehouse_id));const subtitle=node.querySelector('.location-card-subtitle');subtitle.textContent=s.name+' · '+w.name;subtitle.title=subtitle.textContent;}
   for(const select of root.querySelectorAll('[data-shelf-warehouse],[data-cell-shelf]'))for(const option of select.options){const shelf=shelves.get(option.value),label=select.hasAttribute('data-shelf-warehouse')?warehouses.get(option.value).name:warehouses.get(String(shelf.warehouse_id)).name+' / '+shelf.name;if(option.textContent!==label)option.textContent=label;}
  }
  function render(open=null){
