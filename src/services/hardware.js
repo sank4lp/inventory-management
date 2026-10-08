@@ -2,6 +2,10 @@ import {activeWorkGuidance,displayOwner,guidanceBinding} from '../modules/operat
 import { createDegradedAdapter } from "./hardware-adapters/degraded.js";
 import { createRs485Adapter } from "./hardware-adapters/rs485.js";
 import { createSimulatorAdapter } from "./hardware-adapters/simulator.js";
+import { updateControllerHealth } from "./inventory.js";
+
+const RECONNECT_COOLDOWN_MS = 10000;
+const RECONNECT_PROBE_TIMEOUT_MS = 2000;
 
 function nowIso() {
   return new Date().toISOString();
@@ -27,9 +31,34 @@ function normalizeResult(result = {}) {
   };
 }
 
-export function createHardwareService({ db, config, logger }) {
+export function createHardwareService({ db, config, logger, clock = () => new Date() }) {
   const adapter = adapterFactory(config, logger);
   let disposed=false;
+  const controllerProbes = new Map();
+  const controllerIdentity = controller => JSON.stringify([controller.address, controller.configured_at]);
+
+  function checkControllerHealth(controller, options = {}) {
+    const result = run("controller_health", adapter.checkControllerHealth.bind(adapter), [controller, options], {
+      controllerId: controller.id,
+    });
+    controllerProbes.set(Number(controller.id), { identity: controllerIdentity(controller), at: clock().getTime(), result });
+    return result;
+  }
+
+  function ensureControllerReady(controllerId) {
+    const controller = db.prepare('SELECT * FROM controllers WHERE id=?').get(Number(controllerId));
+    if (!controller || !controller.active || disposed) return {ok:false,degraded:true,status:'offline',message:'Controller is unavailable. Check its power and connection.'};
+    if (controller.heartbeat_status === 'online') return {ok:true,degraded:false,status:'online'};
+    const previous = controllerProbes.get(Number(controller.id));
+    const elapsed = previous ? clock().getTime() - previous.at : Infinity;
+    let result = previous?.result;
+    if (!previous || previous.identity !== controllerIdentity(controller) || elapsed < 0 || elapsed >= RECONNECT_COOLDOWN_MS) {
+      result = checkControllerHealth(controller, {timeoutMs:RECONNECT_PROBE_TIMEOUT_MS});
+    }
+    const online = result.ok && !result.degraded && result.status === 'online';
+    updateControllerHealth(db, {controllerId:controller.id,status:online?'online':'offline'});
+    return online ? result : {...result,ok:false,degraded:true,status:'offline',message:`Controller ${controller.controller_code} is offline. Check its power and connection, then try again.`};
+  }
 
   function saveDeviceEvent(event) {
     db.prepare(
@@ -92,6 +121,15 @@ export function createHardwareService({ db, config, logger }) {
         }
       }
 
+      if (operationName !== 'controller_health' && adapter.name !== 'degraded') {
+        // Share one recovery check across every output of the same controller.
+        const controllerIds = new Set(args.flat().filter(value => value && typeof value === 'object' && 'hardware_channel' in value).map(value => value.controller_id).filter(Boolean));
+        if (operationName === 'controller_test' && args[0]?.id) controllerIds.add(args[0].id);
+        for (const controllerId of controllerIds) {
+          const ready = ensureControllerReady(controllerId);
+          if (!ready.ok || ready.degraded) return ready;
+        }
+      }
       const result = normalizeResult(fn(...args));
       for (const event of result.events) {
         saveDeviceEvent(event);
@@ -157,11 +195,8 @@ export function createHardwareService({ db, config, logger }) {
         controllerId: controller.id,
       });
     },
-    checkControllerHealth(controller) {
-      return run("controller_health", adapter.checkControllerHealth.bind(adapter), [controller], {
-        controllerId: controller.id,
-      });
-    },
+    checkControllerHealth,
+    ensureControllerReady,
     sendCellTest(cell, color = "green", context = {}) {
       return run("cell_test", adapter.sendCellTest.bind(adapter), [cell, color], {
         cellId: cell.id,

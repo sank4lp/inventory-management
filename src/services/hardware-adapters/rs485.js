@@ -161,10 +161,11 @@ export function createRs485Adapter({ config = {}, logger }) {
       const now = Date.now();
       const sinceLastWrite = now - lastWriteAt;
       if (lastWriteAt > 0 && sinceLastWrite < interCommandDelayMs) {
-        sleepMs(interCommandDelayMs - sinceLastWrite);
+        sleepMs(options.deadlineAt ? Math.min(interCommandDelayMs - sinceLastWrite, Math.max(0, options.deadlineAt-Date.now())) : interCommandDelayMs - sinceLastWrite);
       }
 
       for (let attempt = 1; attempt <= repeats; attempt += 1) {
+        if (options.deadlineAt && Date.now() >= options.deadlineAt) throw new Error('Controller connection check timed out.');
         if (writeLine) {
           writeLine(`${command}\n`, { command, attempt, repeats });
         } else {
@@ -172,7 +173,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         }
         lastWriteAt = Date.now();
         if (attempt < repeats) {
-          sleepMs(writeRepeatDelayMs);
+          sleepMs(options.deadlineAt ? Math.min(writeRepeatDelayMs, Math.max(0, options.deadlineAt-Date.now())) : writeRepeatDelayMs);
         }
       }
     } catch (error) {
@@ -211,6 +212,8 @@ export function createRs485Adapter({ config = {}, logger }) {
   }
 
   function readSerialWindow(timeoutMs) {
+    if (timeoutMs <= 0) return '';
+    if (typeof config.rs485ReadWindow === 'function') return config.rs485ReadWindow(timeoutMs);
     const startedAt = Date.now();
     const chunks = [];
     const buffer = Buffer.alloc(512);
@@ -224,11 +227,11 @@ export function createRs485Adapter({ config = {}, logger }) {
           if (bytesRead > 0) {
             chunks.push(buffer.subarray(0, bytesRead).toString("utf8"));
           } else {
-            sleepMs(20);
+            sleepMs(Math.min(20, Math.max(0, timeoutMs-(Date.now()-startedAt))));
           }
         } catch (error) {
           if (["EAGAIN", "EWOULDBLOCK"].includes(error.code)) {
-            sleepMs(20);
+            sleepMs(Math.min(20, Math.max(0, timeoutMs-(Date.now()-startedAt))));
             continue;
           }
           throw error;
@@ -243,7 +246,9 @@ export function createRs485Adapter({ config = {}, logger }) {
     return chunks.join("");
   }
 
-  function checkControllerHealth(controller) {
+  function checkControllerHealth(controller, {timeoutMs=2000}={}) {
+    const deadlineAt=Date.now()+numberSetting(timeoutMs,2000,{min:1,max:2000});
+    const readWithinBudget=limit=>readSerialWindow(Math.min(limit,Math.max(0,deadlineAt-Date.now())));
     const controllerAddress = controllerAddressFor(controller);
     if (!controllerAddress) {
       return {
@@ -256,10 +261,10 @@ export function createRs485Adapter({ config = {}, logger }) {
     }
 
     ensureReady();
-    readSerialWindow(80);
+    readWithinBudget(80);
     const command = addressedCommand(controllerAddress, "ping");
-    send(command, { repeats: Math.max(2, Math.min(writeRepeats, 3)) });
-    const raw = readSerialWindow(CONTROLLER_PROBE_TIMEOUT_MS);
+    send(command, { repeats: Math.max(2, Math.min(writeRepeats, 3)), deadlineAt });
+    const raw = readWithinBudget(CONTROLLER_PROBE_TIMEOUT_MS);
     const replies = parseJsonLines(raw);
     const matchedReply = replies.find(
       (reply) =>

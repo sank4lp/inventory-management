@@ -3054,7 +3054,7 @@ test("system health summary reflects current controller health after startup war
   assert.match(summary.startup.controllers.message, /controllers online/);
 });
 
-test("offline controllers retry three times at thirty seconds before five minute backoff", async () => {
+test("offline controllers keep thirty-second checks overnight and recover on the next check", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-retry-cadence-"));
   process.chdir(sandbox);
 
@@ -3069,6 +3069,7 @@ test("offline controllers retry three times at thirty seconds before five minute
   const controllers = inventory.listControllers(db);
   const offlineController = controllers[0];
   const attempts = new Map();
+  let disconnected = true;
   const logger = createLogger({ level: "error", siteId: "test-site" });
   const hardwareService = {
     adapterName: "test-rs485",
@@ -3080,7 +3081,7 @@ test("offline controllers retry three times at thirty seconds before five minute
     },
     checkControllerHealth(controller) {
       attempts.set(controller.id, Number(attempts.get(controller.id) || 0) + 1);
-      const isOffline = controller.id === offlineController.id;
+      const isOffline = disconnected && controller.id === offlineController.id;
       return {
         ok: !isOffline,
         degraded: isOffline,
@@ -3113,73 +3114,24 @@ test("offline controllers retry three times at thirty seconds before five minute
   );
   assert.equal(attempts.get(offlineController.id), 1);
 
-  for (const elapsedMs of [30_000, 60_000]) {
-    const results = systemService.refreshDueControllerHealths({
-      now: new Date(startedAt.getTime() + elapsedMs),
-    });
+  let previousAttempts = 1;
+  for (const elapsedMs of [30_000, 60_000, 90_000, 120_000, 3_600_000]) {
+    const results = systemService.refreshDueControllerHealths({now:new Date(startedAt.getTime()+elapsedMs)});
     assert.equal(results.length, controllers.length);
-    assert.ok(
-      results.some(
-        (result) => result.controllerId === offlineController.id && result.status === "offline",
-      ),
-    );
-    assert.equal(
-      results.filter((result) => result.controllerId !== offlineController.id).length,
-      controllers.length - 1,
-    );
-    assert.match(
-      systemService.healthSummary(startup).message,
-      new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 30 seconds\\.`),
-    );
+    assert.equal(attempts.get(offlineController.id), ++previousAttempts);
+    assert.equal(results.find(result=>result.controllerId===offlineController.id).status, 'offline');
+    const summary = systemService.healthSummary(startup);
+    assert.equal(summary.startup.controllers.checked.find(check=>check.controllerId===offlineController.id).retryDelayMs, 30000);
+    assert.match(summary.message, /Retrying after 30 seconds/);
+    assert.doesNotMatch(summary.message, /5 minutes/);
   }
-
-  const thirdRetry = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 90_000),
-  });
-  assert.equal(thirdRetry.length, controllers.length);
-  assert.ok(
-    thirdRetry.some(
-      (result) => result.controllerId === offlineController.id && result.status === "offline",
-    ),
-  );
-  assert.match(
-    systemService.healthSummary(startup).message,
-    new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 5 minutes\\.`),
-  );
-  assert.equal(attempts.get(offlineController.id), 4);
-
-  const onlineRefresh = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 300_000),
-  });
-  assert.equal(onlineRefresh.length, controllers.length - 1);
-  assert.ok(onlineRefresh.every((result) => result.controllerId !== offlineController.id));
-  assert.ok(onlineRefresh.every((result) => result.status === "online"));
-
-  assert.deepEqual(
-    systemService.refreshDueControllerHealths({ now: new Date(startedAt.getTime() + 329_000) }),
-    [],
-  );
-  assert.equal(attempts.get(offlineController.id), 4);
-
-  const recurringOnlineRefresh = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 330_000),
-  });
-  assert.equal(recurringOnlineRefresh.length, controllers.length - 1);
-  assert.ok(recurringOnlineRefresh.every((result) => result.controllerId !== offlineController.id));
-  assert.ok(recurringOnlineRefresh.every((result) => result.status === "online"));
-
-  const beforeBackoffRetry = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 389_000),
-  });
-  assert.equal(attempts.get(offlineController.id), 4);
-  assert.ok(beforeBackoffRetry.every((result) => result.controllerId !== offlineController.id));
-
-  const backedOffRetry = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 390_000),
-  });
-  assert.equal(backedOffRetry.length, 1);
-  assert.equal(backedOffRetry[0].controllerId, offlineController.id);
-  assert.equal(attempts.get(offlineController.id), 5);
+  assert.deepEqual(systemService.refreshDueControllerHealths({now:new Date(startedAt.getTime()+3_629_999)}), []);
+  disconnected = false;
+  const recovered = systemService.refreshDueControllerHealths({now:new Date(startedAt.getTime()+3_630_000)});
+  assert.equal(recovered.find(result=>result.controllerId===offlineController.id).status, 'online');
+  assert.equal(db.prepare('SELECT heartbeat_status FROM controllers WHERE id=?').get(offlineController.id).heartbeat_status, 'online');
+  assert.equal(systemService.healthSummary(startup).startup.controllers.status, 'healthy');
+  db.close();
 });
 
 test("system health warning clears when startup recovery tasks are resolved", async () => {

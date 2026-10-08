@@ -12,8 +12,6 @@ import {
 } from "./task-timeout-settings.js";
 
 const CONTROLLER_QUICK_RETRY_MS = 30 * 1000;
-const CONTROLLER_QUICK_RETRY_LIMIT = 3;
-const CONTROLLER_SLOW_RETRY_MS = 5 * 60 * 1000;
 
 function nowIso() {
   return new Date().toISOString();
@@ -35,9 +33,6 @@ function addMs(date, ms) {
 function retryDelayLabel(delayMs) {
   if (delayMs === CONTROLLER_QUICK_RETRY_MS) {
     return "30 seconds";
-  }
-  if (delayMs === CONTROLLER_SLOW_RETRY_MS) {
-    return "5 minutes";
   }
   return `${Math.max(1, Math.round(delayMs / 1000))} seconds`;
 }
@@ -150,32 +145,11 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   function updateControllerHealthSchedule(controller, status, checkedAt) {
     const controllerId = Number(controller.id);
     const checkedAtIso = checkedAt.toISOString();
-
-    if (status === "online") {
-      controllerHealthSchedule.set(controllerId, {
-        status,
-        quickRetriesUsed: 0,
-        lastCheckedAt: checkedAtIso,
-        nextCheckAt: addMs(checkedAt, CONTROLLER_QUICK_RETRY_MS),
-        retryDelayMs: CONTROLLER_QUICK_RETRY_MS,
-      });
-      return;
-    }
-
-    const previous = controllerHealthSchedule.get(controllerId);
-    const continuingOffline = previous && previous.status !== "online";
-    const quickRetriesUsed = continuingOffline ? Number(previous.quickRetriesUsed || 0) + 1 : 0;
-    const retryDelayMs =
-      quickRetriesUsed < CONTROLLER_QUICK_RETRY_LIMIT
-        ? CONTROLLER_QUICK_RETRY_MS
-        : CONTROLLER_SLOW_RETRY_MS;
-
     controllerHealthSchedule.set(controllerId, {
       status,
-      quickRetriesUsed,
       lastCheckedAt: checkedAtIso,
-      nextCheckAt: addMs(checkedAt, retryDelayMs),
-      retryDelayMs,
+      nextCheckAt: addMs(checkedAt, CONTROLLER_QUICK_RETRY_MS),
+      retryDelayMs: CONTROLLER_QUICK_RETRY_MS,
     });
   }
 
