@@ -38,7 +38,9 @@ export function taskSelection(db,user,input={}) {
   if(returnedScope.includes('?'))params.push(user.id,user.id,user.id);
   const supervisor=can(user,'review.view')?`EXISTS(SELECT 1 FROM work_reports wr JOIN task_lines wl ON wl.id=wr.line_id WHERE wl.task_id=t.id AND wr.status IN ('review','received'))`:'0';
   let scope=`(${own} OR ((t.assignment_state='returned' OR t.attention=1) AND ${returnedScope}) OR ${supervisor})`;
+  if(user.role==='admin'&&can(user,'work.team')&&!history){scope='1';params.length=0;}
   if(history){params.length=0;if(input.scope==='team'){assertCan(user,'work.team');scope='1';}else{scope='(t.assignee_id=? OR t.created_by=? OR EXISTS(SELECT 1 FROM task_assignment_events e WHERE e.task_id=t.id AND (e.assignee_id=? OR e.previous_assignee=?)))';params.push(user.id,user.id,user.id,user.id);}}
+  if(history&&input.currentAssigneeOnly&&!can(user,'work.team')){scope='t.assignee_id=?';params.length=0;params.push(user.id);}
   const cte=`WITH base AS (SELECT t.*, ${taskPrioritySql()} priority_rank, (SELECT u.name FROM users u WHERE u.id=t.assignee_id) assigned_to, (SELECT p.name FROM task_lines l JOIN products p ON p.id=l.product_id WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) product, (SELECT l.unit_of_measure FROM task_lines l WHERE l.task_id=t.id ORDER BY l.id LIMIT 1) unit,
     ROUND(COALESCE((SELECT SUM(l.actual_quantity) FROM task_lines l WHERE l.task_id=t.id AND l.execution_state='settled'),0),6) completed,
     (t.attention=1 OR (t.completed_at IS NULL AND (t.review_followup=1 OR t.assignment_state='returned')) OR EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=t.id AND r.status IN ('review','received'))) needs_review,
@@ -51,7 +53,7 @@ export function taskSelection(db,user,input={}) {
   const where=['1'],filtered=[...params],state=input.workState||(history?'all':'current');
   if(state==='current')where.push("lifecycle!='completed'");else if(['review','not_started','in_progress','completed'].includes(state)){where.push('lifecycle=?');filtered.push(state);}
   if(history){
-    if(['1','true',true].includes(input.activeOnly))where.push("completed_at IS NULL AND outcome NOT IN ('completed','stopped','cancelled') AND assignee_id IS NOT NULL AND assignment_state IN ('offered','started','legacy')");
+    if([1,'1','true',true].includes(input.activeOnly))where.push("completed_at IS NULL AND outcome NOT IN ('completed','stopped','cancelled') AND assignee_id IS NOT NULL AND assignment_state IN ('offered','started','legacy')");
     if(input.state==='closed')where.push("outcome IN ('completed','stopped','cancelled')");
     else if(input.state==='open')where.push("completed_at IS NULL");
     else if(input.state==='overdue')where.push("completed_at IS NULL AND due_at IS NOT NULL AND julianday(due_at)<julianday('now')");
@@ -59,7 +61,7 @@ export function taskSelection(db,user,input={}) {
     for(const [key,column] of [['operator','assignee_id'],['action','type'],['source','assignment_source']])if(input[key]){where.push(column+'=?');filtered.push(input[key]);}
     if(input.date){where.push('date(started_at)>=date(?)');filtered.push(input.date);}
   }
-  if(['1','true',true].includes(input.reviewOnly))where.push('needs_review=1');
+  if([1,'1','true',true].includes(input.reviewOnly))where.push('needs_review=1');
   for(const [key,col] of [['taskSearch',"CAST(id AS TEXT)||' '||type"],['productSearch',"COALESCE(product,'')"],['statusSearch','display_status']])if(String(input[key]||'').trim()){where.push(input[key+'Exact']==='1'?`lower(${col})=lower(?)`:`instr(lower(${col}),lower(?))>0`);filtered.push(String(input[key]).trim().slice(0,160));}
   if(['low','medium','high'].includes(input.priority)){where.push('priority_rank=?');filtered.push(['low','medium','high'].indexOf(input.priority));}
   if(input.progressRange){
@@ -82,6 +84,7 @@ export function taskSelection(db,user,input={}) {
   const total=db.prepare(`${cte} SELECT COUNT(*) n FROM rows WHERE ${where.join(' AND ')}`).get(...filtered).n,pages=Math.max(1,Math.ceil(total/limit)),number=Math.min(pageNumber(input.page),pages);
   const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress,priority_rank FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},id ${direction} LIMIT ? OFFSET ?`).all(...filtered,limit,(number-1)*limit);
   const legacy=history?{priority:null,counts:{}}:legacyTaskSelection(db,user,{view:'mine',state:'open'});
+  if(!history&&user.role==='admin'&&can(user,'work.team'))legacy.counts=legacyTaskSelection(db,user,{view:'team',state:'open'}).counts;
   return {ids:ids.map(r=>r.id),metrics:new Map(ids.map(r=>[r.id,{work_state:r.lifecycle,work_status:r.display_status,work_progress:r.progress,work_priority:['low','medium','high'][r.priority_rank]}])),priority:legacy.priority,counts:legacy.counts,page:{number,pages,total,limit,view:history?'history':'mine',state,sort,order:direction.toLowerCase(),unified:true}};
 }
 export function reviewSelection(db,user,input={}) {

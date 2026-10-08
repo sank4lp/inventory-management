@@ -2041,6 +2041,7 @@ function assertMappingIntegrity(db) {
 export function updateCellMapping(
   db,
   { cellId, hardwareChannel, logicalCode = null, targetCellId = null, mappedBy },
+  { withinTransaction = false } = {},
 ) {
   guardSetupChange(db);
   const channel = Number(hardwareChannel);
@@ -2048,7 +2049,7 @@ export function updateCellMapping(
     throw new Error("Hardware channel must be a positive number.");
   }
 
-  return withTransaction(db, () => {
+  const apply = () => {
     const sourceCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
     if (!sourceCell) {
       throw new Error("Mapped module not found.");
@@ -2134,7 +2135,9 @@ export function updateCellMapping(
     retireEmptyMappingCell(db, sourceCell.id);
     assertMappingIntegrity(db);
     return db.prepare("SELECT * FROM cells WHERE id = ?").get(targetCell.id);
-  });
+  };
+  // Setup receipts already own the transaction; mapping and receipt must commit together.
+  return withinTransaction ? apply() : withTransaction(db, apply);
 }
 
 function getOrCreateZone(db, code = "Z1", name = "Main Zone") {

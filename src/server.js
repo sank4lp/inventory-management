@@ -579,7 +579,7 @@ export const requestHandler = async (request, response) => {
           listProducts(db, q),
           q ? "No products match that search." : "No products have been added yet.",
           q,
-          { canEditCapacity: can(user,"products.capacity") },
+          { canEditCapacity: can(user,"products.capacity"), canStocktake:can(user,"count.create")||can(user,"count.manage") },
         ),
       );
       return;
@@ -969,6 +969,43 @@ export const requestHandler = async (request, response) => {
         response,
         appendFlash(returnTo, nextFlash.message, nextFlash.tone),
       );
+      return;
+    }
+
+    const productSettingsMatch = url.pathname.match(/^\/products\/(\d+)\/settings$/);
+    if (request.method === "POST" && productSettingsMatch) {
+      if (!ensureAuth(response,user)) return;
+      const productId=Number(productSettingsMatch[1]), form=await parseForm(request), wantsJson=requestWantsJson(request);
+      const editDetails=form.edit_details === "1" || form.edit_details === true;
+      const editCapacity=Object.hasOwn(form,"items_per_cell");
+      const previous=catalogService.getProductDetail(productId);
+      try {
+        if (form.confirmed !== "1" && form.confirmed !== true) throw new Error("Confirm these changes before saving.");
+        if (!previous) throw new Error("Product not found.");
+        if (!editDetails && !editCapacity) throw new Error("No editable settings were supplied.");
+        withTransaction(db,()=>{
+          if (editDetails) {
+            catalogService.updateProductDetails({actor:user,productId,name:form.name,brand:form.brand,category:form.category,variant:form.variant,unit_of_measure:form.unit_of_measure,description:form.description});
+            saveCustomProductFields(productFieldService,{productId,form,actor:user});
+          }
+          if (editCapacity) catalogService.updateProductItemsPerCell({actor:user,productId,itemsPerCell:form.items_per_cell});
+        });
+      } catch (error) {
+        if (wantsJson) sendJson(response,{error:error.message},400);
+        else sendRedirect(response,appendFlash(`/products/${productId}`,error.message,"error"));
+        return;
+      }
+      const backupResult=createAutomaticBackup("product-settings-update");
+      let returnTo=`/products/${productId}`;
+      if (editCapacity && Number(form.items_per_cell)!==Number(previous.items_per_cell)) {
+        const recommendation=anomalyService.getRecommendedActions().filter(action=>Number(action.productId)===productId)
+          .sort((left,right)=>Number(right.freedLocationCount||0)-Number(left.freedLocationCount||0))[0];
+        if (recommendation) returnTo=capacityRecommendationPromptPath(returnTo,recommendation.key);
+      }
+      const nextFlash=backupAwareFlash("Product settings saved.","success",backupResult);
+      const redirectUrl=appendFlash(returnTo,nextFlash.message,nextFlash.tone);
+      if (wantsJson) sendJson(response,{message:nextFlash.message,redirectUrl});
+      else sendRedirect(response,redirectUrl);
       return;
     }
 
@@ -2180,7 +2217,7 @@ export const requestHandler = async (request, response) => {
         deletedBy: user.id,
       });
       const moduleSummary = deleted.modulePlaceholder
-        ? ` LED module ${deleted.modulePlaceholder.hardware_channel} remains available in Cell Mapping.`
+        ? ` LED module ${deleted.modulePlaceholder.hardware_channel} remains available in Manage Locations.`
         : "";
       const dataSummary = deleted.preservedHistory
         ? " Historical task and hardware records were preserved."
@@ -2190,7 +2227,7 @@ export const requestHandler = async (request, response) => {
         "success",
         createCriticalBackup(deleted.hasData ? "cell-delete-with-history" : "cell-delete"),
       );
-      sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash(safeLocalPath(form.return_to,"/locations/manage"), nextFlash.message, nextFlash.tone));
       return;
     }
 

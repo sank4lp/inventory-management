@@ -27,7 +27,14 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
   const eligible=id=>{const u=db.prepare('SELECT * FROM users WHERE id=?').get(Number(id));if(!countCapabilities(effectiveUser(db,u)).count)throw new Error('Choose an active counter.');return u.id;};
   function scope(input) {
     let cells=db.prepare('SELECT id FROM cells WHERE active=1 ORDER BY id').all().map(c=>c.id);
-    if(input.mode==='selected') {const selected=[...new Set((input.cellIds||[]).map(Number))];if(!selected.length||selected.some(id=>!cells.includes(id)))throw new Error('Select existing active locations.');cells=selected;}
+    if(input.mode==='product'){
+      const product=db.prepare('SELECT id FROM products WHERE id=? AND active=1').get(Number(input.productId));if(!product)throw new Error('Choose an active product to count.');
+      const selected=[...new Set((input.cellIds||[]).map(Number))];
+      if(!selected.length&&(input.locationsChosen===true||input.locationsChosen==='true'))throw new Error('Select at least one location to count.');
+      if(selected.length){if(selected.some(id=>!cells.includes(id)))throw new Error('Select existing active locations.');cells=selected;}
+      else cells=db.prepare('SELECT b.cell_id FROM inventory_balances b JOIN cells c ON c.id=b.cell_id WHERE c.active=1 AND b.product_id=? AND b.available_quantity!=0 ORDER BY b.cell_id').all(product.id).map(c=>c.cell_id);
+    }
+    else if(input.mode==='selected') {const selected=[...new Set((input.cellIds||[]).map(Number))];if(!selected.length||selected.some(id=>!cells.includes(id)))throw new Error('Select existing active locations.');cells=selected;}
     else if(input.mode!=='warehouse')throw new Error('Choose whole warehouse or selected locations.');
     if(!cells.length)throw new Error('Add locations before creating a stocktake.');return cells;
   }
@@ -38,7 +45,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
     const assignee=input.assigneeId?eligible(input.assigneeId):actor&&!can(actor,'count.manage')?actor.id:null;
     if(actor&&!can(actor,'count.manage')&&assignee!==actor.id)throw new Error('You may create a count only for yourself.');
     const result=db.prepare(`INSERT INTO stocktake_runs(title,scope_json,due_date,timezone,schedule_revision,occurrence,created_by,created_at)
-      VALUES(?,?,?,?,?,?,?,?)`).run(String(input.title||'Warehouse stock check').slice(0,160),json({mode:input.mode,cellIds}),due,timezone,schedule?.revision||null,schedule?`${schedule.revision}:${due}`:null,actor?.id||null,now());
+      VALUES(?,?,?,?,?,?,?,?)`).run(String(input.title||'Warehouse stock check').slice(0,160),json({mode:input.mode,cellIds,...(input.mode==='product'?{productId:Number(input.productId)}:{})}),due,timezone,schedule?.revision||null,schedule?`${schedule.revision}:${due}`:null,actor?.id||null,now());
     const runId=Number(result.lastInsertRowid);
     for(const id of cellIds)db.prepare('INSERT INTO stocktake_items(run_id,cell_id,location_json,assignee_id) VALUES(?,?,?,?)').run(runId,id,json(describeLocation(db,id)),assignee);
     event(actor,'created',{cellIds,assigneeId:assignee,due},runId);
@@ -68,17 +75,18 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
     if(Number(input.generation)!==i.generation)throw new Error('The count assignment changed. Refresh before continuing.');
     if(['completed','closed'].includes(r.status))throw new Error('This stocktake is closed. Open a new count.');return i;
   }
-  function baseline(cellId) {
+  function baseline(cellId, productId=null) {
     const cell=db.prepare('SELECT * FROM cells WHERE id=?').get(cellId);
-    const products=db.prepare(`SELECT b.product_id AS productId,b.available_quantity AS recorded,p.unit_of_measure AS unit,p.name,p.sku
+    let products=db.prepare(`SELECT b.product_id AS productId,b.available_quantity AS recorded,p.unit_of_measure AS unit,p.name,p.sku
       FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.cell_id=? ORDER BY b.product_id`).all(cellId);
+    if(productId){const p=db.prepare('SELECT id AS productId,name,sku,unit_of_measure AS unit FROM products WHERE id=?').get(productId);if(!p)throw new Error('Count product no longer exists.');products=[products.find(x=>x.productId===productId)||{...p,recorded:0}];}
     const pending=db.prepare(`SELECT l.id,l.revision,l.execution_state,r.kind,r.quantity,r.state FROM task_lines l JOIN work_reservations r ON r.line_id=l.id WHERE l.cell_id=? AND r.state='held' ORDER BY l.id`).all(cellId);
     const reports=db.prepare("SELECT id,status FROM work_reports WHERE cell_id=? AND status IN ('received','review') ORDER BY id").all(cellId);
-    return {cellId,guidanceBinding:guidanceBinding(db,cellId),active:cell?.active,labelId:cell?.label_id,labelRevision:cell?.label_revision,version:db.prepare('SELECT version FROM stocktake_cell_versions WHERE cell_id=?').get(cellId)?.version||0,
+    return {cellId,...(productId?{productScope:productId}:{}),guidanceBinding:guidanceBinding(db,cellId),active:cell?.active,labelId:cell?.label_id,labelRevision:cell?.label_revision,version:db.prepare('SELECT version FROM stocktake_cell_versions WHERE cell_id=?').get(cellId)?.version||0,
       ledgerId:db.prepare('SELECT COALESCE(MAX(id),0) id FROM transactions WHERE cell_id=?').get(cellId).id,products,pending,reports};
   }
   function stable(before,cellId) {
-    const current=baseline(cellId);
+    const current=baseline(cellId,before.productScope);
     // Any outstanding physical instruction can carry late evidence. Observations
     // remain useful, but corrections require a fresh quiet boundary.
     return before.active===1&&current.active===1&&!before.pending.length&&!before.reports.length&&!current.pending.length&&!current.reports.length&&canonical(before)===canonical(current);
@@ -96,6 +104,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
     schedule(a,i) {
       actorNow(a,'schedule');const old=db.prepare('SELECT * FROM stocktake_schedules WHERE id=1').get();
       if(Number(i.revision||0)!==(old?.revision||0))throw new Error('The schedule changed. Refresh it.');
+      if(i.mode==='product')throw new Error('Product counts are on demand. Use warehouse or selected locations for this schedule.');
       const cells=scope(i),frequency=i.frequency,interval=Number(i.intervalDays||30);if(!['weekly','monthly','custom'].includes(frequency)||!Number.isInteger(interval)||interval<1||interval>3650)throw new Error('Choose a valid cadence.');
       const due=validDate(i.nextDue),timezone=i.timezone||'Asia/Kolkata';dateInZone(clock(),timezone);
       const assigned=i.assigneeId?eligible(i.assigneeId):null,anchor=Number(due.slice(-2)),revision=(old?.revision||0)+1;
@@ -114,13 +123,13 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       if(i.method==='qr'){if(!validLocationLabel(db,identity().site,c,i.label))throw new Error('Wrong, unknown or revoked location QR.');}else if(i.method!=='manual'||![c.logical_code,c.display_name].filter(Boolean).includes(String(i.location||'').trim()))throw new Error('Identify this location by its exact name or code.');
       const owner=operationsService.requestCountGuidance(a,row);if(owner?.kind!=='count'||owner.itemId!==row.id)throw new Error(owner?waitingMessage(owner):'This location is not available for counting.');
       const existing=db.prepare('SELECT * FROM stocktake_attempts WHERE item_id=? AND counter_id=? AND generation=? AND observation_id IS NULL ORDER BY started_at DESC LIMIT 1').get(row.id,a.id,row.generation);
-      const id=existing?.id||randomUUID();if(!existing)db.prepare('INSERT INTO stocktake_attempts(id,item_id,counter_id,generation,baseline_json,started_at,method,identity_evidence) VALUES(?,?,?,?,?,?,?,?)').run(id,row.id,a.id,row.generation,json(baseline(row.cell_id)),now(),i.method,i.label||i.location);
+      const id=existing?.id||randomUUID();if(!existing)db.prepare('INSERT INTO stocktake_attempts(id,item_id,counter_id,generation,baseline_json,started_at,method,identity_evidence) VALUES(?,?,?,?,?,?,?,?)').run(id,row.id,a.id,row.generation,json(baseline(row.cell_id,parse(run(a,row.run_id).scope_json).productId||null)),now(),i.method,i.label||i.location);
       db.prepare("UPDATE stocktake_items SET state='counting' WHERE id=?").run(row.id);db.prepare("UPDATE stocktake_runs SET started_at=COALESCE(started_at,?),status='in_progress' WHERE id=?").run(now(),row.run_id);
       return {status:'recorded',attemptId:id,message:'Location identified. Enter every actual count; blank does not mean zero.'};},
     observe(a,i){const attempt=db.prepare('SELECT * FROM stocktake_attempts WHERE id=?').get(i.attemptId);if(!attempt||attempt.counter_id!==a.id)throw new Error('Count attempt not found for this account.');
       const row=db.prepare('SELECT * FROM stocktake_items WHERE id=?').get(attempt.item_id),r=run(a,row.run_id),before=parse(attempt.baseline_json);
       const incoming=Array.isArray(i.lines)?i.lines:[],seen=new Set();
-      const lines=incoming.map(l=>{const id=Number(l.productId);if(seen.has(id))throw new Error('Count each product once.');seen.add(id);const p=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!p)throw new Error('Choose an existing product, or record unidentified goods.');const b=before.products.find(p=>p.productId===id);const actual=workQuantity(l.actual),condition=workQuantity(l.conditionQuantity??0);if(condition>actual)throw new Error('Affected condition quantity cannot exceed the physical total.');if(condition&&!['expired','damaged','other'].includes(l.condition))throw new Error('Describe the affected condition.');return {productId:id,name:p.name,sku:p.sku,unit:l.unit||b?.unit||p.unit_of_measure,recorded:b?.recorded||0,actual,difference:round(actual-(b?.recorded||0)),conditionQuantity:condition,condition:l.condition||null};});
+      const lines=incoming.map(l=>{const id=Number(l.productId);if(before.productScope&&id!==before.productScope)throw new Error('Count only the selected product in this stocktake.');if(seen.has(id))throw new Error('Count each product once.');seen.add(id);const p=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!p)throw new Error('Choose an existing product, or record unidentified goods.');const b=before.products.find(p=>p.productId===id);const actual=workQuantity(l.actual),condition=workQuantity(l.conditionQuantity??0);if(condition>actual)throw new Error('Affected condition quantity cannot exceed the physical total.');if(condition&&!['expired','damaged','other'].includes(l.condition))throw new Error('Describe the affected condition.');return {productId:id,name:p.name,sku:p.sku,unit:l.unit||b?.unit||p.unit_of_measure,recorded:b?.recorded||0,actual,difference:round(actual-(b?.recorded||0)),conditionQuantity:condition,condition:l.condition||null};});
       if(before.products.some(p=>!seen.has(p.productId)))throw new Error('Enter actuals for every recorded product, including zero.');
       if(!lines.length&&i.emptyConfirmed!==true)throw new Error('Explicitly confirm that this location is empty.');
       const unknown=(i.unknown||[]).map(v=>String(v).trim()).filter(Boolean);if(unknown.some(v=>v.length>1000))throw new Error('Keep unidentified-item descriptions under 1000 characters.');
@@ -147,7 +156,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
         if(!ids.length||transactions.some(t=>!t||t.cell_id!==row.cell_id||t.id<=before.ledgerId||t.origin_ref?.startsWith('stocktake:')))throw new Error('Select posted intervening movements for this same location.');
         for(const l of lines){const matches=transactions.filter(t=>t.product_id===l.productId);if(matches.some(t=>t.unit_of_measure!==l.unit)||round(matches.reduce((n,t)=>n+t.quantity_delta,0))!==l.difference)throw new Error('Selected movements do not exactly account for every count difference. Request a recount.');}
         if(transactions.some(t=>!lines.some(l=>l.productId===t.product_id)))throw new Error('Movement product is unrelated to this count.');
-        const current=baseline(row.cell_id);if(current.pending.length||current.reports.length||lines.some(l=>(current.products.find(p=>p.productId===l.productId)?.recorded??0)!==l.actual)||controlledCell(db,row.cell_id))throw new Error('Current stock or unresolved work still needs a fresh count.');
+        const current=baseline(row.cell_id,before.productScope);if(current.pending.length||current.reports.length||lines.some(l=>(current.products.find(p=>p.productId===l.productId)?.recorded??0)!==l.actual)||controlledCell(db,row.cell_id))throw new Error('Current stock or unresolved work still needs a fresh count.');
         db.prepare("UPDATE stocktake_observations SET status='linked',linked_movements=?,verification=?,reviewer_id=?,reviewed_at=?,revision=revision+1 WHERE id=?").run(json(ids),evidence,a.id,now(),o.id);
       } else if(i.action==='approve') {
         if(!String(i.reason||'').trim())throw new Error('Choose a verified reason, including Unknown when appropriate.');
@@ -199,7 +208,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
         scopeChanges:can(a,'count.team')?db.prepare('SELECT id,logical_code,display_name FROM cells WHERE active=1 AND id NOT IN (SELECT cell_id FROM stocktake_items WHERE run_id=?)').all(r.id):[]};
     });
     return {...identity(),user:a,capabilities:countCapabilities(a),generatedAt:now(),warehouseTimezone:db.prepare("SELECT value FROM app_metadata WHERE key='warehouse_timezone'").get()?.value||'Asia/Kolkata',schedule:db.prepare('SELECT * FROM stocktake_schedules WHERE id=1').get()||null,runs,badge:runs.filter(r=>r.actionable).length,
-      cells:db.prepare('SELECT id,logical_code,display_name FROM cells WHERE active=1 ORDER BY logical_code').all().map(c=>({...c,description:describeLocation(db,c.id)})),products:db.prepare('SELECT id,name,sku,unit_of_measure FROM products WHERE active=1 ORDER BY name').all(),
+      cells:db.prepare('SELECT id,logical_code,display_name FROM cells WHERE active=1 ORDER BY logical_code').all().map(c=>({...c,description:describeLocation(db,c.id),products:db.prepare('SELECT product_id,available_quantity AS quantity FROM inventory_balances WHERE cell_id=? AND available_quantity!=0').all(c.id)})),products:db.prepare('SELECT id,name,sku,unit_of_measure FROM products WHERE active=1 ORDER BY name').all(),
       counters:can(a,'count.team')?db.prepare("SELECT * FROM users WHERE status='active' ORDER BY name").all().filter(u=>can(effectiveUser(db,u),"count.perform")).map(u=>({id:u.id,name:u.name,username:u.username})):[],
       conditions:can(a,'count.team')?db.prepare("SELECT c.*,i.run_id FROM stocktake_condition_reviews c JOIN stocktake_observations o ON o.id=c.observation_id JOIN stocktake_items i ON i.id=o.item_id WHERE c.state='open'").all():[],
       events:can(a,'count.team')?db.prepare('SELECT * FROM stocktake_events ORDER BY id DESC LIMIT 500').all():[]};

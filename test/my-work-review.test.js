@@ -27,7 +27,7 @@ test('unified filters and numeric sorts apply before the 100-row boundary, dedup
   const clamped=f.page(f.op,{pageSize:50,page:99});assert.equal(clamped.taskPage.number,3);assert.equal(clamped.tasks.length,25);
   for(const pageSize of [0,21,-1,1000,'invalid'])assert.equal(f.page(f.op,{pageSize}).taskPage.limit,50);
   const range=f.page(f.op,{requestedMin:110,requestedMax:120,remainingMin:112,sort:'remaining',order:'desc'});assert.deepEqual(range.tasks.map(t=>t.requested_quantity),[120,119,118,117,116,115,114,113,112]);assert.equal(range.myWorkPriority.id,ids[0]);
-  assert.equal(f.page(f.second,{workState:'all'}).taskPage.total,0);assert.equal(f.page(f.admin).taskPage.total,0);
+  assert.equal(f.page(f.second,{workState:'all'}).taskPage.total,0);assert.equal(f.page(f.admin).taskPage.total,125);
   let t=f.get(ids[0]);f.cmd(f.op,'askReview',{lineId:t.lines[0].id,reason:'Uncertain movement'});t=f.get(ids[124]);f.cmd(f.op,'decline',f.fields(t));
   const reviewed=f.page(f.admin,{reviewOnly:1,sort:'task',order:'asc'});assert.equal(reviewed.taskPage.total,2);assert.deepEqual(reviewed.tasks.map(t=>t.work_state),['review','review']);assert.deepEqual(reviewed.tasks.map(t=>t.work_status),['Quantity check','Needs assignment']);assert.equal(new Set(reviewed.tasks.map(t=>t.id)).size,2);
   assert.equal(f.page(f.admin,{statusSearch:'assignment'}).tasks[0].id,ids[124]);assert.equal(f.page(f.op,{reviewOnly:true}).tasks.length,1);assert.equal(f.page(f.admin,{productSearch:'no match'}).taskPage.total,0);

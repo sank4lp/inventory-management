@@ -11,17 +11,32 @@ export function describeLocation(db, cellId) {
     labelId:cell.label_id,labelRevision:cell.label_revision, fields };
 }
 
+export function locationQrValue(db, site, cell) {
+  const label=db.prepare('SELECT * FROM location_labels WHERE token=?').get(cell.label_id);
+  return label?.qr_value ?? `lytguide:${site}:${cell.label_id}:${cell.label_revision}`;
+}
+
+export function resolveLocationLabel(db, site, value) {
+  if(typeof value!=='string'||!value||value.length>300)return null;
+  const registered=db.prepare("SELECT * FROM location_labels WHERE qr_value=? AND state='bound'").get(value);
+  const token=registered?.token ?? (value.startsWith(`lytguide:${site}:`)?value.split(':')[2]:null);
+  const cell=token?db.prepare('SELECT *,id AS cell_id FROM cells WHERE label_id=? AND active=1').get(token):null;
+  return cell&&validLocationLabel(db,site,cell,value)?cell:null;
+}
+
 export function validLocationLabel(db, site, cell, value) {
   if (typeof value !== 'string' || value.length > 300) return false;
-  if (value !== `lytguide:${site}:${cell.label_id}:${cell.label_revision}`) return false;
+  if (value !== locationQrValue(db,site,cell)) return false;
   const registered = db.prepare('SELECT * FROM location_labels WHERE token=?').get(cell.label_id);
-  return !registered || registered.state === 'bound' && registered.cell_id === cell.cell_id && registered.revision === cell.label_revision;
+  return !registered || registered.state === 'bound' && registered.cell_id === (cell.cell_id ?? cell.id) && registered.revision === cell.label_revision;
 }
 
 export function saveLocationDescription(db, actor, input) {
   const cell=db.prepare('SELECT * FROM cells WHERE id=?').get(Number(input.cellId));
   if(!cell||cell.description_revision!==Number(input.descriptionRevision))throw new Error('Location details changed. Refresh before saving.');
   const name=String(input.displayName||'').trim(),travel=String(input.travelInstructions||'').trim();
+  const warehouse=input.warehouseName==null?cell.warehouse_name:String(input.warehouseName).trim();
+  if((warehouse||'').length>160||/[\u0000-\u001f]/.test(warehouse||''))throw new Error('Use a warehouse name up to 160 characters.');
   if(name.length>160||travel.length>1000||/[\u0000-\u001f]/.test(name))throw new Error('Use a readable name up to 160 characters and directions up to 1000 characters.');
   if(name&&db.prepare('SELECT 1 FROM cells WHERE id!=? AND active=1 AND (display_name=? COLLATE NOCASE OR logical_code=? COLLATE NOCASE)').get(cell.id,name,name))throw new Error('Another location already uses that name. Choose an unambiguous name.');
   // Definition editing/commissioning is Phase 2. Values use the same stable field keys now.
@@ -33,5 +48,6 @@ export function saveLocationDescription(db, actor, input) {
     db.prepare('INSERT INTO location_field_values(cell_id,field_key,value_json) VALUES(?,?,?) ON CONFLICT(cell_id,field_key) DO UPDATE SET value_json=excluded.value_json').run(cell.id,key,JSON.stringify(field.field_type==='number'?Number(value):String(value)));
   }
   db.prepare('UPDATE cells SET display_name=?,travel_instructions=?,description_revision=description_revision+1 WHERE id=?').run(name||null,travel||null,cell.id);
+  db.prepare('UPDATE cells SET warehouse_name=? WHERE id=?').run(warehouse||null,cell.id);
   return {status:'recorded',message:'Location directions saved. Existing labels and stock identity are unchanged.'};
 }

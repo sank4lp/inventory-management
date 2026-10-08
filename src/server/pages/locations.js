@@ -559,92 +559,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderCellManagementSection(cells) {
-    return `
-      <section id="cell-management" class="configuration-table-section app-panel" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
-        <div class="panel-heading">
-          <div>
-            <h2>Manage Locations</h2>
-            <p class="muted">Add logical locations, rename location names, or remove empty locations.</p>
-          </div>
-        </div>
-        <form method="post" action="/devices/cells" class="inline-form">
-          <label>Location Name
-            <input
-              name="logical_code"
-              placeholder="Z1-R1-C01"
-              pattern="[A-Za-z0-9._:-]+"
-              required
-            />
-          </label>
-          <label>Shed / shelf details (optional)<input name="travelInstructions" maxlength="1000" placeholder="Shed A, second shelf on the left"></label>
-          <button type="submit" class="ghost-button">Add Location</button>
-        </form>
-        ${
-          cells.length
-            ? table(
-                ["Location Name", "Mapped Controller", "Mapped LED Module", "Stock", "Products", "Actions"],
-                cells.map((cell) => {
-                  const hasStock = cellHasStock(cell);
-                  const deleteTitle = hasStock
-                    ? `Move all stock out of ${cell.logical_code} before deleting it`
-                    : `Delete ${cell.logical_code}`;
-                  return [
-                    `
-                      <form method="post" action="/devices/cells/rename" class="inline-form">
-                        <input type="hidden" name="cell_id" value="${cell.id}" />
-                        <label class="sr-only" for="rename-cell-${cell.id}">Location Name</label>
-                        <input
-                          id="rename-cell-${cell.id}"
-                          class="compact-input"
-                          name="logical_code"
-                          value="${escapeHtml(cell.logical_code)}"
-                          pattern="[A-Za-z0-9._:-]+"
-                          required
-                        />
-                        <button type="submit" class="ghost-button">Rename</button>
-                      </form>
-                      <form method="post" action="/cells/${cell.id}/directions" class="inline-form">
-                        <input type="hidden" name="requestId" value="${randomUUID()}">
-                        <input type="hidden" name="descriptionRevision" value="${cell.description_revision}">
-                        <input type="hidden" name="displayName" value="${escapeHtml(cell.display_name||'')}">
-                        <label>Shed / shelf details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}"></label>
-                        <button type="submit" class="ghost-button">Save details</button>
-                      </form>
-                    `,
-                    cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Unmapped</span>`,
-                    cellIsMapped(cell) ? escapeHtml(cell.hardware_channel) : `<span class="muted">Unmapped</span>`,
-                    escapeHtml(formatQuantity(cell.occupied_quantity)),
-                    cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
-                    `
-                      <div class="mini-actions">
-                        ${renderLocationPingButton(cell)}
-                        ${renderLocationCountButton(cell)}
-                        <form
-                          method="post"
-                          action="/devices/cells/delete"
-                          class="inline-form"
-                          data-delete-cell-form
-                          data-cell-name="${escapeHtml(cell.logical_code)}"
-                          data-cell-has-stock="${hasStock ? "true" : "false"}"
-                        >
-                          <input type="hidden" name="cell_id" value="${cell.id}" />
-                          <button
-                            type="submit"
-                            class="icon-button danger-button"
-                            aria-label="Delete ${escapeHtml(cell.logical_code)}"
-                            title="${escapeHtml(deleteTitle)}"
-                            ${hasStock ? "disabled" : ""}
-                          >${trashIcon()}</button>
-                        </form>
-                      </div>
-                    `,
-                  ];
-                }),
-              )
-            : `<p class="muted">No active cells are configured.</p>`
-        }
-      </section>
-    `;
+    return `<section id="cell-management" class="app-panel" data-config-section="cell-management"><h2>Manage Locations</h2><a class="green-button" href="/locations/manage">Manage names, QR codes and LED modules</a></section>`;
   }
 
   function renderCellMappingSection(cells) {
@@ -935,20 +850,14 @@ export function createLocationPages({ db }) {
               </span>
               <span class="operation-kbd">01</span>
             </a>
-            <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
+            <a class="operation-tile" href="/locations/manage">
               <span>
                 <strong>Manage Locations</strong>
                 Add, rename, or remove active storage locations.
               </span>
               <span class="operation-kbd">02</span>
             </a>
-            <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
-              <span>
-                <strong>Cell Mapping</strong>
-                Ping modules and assign them to storage locations.
-              </span>
-              <span class="operation-kbd">03</span>
-            </a>
+
           </section>
 
           <section id="configuration-status" class="app-panel" aria-labelledby="configuration-status-heading" data-config-overview>

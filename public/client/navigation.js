@@ -1,6 +1,6 @@
 import {PageScope} from './page-lifecycle.js';
 
-export const PAGE_MODULES=new Set(['/app.js','/client/displays.js','/client/recommendation-actuals.js','/client/work.js','/client/stocktaking.js','/client/location-setup.js','/client/location-browse.js','/client/location-history.js','/client/roles.js']);
+export const PAGE_MODULES=new Set(['/app.js','/client/displays.js','/client/recommendation-actuals.js','/client/work.js','/client/stocktaking.js','/client/location-setup.js','/client/location-browse.js','/client/location-history.js','/client/product-settings.js','/client/roles.js']);
 export function navigationTarget(href,current){const target=new URL(href,current),from=new URL(current);return target.origin===from.origin&&!/^\/(api|auth|login|logout|register|offline)(\/|$)/.test(target.pathname)?target:null;}
 const shell=typeof document!=='undefined'&&document.querySelector('.dashboard-body .dashboard-shell'),body=typeof document!=='undefined'&&document.querySelector('.page-body');
 if(shell&&body){
@@ -11,7 +11,8 @@ if(shell&&body){
  const loadedClassic=new Set([...document.querySelectorAll('script[src]:not([type="module"])')].map(s=>new URL(s.src,location.href).pathname));
  const persistent=new Set(['/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
  const currentScope=()=>globalThis.WarehousePageLifecycle.current;
- const savedPositions=new Map();
+ const savedPositions=new Map();let deciding=false;
+ async function permitLeave(pop){if(deciding)return false;deciding=true;try{const permitted=await currentScope().canLeave();if(!permitted&&pop){history.pushState({warehousePage:true},'',current);window.dispatchEvent(new CustomEvent('warehouse:navigation-cancelled'));}return permitted;}finally{deciding=false;}}
  function updateSidebar(next){
    const old=document.querySelector('.dashboard-sidebar'),fresh=next.querySelector('.dashboard-sidebar');
    if(!old||!fresh)return;
@@ -30,10 +31,12 @@ if(shell&&body){
    await new Promise((resolve,reject)=>{const tag=document.createElement('script');tag.src=source.type==='module'?path+'?page='+token:path;tag.type=source.type;tag.dataset.pageScript='';tag.onload=resolve;tag.onerror=()=>reject(Error('Could not load this page.'));document.body.append(tag);});
    if(source.type!=='module')loadedClassic.add(path);
  }
- async function go(href,{pop=false,replace=false}={}){
+ async function go(href,{pop=false,replace=false,refresh=false}={}){
    if(committing){queued=[href,{pop,replace}];return;}
-   const target=navigationTarget(href,location.href);if(!target){location.assign(href);return;}
-   if(target.href===current&&!pop)return;
+   const target=navigationTarget(href,location.href);
+   if(target?.href===current&&!pop&&!refresh)return;
+   if(!await permitLeave(pop))return;
+   if(!target){location.assign(href);return;}
    const token=++serial;loading?.abort();const controller=new AbortController();loading=controller;
    body.setAttribute('aria-busy','true');
    try{

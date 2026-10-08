@@ -26,6 +26,7 @@ export function migrateOperations(db) {
   add("task_lines", "started_at", "TEXT");
   add("cells", "guidance_mode", "TEXT NOT NULL DEFAULT 'exclusive'");
   add("cells", "label_id", "TEXT");
+  add("cells", "warehouse_name", "TEXT");
   add("cells", "label_revision", "INTEGER NOT NULL DEFAULT 1");
   add("transactions", "task_line_id", "INTEGER REFERENCES task_lines(id)");
   add("transactions", "origin_ref", "TEXT");
@@ -153,6 +154,9 @@ function migrateWorkflowContracts(db, add) {
       BEGIN UPDATE cells SET binding_revision=binding_revision+1,binding_verified_at=NULL,binding_verified_by=NULL WHERE id=NEW.id; END;
   `);
   add('location_labels','retired_cell_id','INTEGER');
+  add('location_labels','qr_value','TEXT');
+  add('location_labels','scanned_at','TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS unique_customer_qr ON location_labels(qr_value) WHERE qr_value IS NOT NULL');
   db.exec(`CREATE TRIGGER IF NOT EXISTS location_label_retired BEFORE DELETE ON cells
     BEGIN UPDATE location_labels SET state='revoked',retired_cell_id=OLD.id,cell_id=NULL WHERE cell_id=OLD.id; END;`);
   db.exec(`UPDATE tasks SET attention=0,outcome='needs_assignment' WHERE assignment_state='returned' AND stop_requested=0

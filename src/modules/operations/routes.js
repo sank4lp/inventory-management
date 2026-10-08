@@ -1,11 +1,12 @@
 import {can,assertCan} from "../access/catalog.js";
 import { createHash } from "node:crypto";
+import {locationQrValue} from './location-contract.js';
 import QRCode from 'qrcode';
 import { page, escapeHtml } from '../../render.js';
 import { sendHtml, sendJson, sendRedirect, appendFlash } from '../../server/http/responses.js';
 import { ensureAuth, ensureApiAuth } from '../../server/http/auth-guards.js';
 
-const paths = new Set(['/work','/work/overview','/work/timing','/work/history','/work/task-history','/pick','/put','/pending-confirmations','/record-movement','/movement-history','/labels']);
+const paths = new Set(['/work','/work/overview','/work/timing','/work/history','/work/active-assignments','/work/task-history','/pick','/put','/pending-confirmations','/record-movement','/movement-history','/labels']);
 export async function operationsRoutes(request,response,url,user,state) {
   const {operationsService:work,db}=state;
   if (url.pathname === '/offline') {
@@ -14,7 +15,7 @@ export async function operationsRoutes(request,response,url,user,state) {
   if (url.pathname.startsWith('/api/work/')) {
     if (!ensureApiAuth(response,user)) return true;
     const action=url.pathname.slice('/api/work/'.length);
-    if(request.method==='GET' && action==='snapshot') {const data=work.snapshot(user,Object.fromEntries(url.searchParams));const taskId=Number(url.searchParams.get('taskId'));if(url.searchParams.get('view')!=='activity'&&taskId&&data.capabilities.view&&!data.tasks.some(t=>t.id===taskId)){const task=work.task(user,taskId);if(task)data.tasks.unshift(task);}sendJson(response,data);}
+    if(request.method==='GET' && action==='snapshot') {const data=work.snapshot(user,Object.fromEntries(url.searchParams));const taskId=Number(url.searchParams.get('taskId'));if(!['activity','active'].includes(url.searchParams.get('view'))&&taskId&&data.capabilities.view&&!data.tasks.some(t=>t.id===taskId)){const task=work.task(user,taskId);if(task)data.tasks.unshift(task);}sendJson(response,data);}
     else if(request.method==='GET' && action==='taskHistory') sendJson(response,work.taskHistory(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='activityHistory') sendJson(response,work.activityHistory(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='cellHistory') sendJson(response,work.cellHistory(user,Object.fromEntries(url.searchParams)));
@@ -37,7 +38,7 @@ export async function operationsRoutes(request,response,url,user,state) {
     if(!ensureAuth(response,user)) return true;
     const c=db.prepare('SELECT * FROM cells WHERE id=?').get(Number(qr[1]));
     if(!c) {sendJson(response,{error:'Location not found'},404);return true;}
-    const svg=await QRCode.toString(`lytguide:${work.identity().site}:${c.label_id}:${c.label_revision}`,{type:'svg',errorCorrectionLevel:'M',margin:3});
+    const svg=await QRCode.toString(locationQrValue(db,work.identity().site,c),{type:'svg',errorCorrectionLevel:'M',margin:3});
     response.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});response.end(svg);return true;
   }
   const older=url.pathname.match(/^\/tasks\/(\d+)\/(confirm|correct)$/);
@@ -65,9 +66,9 @@ export async function operationsRoutes(request,response,url,user,state) {
     assertCan(user,'work.assign');
     if(can(user,'work.team')&&['state','operator','action','source','date','page'].some(k=>url.searchParams.has(k))){const q=new URLSearchParams(url.searchParams);q.set('scope','team');sendRedirect(response,'/work/history?'+q);return true;}
   }
-  const snapshot=work.snapshot(user,{...Object.fromEntries(url.searchParams),taskId:match?.[1]||(url.pathname==='/work/task-history'?url.searchParams.get('taskId')||undefined:undefined),view:url.pathname==='/work/overview'?'assign':url.pathname==='/work/history'?'history':url.pathname==='/work/task-history'?'activity':url.pathname==='/work'?'mine':'accessible'});
+  const snapshot=work.snapshot(user,{...Object.fromEntries(url.searchParams),taskId:match?.[1]||(url.pathname==='/work/task-history'?url.searchParams.get('taskId')||undefined:undefined),view:url.pathname==='/work/active-assignments'?'active':url.pathname==='/work/overview'?'assign':url.pathname==='/work/history'?'history':url.pathname==='/work/task-history'?'activity':url.pathname==='/work'?'mine':'accessible'});
   if(match) { const requested=work.task(user,match[1]); if(requested&&!snapshot.tasks.some(t=>t.id===requested.id))snapshot.tasks.unshift(requested); }
-  const titles={'/work':'My work','/work/overview':'Assign Work','/work/timing':'Work timing','/work/history':'History','/work/task-history':'Task History','/pick':'Pick','/put':'Put','/pending-confirmations':'Needs review','/record-movement':'Record Movement','/movement-history':'Movement history','/labels':'Location labels'};
+  const titles={'/work':'My work','/work/overview':'Assign Work','/work/timing':'Work timing','/work/active-assignments':'Active Assignments','/work/history':'History','/work/task-history':'Task History','/pick':'Pick','/put':'Put','/pending-confirmations':'Needs review','/record-movement':'Record Movement','/movement-history':'Movement history','/labels':'Location labels'};
   const boot=JSON.stringify({snapshot,path:url.pathname}).replace(/</g,'\\u003c');
   sendHtml(response,page({currentPath:url.pathname,title:titles[url.pathname]||`Task #${match[1]} - ${snapshot.tasks[0]?.type==='put'?'Put':'Pick'} ${snapshot.tasks[0]?.lines[0]?.product_name||''}`,user,content:`<link rel="manifest" href="/manifest.webmanifest"><div id="work-app"><p>Loading your warehouse work…</p></div><noscript>Work confirmations require JavaScript for durable receipts. Enable JavaScript to continue.</noscript><script id="work-boot" type="application/json">${boot}</script><script src="/client/vendor/jsQR.js"></script><script type="module" src="/client/searchable-select.js"></script><script type="module" src="/client/work.js"></script>`}),200,{'Cache-Control':'no-store'});
   return true;

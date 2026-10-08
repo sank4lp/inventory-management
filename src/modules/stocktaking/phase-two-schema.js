@@ -19,5 +19,12 @@ export function migratePhaseTwo(db) {
       actor_id INTEGER NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL,
       PRIMARY KEY(actor_id,request_id)
     );
+    UPDATE location_labels SET scanned_at=(
+      SELECT MAX(e.created_at) FROM location_setup_events e
+      WHERE json_valid(e.payload) AND (
+        e.event_type='output_physically_verified' AND json_extract(e.payload,'$.token')=location_labels.token
+        OR e.event_type='label_replaced' AND json_extract(e.payload,'$.newToken')=location_labels.token
+      )
+    ) WHERE state='bound' AND scanned_at IS NULL;
   `);
 }

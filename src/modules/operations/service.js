@@ -584,6 +584,26 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     db.prepare('UPDATE tasks SET requested_quantity=?,review_remaining_quantity=NULL,due_at=?,plan_cell_id=? WHERE id=?').run(workQuantity(actual+remaining,true),due,planCellId||null,t.id);
     const result=reassign(actor,{...input,assigneeId:person.id});assignmentEvent(actor,t.id,'review_task_updated',t.assignee_id,{previousRequested:t.requested_quantity,requested:actual+remaining,remaining,previousDue:t.due_at,dueAt:due});return {...result,taskId:t.id,message:'Task assignment updated.'};
   }
+  function updateActiveAssignments(actor,input){
+    if(actor.role!=='admin')throw new Error('Only admins can edit active assignments.');
+    const edits=input.edits;
+    if(!Array.isArray(edits)||!edits.length||edits.length>100||new Set(edits.map(e=>Number(e?.taskId))).size!==edits.length)throw new Error('Choose between 1 and 100 different tasks to save.');
+    // Validate the complete batch before replanning anything. The command transaction rolls back all rows on failure.
+    for(const edit of edits){
+      const t=currentTask(actor,edit,true);
+      if(t.completed_at||t.stop_requested||t.attention||t.review_followup||t.outcome!=='open'||!['offered','legacy'].includes(t.assignment_state)||
+        db.prepare("SELECT 1 FROM task_lines l WHERE l.task_id=? AND (l.started_at IS NOT NULL OR l.execution_state IN ('working','settled') OR EXISTS(SELECT 1 FROM work_reports r WHERE r.line_id=l.id))").get(t.id))throw new Error(`Task #${t.id} is no longer unstarted. Nothing was saved; discard these edits and check the task.`);
+      if(edit.progressToken!==progressToken(t.id))throw new Error(`Task #${t.id} changed. Nothing was saved; discard these edits and check the latest assignment.`);
+      if(!Number.isInteger(Number(edit.quantity))||Number(edit.quantity)<1)throw new Error(`Task #${t.id}: enter a whole quantity greater than zero.`);
+      eligibleAssignee(actor,edit.assigneeId);
+    }
+    const taskIds=[];
+    for(const edit of edits){
+      updateReviewTask(actor,{...edit,remainingQuantity:edit.quantity});taskIds.push(Number(edit.taskId));
+    }
+    for(const id of taskIds)flagDisplacedReservations(actor,id);
+    return {status:'recorded',taskIds,message:'Assignments saved.'};
+  }
   function assignReview(actor,input) {
     const t=currentTask(actor,input,true),person=eligibleAssignee(actor,input.assigneeId);
     if(input.progressToken!==progressToken(t.id))throw new Error('Task quantities or assignment changed. Close this dialog and check the latest task.');
@@ -750,7 +770,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (!input.deviceId) throw new Error("A device identity is required.");
     if (allocation.revision !== Number(input.revision) || !["ready", "working"].includes(allocation.execution_state)) throw new Error("This allocation changed. Refresh it before requesting guidance; already performed work can still be reported.");
     if (db.prepare("SELECT 1 FROM work_reports WHERE line_id=? AND status='review'").get(allocation.id)) throw new Error("This task needs supervisor review. You can still report actual work.");
-    if (input.method !== "arrival" && (String(input.location).startsWith("lytguide:") ? !validLocationLabel(db,identity().site,allocation,input.location) : String(input.location).trim().toUpperCase() !== allocation.logical_code.toUpperCase())) throw new Error("That location does not match this allocation.");
+    if (input.method !== "arrival" && (!validLocationLabel(db,identity().site,allocation,input.location) && String(input.location).trim().toUpperCase() !== allocation.logical_code.toUpperCase())) throw new Error("That location does not match this allocation.");
     if (allocation.execution_state === "working" && allocation.device_id !== input.deviceId) throw new Error("Another device already started this allocation. Report existing work or ask an admin to resolve it; do not repeat the movement.");
     const problem=instructionProblem(allocation);if(problem)throw new Error(problem);
     reconcileGuidance();const owner=displayOwner(db,allocation.cell_id);
@@ -1051,7 +1071,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     },
     locationDetails(actor,input) {actorNow(actor,"locations.manage");const result=saveLocationDescription(db,actor,input);event("location_description_changed",actor,null,input);return result;},
     closeTask:closure.close,sendTaskReview:closure.send,
-    assign:(actor,input)=>create(actor,input,true), reopen:reopenTask, updateReviewTask, replan, verify, start: startTask, decline: returnTask, handBack:(actor,input)=>returnTask(actor,input,true), acknowledgeReturn, updateReturned, assignReview, observeReview, resumeFollowup, reassign, stop: stopTask, deadline, timing: saveTiming, askReview,
+    assign:(actor,input)=>create(actor,input,true), reopen:reopenTask, updateReviewTask, updateActiveAssignments, replan, verify, start: startTask, decline: returnTask, handBack:(actor,input)=>returnTask(actor,input,true), acknowledgeReturn, updateReturned, assignReview, observeReview, resumeFollowup, reassign, stop: stopTask, deadline, timing: saveTiming, askReview,
     reconcile(actor,input) {
       actorNow(actor,"review.reconcile");
       const cell=Number(input.cellId),product=Number(input.productId),quantity=workQuantity(input.quantity);
@@ -1089,7 +1109,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
-      const permissions={reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',pause:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recordMovement:'work.report',recommendation:'work.report',cancel:'work.stop',rejectCell:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
+      const permissions={updateActiveAssignments:'work.assign',reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',pause:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recordMovement:'work.report',recommendation:'work.report',cancel:'work.stop',rejectCell:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       if(['reassign','stop','handBack','decline'].includes(action)&&input.progressToken&&input.progressToken!==progressToken(Number(input.taskId)))throw new Error('Task quantities changed. Refresh before changing this task.');
@@ -1240,6 +1260,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function snapshot(actor,query={}) {
     const current=actorNow(actor);
+    if(query.view==='active')query={...query,view:'history',activeOnly:true,currentAssigneeOnly:!can(current,'work.team'),scope:can(current,'work.team')?'team':undefined,taskId:undefined};
+    else if(query.view==='history'&&current.role==='admin'&&can(current,'work.team')&&!query.scope)query={...query,scope:'team'};
     if(query.view==='assign')assertCan(current,'work.assign');
     if(!can(current,'work.view'))return {...identity(),user:current,workTabs:workTabs(current),capabilities:workCapabilities(current),timing:{},operators:[],performers:[],reports:db.prepare('SELECT id,status FROM work_reports WHERE reporter_id=?').all(current.id),tasks:[],products:[],cells:can(current,'locations.labels')?db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1').all().map(c=>({...c,description:describeLocation(db,c.id)})):[],pending:[],postedReports:[],contents:[],discrepancies:[],generatedAt:now()};
     const selection=taskSelection(db,current,query),taskList=query.view==='activity'?[]:query.taskId?[task(current,Number(query.taskId))].filter(Boolean):selection.ids.map(id=>({...task(current,id),...selection.metrics?.get(id)}));
@@ -1254,7 +1276,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const effective=effectiveUser(db,u),load=loads.find(v=>v.id===u.id);
       return {...u,role_name:effective.role_name,eligible:workCapabilities(effective).execute,...(can(current,'work.assign')?{assignedTaskCount:load?.open||0}:{}),...((can(current,'work.team')||can(current,'review.view'))?load:{})};
     }):[];
-    return {...identity(),user:current,workTabs:workTabs(current),capabilities:workCapabilities(current),timing:timingSettings(),operators,performers:operators,...(query.view==='activity'?{activity:history.activityHistory(current,query)}:{}),
+    return {...identity(),user:current,workTabs:workTabs(current),capabilities:workCapabilities(current),taskScope:query.scope||'own',timing:timingSettings(),operators,performers:operators,...(query.view==='activity'?{activity:history.activityHistory(current,query)}:{}),
       reports:db.prepare("SELECT id,status FROM work_reports WHERE (?='admin' OR reporter_id=? OR performer_id=?)").all(can(current,"review.view")?"admin":"own",current.id,current.id),
       tasks:taskList,watchedTasks,returnedTasks:returned.ids.map(id=>task(current,id)),returnedPage:returned.page,myWorkPriority:selection.priority,myWorkNextTask:selection.priority?task(current,selection.priority.id):null,taskPage:selection.page,taskCounts:selection.counts,inactivityAlerts:inactivityAlerts(current),reviewPage:reviews.page,reviewTotal:reviews.total,reviewGroups:reviews.groups,products:visibleProducts,cells:visibleCells,pending:pending.map(r=>({...r,...(JSON.parse(r.payload).taskClosure?{closureTask:task(current,r.task_id),closureActuals:JSON.parse(r.payload).actuals,closureCounts:db.prepare('SELECT o.id,o.lines_json,i.cell_id,c.logical_code,r.title FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_runs r ON r.id=i.run_id JOIN cells c ON c.id=i.cell_id JOIN stocktake_settlements s ON s.observation_id=o.id ORDER BY s.created_at DESC LIMIT 100').all()}:{}),reviewFollowup:r.task_id?Boolean(db.prepare('SELECT review_followup FROM tasks WHERE id=?').get(r.task_id)?.review_followup):false,observations:r.task_id?task(current,r.task_id).review_observations:[],countOverlap:Boolean(countBoundary(db,r,r.line_id?line(r.line_id):null)),countEvidence:countBoundary(db,r,r.line_id?line(r.line_id):null)?countCandidates(current,{reportId:r.id})[0]||null:null,accounting:!r.line_id&&r.direction!=='count'?manualAccounting(r):null})),generatedAt:now(),
       postedReports:can(current,'review.view')?db.prepare(`SELECT r.*,p.name AS product_name,c.logical_code,u.name AS performer_name FROM work_reports r

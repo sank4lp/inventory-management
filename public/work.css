@@ -403,3 +403,37 @@
 .task-timeline td small{display:block;white-space:normal}
 
 #work-app .task-editor-actions{display:flex;justify-content:flex-end;margin:12px 0;gap:8px}
+
+/* Active assignments reuse the compact task table. */
+.active-assignments-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px}.active-assignments [data-active-assignee],.active-assignments .searchable-select{min-width:190px;max-width:260px}.active-assignments [data-active-quantity]{width:90px;min-height:36px;margin:0}.active-assignments [data-active-editor]{vertical-align:middle}
+
+/* Shared compact location configuration and QR dialogs. */
+.location-management-table{overflow-x:auto;width:100%;}
+.location-management-table table{width:100%;min-width:720px;}
+.location-management-table td,.location-management-table th{padding:.45rem .65rem;vertical-align:middle;}
+.location-qr-thumb{padding:2px!important;border:0;background:white;line-height:0;}
+.location-qr-thumb img{display:block;}
+.location-qr-large{display:block;width:min(100%,250px);margin:1rem auto;}
+.location-qr-value{overflow-wrap:anywhere;text-align:center;}
+.location-settings-dialog{width:min(620px,calc(100vw - 24px));max-height:90dvh;overflow:auto;}
+.location-camera{width:100%;max-height:300px;object-fit:contain;}
+
+.location-management-table{border:1px solid var(--work-border);border-radius:12px;background:white;}
+.location-management-table table{border-collapse:collapse;font-size:14px;}
+.location-management-table thead{background:#eef5f1;}
+.location-management-table td,.location-management-table th{text-align:left;border-bottom:1px solid var(--work-border);line-height:1.35;}
+.location-inspect-dialog{width:min(920px,calc(100vw - 24px));max-height:90dvh;overflow:auto;}
+.location-inspect-dialog .table-wrap{overflow:auto;}
+.location-inspect-dialog table{width:100%;border-collapse:collapse;}
+.location-inspect-dialog th,.location-inspect-dialog td{padding:7px 10px;white-space:nowrap;text-align:left;border-bottom:1px solid var(--work-border);}
+.location-inspect-dialog thead{background:#eef5f1;}
+.location-management-table :is(th,td){white-space:nowrap;}
+.location-management-table td button{min-height:32px;width:auto;padding:4px 9px;margin:0;font-size:13px;white-space:nowrap;}
+.location-management-table .location-qr-thumb{min-height:36px;min-width:36px;}
+#location-setup-app .work-toolbar .green-button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 14px;border:1px solid #245b4c;border-radius:8px;color:#fff;background:#245b4c;}
+@media(pointer:coarse){.location-management-table td button{min-height:44px;}}
+.location-settings-dialog,.location-inspect-dialog{box-sizing:border-box;padding:20px;border:1px solid var(--work-border);border-radius:14px;background:#fff;color:var(--work-ink);}
+:is(.location-settings-dialog,.location-inspect-dialog) .review-task-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
+:is(.location-settings-dialog,.location-inspect-dialog) .review-task-header h2{flex:1;min-width:0;margin:0;}
+:is(.location-settings-dialog,.location-inspect-dialog) .dialog-dismiss{flex:none;width:36px;height:36px;min-height:36px;padding:0;border:1px solid var(--work-border);border-radius:8px;background:white;color:var(--work-ink);font-size:22px;line-height:1;}
+@media(max-width:600px){.location-settings-dialog,.location-inspect-dialog{padding:14px;}}

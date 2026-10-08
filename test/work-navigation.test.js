@@ -19,7 +19,7 @@ test('all Work views have one selected sidebar child without duplicate top tabs'
 });
 test('custom role cannot discover Assign Work or Record Movement without its own permission',()=>{
  const user={id:2,name:'Viewer',role:'custom',capabilities:['work.view']};
- assert.deepEqual(workTabs(user).map(x=>x.href),['/work','/work/history','/work/task-history','/recommended-actions']);
+ assert.deepEqual(workTabs(user).map(x=>x.href),['/work','/work/active-assignments','/work/history','/work/task-history','/recommended-actions']);
  const html=page({title:'My Work',user,currentPath:'/work',content:''});
  assert.doesNotMatch(sidebar(html),/Assign Work|Record Movement/);
  const assignee={...user,capabilities:['work.view','work.assign']};assert.ok(workTabs(assignee).some(x=>x.href==='/work/overview'));assert.ok(!workTabs(assignee).some(x=>x.href==='/record-movement'));

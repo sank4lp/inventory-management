@@ -96,7 +96,7 @@ test("static asset server exposes browser modules and rejects traversal", async 
     /\.count-button\s*\{[^}]*min-inline-size:\s*var\(--count-button-min-width\)/s,
   );
   assert.match(stylesResult.response.body, /\.product-summary-layout\s*\{/);
-  assert.match(stylesResult.response.body, /\.product-summary-facts\s*\{/);
+  assert.match(stylesResult.response.body, /\.product-summary-facts\.task-info-grid\s*\{/);
   assert.match(stylesResult.response.body, /\.catalog-capacity-editor\s*\{/);
   assert.match(stylesResult.response.body, /\.put-capacity-recovery-grid\s*\{/);
   assert.match(stylesResult.response.body, /\.recommendation-space-badge-positive\s*\{/);

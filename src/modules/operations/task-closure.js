@@ -52,7 +52,7 @@ export function createTaskClosure({db,line,currentTask,progressToken,workQuantit
    const cell=db.prepare('SELECT * FROM cells WHERE id=?').get(cellId),related=all.filter(l=>l.cell_id===cellId);
    if(controlledCell(db,cellId))throw new Error('A location has controlled stock under review. Keep this pending until that review is resolved.');
    if(!cell.active&&delta&&!supervisor)throw new Error('An actual location is inactive. Send for review before changing its stock.');
-   const boundary=countBoundary(db,{cell_id:cellId},related.length===1?related[0]:null);
+   const boundary=countBoundary(db,{cell_id:cellId,product_id:first.product_id},related.length===1?related[0]:null);
    const countId=input.countLinks?.[cellId];let accounted=false;
    if(countId){
     if(!supervisor)throw new Error('Only an authorized verifier can link stocktake accounting.');

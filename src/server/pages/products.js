@@ -216,7 +216,7 @@ export function createProductPages({ db, productFieldService = null }) {
           quickActionLinks(
             product.id,
             "",
-            `${catalogQuantityButton(product)}${catalogQuantityButton(product,"capacity_total")}${catalogQuantityButton(product,"capacity_available")}${catalogCapacityEditor(product)}`,
+            `${catalogQuantityButton(product)}${catalogQuantityButton(product,"capacity_total")}${catalogQuantityButton(product,"capacity_available")}${catalogCapacityEditor(product)}${options.canStocktake?`<a class="ghost-button" href="/stocktaking?productId=${product.id}">Stocktake</a>`:''}`,
           ),
         ]),
         emptyMessage,
@@ -396,45 +396,41 @@ export function createProductPages({ db, productFieldService = null }) {
     `;
   }
 
-  function renderAdminProductDetailsForm(product) {
+  function renderProductSettings(product, user) {
     const labels = fieldLabels();
-    const customValues = new Map(
-      fields.getProductValues(product.id).map((field) => [Number(field.id), field.value]),
-    );
-    const customFields = visibleCustomFields();
+    const edit = can(user, "products.edit"), capacity = can(user, "products.capacity");
+    const customValues = new Map(fields.getProductValues(product.id).map(field => [Number(field.id), field.value]));
     return `
-      <details class="form-disclosure top-gap">
-        <summary>Edit Product Details</summary>
-        <form method="post" action="/products/${product.id}/details" class="stack-form">
-          <div class="form-grid">
-            <label>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}
-              <input value="${escapeHtml(product.sku)}" disabled title="SKU is the product identity and cannot be changed." />
-            </label>
-            <label>${escapeHtml(fieldLabel(labels, "product.name", "Name"))}
-              <input name="name" value="${escapeHtml(product.name)}" required />
-            </label>
-            <label>${escapeHtml(fieldLabel(labels, "product.brand", "Brand"))}
-              <input name="brand" value="${escapeHtml(product.brand)}" required />
-            </label>
-            <label>${escapeHtml(fieldLabel(labels, "product.unit_of_measure", "Unit Of Measure"))}
-              <input value="${escapeHtml(product.unit_of_measure)}" disabled title="Use the previewed unit migration workflow to change this value." />
-              <input type="hidden" name="unit_of_measure" value="${escapeHtml(product.unit_of_measure)}" />
-              <small><a href="/admin/product-fields#unit-migration">Change with a safe unit migration</a></small>
-            </label>
-            <label>${escapeHtml(fieldLabel(labels, "product.category", "Category"))}
-              <input name="category" value="${escapeHtml(product.category || "")}" />
-            </label>
-            <label>${escapeHtml(fieldLabel(labels, "product.variant", "Variant / Size"))}
-              <input name="variant" value="${escapeHtml(product.variant || "")}" />
-            </label>
-            ${customFields.map((field) => customFieldInput(field, customValues.get(Number(field.id)))).join("")}
-          </div>
-          <label>${escapeHtml(fieldLabel(labels, "product.description", "Description"))}
-            <textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea>
-          </label>
-          <button type="submit" class="blue-button">Save Details</button>
-        </form>
-      </details>
+      <div class="product-settings-actions top-gap">
+        ${edit || capacity ? `<button type="button" class="ghost-button" data-open-product-settings>Product Settings</button>` : ""}
+        ${can(user, "products.remove") ? renderAdminProductRemoval(product) : ""}
+      </div>
+      ${edit || capacity ? `
+        <dialog class="product-settings-dialog" data-product-settings-dialog aria-labelledby="product-settings-title">
+          <header class="product-settings-header"><h2 id="product-settings-title">Product Settings</h2><button type="button" class="dialog-dismiss" data-discard-product-settings aria-label="Close product settings">×</button></header>
+          <form method="post" action="/products/${product.id}/settings" class="stack-form" data-product-settings-form>
+            <fieldset ${edit ? "" : "disabled"}>
+              ${edit ? '<input type="hidden" name="edit_details" value="1">' : ""}
+              <div class="form-grid">
+                <label>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}<input value="${escapeHtml(product.sku)}" disabled title="SKU is the product identity and cannot be changed." /></label>
+                <label>${escapeHtml(fieldLabel(labels, "product.name", "Name"))}<input name="name" value="${escapeHtml(product.name)}" required /></label>
+                <label>${escapeHtml(fieldLabel(labels, "product.brand", "Brand"))}<input name="brand" value="${escapeHtml(product.brand)}" required /></label>
+                <div class="product-unit-field"><label for="product-settings-unit">${escapeHtml(fieldLabel(labels, "product.unit_of_measure", "Unit of measure"))}</label><div class="product-unit-control"><input id="product-settings-unit" value="${escapeHtml(product.unit_of_measure)}" disabled /><input type="hidden" name="unit_of_measure" value="${escapeHtml(product.unit_of_measure)}" />${can(user,"products.fields")?'<a class="ghost-button product-change-unit" href="/admin/product-fields#unit-migration">Change unit</a>':""}</div></div>
+                <label>${escapeHtml(fieldLabel(labels, "product.category", "Category"))}<input name="category" value="${escapeHtml(product.category || "")}" /></label>
+                <label>${escapeHtml(fieldLabel(labels, "product.variant", "Variant / Size"))}<input name="variant" value="${escapeHtml(product.variant || "")}" /></label>
+                ${visibleCustomFields().map(field => customFieldInput(field,customValues.get(Number(field.id)))).join("")}
+              </div>
+              <label>${escapeHtml(fieldLabel(labels, "product.description", "Description"))}<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label>
+            </fieldset>
+            <label>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items per location"))}<input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required ${capacity?"":"disabled"} /></label>
+            <label class="checkbox-line"><input type="checkbox" name="confirmed" value="1" required> I confirm these changes.</label>
+            <p role="status" class="form-feedback" data-product-settings-error></p>
+            <div class="modal-actions"><button type="submit" data-save-product-settings disabled>Save Details</button><button type="button" class="ghost-button" data-discard-product-settings>Discard changes</button></div>
+          </form>
+        </dialog>
+        <dialog class="product-discard-dialog" data-product-discard-dialog aria-labelledby="product-discard-title"><h2 id="product-discard-title">Discard changes?</h2><div class="modal-actions"><button type="button" class="danger-button" data-confirm-product-discard>Discard changes</button><button type="button" class="ghost-button" data-keep-product-editing>Keep editing</button></div></dialog>
+        <script type="module" src="/client/product-settings.js"></script>
+      ` : ""}
     `;
   }
 
@@ -731,7 +727,7 @@ export function createProductPages({ db, productFieldService = null }) {
                     products,
                     search ? "No products match that search." : selectedStatus === "out-of-stock" ? "No out-of-stock products." : selectedStatus === "low-stock" ? "No low-stock products." : selectedStatus === "in-stock" ? "No products currently in stock." : "No products have been added yet.",
                     search,
-                    { canEditCapacity: false, status: selectedStatus },
+                    { canEditCapacity: false, status: selectedStatus, canStocktake:can(user,"count.create")||can(user,"count.manage") },
                   )}
                 </div>
               `,
@@ -812,37 +808,29 @@ export function createProductPages({ db, productFieldService = null }) {
           `
             <div class="product-summary-layout">
               <section class="product-summary-overview" aria-label="Product details">
-                <dl class="product-summary-facts">
-                  <div>
+                <dl class="task-info-grid product-summary-facts">
+                  <div class="task-info-field">
                     <dt>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}</dt>
                     <dd>${escapeHtml(product.sku)}</dd>
                   </div>
-                  <div class="product-summary-fact-primary">
+                  <div class="task-info-field">
                     <dt>On shelf</dt>
                     <dd>${escapeHtml(formatQuantity(product.total_available))} <span>${escapeHtml(product.unit_of_measure)}</span></dd>
                   </div>
-                  <div>
+                  <div class="task-info-field">
                     <dt>${escapeHtml(fieldLabel(labels, "product.brand", "Brand"))}</dt>
                     <dd>${escapeHtml(product.brand)}</dd>
                   </div>
-                  <div>
+                  <div class="task-info-field">
                     <dt>${escapeHtml(fieldLabel(labels, "product.unit_of_measure", "Unit"))}</dt>
                     <dd>${escapeHtml(product.unit_of_measure)}</dd>
                   </div>
-                  <div>
+                  <div class="task-info-field">
                     <dt>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items Per Location"))}</dt>
                     <dd>${escapeHtml(formatQuantity(product.items_per_cell))}</dd>
                   </div>
+                  ${customAttributes.map(field => `<div class="task-info-field"><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.data_type === "boolean" ? (field.value ? "Yes" : "No") : field.value)}</dd></div>`).join("")}
                 </dl>
-                ${
-                  customAttributes.length
-                    ? `<dl class="product-custom-attribute-list">${customAttributes
-                        .map(
-                          (field) => `<div><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.data_type === "boolean" ? (field.value ? "Yes" : "No") : field.value)}</dd></div>`,
-                        )
-                        .join("")}</dl>`
-                    : ""
-                }
               </section>
               <aside class="product-primary-actions" aria-label="Product actions">
                 <h3>Actions</h3>
@@ -850,37 +838,11 @@ export function createProductPages({ db, productFieldService = null }) {
                 <div class="mini-actions">
                   <a class="mini-link" href="/pick?product_id=${product.id}">Pick</a>
                   <a class="mini-link" href="/put?product_id=${product.id}">Put</a>
-                  ${renderProductFindForm(product, productFindLedActive)}
+                  ${renderProductFindForm(product, productFindLedActive)}${can(user,"count.create")||can(user,"count.manage")?`<a class="ghost-button" href="/stocktaking?productId=${product.id}">Stocktake this product</a>`:''}
                 </div>
               </aside>
             </div>
-            ${
-              (can(user,"products.capacity")||can(user,"products.edit")||can(user,"products.remove"))
-                ? `
-                  <details class="form-disclosure product-settings-disclosure top-gap">
-                    <summary>Product Settings</summary>
-                    <div class="product-settings-grid">
-                      <section class="product-capacity-settings" aria-labelledby="product-capacity-title">
-                        <h3 id="product-capacity-title">Location Capacity</h3>
-                        <p class="muted">Used by Put to fill existing locations before opening new ones.</p>
-                        <form method="post" action="/products/${product.id}/items-per-cell" class="inline-form">
-                          <label>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items Per Location"))}
-                            <input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required />
-                          </label>
-                          <button type="submit">Update Capacity</button>
-                        </form>
-                      </section>
-                      <section class="product-record-settings" aria-labelledby="product-record-title">
-                        <h3 id="product-record-title">Catalog Record</h3>
-                        <p class="muted">Edit descriptive fields or remove an empty product from the catalog.</p>
-                        ${renderAdminProductDetailsForm(product)}
-                        ${renderAdminProductRemoval(product)}
-                      </section>
-                    </div>
-                  </details>
-                `
-                : ""
-            }
+            ${renderProductSettings(product, user)}
           `,
         )}
         ${card(

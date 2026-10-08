@@ -4678,6 +4678,7 @@ function mountPage() {
   onPage(window,"hashchange", wireNavState);
   onPage(window,"hashchange", wireDashboardSectionFilter);
   onPage(window,"popstate", wireNavState);
+  onPage(window,"warehouse:navigation-cancelled", wireNavState);
   onPage(window,"popstate", wireDashboardSectionFilter);
   wireSidebarParentLinks();
   wireNavOverflow();

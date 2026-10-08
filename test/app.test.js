@@ -438,7 +438,7 @@ test("product detail shows the latest activity time for each holding cell", asyn
   assert.match(html, /data-show-label="Show Quantity"/);
   assert.match(html, /data-display-kind="capacity_total"/);
   assert.match(html, /data-display-kind="capacity_available"/);
-  assert.match(html, /class="product-summary-facts"/);
+  assert.match(html, /class="task-info-grid product-summary-facts"/);
   assert.match(html, new RegExp(`data-product-id="${battery.id}"`));
   assert.doesNotMatch(html, /data-location-count-value/);
   assert.match(html, />Show Quantity<\/button>/);
@@ -799,7 +799,10 @@ test("product removal is admin-safe and SKU re-add restores the same product ide
   assert.match(stockedProductHtml, /product-summary-layout/);
   assert.match(stockedProductHtml, /product-summary-facts/);
   assert.match(stockedProductHtml, /Product Settings/);
-  assert.match(stockedProductHtml, /Edit Product Details/);
+  assert.match(stockedProductHtml, /data-product-settings-dialog/);
+  assert.match(stockedProductHtml, /data-product-settings-form/);
+  assert.match(stockedProductHtml, /Change unit/);
+  assert.match(stockedProductHtml, /I confirm these changes/);
   assert.match(stockedProductHtml, /SKU is the product identity and cannot be changed\./);
   assert.match(stockedProductHtml, /Create a Pick task to reduce this product&#39;s stock to 0 before removing it\./);
   assert.match(stockedProductHtml, /Remove Product<\/button>/);
@@ -3974,18 +3977,9 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
     createdBy: 1,
   });
   const managementHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-management");
-  assert.match(managementHtml, /Add Location/);
-  assert.match(managementHtml, /action="\/devices\/cells"/);
-  assert.match(managementHtml, /action="\/devices\/cells\/rename"/);
-  assert.match(managementHtml, /Z9-R9-REMAP/);
-  assert.match(managementHtml, /<span class="muted">Unmapped<\/span>/);
-  assert.match(managementHtml, /data-ping-cell/);
-  assert.match(managementHtml, /data-show-location-count/);
-  assert.match(managementHtml, />Show Count<\/button>/);
-  assert.match(
-    managementHtml,
-    new RegExp(`data-cell-id="${remapTarget.id}"[\\s\\S]*disabled[\\s\\S]*>Ping<\\/button>`),
-  );
+  // Location editing now lives in the unified QR-aware management screen.
+  assert.match(managementHtml, /href="\/locations\/manage"/);
+  assert.doesNotMatch(managementHtml, /data-show-location-count|Show Count/);
   const renamedCell = inventory.renameCell(db, {
     cellId: remapTarget.id,
     logicalCode: "Z9-R9-RENAMED",
