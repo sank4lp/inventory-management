@@ -14,7 +14,7 @@
   [hidden] { display: none !important; }
   body { line-height: 1.5; }
   button, input, select, textarea { font-family: inherit; }
-  button, .mini-link, .action-cta-button, .work-primary, .work-secondary,
+  button, .mini-link, .ghost-button, .action-cta-button, .work-primary, .work-secondary,
   #work-app button, .qr-dialog button, .combo-option, .firmware-detect-actions .ghost-button {
     min-height: var(--ui-control-height);
     border-radius: var(--ui-control-radius);
@@ -33,17 +33,23 @@
     padding: calc((var(--ui-control-height) - 1.5em - 2px) / 2) .75rem;
   }
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]).combo-input { padding-inline-end: 3.25rem; }
+  input.searchable-input:not([type=checkbox]):not([type=radio]),
+  #work-app input.searchable-input:not([type=checkbox]):not([type=radio]) {
+    padding-inline-end: 3.25rem;
+    text-overflow: ellipsis;
+  }
   .combo-toggle { width: 3rem; min-height: calc(var(--ui-control-height) - 2px); height: calc(var(--ui-control-height) - 2px); }
   textarea { padding-block: .75rem; }
   .report-format-color-control input[type=color] { height: var(--ui-control-height); min-height: var(--ui-control-height); }
   label, #work-app label { font-size: var(--ui-label-size); }
-  .mini-link, .action-cta-button, .ping-button, .locate-button, .count-button,
+  .mini-link, .ghost-button, .action-cta-button, .ping-button, .locate-button, .count-button,
   .led-action-button, .report-stage-actions > button, .report-toolbar-control > button {
     height: auto;
     padding: .625rem .875rem;
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  a.ghost-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
   .icon-button, .toast-close, .row-collapse-icon-button {
     width: var(--ui-control-height);
     min-width: var(--ui-control-height);

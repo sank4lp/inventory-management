@@ -106,3 +106,34 @@ html { scrollbar-gutter: stable; }
 .global-notification-panel li>.notification-close {position:absolute;right:4px;top:8px;}
 .global-notification-panel .notification-clear {margin:8px 0;width:100%;}
 .page-body[aria-busy="true"] {cursor:progress;}
+
+/* One text-action scale, including actions rendered as links. Icon-only controls
+   keep their square shape; embedded combobox arrows are part of the input. */
+@media screen {
+  :is(button, a.mini-link, a.ghost-button, a.action-cta-button, a.work-primary, a.work-secondary):not(.searchable-toggle):not(.combo-toggle):not(.notification-close):not(.global-notifications-button):not([data-remove-actual]) {
+    /* Override older page-specific compact/large text-action rules. */
+    min-height: var(--ui-control-height, 44px) !important;
+    font-size: var(--ui-label-size, 14px) !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+    padding: .625rem .875rem;
+  }
+  .location-history-button { width: var(--ui-control-height, 44px); height: var(--ui-control-height, 44px); flex-basis: var(--ui-control-height, 44px); padding: 10px; }
+  .active-assignments .searchable-select,
+  .active-assignments [data-active-assignee] { min-width: 0; max-width: 100%; width: 100%; }
+  #work-app .active-assignments .searchable-input { min-width: 0; width: 100%; }
+  #work-app .active-assignments [data-active-quantity] { width: 100%; min-width: 0; margin: 0; }
+  .active-assignments-toolbar [data-fit-columns] { margin-left: auto; }
+  #work-app table[data-resizable-table] { table-layout: fixed; width: 100%; min-width: 0; }
+  #work-app table[data-resizable-table] :is(th, td) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #work-app table[data-resizable-table] th { position: relative; padding-right: 16px; }
+  #work-app table[data-resizable-table] th > a { display: block; overflow: hidden; text-overflow: ellipsis; }
+  .table-column-resizer {
+    position: absolute; inset: 0 0 0 auto; width: 12px; cursor: col-resize;
+    touch-action: none; user-select: none;
+  }
+  .table-column-resizer::after { content: ''; position: absolute; right: 5px; top: 25%; bottom: 25%; width: 2px; background: #bacbc3; }
+  .table-column-resizer:hover::after, .table-column-resizer:focus-visible::after { background: #236752; width: 3px; }
+  .table-column-resizer:focus-visible { outline: 2px solid #236752; outline-offset: -2px; }
+  .table-resizing, .table-resizing * { cursor: col-resize !important; user-select: none !important; }
+}
