@@ -437,3 +437,41 @@
 :is(.location-settings-dialog,.location-inspect-dialog) .review-task-header h2{flex:1;min-width:0;margin:0;}
 :is(.location-settings-dialog,.location-inspect-dialog) .dialog-dismiss{flex:none;width:36px;height:36px;min-height:36px;padding:0;border:1px solid var(--work-border);border-radius:8px;background:white;color:var(--work-ink);font-size:22px;line-height:1;}
 @media(max-width:600px){.location-settings-dialog,.location-inspect-dialog{padding:14px;}}
+
+/* Warehouse → shed/shelf → cell. Editing changes only the grouping metadata. */
+.location-warehouse,.location-shelf{min-width:0;border:1px solid var(--work-border);border-radius:12px;background:#fff;margin:12px 0;}
+.location-warehouse>summary,.location-shelf>summary{padding:12px 14px;cursor:pointer;font-weight:700;line-height:1.4;overflow-wrap:anywhere;}
+.location-warehouse>summary{background:#edf5f0;border-radius:12px;}
+.location-shelf>summary{background:#f7faf8;border-radius:12px;}
+.location-warehouse>summary small,.location-shelf>summary small{font-size:12px;font-weight:400;color:var(--work-muted);margin-left:12px;white-space:nowrap;}
+.location-shelves{padding:0 12px 4px;}
+.location-cell-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,570px),1fr));gap:12px;padding:12px;align-items:start;}
+.location-tree-cell{min-width:0;}
+.location-cell-card.work-panel{padding:12px;border-radius:10px;box-shadow:none;}
+.location-cell-card .location-card-heading{margin-bottom:4px;gap:8px;}
+.location-cell-card .location-card-heading h2{font-size:16px;line-height:1.3;}
+.location-card-subtitle{font-size:12px;color:var(--work-muted);margin:0 0 8px;overflow-wrap:anywhere;}
+.location-stock-wrap{max-width:100%;overflow:auto;border:1px solid var(--work-border);border-radius:8px;}
+.location-stock-table{width:100%;border-collapse:collapse;font-size:13px;min-width:480px;}
+.location-stock-table th,.location-stock-table td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--work-border);vertical-align:middle;}
+.location-stock-table th{font-size:11px;font-weight:700;background:#f2f6f4;}
+.location-stock-table td small{display:block;font-size:11px;color:var(--work-muted);}
+.location-stock-table td:not(:first-child){white-space:nowrap;}
+.location-stock-table tbody tr:last-child td{border-bottom:0;}
+.location-cell-actions{gap:6px;flex-wrap:wrap;margin-top:8px;}
+.location-cell-actions .ghost-button{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;}
+.location-group-editor,.location-cell-editor{display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding:10px 12px;}
+.location-group-editor label,.location-cell-editor label{flex:1;min-width:min(180px,100%);font-size:12px;}
+.location-group-editor input,.location-group-editor select,.location-cell-editor select{width:100%;box-sizing:border-box;}
+.location-cell-editor{background:#f2f7f4;border:1px solid var(--work-border);border-top:0;border-radius:0 0 8px 8px;}
+.location-drag-handle{touch-action:none;cursor:grab;flex:none;padding:4px 10px!important;min-width:44px;font-size:20px!important;}
+.location-drag-handle:active{cursor:grabbing;}
+[data-location-tree].is-editing .location-cell-actions{display:none;}
+.location-layout-hint{font-size:13px;}
+.location-empty{padding:8px 12px;margin:0;color:var(--work-muted);font-size:13px;}
+.location-drop-target{outline:3px solid #3c9876;outline-offset:-3px;}
+.location-drag-ghost{position:fixed;pointer-events:none;z-index:10000;background:#1c6553;color:white;padding:8px 12px;border-radius:8px;box-shadow:0 4px 12px #0003;font-size:13px;}
+[data-location-tree].is-dragging{user-select:none;}
+[data-layout-error]:not(:empty){color:#a12a2a;padding:8px;border-left:3px solid;}
+@media(max-width:600px){.location-shelves{padding:0 6px 2px;}.location-cell-grid{padding:6px;gap:8px;}.location-group-editor,.location-cell-editor{padding:8px;}.location-cell-card.work-panel{padding:10px;}.location-cell-actions{gap:5px;}.location-cell-actions a:last-child{flex-basis:100%;}}
+[data-edit-layout],[data-save-layout]{margin-left:auto;}

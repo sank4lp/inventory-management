@@ -47,7 +47,6 @@ export function saveLocationDescription(db, actor, input) {
     if(field.field_type==='select'&&!JSON.parse(field.options_json).includes(value))throw new Error(`Choose an option for ${field.label}.`);
     db.prepare('INSERT INTO location_field_values(cell_id,field_key,value_json) VALUES(?,?,?) ON CONFLICT(cell_id,field_key) DO UPDATE SET value_json=excluded.value_json').run(cell.id,key,JSON.stringify(field.field_type==='number'?Number(value):String(value)));
   }
-  db.prepare('UPDATE cells SET display_name=?,travel_instructions=?,description_revision=description_revision+1 WHERE id=?').run(name||null,travel||null,cell.id);
-  db.prepare('UPDATE cells SET warehouse_name=? WHERE id=?').run(warehouse||null,cell.id);
+  db.prepare('UPDATE cells SET display_name=?,travel_instructions=?,warehouse_name=?,description_revision=description_revision+1 WHERE id=?').run(name||null,travel||null,warehouse||null,cell.id);
   return {status:'recorded',message:'Location directions saved. Existing labels and stock identity are unchanged.'};
 }

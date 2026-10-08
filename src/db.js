@@ -4,9 +4,10 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { migrateOperations } from "./modules/operations/schema.js";
 import { migrateStocktaking } from "./modules/stocktaking/schema.js";
+import {migrateLocationHierarchy} from './modules/locations/hierarchy.js';
 import {migratePhaseTwo} from './modules/stocktaking/phase-two-schema.js';
 
-export const APP_SCHEMA_VERSION = "9";
+export const APP_SCHEMA_VERSION = "10";
 
 const CORE_PRODUCT_FIELD_DEFINITIONS = [
   {
@@ -1136,6 +1137,7 @@ export function createDatabase(authHelpers) {
   migrateOperations(db);
   migrateStocktaking(db);
   migratePhaseTwo(db);
+  migrateLocationHierarchy(db);
   migrateAccess(db);
   return db;
 }

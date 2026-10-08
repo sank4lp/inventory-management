@@ -1,6 +1,6 @@
 import {PageScope} from './page-lifecycle.js';
 
-export const PAGE_MODULES=new Set(['/app.js','/client/displays.js','/client/recommendation-actuals.js','/client/work.js','/client/stocktaking.js','/client/location-setup.js','/client/location-browse.js','/client/location-history.js','/client/product-settings.js','/client/roles.js']);
+export const PAGE_MODULES=new Set(['/app.js','/client/displays.js','/client/recommendation-actuals.js','/client/work.js','/client/stocktaking.js','/client/location-setup.js','/client/location-browse.js','/client/location-hierarchy.js','/client/location-history.js','/client/product-settings.js','/client/roles.js']);
 export function navigationTarget(href,current){const target=new URL(href,current),from=new URL(current);return target.origin===from.origin&&!/^\/(api|auth|login|logout|register|offline)(\/|$)/.test(target.pathname)?target:null;}
 const shell=typeof document!=='undefined'&&document.querySelector('.dashboard-body .dashboard-shell'),body=typeof document!=='undefined'&&document.querySelector('.page-body');
 if(shell&&body){
