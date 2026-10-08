@@ -3655,6 +3655,7 @@ async function activateCatalogProductQuantity(button, { previewOnly = false, ove
   body.set("requestId", crypto.randomUUID());
   body.set("promptOnBusy", "1");
   if (button.dataset.displayKind) body.set("displayKind", button.dataset.displayKind);
+  if (cellId) body.set("cellId", cellId);
   if (button.dataset.warehouseId) body.set("warehouseId", button.dataset.warehouseId);
   if (button.dataset.shelfId) body.set("shelfId", button.dataset.shelfId);
   if (locating || pinging) { const kind=pinging?"ping":"locate";body.set("kind",kind);body.set("displayKind",kind);body.set("cellId",cellId); }

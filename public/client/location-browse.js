@@ -15,7 +15,27 @@ function showLocation(v){
  document.body.append(d);d.showModal();const close=()=>d.remove();d.querySelector('.dialog-dismiss').onclick=close;d.querySelector('[data-close-inspect]').onclick=close;d.oncancel=close;pageScope?.own(close);
 }
 document.querySelector('[data-browse-qr]')?.addEventListener('submit',async ev=>{ev.preventDefault();try{await resolve(ev.target.elements.label.value);}catch(e){status.textContent=e.message;}});
-document.querySelector('[data-location-mode]')?.addEventListener('submit',async ev=>{ev.preventDefault();const f=ev.target;try{const r=await fetch('/api/work/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:crypto.randomUUID(),cellId:Number(f.dataset.locationMode),mode:f.elements.mode.value})});const v=await r.json();f.querySelector('[role=status]').textContent=v.message||v.error;}catch{f.querySelector('[role=status]').textContent='Not saved. Reconnect and check the current mode.';}});
+const settings=document.querySelector('[data-cell-settings-dialog]'),modeForm=document.querySelector('[data-location-mode]');
+let settingsFrame=null,savingMode=false;
+const closeSettings=()=>{if(savingMode)return;if(history.state?.cellSettingsFrame===settingsFrame)history.back();else settings?.close();};
+if(settings){
+ onPage(document.querySelector('[data-open-cell-settings]'),'click',()=>{const feedback=modeForm.querySelector('[role=status]');feedback.textContent='';feedback.classList.remove('error');settingsFrame=crypto.randomUUID();history.pushState({...history.state,cellSettingsFrame:settingsFrame},'');settings.showModal();});
+ for(const button of settings.querySelectorAll('[data-cell-settings-close]'))onPage(button,'click',closeSettings);
+ onPage(settings,'cancel',event=>{event.preventDefault();closeSettings();});
+ onPage(window,'popstate',()=>{if(settings.open&&history.state?.cellSettingsFrame!==settingsFrame){settings.close();if(!savingMode)modeForm.reset();}});
+ pageScope?.own(()=>{settings.close();if(history.state?.cellSettingsFrame===settingsFrame){const state={...history.state};delete state.cellSettingsFrame;history.replaceState(state,'');}});
+}
+if(modeForm)onPage(modeForm,'submit',async ev=>{
+ ev.preventDefault();if(savingMode)return;const f=ev.target,feedback=f.querySelector('[role=status]'),save=f.querySelector('button[type="submit"]'),mode=f.elements.mode.value;
+ savingMode=true;save.disabled=true;feedback.textContent='';
+ try{
+  const r=await fetch('/api/work/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:crypto.randomUUID(),cellId:Number(f.dataset.locationMode),mode})}),v=await r.json();
+  if(!r.ok||v.error)throw new Error(v.error||'Not saved. Try again.');
+  for(const option of f.elements.mode.options)option.defaultSelected=option.value===mode;
+  savingMode=false;closeSettings();globalThis.WarehouseNotifications?.notify(v.message||'Cell access saved.');
+ }catch(error){feedback.textContent=error.message||'Not saved. Reconnect and try again.';feedback.classList.add('error');}
+ finally{savingMode=false;save.disabled=false;}
+});
 const stop=()=>{cameraGeneration++;stream?.getTracks().forEach(t=>t.stop());stream=null;};
 document.querySelector('[data-browse-scan]')?.addEventListener('click',async()=>{try{stop();const generation=cameraGeneration;const host=document.querySelector('[data-browse-camera]');host.innerHTML='<video autoplay playsinline muted style="max-width:400px;width:100%"></video><button>Close camera</button>';host.querySelector('button').onclick=()=>{stop();host.innerHTML='';};const media=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});if(generation!==cameraGeneration||!host.isConnected){media.getTracks().forEach(t=>t.stop());return;}stream=media;const video=host.querySelector('video');video.srcObject=stream;await video.play();const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});async function frame(){if(!stream)return;if(video.videoWidth){canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);const qr=jsQR(ctx.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);if(qr){stop();host.innerHTML='';try{await resolve(qr.data);}catch(e){status.textContent=e.message;}return;}}requestAnimationFrame(frame);}frame();}catch{stop();status.textContent='Camera unavailable. Enter the QR text manually.';}});
 onPage(window,'pagehide',stop);pageScope?.own(stop);
