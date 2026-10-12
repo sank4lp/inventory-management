@@ -52,17 +52,20 @@ export function mountTableColumns(root,{preferenceKey,storage}={}) {
     handle.setAttribute('aria-valuemin','48');handle.setAttribute('aria-valuemax','2000');handle.title='Drag to resize. Arrow keys also resize.';th.append(handle);
    });
    apply(table,widths);
+   if(preferences)table.dataset.mobileColumnWidths=JSON.stringify(widths);
   }
  }
  function down(event){
   const handle=event.target.closest('[data-column-resizer]');if(!handle||event.button!==0)return;
   const table=handle.closest('table');event.preventDefault();handle.focus();
-  drag={table,handle,index:Number(handle.dataset.columnResizer),x:event.clientX,widths:[...table._columnWidths],pointerId:event.pointerId};
+  const widths=table.classList.contains('mobile-task-table')&&view.matchMedia('(max-width: 1020px)').matches?headers(table).map(th=>th.getBoundingClientRect().width):[...table._columnWidths];
+  drag={table,handle,index:Number(handle.dataset.columnResizer),x:event.clientX,widths,pointerId:event.pointerId};
   handle.setPointerCapture?.(event.pointerId);table.classList.add('table-resizing');
  }
  function move(event){
   if(!drag||event.pointerId!==drag.pointerId)return;
   apply(drag.table,changedColumnWidths(drag.widths,drag.index,event.clientX-drag.x));
+  mobileResize(drag.table);
  }
  function finish(event){
   if(!drag||event&&event.pointerId!==drag.pointerId)return;
@@ -73,14 +76,21 @@ export function mountTableColumns(root,{preferenceKey,storage}={}) {
  function key(event){
   const handle=event.target.closest('[data-column-resizer]');if(!handle||!['ArrowLeft','ArrowRight'].includes(event.key))return;
   event.preventDefault();const table=handle.closest('table');
-  const widths=changedColumnWidths(table._columnWidths,Number(handle.dataset.columnResizer),(event.key==='ArrowRight'?1:-1)*(event.shiftKey?50:10));
-  persist(definition(table),widths);apply(table,widths);
+  const current=table.classList.contains('mobile-task-table')&&view.matchMedia('(max-width: 1020px)').matches?headers(table).map(th=>th.getBoundingClientRect().width):table._columnWidths;
+  const widths=changedColumnWidths(current,Number(handle.dataset.columnResizer),(event.key==='ArrowRight'?1:-1)*(event.shiftKey?50:10));
+  persist(definition(table),widths);apply(table,widths);mobileResize(table);
  }
  function click(event){
   if(event.target.closest('[data-column-resizer]')){event.preventDefault();event.stopPropagation();}
   if(!event.target.closest('[data-fit-columns]'))return;
   finish();preferences=null;try{storage.removeItem(storageKey);}catch{}
+  for(const table of tables())delete table.dataset.mobileColumnWidths;
   refresh();
+  for(const table of tables())table.dispatchEvent(new view.CustomEvent('warehouse:table-layout',{bubbles:true}));
+ }
+ function mobileResize(table){
+  table.dataset.mobileColumnWidths=JSON.stringify(table._columnWidths);
+  table.dispatchEvent(new view.CustomEvent('warehouse:table-layout',{bubbles:true}));
  }
  // Header replacements (sorting/selection) and background refreshes retain widths.
  const observer=new view.MutationObserver(refresh);observer.observe(root,{childList:true,subtree:true});

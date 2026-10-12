@@ -197,7 +197,7 @@ export function createProductPages({ db, productFieldService = null }) {
       `
       : "";
     return `
-      <p class="muted">${escapeHtml(
+      <p class="muted" data-mobile-help-copy>${escapeHtml(
         searchLabel
           ? `${formatQuantity(products.length)} product(s) match "${searchLabel}".`
           : statusLabel
@@ -686,7 +686,7 @@ export function createProductPages({ db, productFieldService = null }) {
             ${card(
               "Catalog",
               `
-                <p>Stock values are on shelf, including reserved goods. Locations with unresolved conditions need review.</p><div class="catalog-controls">
+                <p data-mobile-help-copy>Stock values are on shelf, including reserved goods. Locations with unresolved conditions need review.</p><div class="catalog-controls">
                   <form
                     method="get"
                     action="/products"
@@ -834,7 +834,7 @@ export function createProductPages({ db, productFieldService = null }) {
               </section>
               <aside class="product-primary-actions" aria-label="Product actions">
                 <h3>Actions</h3>
-                <p class="muted">Move stock or show this product across every mapped location.</p>
+                <p class="muted" data-mobile-help-copy>Move stock or show this product across every mapped location.</p>
                 <div class="mini-actions">
                   <a class="mini-link" href="/pick?product_id=${product.id}">Pick</a>
                   <a class="mini-link" href="/put?product_id=${product.id}">Put</a>

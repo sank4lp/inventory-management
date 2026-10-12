@@ -8,6 +8,7 @@ const PUBLIC_FILES = new Map([
   ["/work.css", "work.css"],
   ["/responsive.css", "responsive.css"],
   ["/layout.css", "layout.css"],
+  ["/mobile.css", "mobile.css"],
   ["/sw.js", "sw.js"],
   ["/manifest.webmanifest", "manifest.webmanifest"],
 ]);

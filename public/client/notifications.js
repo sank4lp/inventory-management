@@ -38,7 +38,8 @@ function positionPanel() {
   const width=Math.min(document.documentElement.clientWidth,document.documentElement.getBoundingClientRect().width),panelWidth=Math.min(380,width-32);
   panel.style.width=panelWidth+'px';
   panel.style.left=Math.max(12,Math.min(box.right-panelWidth,width-panelWidth-12))+'px';panel.style.right='auto';
-  panel.style.maxHeight=Math.max(120,innerHeight-box.bottom-24)+'px';
+  const viewportHeight=window.visualViewport?.height||innerHeight;
+  panel.style.maxHeight=Math.max(100,Math.min(420,viewportHeight*.6,viewportHeight-box.bottom-24))+'px';
 }
 function closePanel(){if(isOpen(panel)){hideLayer(panel);button?.focus();}}
 function dismissToast(){clearTimeout(timer);host.replaceChildren();if(isOpen(host))hideLayer(host);}
@@ -68,7 +69,7 @@ button?.addEventListener('click',()=>{
 });
 panel.querySelector('header button').onclick=closePanel;panel.querySelector('[data-clear-notifications]').onclick=()=>{store.clear();render();dismissToast();};
 panel.addEventListener('toggle',()=>button?.setAttribute('aria-expanded',String(isOpen(panel))));
-window.addEventListener('resize',positionPanel);window.addEventListener('scroll',positionPanel,true);
+window.addEventListener('resize',positionPanel);window.addEventListener('scroll',positionPanel,true);window.visualViewport?.addEventListener('resize',positionPanel);
 window.addEventListener('storage',event=>{if(event.key===store.key){store.sync();render();}});
 document.addEventListener('click',event=>{if(!nativeLayers&&isOpen(panel)&&!panel.contains(event.target)&&!button?.contains(event.target))closePanel();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){closePanel();dismissToast();}});

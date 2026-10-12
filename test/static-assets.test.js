@@ -122,7 +122,7 @@ test("operator and offline pages load the shared screen styles and offline insta
   for (const html of [work, offline]) {
     assert.equal(styles(html).filter(path => path === '/work.css').length, 1);
     assert.equal(styles(html).filter(path => path === '/layout.css').length, 1);
-    assert.deepEqual(styles(html).slice(-2), ['/responsive.css', '/layout.css']);
+    assert.deepEqual(styles(html).slice(-3), ['/responsive.css', '/layout.css', '/mobile.css']);
   }
   const handlers = new Map();
   let cached = [];

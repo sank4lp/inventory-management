@@ -22,7 +22,7 @@ function measure(doc,styles,text,width=null) {
  const bounds=probe.getBoundingClientRect(),result={width:bounds.width,height:bounds.height};measurements.set(key,result);return result;
 }
 export function reserveButtonSize(button,extraLabels=[]) {
- if(!button?.ownerDocument||!button.isConnected||button.matches('.searchable-toggle,.combo-toggle,.icon-button,.notification-close,.global-notifications-button,[data-remove-actual],.row-collapse-icon-button'))return;
+ if(!button?.ownerDocument||!button.isConnected||button.matches('.searchable-toggle,.combo-toggle,.icon-button,.notification-close,.global-notifications-button,.mobile-nav-toggle,.mobile-nav-close,[data-remove-actual],.row-collapse-icon-button'))return;
  const text=button.textContent.trim(),data=button.dataset;
  const flags={ping:button.matches('[data-ping-cell],[data-ping-controller]'),locate:button.matches('[data-locate-cell],[data-adjustment-locate-cell]'),quantity:button.matches('[data-show-product-quantity],[data-show-location-count]')};
  const pendingLabels=[data.loadingLabel,data.ledLoadingLabel,button.closest('form[data-led-command-form]')?.dataset.ledLoadingLabel,...extraLabels];

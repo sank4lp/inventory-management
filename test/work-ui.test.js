@@ -206,17 +206,21 @@ test('mobile menu Escape and breakpoint changes restore focus after CSS hides a 
   const handlers = new Map();
   const listen = target => (name, callback) => handlers.set(`${target}:${name}`,callback);
   const classes = new Set();
-  const document = {body:{},activeElement:null,addEventListener:listen('document')};
+  const document = {body:{classList:{toggle(){}},append(){}},activeElement:null,addEventListener:listen('document'),createElement:()=>({setAttribute(){},addEventListener:listen('backdrop')})};
   const media = {matches:false,addEventListener:listen('media')};
   const link = {closest:()=>null,focus:()=>{document.activeElement=link;}};
   const attrs = {'aria-expanded':'false'};
   const toggle = {hidden:true,textContent:'Menu',addEventListener:listen('toggle'),getAttribute:n=>attrs[n],setAttribute:(n,v)=>{attrs[n]=v;},focus:()=>{document.activeElement=toggle;}};
+  const close = {hidden:true,addEventListener:listen('close'),focus:()=>{document.activeElement=close;},getClientRects:()=>[{}]};
+  const content = {};
+  link.getClientRects=()=>[{}];
   const sidebar = {
     classList:{add:c=>classes.add(c),toggle:(c,on)=>on?classes.add(c):classes.delete(c)},
-    querySelector:s=>s==='.mobile-nav-toggle'?toggle:link,
-    contains:e=>e===link||e===toggle,addEventListener:listen('sidebar'),
+    querySelector:s=>s==='.mobile-nav-close'?close:link,
+    querySelectorAll:()=>[close,link],setAttribute(){},removeAttribute(){},
+    contains:e=>e===link||e===close,addEventListener:listen('sidebar'),
   };
-  document.querySelector=()=>sidebar;
+  document.querySelector=s=>s==='.mobile-nav-toggle'?toggle:s==='.dashboard-content'?content:sidebar;
   vm.runInNewContext(readFileSync(new URL('../public/client/mobile-nav.js',import.meta.url),'utf8'),{document,window:{matchMedia:()=>media,addEventListener:listen('window')}});
   assert.equal(toggle.hidden,false);
   assert.ok(classes.has('nav-ready'));
@@ -226,11 +230,16 @@ test('mobile menu Escape and breakpoint changes restore focus after CSS hides a 
   assert.equal(document.activeElement,toggle);
   handlers.get('toggle:click')();
   assert.equal(attrs['aria-expanded'],'true');
+  assert.equal(sidebar.inert,false);assert.equal(content.inert,true);
+  document.activeElement=link;
+  handlers.get('document:keydown')({key:'Tab',preventDefault(){}});
+  assert.equal(document.activeElement,close);
   let prevented=false;
-  handlers.get('sidebar:keydown')({key:'Escape',preventDefault:()=>{prevented=true;}});
+  handlers.get('document:keydown')({key:'Escape',preventDefault:()=>{prevented=true;}});
   assert.equal(prevented,true);
   assert.equal(attrs['aria-expanded'],'false');
   assert.equal(document.activeElement,toggle);
+  assert.equal(sidebar.inert,true);assert.equal(content.inert,false);
   media.matches=false;handlers.get('media:change')();
   assert.equal(document.activeElement,link);
   assert.equal(classes.has('mobile-menu-open'),false);

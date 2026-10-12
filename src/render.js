@@ -129,7 +129,7 @@ function nav(user, currentTitle = "", currentPath = "") {
   const active=currentPath==='/work/timing'?'Settings':selectedWork?'Work':title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups','roles and permissions','hardware'].some(t=>title.includes(t))?'Settings':'Work';
   return `<aside class="dashboard-sidebar" aria-label="Dashboard navigation"><div class="dashboard-sidebar-inner">
     <a class="brand dashboard-brand" href="${primary[0]?.[1]||'/profile'}"><img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112"></a>
-    <button type="button" class="mobile-nav-toggle" aria-expanded="false" aria-controls="warehouse-main-nav" hidden>Menu</button>
+    <button type="button" class="mobile-nav-close" aria-label="Close menu" hidden>×</button>
     <nav id="warehouse-main-nav" class="side-nav" aria-label="Primary areas" data-nav-links>${primary.map(([label,href,icon])=>{
       const link=`<a class="side-nav-direct ${active===label?'nav-link-active':''}" href="${href}" ${active===label&&label!=='Work'?'aria-current="page"':''}>${iconSvg(icon,'nav-icon')}<span>${label}</span>${label==='Stocktaking'?`<span data-stocktake-badge ${counts?.badge?'':'hidden'}>${counts?.badge||0}</span>`:''}</a>`;
       if(label!=='Work')return link;
@@ -158,7 +158,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${escapeHtml(title)} · LytGuide IMS</title>
     <link rel="icon" type="image/svg+xml" href="/brand/lytguide-icon.svg" />
     <link rel="stylesheet" href="/theme.css" />
@@ -166,6 +166,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <link rel="stylesheet" href="/work.css" />
     <link rel="stylesheet" href="/responsive.css" />
     <link rel="stylesheet" href="/layout.css" />
+    <link rel="stylesheet" href="/mobile.css" />
     <script type="module" src="/client/navigation.js"></script>
     <script type="module" src="/client/stable-buttons.js"></script>
     <script type="module" src="/client/searchable-select.js"></script>
@@ -173,6 +174,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <script type="module" src="/app.js"></script>
     ${user ? '<script type="module" src="/client/work-outbox-status.js"></script><script type="module" src="/client/stocktake-status.js"></script>' : ''}
     <script type="module" src="/client/mobile-nav.js"></script>
+    <script type="module" src="/client/mobile-layout.js"></script>
     <script type="module" src="/client/displays.js"></script><script type="module" src="/client/recommendation-actuals.js"></script>
   </head>
   <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}" ${user ? `data-account-id="${user.id}" data-notification-scope="${escapeHtml(JSON.stringify(notificationScope))}"` : ""}>
@@ -182,6 +184,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
       <div class="dashboard-content">
         <main class="page-shell">
           <header class="page-header">
+            ${user ? '<button type="button" class="mobile-nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="warehouse-main-nav" hidden><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h16" /></svg><span>Menu</span></button>' : ''}
             <h1>${escapeHtml(title)}</h1>
             ${user ? `<button type="button" class="global-notifications-button" data-notifications-button aria-label="Notifications" aria-expanded="false" aria-controls="global-notifications">${iconSvg('bell')}<span class="global-notification-count" data-notification-count hidden>0</span></button>` : ''}
           </header>

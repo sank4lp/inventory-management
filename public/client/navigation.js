@@ -9,7 +9,7 @@ if(shell&&body){
  document.body.dataset.shellId=crypto.randomUUID();
  const identity=document.body.dataset.notificationScope;
  const loadedClassic=new Set([...document.querySelectorAll('script[src]:not([type="module"])')].map(s=>new URL(s.src,location.href).pathname));
- const persistent=new Set(['/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
+ const persistent=new Set(['/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/mobile-layout.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
  const currentScope=()=>globalThis.WarehousePageLifecycle.current;
  const savedPositions=new Map();let deciding=false;
  async function permitLeave(pop){if(deciding)return false;deciding=true;try{const permitted=await currentScope().canLeave();if(!permitted&&pop){history.pushState({warehousePage:true},'',current);window.dispatchEvent(new CustomEvent('warehouse:navigation-cancelled'));}return permitted;}finally{deciding=false;}}
@@ -21,7 +21,7 @@ if(shell&&body){
    if(signature(old)!==signature(fresh)){location.reload();return;}
    const counterparts=[...fresh.querySelectorAll('a[href]')];
    for(const [index,link] of [...old.querySelectorAll('a[href]')].entries()){const counterpart=counterparts[index];if(!counterpart)continue;link.classList.toggle('nav-link-active',counterpart.classList.contains('nav-link-active'));if(counterpart.hasAttribute('aria-current'))link.setAttribute('aria-current',counterpart.getAttribute('aria-current'));else link.removeAttribute('aria-current');}
-   old.classList.remove('mobile-menu-open');const menu=old.querySelector('.mobile-nav-toggle');if(menu){menu.setAttribute('aria-expanded','false');menu.textContent='Menu';}
+   // The persistent mobile navigation module closes its drawer on page-loaded.
  }
  async function script(source,token){
    const url=new URL(source.getAttribute('src'),location.href);if(url.origin!==location.origin)throw Error('This page needs a refresh.');const path=url.pathname;
