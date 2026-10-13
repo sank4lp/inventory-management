@@ -1,9 +1,10 @@
 <span hidden data-notification-source data-notification-key="stocktaking-run:fixture-42">Stocktaking pending — start</span>
-<section class="card"><h2>Notification checks</h2><button type="button" id="run-notification-checks">Run notification checks</button><ol id="notification-check-results"></ol></section>
+<section class="card"><h2>Notification checks</h2><button type="button" id="run-notification-checks">Run notification checks</button><button type="button" id="preview-long-notification">Preview long notification</button><ol id="notification-check-results"></ol></section>
 <script type="module">
 import '/client/notifications.js';
 const results=document.querySelector('#notification-check-results');
 const check=(ok,message)=>{const li=document.createElement('li');li.textContent=(ok?'PASS: ':'FAIL: ')+message;results.append(li);};
+document.querySelector('#preview-long-notification').onclick=()=>WarehouseNotifications.notify('No display was sent. Check each location’s status; task and count lights were preserved. Open the location to check its controller connection and try again.',{tone:'warning'});
 document.querySelector('#run-notification-checks').onclick=async()=>{
  results.replaceChildren();const before=document.querySelectorAll('#global-notifications li').length;
  let compact=true;

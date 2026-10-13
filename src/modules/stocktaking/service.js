@@ -8,6 +8,7 @@ import {describeLocation,validLocationLabel,resolveLocationLabel} from '../opera
 import {stocktakeScope,countCellOwner,enableStocktakeProgress} from './workflow.js';
 import {postCountCorrection} from '../../services/inventory-balances.js';
 import {controlledCell} from './accounting.js';
+import {createStocktakePresence} from './presence.js';
 
 const json=JSON.stringify,parse=JSON.parse;
 const round=n=>Math.round(n*1e6)/1e6;
@@ -24,6 +25,7 @@ function validDate(value) {if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFini
 export function createStocktakingService({db,operationsService,clock=()=>new Date()}) {
   const now=()=>clock().toISOString(),identity=()=>operationsService.identity();
   const event=(actor,type,payload={},run=null,item=null)=>db.prepare('INSERT INTO stocktake_events(run_id,item_id,actor_id,event_type,payload,created_at) VALUES(?,?,?,?,?,?)').run(run,item,actor?.id||null,type,json(payload),now());
+  const presence=createStocktakePresence({db,clock,run,event});
   function actorNow(actor,permission='view') {const current=operationsService.actorNow(actor);if(!countCapabilities(current)[permission])throw new Error('This stocktaking action is not permitted.');return current;}
   const eligible=id=>{const u=db.prepare('SELECT * FROM users WHERE id=?').get(Number(id));if(!countCapabilities(effectiveUser(db,u)).count)throw new Error('Choose an active counter.');return u.id;};
   function scope(input) {
@@ -53,6 +55,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
   }
   function tick() {
     return withTransaction(db,()=>{
+      if(presence.expire())operationsService.reconcileGuidance();
       const s=db.prepare('SELECT * FROM stocktake_schedules WHERE id=1 AND enabled=1').get();
       if(!s||s.next_due>dateInZone(clock(),s.timezone))return;
       if(db.prepare("SELECT 1 FROM stocktake_runs WHERE occurrence IS NOT NULL AND status NOT IN ('completed','closed')").get())return;
@@ -120,8 +123,11 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
     const completed=items.length&&items.every(i=>i.state==='counted')&&!unresolved;
     const status=completed?'completed':items.every(i=>['counted','review'].includes(i.state))?'review':r.started_at?'in_progress':'pending';
     db.prepare('UPDATE stocktake_runs SET status=?,closed_at=? WHERE id=?').run(status,completed?now():null,id);
+    if(completed&&r.status!=='completed')presence.complete(id);
   }
   const actions={
+    join:(a,i)=>{actorNow(a,'count');return presence.join(a,i);},
+    leave:(a,i)=>presence.leave(a,i),
     create:(a,i)=>createRun(a,i),
     schedule(a,i) {
       actorNow(a,'schedule');const old=db.prepare('SELECT * FROM stocktake_schedules WHERE id=1').get();
@@ -160,12 +166,13 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       const existing=db.prepare('SELECT * FROM stocktake_attempts WHERE item_id=? AND counter_id=? AND generation=? AND observation_id IS NULL ORDER BY started_at DESC LIMIT 1').get(row.id,a.id,row.generation);
       const id=existing?.id||randomUUID();if(!existing)db.prepare('INSERT INTO stocktake_attempts(id,item_id,counter_id,generation,baseline_json,started_at,method,identity_evidence) VALUES(?,?,?,?,?,?,?,?)').run(id,row.id,a.id,row.generation,json(baseline(row.cell_id,parse(run(a,row.run_id).scope_json).productId||null)),now(),i.method,i.label||i.location);
       db.prepare("UPDATE stocktake_items SET state='counting' WHERE id=?").run(row.id);db.prepare("UPDATE stocktake_runs SET started_at=COALESCE(started_at,?),status='in_progress' WHERE id=?").run(now(),row.run_id);
+      if(i.sessionId)presence.attach(a,i,row);
       return {status:'recorded',attemptId:id,message:'Location identified. Enter every actual count; blank does not mean zero.'};},
     observe(a,i){const attempt=db.prepare('SELECT * FROM stocktake_attempts WHERE id=?').get(i.attemptId);if(!attempt||attempt.counter_id!==a.id)throw new Error('Count attempt not found for this account.');
       const row=db.prepare('SELECT * FROM stocktake_items WHERE id=?').get(attempt.item_id),r=run(a,row.run_id),before=parse(attempt.baseline_json);
       const incoming=Array.isArray(i.lines)?i.lines:[],seen=new Set();
       const lines=incoming.map(l=>{const id=Number(l.productId);if(before.productScope&&id!==before.productScope)throw new Error('Count only the selected product in this stocktake.');if(seen.has(id))throw new Error('Count each product once.');seen.add(id);const p=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!p)throw new Error('Choose an existing product, or record unidentified goods.');const b=before.products.find(p=>p.productId===id);const actual=workQuantity(l.actual),condition=workQuantity(l.conditionQuantity??0);if(condition>actual)throw new Error('Affected condition quantity cannot exceed the physical total.');if(condition&&!['expired','damaged','other'].includes(l.condition))throw new Error('Describe the affected condition.');return {productId:id,name:p.name,sku:p.sku,unit:l.unit||b?.unit||p.unit_of_measure,recorded:b?.recorded||0,actual,difference:round(actual-(b?.recorded||0)),conditionQuantity:condition,condition:l.condition||null};});
-      if(before.products.some(p=>!seen.has(p.productId)))throw new Error('Enter actuals for every recorded product, including zero.');
+      if(before.products.some(p=>p.recorded>0&&!seen.has(p.productId)))throw new Error('Enter actuals for every recorded product with stock, including zero if it is missing.');
       if(!lines.length&&i.emptyConfirmed!==true)throw new Error('Explicitly confirm that this location is empty.');
       const unknown=(i.unknown||[]).map(v=>String(v).trim()).filter(Boolean);if(unknown.some(v=>v.length>1000))throw new Error('Keep unidentified-item descriptions under 1000 characters.');
       if(attempt.observation_id){const old=db.prepare('SELECT * FROM stocktake_observations WHERE id=?').get(attempt.observation_id),compare=list=>list.map(({productId,unit,actual,conditionQuantity,condition})=>({productId,unit,actual,conditionQuantity,condition}));if(canonical(compare(parse(old.lines_json)))!==canonical(compare(lines))||canonical(parse(old.unknown_json))!==canonical(unknown)||String(old.note||'')!==String(i.note||''))throw new Error('A different count was already received for this attempt. Your new evidence remains on this device; request a fresh recount.');return {status:'recorded',observationId:old.id,message:'This count was already received.'};}
@@ -224,7 +231,7 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
       const receipt=db.prepare('SELECT * FROM stocktake_receipts WHERE actor_id=? AND request_id=?').get(a.id,id);if(receipt){if(receipt.fingerprint!==fingerprint)throw new Error('This request was already received with different contents.');return {...parse(receipt.result_json),replayed:true};}
       if(input.dataset&&input.dataset!==identity().dataset&&action!=='observe')throw new Error('The warehouse dataset changed. Refresh.');
       const permissions={create:can(a,'count.manage')?'count.manage':'count.create',schedule:'count.schedule',assign:'count.manage',assignAreas:'count.manage',display:'count.manage',pause:can(a,'count.manage')?'count.manage':'count.perform',start:'count.perform',locate:'count.perform',decline:'count.perform',begin:'count.perform',observe:'count.perform',skip:'count.perform',review:input.action==='recount'?'count.recount':'count.approve',condition:'count.condition',close:'count.manage',deadline:'count.manage',scope:'count.manage'};
-      if(action!=='observe')assertCan(a,permissions[action]);
+      if(action!=='observe')assertCan(a,['join','leave'].includes(action)?'count.view':permissions[action]);
       const value=actions[action](a,input);operationsService.reconcileGuidance();db.prepare('INSERT INTO stocktake_receipts VALUES(?,?,?,?,?)').run(a.id,id,fingerprint,json(value),now());return value;
     });if(!result.replayed)operationsService.flushGuidance();return result;
   }
@@ -267,5 +274,6 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
     item(a,{itemId:row.id,generation:row.generation});
     return {itemId:row.id,generation:row.generation,cellId:c.id,name:c.display_name||c.logical_code};
   }
-  return {command,snapshot,tick,baseline,movements,resolve};
+  function heartbeat(actor,input){const a=actorNow(actor,'count');if(input.actorId!=null&&Number(input.actorId)!==a.id||input.site&&input.site!==identity().site||input.dataset&&input.dataset!==identity().dataset)throw new Error('Account or warehouse changed. Reopen Stocktaking.');return withTransaction(db,()=>presence.heartbeat(a,input));}
+  return {command,snapshot,tick,baseline,movements,resolve,heartbeat};
 }

@@ -69,11 +69,16 @@ export function migrateStocktaking(db) {
       actor_id INTEGER NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL, accounted_delta REAL
     );
   `);
+  db.exec(`CREATE TABLE IF NOT EXISTS stocktake_sessions (
+    id TEXT PRIMARY KEY, run_id INTEGER NOT NULL REFERENCES stocktake_runs(id),
+    actor_id INTEGER NOT NULL REFERENCES users(id), state TEXT NOT NULL DEFAULT 'active',
+    expires_at TEXT NOT NULL, item_id INTEGER REFERENCES stocktake_items(id), generation INTEGER
+  ); CREATE INDEX IF NOT EXISTS stocktake_sessions_run ON stocktake_sessions(run_id,state,expires_at);`);
   db.exec(`CREATE TABLE IF NOT EXISTS stocktake_item_counters (
     item_id INTEGER NOT NULL REFERENCES stocktake_items(id), user_id INTEGER NOT NULL REFERENCES users(id),
     PRIMARY KEY(item_id,user_id)
   );`);
-  for(const [name,definition] of [['display_enabled','INTEGER NOT NULL DEFAULT 0'],['immediate_counts','INTEGER NOT NULL DEFAULT 1'],['assignment_groups',"TEXT NOT NULL DEFAULT '[]'"]]) {
+  for(const [name,definition] of [['display_enabled','INTEGER NOT NULL DEFAULT 0'],['immediate_counts','INTEGER NOT NULL DEFAULT 1'],['assignment_groups',"TEXT NOT NULL DEFAULT '[]'"],['paused_at','TEXT']]) {
     if(!db.prepare('PRAGMA table_info(stocktake_runs)').all().some(c=>c.name===name))db.exec(`ALTER TABLE stocktake_runs ADD COLUMN ${name} ${definition}`);
   }
   // Upgrade future saves without applying or changing any historical observation.

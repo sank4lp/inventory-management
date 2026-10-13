@@ -1,5 +1,6 @@
 import {taskPrioritySql} from './planning-policy.js';
 import {can,assertCan} from '../access/catalog.js';
+import {stocktakeWorkRowsSql,nextAssignedStocktake} from '../stocktaking/assignments.js';
 const pageNumber=value=>Math.max(1,Math.min(1000000,Math.floor(Number(value)||1)));
 const closed="t.outcome IN ('completed','stopped','cancelled')";
 const created="COALESCE((SELECT MIN(e.created_at) FROM task_assignment_events e WHERE e.task_id=t.id AND e.event_type='assigned'),t.started_at)";
@@ -46,10 +47,13 @@ export function taskSelection(db,user,input={}) {
     (t.attention=1 OR (t.completed_at IS NULL AND (t.review_followup=1 OR t.assignment_state='returned')) OR EXISTS(SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=t.id AND r.status IN ('review','received'))) needs_review,
     EXISTS(SELECT 1 FROM task_lines l JOIN work_guidance g ON g.cell_id=l.cell_id WHERE l.task_id=t.id AND l.execution_state IN ('ready','working') AND json_extract(g.desired,'$.action') IN ('count','quantity','locate') AND COALESCE(json_extract(g.desired,'$.lineId'),-1)!=l.id) waiting
     FROM tasks t WHERE t.workflow_version=2 AND ${scope}),
-    rows AS (SELECT *,CASE WHEN needs_review THEN 'review' WHEN completed_at IS NOT NULL OR outcome IN ('completed','stopped','cancelled') THEN 'completed' WHEN assignment_state IN ('offered','returned','legacy') THEN 'not_started' ELSE 'in_progress' END lifecycle,
+    work_rows AS (SELECT *,CASE WHEN needs_review THEN 'review' WHEN completed_at IS NOT NULL OR outcome IN ('completed','stopped','cancelled') THEN 'completed' WHEN assignment_state IN ('offered','returned','legacy') THEN 'not_started' ELSE 'in_progress' END lifecycle,
     CASE WHEN completed_at IS NULL AND review_remaining_quantity IS NOT NULL THEN review_remaining_quantity ELSE ROUND(MAX(0,requested_quantity-completed),6) END remaining,
     CASE WHEN requested_quantity>0 THEN ROUND(completed*100.0/requested_quantity,1) ELSE 0 END progress,
-    CASE WHEN needs_review THEN CASE WHEN attention=1 OR review_followup=1 OR assignment_state!='returned' THEN 'Quantity check' ELSE 'Needs assignment' END WHEN completed_at IS NOT NULL OR outcome IN ('completed','stopped','cancelled') THEN outcome WHEN waiting AND assignment_state='started' THEN 'Waiting for location' WHEN due_at IS NOT NULL AND julianday(due_at)<julianday('now') THEN 'Overdue' WHEN assignment_state='offered' THEN 'Not started' ELSE 'In progress' END display_status FROM base)`;
+    CASE WHEN needs_review THEN CASE WHEN attention=1 OR review_followup=1 OR assignment_state!='returned' THEN 'Quantity check' ELSE 'Needs assignment' END WHEN completed_at IS NOT NULL OR outcome IN ('completed','stopped','cancelled') THEN outcome WHEN waiting AND assignment_state='started' THEN 'Waiting for location' WHEN due_at IS NOT NULL AND julianday(due_at)<julianday('now') THEN 'Overdue' WHEN assignment_state='offered' THEN 'Not started' ELSE 'In progress' END display_status FROM base),
+    rows AS (SELECT id,type,assignee_id,started_at,completed_at,due_at,outcome,assignment_state,assignment_source,
+      requested_quantity,completed,remaining,progress,lifecycle,display_status,priority_rank,needs_review,assigned_to,product,unit FROM work_rows
+      ${!history&&stocktakeWorkRowsSql(user)?'UNION ALL '+stocktakeWorkRowsSql(user):''})`;
   const where=['1'],filtered=[...params],state=input.workState||(history?'all':'current');
   if(state==='current')where.push("lifecycle!='completed'");else if(['review','not_started','in_progress','completed'].includes(state)){where.push('lifecycle=?');filtered.push(state);}
   if(history){
@@ -62,7 +66,7 @@ export function taskSelection(db,user,input={}) {
     if(input.date){where.push('date(started_at)>=date(?)');filtered.push(input.date);}
   }
   if([1,'1','true',true].includes(input.reviewOnly))where.push('needs_review=1');
-  for(const [key,col] of [['taskSearch',"CAST(id AS TEXT)||' '||type"],['productSearch',"COALESCE(product,'')"],['statusSearch','display_status']])if(String(input[key]||'').trim()){where.push(input[key+'Exact']==='1'?`lower(${col})=lower(?)`:`instr(lower(${col}),lower(?))>0`);filtered.push(String(input[key]).trim().slice(0,160));}
+  for(const [key,col] of [['taskSearch',"CAST(ABS(id) AS TEXT)||' '||type"],['productSearch',"COALESCE(product,'')"],['statusSearch','display_status']])if(String(input[key]||'').trim()){where.push(input[key+'Exact']==='1'?`lower(${col})=lower(?)`:`instr(lower(${col}),lower(?))>0`);filtered.push(String(input[key]).trim().slice(0,160));}
   if(['low','medium','high'].includes(input.priority)){where.push('priority_rank=?');filtered.push(['low','medium','high'].indexOf(input.priority));}
   if(input.progressRange){
     const ranges={'0-25':[0,25],'25-50':[25,50],'50-75':[50,75],'75-100':[75,100]};
@@ -78,13 +82,15 @@ export function taskSelection(db,user,input={}) {
   for(const col of ['requested','completed','remaining','progress'])for(const [suffix,op] of [['Min','>='],['Max','<=']])if(input[col+suffix]!=null&&String(input[col+suffix]).trim()!==''){
     const n=Number(input[col+suffix]);if(!Number.isFinite(n)||n<0)throw new Error('Quantity and progress filters must be non-negative numbers.');where.push(`${col==='requested'?'requested_quantity':col}${op}?`);filtered.push(n);
   }
-  const columns={before:'(SELECT tr.product_quantity_before FROM transactions tr WHERE tr.task_id=rows.id ORDER BY tr.created_at,tr.id LIMIT 1)',after:'(SELECT tr.product_quantity_after FROM transactions tr WHERE tr.task_id=rows.id ORDER BY tr.created_at DESC,tr.id DESC LIMIT 1)',type:'type',priority:'priority_rank',assignedTo:'assigned_to COLLATE NOCASE',task:'id',product:'product COLLATE NOCASE',unit:'unit COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
+  const columns={before:'(SELECT tr.product_quantity_before FROM transactions tr WHERE tr.task_id=rows.id ORDER BY tr.created_at,tr.id LIMIT 1)',after:'(SELECT tr.product_quantity_after FROM transactions tr WHERE tr.task_id=rows.id ORDER BY tr.created_at DESC,tr.id DESC LIMIT 1)',type:'type',priority:'priority_rank',assignedTo:'assigned_to COLLATE NOCASE',task:'ABS(id)',product:'product COLLATE NOCASE',unit:'unit COLLATE NOCASE',requested:'requested_quantity',completed:'completed',remaining:'remaining',status:'display_status COLLATE NOCASE',progress:'progress',state:"CASE lifecycle WHEN 'review' THEN 'Needs Review' WHEN 'completed' THEN 'Task Completed' WHEN 'in_progress' THEN 'Task In Progress' ELSE 'Task Not Started' END COLLATE NOCASE"};
   const sort=Object.hasOwn(columns,input.sort)?input.sort:(history?'task':'priority'),direction=input.order==='asc'?'ASC':'DESC';
   const limit=[20,50,100].includes(Number(input.pageSize))?Number(input.pageSize):50;
   const total=db.prepare(`${cte} SELECT COUNT(*) n FROM rows WHERE ${where.join(' AND ')}`).get(...filtered).n,pages=Math.max(1,Math.ceil(total/limit)),number=Math.min(pageNumber(input.page),pages);
-  const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress,priority_rank FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},id ${direction} LIMIT ? OFFSET ?`).all(...filtered,limit,(number-1)*limit);
+  const ids=db.prepare(`${cte} SELECT id,lifecycle,display_status,progress,priority_rank FROM rows WHERE ${where.join(' AND ')} ORDER BY ${columns[sort]} ${direction},ABS(id) ${direction},id ${direction} LIMIT ? OFFSET ?`).all(...filtered,limit,(number-1)*limit);
   const legacy=history?{priority:null,counts:{}}:legacyTaskSelection(db,user,{view:'mine',state:'open'});
   if(!history&&user.role==='admin'&&can(user,'work.team'))legacy.counts=legacyTaskSelection(db,user,{view:'team',state:'open'}).counts;
+  const next=history?null:nextAssignedStocktake(db,user);
+  if(next&&(!legacy.priority||next.created_at<legacy.priority.createdAt))legacy.priority={id:next.id,createdAt:next.created_at,productName:next.summary};
   return {ids:ids.map(r=>r.id),metrics:new Map(ids.map(r=>[r.id,{work_state:r.lifecycle,work_status:r.display_status,work_progress:r.progress,work_priority:['low','medium','high'][r.priority_rank]}])),priority:legacy.priority,counts:legacy.counts,page:{number,pages,total,limit,view:history?'history':'mine',state,sort,order:direction.toLowerCase(),unified:true}};
 }
 export function reviewSelection(db,user,input={}) {

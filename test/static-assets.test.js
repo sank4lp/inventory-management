@@ -133,6 +133,8 @@ test("operator and offline pages load the shared screen styles and offline insta
   let installation;
   handlers.get('install')({waitUntil:promise=>{installation=promise;}});
   await installation;
+  assert.ok(cached.includes('/client/mobile-controls.js'), 'phone control layout must also load without internet');
+  assert.equal((await serve('/client/mobile-controls.js')).response.statusCode, 200);
   for (const path of styles(offline)) {
     assert.ok(cached.includes(path), `${path} must be available after connection loss`);
     const asset = await serve(path);

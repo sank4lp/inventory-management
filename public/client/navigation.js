@@ -12,7 +12,7 @@ if(shell&&body){
  const persistent=new Set(['/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/mobile-layout.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
  const currentScope=()=>globalThis.WarehousePageLifecycle.current;
  const savedPositions=new Map();let deciding=false;
- async function permitLeave(pop){if(deciding)return false;deciding=true;try{const permitted=await currentScope().canLeave();if(!permitted&&pop){history.pushState({warehousePage:true},'',current);window.dispatchEvent(new CustomEvent('warehouse:navigation-cancelled'));}return permitted;}finally{deciding=false;}}
+ async function permitLeave(pop,destination){if(deciding)return false;deciding=true;try{const permitted=await currentScope().canLeave(destination);if(!permitted&&pop){history.pushState({warehousePage:true},'',current);window.dispatchEvent(new CustomEvent('warehouse:navigation-cancelled'));}return permitted;}finally{deciding=false;}}
  function updateSidebar(next){
    const old=document.querySelector('.dashboard-sidebar'),fresh=next.querySelector('.dashboard-sidebar');
    if(!old||!fresh)return;
@@ -35,7 +35,7 @@ if(shell&&body){
    if(committing){queued=[href,{pop,replace}];return;}
    const target=navigationTarget(href,location.href);
    if(target?.href===current&&!pop&&!refresh)return;
-   if(!await permitLeave(pop))return;
+   if(!await permitLeave(pop,{url:target?.href||href}))return;
    if(!target){location.assign(href);return;}
    const token=++serial;loading?.abort();const controller=new AbortController();loading=controller;
    body.setAttribute('aria-busy','true');
@@ -47,7 +47,7 @@ if(shell&&body){
      const sources=new Map();for(const source of next.querySelectorAll('script[src]'))sources.set(new URL(source.src,location.href).pathname,source);const scripts=[...sources.values()];
      const unsupported=[...next.querySelectorAll('script:not([src])')].some(s=>s.type!=='application/json'&&s.textContent.trim())||scripts.some(s=>s.type==='module'&&!persistent.has(new URL(s.src,location.href).pathname)&&!PAGE_MODULES.has(new URL(s.src,location.href).pathname));
      if(!content||next.body.dataset.notificationScope!==identity||unsupported){location.assign(response.url||target.href);return;}
-     await currentScope().leave();if(token!==serial)return;
+     await currentScope().leave({url:response.url||target.href});if(token!==serial)return;
      committing=true;globalThis.WarehouseNavigation.mounting=true;
      savedPositions.set(current,{x:scrollX,y:scrollY});
      currentScope().dispose();document.querySelectorAll('[data-page-script]').forEach(s=>s.remove());

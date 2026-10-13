@@ -27,6 +27,13 @@ test('schedule uses warehouse timezone and only enables cadence-relevant interva
  fields.frequency.value='monthly';ui.run('scheduleFields(fixtureForm)');assert.match(nodes['[data-next-date]'].textContent,/2026-11-30/);assert.equal(fields.nextDue.value,'2026-10-31');
  fields.frequency.value='custom';ui.run('scheduleFields(fixtureForm)');assert.equal(fields.intervalDays.disabled,false);assert.match(nodes['[data-next-date]'].textContent,/2026-11-10/);
 });
+test('the count form shows positive stock only while allowing a historical product to be added if found',()=>{
+ const ui=countUI();ui.run(`snapshot.products=[{id:1,name:'Boots',sku:'BOOT',unit_of_measure:'pairs'},{id:2,name:'Old shirts',sku:'SHIRT',unit_of_measure:'pieces'}]`);
+ ui.context.run={attempts:[{id:'a',item_id:1,generation:1,baseline:{products:[{productId:1,name:'Boots',recorded:6,unit:'pairs'},{productId:2,name:'Old shirts',recorded:0,unit:'pieces'}]}}]};ui.context.item={id:1,generation:1};
+ let html=ui.run('countForm(run,item)');assert.match(html,/data-count-line="1"/);assert.doesNotMatch(html,/data-count-line="2"/);assert.match(html,/<option value="2"[^>]*>Old shirts/);
+ ui.context.run.attempts[0].baseline.products[0].recorded=0;html=ui.run('countForm(run,item)');assert.doesNotMatch(html,/data-count-line=/);assert.match(html,/data-count-products hidden/);assert.match(html,/name="emptyConfirmed" required/);
+ ui.context.run.attempts[0].baseline.productScope=1;html=ui.run('countForm(run,item)');assert.match(html,/Found this product\?/);assert.match(html,/This product is not at this location/);assert.doesNotMatch(html,/<option value="2"/);
+});
 test('stocktake locations stay hidden until searched, with partial name and area matches',()=>{
  const ui=countUI();
  ui.run(`snapshot.cells=[{id:1,shelf_id:10,warehouse_id:20},{id:2,shelf_id:11,warehouse_id:20}];snapshot.shelves=[{id:10,name:'Rack 5'},{id:11,name:'Rack 6'}];snapshot.warehouses=[{id:20,name:'Main warehouse'}];snapshot.conditions=[];`);
@@ -42,6 +49,11 @@ test('stocktake locations stay hidden until searched, with partial name and area
  assert.match(ui.run('stocktakeLocationResults(stocktake,"boot")'),/Rajesh/);
  assert.match(ui.run('stocktakeLocationResults(stocktake,"missing")'),/No matching locations/);
  assert.equal(ui.run('stocktakeLocationResults(stocktake,"")'),'');
+});
+test('a paused stocktake shows Resume instead of counting controls and its list link resumes explicitly',()=>{
+ const ui=countUI();ui.run(`snapshot.conditions=[];snapshot.runs=[{id:7,title:'Main warehouse',status:'in_progress',paused_at:'2026-10-13T10:00:00Z',completed:1,total:2,scopeChanges:[],items:[{id:1,cell_id:1,state:'counted',assignee_id:1,description:{name:'A'}},{id:2,cell_id:2,state:'pending',assignee_id:1,description:{name:'B'}}]}]`);
+ const html=ui.run('runView(snapshot.runs[0])');assert.match(html,/Stocktaking paused/);assert.match(html,/data-resume-stocktake/);assert.match(html,/1 \/ 2 locations counted/);assert.doesNotMatch(html,/data-scan-stocktake|Start counting|data-count-action="observe"/);
+ assert.equal(ui.run('stocktakeLink(snapshot.runs[0])'),'/stocktaking?run=7&resume=1');assert.match(ui.run('landing()'),/href="\/stocktaking\?run=7&resume=1">Resume/);
 });
 test('searching stocktake product locations preserves hidden selections and warehouse eligibility',()=>{
  const ui=countUI(),search={value:''},status={},rows=[

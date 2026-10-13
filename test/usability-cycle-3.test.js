@@ -62,6 +62,13 @@ function setupView({localStorage=storage(),fetch=async()=>({ok:false,json:async(
  const root={innerHTML:'',querySelectorAll:()=>[],querySelector:()=>null};
  const c=vm.createContext({document:{querySelector:q=>q==='#location-setup-app'?root:{textContent:JSON.stringify(state)}},location:{href:'http://localhost/location-setup?view=fields'},localStorage,URL,FormData:FormValues,AbortSignal,crypto:{randomUUID},fetch,stopCamera(){}});vm.runInContext(setupSource,c);return {c,root,localStorage,run:code=>vm.runInContext(code,c)};
 }
+test('adding or removing a found product updates the empty-location check immediately with the saved draft',()=>{
+ const v=countView(),m=countFormMock(),label={hidden:false},empty={disabled:false,required:true,checked:false,closest:()=>label},table={hidden:true},text={hidden:false};
+ const original=m.f.querySelector;m.f.querySelector=selector=>selector==='[name="emptyConfirmed"]'?empty:selector==='[data-count-products]'?table:selector==='[data-count-empty-text]'?text:original(selector);
+ v.root.querySelectorAll=selector=>selector==='[data-count-action="observe"]'?[m.f]:[];v.c.f=m.f;
+ const added=m.add(3,'5','0',true);v.run('saveDraft(f)');assert.equal(empty.disabled,true);assert.equal(empty.required,false);assert.equal(label.hidden,true);assert.equal(table.hidden,false);assert.equal(text.hidden,true);
+ v.c.button={closest:selector=>selector==='[data-count-line]'?added:m.f};assert.equal(v.run('removeExtra(button)'),true);assert.equal(empty.disabled,false);assert.equal(empty.required,true);assert.equal(label.hidden,false);assert.equal(table.hidden,true);assert.equal(text.hidden,false);
+});
 function fieldFormMock(){const fields=Object.entries({fieldKey:'aisle',revision:'3',label:'Aisle',fieldType:'select',options:'North\nNorth',displayOrder:'7'}).map(([name,value])=>({name,value,type:['fieldKey','revision'].includes(name)?'hidden':'text'}));for(const name of ['required','enabled','useInDirections'])fields.push({name,type:'checkbox',checked:name!=='enabled',value:'on'});for(const el of fields)fields[el.name]=el;const choices={},example={};return {dataset:{action:'field'},elements:fields,querySelector:s=>s==='[data-field-choices]'?choices:s==='[data-field-example]'?example:null,choices,example};}
 test('field choices are conditional and server validation errors retain raw unsaved fields, flags, identity and revision across reload',async()=>{
  const v=setupView(),f=fieldFormMock();v.c.f=f;v.root.querySelectorAll=s=>s==='form[data-action="field"]'?[f]:[];

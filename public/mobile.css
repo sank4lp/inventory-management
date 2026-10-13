@@ -263,6 +263,7 @@
     box-shadow: 2px 0 3px #173f3508;
   }
   #work-app .mobile-task-table .my-work-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; }
+  #work-app .mobile-task-table .stocktake-work-name { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   #work-app .mobile-task-table .my-work-actions :is(button,a) { width: 100%; min-width: 0; min-height: 44px; padding: 5px 3px !important; font-size: 12px !important; white-space: normal; }
   #work-app .mobile-task-table .badge { white-space: normal; max-width: 100%; font-size: 11px; }
   #work-app .mobile-task-table [data-active-quantity] { padding: 5px 2px; font-size: 16px; }
@@ -286,6 +287,14 @@
   .mobile-task-table > :is(thead,tbody) > tr > :nth-child(17) { grid-column: var(--mobile-column-17); grid-row: 1; }
 }
 @media screen and (max-width: 700px) {
+  /* Toasts preview the message; the bell retains its complete text. */
+  .global-toast-host { width: min(300px, calc(100vw - 24px)); }
+  .global-toast { box-sizing: border-box; padding: 6px 8px; gap: 6px; }
+  .global-toast p {
+    min-width: 0; max-height: 36px; overflow: hidden;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  }
+  .global-toast .notification-close { min-width: 44px; }
   .page-body .mobile-page-help, #work-app .mobile-page-help { margin: 12px 0 0; padding: 8px 0 0; border-top: 1px solid #dce6e2; }
   .mobile-page-help > summary { min-height: 44px; display: list-item; align-content: center; font-size: 13px; color: #537267; }
   .mobile-page-help p { font-size: 13px; line-height: 1.5; color: #5c726e; margin: 8px 0; }
@@ -318,6 +327,61 @@
 /* Legacy per-column minimums must never overlap the reordered phone tracks. */
 @media screen and (max-width: 1020px) {
   #work-app table.mobile-task-table :is(th,td) { min-width: 0 !important; width: auto !important; }
+}
+
+/* Shared phone control rows. Widths come from labels/field values; unused row
+   space is shared evenly, and the whole control wraps rather than its neighbours. */
+@media screen and (max-width: 700px) {
+  :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] {
+    display: flex !important; flex-flow: row wrap !important;
+    align-items: flex-end !important; justify-content: flex-start !important;
+    gap: 8px !important; min-width: 0; max-width: 100%;
+  }
+  :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] > [data-mobile-control-item="fit"] {
+    flex: 1 1 var(--mobile-control-width) !important;
+    min-width: min(100%,var(--mobile-control-width)) !important;
+    width: auto !important; max-width: 100%; margin-inline: 0 !important;
+    align-self: flex-end; box-sizing: border-box;
+  }
+  :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] > [data-mobile-control-item="full"] {
+    flex: 1 0 100% !important; min-width: 0 !important; width: 100% !important;
+    margin-block: 0 !important;
+  }
+  :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] > label[data-mobile-control-item="fit"] {
+    display: flex !important; flex-direction: column; gap: 4px !important; margin-block: 0 !important;
+  }
+  :is(.page-body,dialog,.offline-shell) :is(button,a.mini-link,a.ghost-button,a.green-button,a.action-cta-button,a.work-primary,a.work-secondary):not(.searchable-toggle,.combo-toggle,.icon-button,.dialog-dismiss,.notification-close,.row-collapse-icon-button),
+  :is(.page-body,dialog,.offline-shell) :is(input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=range]):not([type=color]),select) {
+    box-sizing: border-box; height: 44px !important; min-height: 44px !important;
+  }
+  :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] :is(button,a.mini-link,a.ghost-button,a.green-button,a.action-cta-button,a.work-primary,a.work-secondary):not(.searchable-toggle,.combo-toggle,.dialog-dismiss) {
+    display: inline-flex !important; align-items: center; justify-content: center;
+    padding: 4px 10px !important; line-height: 1.2 !important;
+    white-space: normal; text-align: center; margin-block: 0;
+  }
+  :is(.page-body,dialog,.offline-shell) [data-mobile-control-item="fit"] :is(input:not([type=checkbox]):not([type=radio]):not([type=hidden]),select,.searchable-select) {
+    width: 100%; max-width: 100%; min-width: 0; margin-block: 0;
+  }
+  :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] > form[data-mobile-control-item="fit"] {
+    margin-block: 0; padding: 0; border: 0;
+  }
+  :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] > form[data-mobile-control-item="fit"] > button { width: 100%; }
+  :is(.page-body,dialog,.offline-shell) a[data-mobile-control-item="fit"] {
+    display: inline-flex; align-items: center; justify-content: center;
+    box-sizing: border-box; height: 44px; min-height: 44px; padding: 4px 10px;
+  }
+  :is(.page-body,dialog,.offline-shell) .searchable-select { height: 44px; }
+  :is(.page-body,dialog,.offline-shell) .searchable-toggle {
+    top: 2px; right: 2px; width: 40px !important; min-width: 40px !important;
+    height: 40px !important; min-height: 40px !important; padding: 0 !important;
+  }
+  :is(.page-body,dialog,.offline-shell) .searchable-input { padding-inline-end: 48px !important; }
+  .page-body .work-product-field > label { display: flex !important; flex-direction: column; gap: 4px !important; margin: 0 !important; }
+  .page-body .assignment-direction label { min-height: 44px; align-content: center; }
+  :is(#work-app,#stocktaking-app,.page-body,dialog,.offline-shell) [data-mobile-control-grid][hidden],
+  :is(#work-app,#stocktaking-app,.page-body,dialog,.offline-shell) [data-mobile-control-grid] [hidden] {
+    display: none !important;
+  }
 }
 @media screen and (max-width: 700px) {
   .page-body table.mobile-record-table :is(th,td), dialog table.mobile-record-table :is(th,td) { min-width: 0 !important; width: auto !important; }

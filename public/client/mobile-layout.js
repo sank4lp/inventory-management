@@ -1,3 +1,4 @@
+import {arrangeMobileControls} from './mobile-controls.js';
 // The same table cells and controls are presented as labelled entries on phones.
 // Never clone a form or submit a task from this presentation module.
 export function mobileColumnLabel(header) {
@@ -29,6 +30,12 @@ export function prepareMobileTable(table) {
     table.tHead.rows[0].setAttribute('role','row');
     for(const body of table.tBodies){body.setAttribute('role','rowgroup');for(const row of body.rows)row.setAttribute('role','row');}
     const {keys,order,widths}=taskColumnLayout(headers,table.parentElement.clientWidth);
+    // Keep the new Stocktake identity readable without pushing the basic phone
+    // columns off-screen; borrow space from Product when that column can spare it.
+    if(table.querySelector('tbody [data-stocktake-id]')){
+      const task=order.indexOf('task'),product=order.indexOf('product');
+      if(task>=0&&product>=0){const extra=Math.min(32,Math.max(0,widths[product]-64));widths[task]+=extra;widths[product]-=extra;}
+    }
     let stored;try{stored=JSON.parse(table.dataset.mobileColumnWidths||'null');}catch{}
     if(Array.isArray(stored)&&stored.length===keys.length&&stored.every(width=>Number.isFinite(width)&&width>=48)) {
       order.forEach((key,index)=>{widths[index]=stored[keys.indexOf(key)];});
@@ -90,6 +97,7 @@ export function mountMobileLayout(doc = document) {
     if (title) title.title = title.textContent;
     arrangeHelp();
     for (const table of doc.querySelectorAll('.page-body table,dialog table')) prepareMobileTable(table);
+    arrangeMobileControls(doc, compact.matches);
   };
   const schedule = () => {
     if (scheduled) return;
@@ -97,11 +105,13 @@ export function mountMobileLayout(doc = document) {
     doc.defaultView.requestAnimationFrame(refresh);
   };
   const observer = new doc.defaultView.MutationObserver(schedule);
-  observer.observe(doc.body, {childList: true, subtree: true, characterData: true});
+  observer.observe(doc.body, {childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['hidden','open']});
   doc.defaultView.addEventListener('warehouse:page-loaded', refresh);
   doc.defaultView.addEventListener('resize', schedule);
   doc.addEventListener('warehouse:table-layout', schedule);
+  doc.addEventListener('change', schedule);
+  doc.fonts?.ready.then(schedule);
   refresh();
-  return () => {observer.disconnect();doc.defaultView.removeEventListener('warehouse:page-loaded', refresh);doc.defaultView.removeEventListener('resize', schedule);doc.removeEventListener('warehouse:table-layout', schedule);};
+  return () => {observer.disconnect();doc.defaultView.removeEventListener('warehouse:page-loaded', refresh);doc.defaultView.removeEventListener('resize', schedule);doc.removeEventListener('warehouse:table-layout', schedule);doc.removeEventListener('change', schedule);};
 }
 if (typeof document !== 'undefined') mountMobileLayout();

@@ -25,3 +25,7 @@ test('soft navigation stays on the warehouse origin and leaves authentication an
  assert.equal(navigationTarget('/work/history','http://warehouse/work').pathname,'/work/history');
  for(const href of ['https://other.example/work','/api/work/snapshot','/login','/logout','/offline'])assert.equal(navigationTarget(href,'http://warehouse/work'),null);
 });
+test('guards and cleanup receive the destination so selecting another count is distinct from leaving Stocktaking',async()=>{
+ const scope=new PageScope(),seen=[];scope.guardLeave(destination=>{seen.push(destination.url);return !destination.url.includes('/products');});scope.beforeLeave(destination=>seen.push(destination.url));
+ assert.equal(await scope.canLeave({url:'/stocktaking?run=1&cell=2'}),true);await scope.leave({url:'/stocktaking?run=1&cell=2'});assert.equal(await scope.canLeave({url:'/products'}),false);assert.deepEqual(seen,['/stocktaking?run=1&cell=2','/stocktaking?run=1&cell=2','/products']);
+});

@@ -9,7 +9,7 @@ export async function stocktakingRoutes(request,response,url,user,state) {
     if(request.method==='GET'&&action==='snapshot')sendJson(response,service.snapshot(user));
     else if(request.method==='GET'&&action==='resolve')sendJson(response,service.resolve(user,url.searchParams.get('runId'),url.searchParams.get('label')));
     else if(request.method==='GET'&&action==='movements')sendJson(response,service.movements(user,url.searchParams.get('observationId'),url.searchParams.get('q')||''));
-    else if(request.method==='POST')sendJson(response,service.command(user,action,request.parsedForm));
+    else if(request.method==='POST')sendJson(response,action==='heartbeat'?service.heartbeat(user,request.parsedForm):service.command(user,action,request.parsedForm));
     else sendJson(response,{error:'Action not found.'},404);
     return true;
   }

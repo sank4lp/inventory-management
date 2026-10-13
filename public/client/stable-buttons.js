@@ -13,7 +13,7 @@ export function buttonLabels(text,data={},flags={}) {
 
 const records=new WeakMap(), measurements=new Map();
 let probe;
-function measure(doc,styles,text,width=null) {
+export function measureControlText(doc,styles,text,width=null) {
  const key=JSON.stringify([styles.font,styles.letterSpacing,styles.textTransform,text,width]);
  if(measurements.has(key))return measurements.get(key);
  if(!probe||probe.ownerDocument!==doc){probe=doc.createElement('span');probe.setAttribute('aria-hidden','true');probe.style.cssText='position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;display:inline-block;';doc.body.append(probe);}
@@ -42,13 +42,13 @@ export function reserveButtonSize(button,extraLabels=[]) {
  const parentWidth=button.parentElement?.clientWidth||doc.documentElement.clientWidth;
  let width=0,height=44;
  for(const label of record.labels){
-  const size=measure(doc,styles,label);width=Math.max(width,size.width+horizontal+iconWidth);
+  const size=measureControlText(doc,styles,label);width=Math.max(width,size.width+horizontal+iconWidth);
   // The longest state may wrap on small phones; reserve that height too.
-  if(parentWidth>horizontal)height=Math.max(height,measure(doc,styles,label,Math.max(1,parentWidth-horizontal-iconWidth)).height+vertical);
+  if(parentWidth>horizontal)height=Math.max(height,measureControlText(doc,styles,label,Math.max(1,parentWidth-horizontal-iconWidth)).height+vertical);
  }
  for(const label of record.busyLabels){
-  width=Math.max(width,measure(doc,styles,label).width+horizontal+24);
-  if(parentWidth>horizontal+24)height=Math.max(height,measure(doc,styles,label,parentWidth-horizontal-24).height+vertical);
+  width=Math.max(width,measureControlText(doc,styles,label).width+horizontal+24);
+  if(parentWidth>horizontal+24)height=Math.max(height,measureControlText(doc,styles,label,parentWidth-horizontal-24).height+vertical);
  }
  const set=(key,value)=>{const next=Math.ceil(value)+'px';if(button.style.getPropertyValue(key)!==next)button.style.setProperty(key,next);};
  set('--stable-button-width',width);set('--stable-button-height',height);button.dataset.stableButtonSize='';

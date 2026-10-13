@@ -13,6 +13,10 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const workText=v=>String(v??'');
 const reviewInstruction=r=>r.quantity_known===0?'Ask the person who did the work how much moved. Save the verified quantity, or keep this pending.':r.countOverlap?'Compare this movement with the stock count below before changing stock.':'Check who moved these items and the actual quantity before saving.';
 const taskName=t=>t.lines?.[0]?.product_name||t.summary;
+const isStocktakeWork=t=>t?.work_kind==='stocktake';
+const workTaskLabel=t=>isStocktakeWork(t)?`Stocktake #${t.stocktake_id}`:`#${t.id} · ${t.type==='put'?'Put':'Pick'}`;
+const stocktakeHref=t=>`/stocktaking?run=${t.stocktake_id}`+(online&&t.canAct&&t.paused_at?'&resume=1':'');
+const stocktakeAction=t=>`<a class="work-secondary" href="${stocktakeHref(t)}">${esc(online&&t.canAct?t.action_label:'View')}</a>`;
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 let dirty=false;
 const activeAssignmentEdits=new Map();let activeAssignmentsSaving=false,activeAssignmentsReceipt=null,discardDecision=null;
@@ -408,7 +412,7 @@ async function afterReviewSave(taskId,action){
  const d=root.querySelector('[data-task-dialog]');for(const f of d?.querySelectorAll('form[data-work-action]')||[])f.remove();
  if(modalDepth>target)window.history.go(target-modalDepth);else{d?.close();render();}
 }
-function canBulkDiscard(t){return !!t&&online&&allowed('teamStop')&&reviewVerifier(t)&&canCloseReview(t)&&!taskHasSavedUpdate(t);}
+function canBulkDiscard(t){return !!t&&!isStocktakeWork(t)&&online&&allowed('teamStop')&&reviewVerifier(t)&&canCloseReview(t)&&!taskHasSavedUpdate(t);}
 function changeTaskSelection(input){
  if(input.hasAttribute('data-select-all'))for(const t of myTasks().filter(canBulkDiscard)){if(input.checked)selectedTasks.add(t.id);else selectedTasks.delete(t.id);}
  else{const id=Number(input.dataset.selectTask);if(input.checked&&canBulkDiscard(availableTask(id)))selectedTasks.add(id);else selectedTasks.delete(id);}
@@ -654,15 +658,19 @@ function myTaskChoice(t){
  if(allowed('stop')&&!untouchedOffer(t))return t.assignment_source==='self'&&untouched?{action:'stop',label:'Cancel task',explanation:'Cancel your untouched task. Confirm that nothing moved.'}:{action:'stop',label:'Stop remaining work',explanation:'Record any actual movement first. Recorded quantities remain; uncertain physical work stays in review.'};
  return null;
 }
-function myTaskActionable(t){return !!t&&online&&allowed('execute')&&t.canAct!==false&&t.assignee_id===snapshot.user.id&&!t.completed_at&&!['completed','stopped','cancelled'].includes(t.outcome)&&['offered','started','legacy'].includes(t.assignment_state)&&!t.attention&&!t.review_followup&&!taskHasSavedUpdate(t)&&!(t.lines||[]).some(l=>(l.reports||[]).some(r=>['review','received'].includes(r.status)));}
+function myTaskActionable(t){if(isStocktakeWork(t))return online&&t.canAct&&t.assignee_id===snapshot.user.id;return !!t&&online&&allowed('execute')&&t.canAct!==false&&t.assignee_id===snapshot.user.id&&!t.completed_at&&!['completed','stopped','cancelled'].includes(t.outcome)&&['offered','started','legacy'].includes(t.assignment_state)&&!t.attention&&!t.review_followup&&!taskHasSavedUpdate(t)&&!(t.lines||[]).some(l=>(l.reports||[]).some(r=>['review','received'].includes(r.status)));}
 const workStates={review:'Needs Review',not_started:'Task Not Started',in_progress:'Task In Progress',completed:'Task Completed'};
 function myWorkState(t){if(t.work_state)return t.work_state;if(pendingTaskEvidence(t))return 'review';if(t.completed_at||['completed','stopped','cancelled'].includes(t.outcome))return 'completed';if(t.review_followup||t.assignment_state==='returned')return 'review';return ['offered','legacy'].includes(t.assignment_state)?'not_started':'in_progress';}
 function myWorkStatus(t){return t.work_status||(myWorkState(t)==='completed'?status(t.outcome):myWorkState(t)==='review'?(t.attention||t.review_followup?'Quantity check':'Needs assignment'):t.guidance_paused?'Paused':(t.lines||[]).some(l=>l.guidance?.state==='waiting')?'Waiting for location':t.overdue?'Overdue':myWorkState(t)==='not_started'?'Not started':'In progress');}
 function myTaskRow(t){
+ if(isStocktakeWork(t))return stocktakeWorkRow(t);
  const history=isHistoryTable(),editable=canEditActiveAssignment(t),draft=activeAssignmentEdits.get(t.id);
  const state=myWorkState(t),priority=t.work_priority||'low',progress=t.work_progress??(t.requested_quantity>0?Math.round((t.recorded_quantity||0)*1000/t.requested_quantity)/10:0),canStart=myTaskActionable(t);
  const action=canStart?activationForm(t,t.assignment_state==='offered'?'Start':'Resume','class="my-work-start"'):'';
  return `<tr data-task-row="${t.id}" data-priority="${esc(t.work_priority||'low')}" data-generation="${t.assignment_generation}">${selectingTasks?`<td class="task-select-cell"><input type="checkbox" data-select-task="${t.id}" aria-label="Select task ${t.id}" ${selectedTasks.has(t.id)?'checked':''} ${canBulkDiscard(t)?'':'disabled'}></td>`:''}<td><a href="/tasks/${t.id}"${history?' data-task-history="'+t.id+'"':' data-task-edit="'+t.id+'"'}>#${t.id} · ${t.type==='put'?'Put':'Pick'}</a></td><td>${taskProductLink(t)}</td><td>${tableBadge(t.type==='put'?'Put':'Pick')}</td>${history?`<td${isActiveAssignments()?' data-active-editor':''}>${editable?`<select data-searchable data-active-assignee aria-label="Assigned to for task ${t.id}" ${activeAssignmentsSaving?'disabled':''}>${activeAssigneeOptions(t,draft?.assigneeId??t.assignee_id)}</select>`:esc(t.assignee_name||'Unassigned')}</td>`:''}<td>${esc(t.lines?.[0]?.unit_of_measure)}</td><td${isActiveAssignments()?' data-active-editor':''}>${editable?`<input type="number" data-active-quantity aria-label="Requested quantity for task ${t.id}" min="1" max="1000000000" step="1" inputmode="numeric" value="${esc(draft?.quantity??t.requested_quantity)}" ${activeAssignmentsSaving?'disabled':''}>`:esc(t.requested_quantity??'—')}</td><td>${esc(t.recorded_quantity??0)}</td><td>${esc(t.remaining_quantity??'—')}</td><td>${badge(priority[0].toUpperCase()+priority.slice(1),priority==='high'?'warning':'')}</td><td>${tableBadge(myWorkStatus(t))}${taskHasSavedUpdate(t)?' · Update pending':''}</td><td>${esc(progress)}%</td><td>${esc(workStates[state])}</td>${path==='/work/history'?`<td>${stockSnapshot(t.quantity_before,t.quantity_before_unit||t.lines?.[0]?.unit_of_measure)}</td><td>${stockSnapshot(t.quantity_after,t.quantity_after_unit||t.lines?.[0]?.unit_of_measure)}</td>`:''}<td data-my-actions-cell><div class="my-work-actions">${history?`<a class="work-secondary" href="/work/task-history?taskId=${t.id}">Task history</a>`+reopenButton(t):action+checkButton(t)}</div></td></tr>`;
+}
+function stocktakeWorkRow(t){
+ return `<tr data-task-row="${t.id}" data-stocktake-id="${t.stocktake_id}" data-priority="low" data-generation="${t.assignment_generation}">${selectingTasks?`<td class="task-select-cell"><input type="checkbox" aria-label="Stocktake ${t.stocktake_id}" disabled></td>`:''}<td><a href="/stocktaking?run=${t.stocktake_id}">${workTaskLabel(t)}</a></td><td><span class="stocktake-work-name">${esc(taskName(t))}</span></td><td>${tableBadge('Stocktake')}</td><td>locations</td><td>${t.requested_quantity}</td><td>${t.recorded_quantity}</td><td>${t.remaining_quantity}</td><td>${badge('Low')}</td><td>${tableBadge(myWorkStatus(t))}</td><td>${t.work_progress}%</td><td>${esc(workStates[myWorkState(t)])}</td><td data-my-actions-cell><div class="my-work-actions">${stocktakeAction(t)}</div></td></tr>`;
 }
 const workFilterColumns=[
  {key:'task',label:'Task',names:['taskSearch']},{key:'product',label:'Product',names:['productSearch']},
@@ -676,8 +684,8 @@ let selectedFilterColumns;
 function tableFilterOptions(key){
  const values=new Map();
  for(const t of myTasks()){
-  const value=key==='task'?`${t.id} ${t.type}`:key==='product'?taskName(t):key==='status'?myWorkStatus(t):key==='priority'?(t.work_priority||'low'):myWorkState(t);
-  const label=key==='task'?`#${t.id} · ${t.type==='put'?'Put':'Pick'}`:key==='state'?workStates[value]:value;
+  const value=key==='task'?`${Math.abs(t.id)} ${t.type}`:key==='product'?taskName(t):key==='status'?myWorkStatus(t):key==='priority'?(t.work_priority||'low'):myWorkState(t);
+  const label=key==='task'?workTaskLabel(t):key==='state'?workStates[value]:value;
   if(value&&label)values.set(String(value),String(label));
  }
  return [...values].map(([value,label])=>({value,label}));
@@ -740,6 +748,7 @@ function workColumn(key,label){const q=clearRetiredWorkFilters(new URLSearchPara
 function myNextContent(){
  const t=snapshot.taskPage?.view==='mine'?snapshot.myWorkNextTask:null;
  if(!t||t.assignee_id!==snapshot.user.id)return `<p>${!online?'Reconnect to load your next task.':allowed('pick')||allowed('put')?'No task is ready to start. Choose Pick stock or Put stock below.':'No task is ready to start.'}</p>`;
+ if(isStocktakeWork(t))return `<div class="my-work-next-task" data-next-id="${t.id}" data-next-generation="${t.assignment_generation}"><div><a class="my-work-next-product" href="/stocktaking?run=${t.stocktake_id}">${esc(taskName(t))}</a><p>${workTaskLabel(t)} · ${t.recorded_quantity} / ${t.requested_quantity} locations counted</p></div>${stocktakeAction(t)}</div>`;
  const saved=taskHasSavedUpdate(t),ready=myTaskActionable(t);
  const started=(t.recorded_quantity>0)||(t.lines||[]).some(l=>l.execution_state==='working'||l.started_at);
  const fields=hidden('taskId',t.id)+hidden('generation',t.assignment_generation);
@@ -1124,7 +1133,7 @@ function patchMyWorkRows(){
  const body=root.querySelector('[data-my-work-table]');if(!body)return;patchWorkFilterOptions();
  const dialog=root.querySelector('[data-my-work-dialog]'),active=document.activeElement;
  const rows=[...body.querySelectorAll('[data-task-row]')],observed=new Map([...(snapshot.watchedTasks||[]),...snapshot.tasks].map(t=>[String(t.id),t]));
- const protectedRow=row=>activeAssignmentEdits.has(Number(row.dataset.taskRow))||row.contains(active)||row.querySelector('form[data-edited]')||dialog?.open&&String(dialog.dataset.taskId)===row.dataset.taskRow;
+ const protectedRow=row=>!row.dataset.stocktakeId&&(activeAssignmentEdits.has(Number(row.dataset.taskRow))||row.contains(active)||row.querySelector('form[data-edited]')||dialog?.open&&String(dialog.dataset.taskId)===row.dataset.taskRow);
  const anchor=rows.find(protectedRow),anchorTop=anchor?.getBoundingClientRect().top;
  const desired=myTasks(),wanted=new Set(desired.map(t=>String(t.id))),existing=new Map(rows.map(row=>[row.dataset.taskRow,row]));
  for(const row of rows){

@@ -17,9 +17,9 @@ export class PageScope {
     return this.host.fetch(input,['GET','HEAD'].includes(method)?{...options,signal:options.signal?AbortSignal.any([this.abort.signal,options.signal]):this.abort.signal}:options);
   }
   guardLeave(callback){this.guards.push(callback);}
-  async canLeave(){for(const guard of this.guards)if(await guard()===false)return false;return true;}
+  async canLeave(destination){for(const guard of this.guards)if(await guard(destination)===false)return false;return true;}
   beforeLeave(callback){this.leavers.push(callback);}
-  async leave(){for(const callback of this.leavers)await callback();}
+  async leave(destination){for(const callback of this.leavers)await callback(destination);}
   own(cleanup){if(this.active)this.cleanups.add(cleanup);else cleanup();}
   dispose(){if(!this.active)return;this.abort.abort();for(const cleanup of [...this.cleanups].reverse())try{cleanup();}catch{}this.cleanups.clear();this.active=false;this.leavers=[];this.guards=[];}
 }

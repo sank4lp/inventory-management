@@ -4,6 +4,22 @@ import vm from 'node:vm';
 import test from 'node:test';
 import {WORK_TABS} from '../src/modules/access/catalog.js';
 
+test('My Work stocktake rows use Stocktaking resume and never offer Pick/Put mutation actions',()=>{
+ const stocktake={id:-7,stocktake_id:7,work_kind:'stocktake',type:'stocktake',summary:'Main warehouse',lines:[],requested_quantity:10,recorded_quantity:3,remaining_quantity:7,work_progress:30,work_state:'in_progress',work_status:'Paused',assignee_id:1,canAct:true,action_label:'Resume',paused_at:'now',assignment_generation:1};
+ const ui=view({role:'admin',tasks:[stocktake]});ui.context.stocktake=stocktake;ui.run("snapshot.taskPage={unified:true,view:'mine'};snapshot.myWorkNextTask=stocktake");
+ const html=ui.run('myTaskRow(stocktake)');assert.match(html,/Stocktake #7/);assert.match(html,/href="\/stocktaking\?run=7&resume=1">Resume/);assert.match(html,/>3<\/td><td>7<\/td>/);assert.doesNotMatch(html,/data-work-action|data-task-edit|data-task-check/);
+ assert.match(ui.run('myNextContent()'),/3 \/ 10 locations counted/);assert.equal(ui.run('canBulkDiscard(stocktake)'),false);
+ ui.run('online=false');assert.doesNotMatch(ui.run('myTaskRow(stocktake)'),/resume=1/);assert.match(ui.run('myTaskRow(stocktake)'),/>View<\/a>/);
+});
+test('a completed shared stocktake is removed by the live update even if its row has focus',()=>{
+ const ui=view();let removed=false;
+ const row={dataset:{taskRow:'-7',stocktakeId:'7'},contains:()=>true,remove(){removed=true;}};
+ const body={querySelectorAll:()=>[row],querySelector:()=>null,innerHTML:''};
+ ui.root.querySelector=selector=>selector==='[data-my-work-table]'?body:null;ui.context.document.activeElement=row;
+ ui.run('snapshot.taskPage={unified:true,view:"mine"};snapshot.tasks=[];snapshot.watchedTasks=[]');
+ ui.run('patchMyWorkRows()');assert.equal(removed,true);assert.match(body.innerHTML,/No matching tasks/);
+});
+
 // Exercise the actual rendering functions without booting storage or a network poll.
 const source = readFileSync(new URL('../public/client/work.js', import.meta.url), 'utf8').replace('export async function mount() {','').split('let syncing=false;')[0];
 function view({online = true, role = 'operator', tasks = [], active = false} = {}) {
