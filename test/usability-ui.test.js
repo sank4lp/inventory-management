@@ -12,11 +12,11 @@ function countUI(){
 }
 test('counting keeps physical totals primary and optional time unknown unless explicitly supplied',()=>{
  const ui=countUI();ui.context.run={attempts:[{id:'a',item_id:1,generation:1,baseline:{products:[{productId:1,name:'Boots',unit:'pairs',recorded:6}],pending:[],reports:[]}}]};ui.context.item={id:1,generation:1};
- const html=ui.run('countForm(run,item)');assert.match(html,/including items waiting to be picked/);assert.match(html,/<summary>Notes, earlier counting time or unidentified items<\/summary>/);assert.match(html,/<summary>Damaged or expired items<\/summary>/);assert.doesNotMatch(html,/name="countedAt"[^>]*required/);
+ const html=ui.run('countForm(run,item)');assert.match(html,/including items waiting to be picked/);assert.match(html,/<summary>Note \/ unidentified items<\/summary>/);assert.match(html,/<summary>Condition<\/summary>/);assert.doesNotMatch(html,/name="countedAt"[^>]*required/);
  ui.context.fixtureForm={dataset:{countAction:'observe'},data:{actual_1:'6',unit_1:'pairs'},querySelectorAll:()=>[{dataset:{countLine:'1'}}]};
  assert.equal(ui.run('collect(fixtureForm).countedAt'),null);assert.equal(ui.run('collect(fixtureForm).lines[0].actual'),'6');
  ui.context.fixtureForm.data.countedAt='2026-09-20T10:15';assert.equal(ui.run('collect(fixtureForm).countedAt'),new Date('2026-09-20T10:15').toISOString());
- ui.context.run.attempts[0].baseline.pending=[{id:2}];assert.match(ui.run('countForm(run,item)'),/another count once the movement is finished before changing stock/);
+ ui.context.run.attempts[0].baseline.pending=[{id:2}];assert.match(ui.run('countForm(run,item)'),/Save counts/);assert.doesNotMatch(ui.run('countForm(run,item)'),/another count once the movement is finished before changing stock/);
  ui.context.run.attempts[0].baseline.products=[];assert.match(ui.run('countForm(run,item)'),/name="emptyConfirmed"/);
 });
 test('schedule uses warehouse timezone and only enables cadence-relevant interval with stable calendar anchors',()=>{
@@ -26,6 +26,35 @@ test('schedule uses warehouse timezone and only enables cadence-relevant interva
  ui.run('scheduleFields(fixtureForm)');assert.equal(nodes['[data-custom-interval]'].hidden,true);assert.equal(fields.intervalDays.disabled,true);assert.match(nodes['[data-next-date]'].textContent,/2026-11-07/);
  fields.frequency.value='monthly';ui.run('scheduleFields(fixtureForm)');assert.match(nodes['[data-next-date]'].textContent,/2026-11-30/);assert.equal(fields.nextDue.value,'2026-10-31');
  fields.frequency.value='custom';ui.run('scheduleFields(fixtureForm)');assert.equal(fields.intervalDays.disabled,false);assert.match(nodes['[data-next-date]'].textContent,/2026-11-10/);
+});
+test('stocktake locations stay hidden until searched, with partial name and area matches',()=>{
+ const ui=countUI();
+ ui.run(`snapshot.cells=[{id:1,shelf_id:10,warehouse_id:20},{id:2,shelf_id:11,warehouse_id:20}];snapshot.shelves=[{id:10,name:'Rack 5'},{id:11,name:'Rack 6'}];snapshot.warehouses=[{id:20,name:'Main warehouse'}];snapshot.conditions=[];`);
+ ui.context.stocktake={id:7,status:'in_progress',scopeChanges:[],items:[{id:101,cell_id:1,logical_code:'Z1-R5-C01',description:{name:'Boots bin',directions:'Rack 5'},state:'pending',counter_name:'Rajesh',assignee_id:1},{id:102,cell_id:2,logical_code:'Z1-R6-C02',description:{name:'Shirts bin',directions:'Rack 6'},state:'counted',counter_name:'Anita'}]};
+ assert.equal(ui.run('matchingStocktakeLocations(stocktake," ").length'),0);
+ assert.doesNotMatch(ui.run('runView(stocktake)'),/data-count-row=/);
+ assert.match(ui.run('runView(stocktake)'),/data-stocktake-location-results hidden/);
+ assert.deepEqual(Array.from(ui.run('matchingStocktakeLocations(stocktake," BOOT ").map(i=>i.id)')),[101]);
+ assert.deepEqual(Array.from(ui.run('matchingStocktakeLocations(stocktake,"r6-c").map(i=>i.id)')),[102]);
+ assert.equal(ui.run('matchingStocktakeLocations(stocktake,"main ware").length'),2);
+ assert.match(ui.run('stocktakeLocationResults(stocktake,"boot")'),/data-count-row="101"/);
+ assert.doesNotMatch(ui.run('stocktakeLocationResults(stocktake,"boot")'),/data-count-row="102"/);
+ assert.match(ui.run('stocktakeLocationResults(stocktake,"boot")'),/Rajesh/);
+ assert.match(ui.run('stocktakeLocationResults(stocktake,"missing")'),/No matching locations/);
+ assert.equal(ui.run('stocktakeLocationResults(stocktake,"")'),'');
+});
+test('searching stocktake product locations preserves hidden selections and warehouse eligibility',()=>{
+ const ui=countUI(),search={value:''},status={},rows=[
+  {textContent:'Boots bin',box:{checked:true,disabled:false}},
+  {textContent:'Shirts bin',box:{checked:false,disabled:false}},
+  {textContent:'Boots elsewhere',box:{checked:true,disabled:true}}
+ ];
+ for(const row of rows)row.querySelector=()=>row.box;
+ ui.context.picker={querySelector:selector=>selector==='[data-location-search]'?search:status,querySelectorAll:()=>rows};
+ ui.run('filterProductLocations(picker)');assert.ok(rows.every(row=>row.hidden));assert.equal(rows[0].box.checked,true);
+ search.value=' BOOT ';ui.run('filterProductLocations(picker)');assert.equal(rows[0].hidden,false);assert.equal(rows[1].hidden,true);assert.equal(rows[2].hidden,true);
+ search.value='missing';ui.run('filterProductLocations(picker)');assert.equal(status.hidden,false);assert.equal(rows[0].box.checked,true);
+ search.value='';ui.run('filterProductLocations(picker)');assert.equal(status.hidden,true);assert.ok(rows.every(row=>row.hidden));
 });
 test('role editor previews transitive requirements and adds them only after explicit inclusion',()=>{
  const boxes=CAPABILITIES.map(c=>({dataset:{capability:c.id},checked:OPERATOR_CAPABILITIES.includes(c.id)})),nodes={'[data-role-preview]':{},'[data-role-prerequisites]':{},'[data-include-required]':{addEventListener(_,f){this.click=f;}}};let change;

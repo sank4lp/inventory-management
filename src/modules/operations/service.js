@@ -1,4 +1,6 @@
 import {protectedPicks,putRoom,usedSpace,taskPrioritySql,yieldableClaim,reviewClaim} from './planning-policy.js';
+import {stocktakeIndicator,countCellValues} from '../stocktaking/workflow.js';
+import {createStocktakeDisplayQueue} from '../stocktaking/display-queue.js';
 import {createPlanningRecovery} from './planning-recovery.js';
 import {createWorkHistory} from './history.js';
 import {createTaskClosure} from './task-closure.js';
@@ -31,7 +33,7 @@ const canonical = (value) => JSON.stringify(value, function(key, v) {
     ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v;
 });
 
-export function createOperationsService({ db, hardwareService = null, logger = null }) {
+export function createOperationsService({ db, hardwareService = null, logger = null, deferStocktakeDisplays = false }) {
   const tasks = createTaskRepository(db);
   const metadata = (key) => db.prepare("SELECT value FROM app_metadata WHERE key=?").get(key)?.value;
   const identity = () => ({ site: metadata("warehouse_identity"), dataset: metadata("dataset_generation") });
@@ -159,7 +161,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     return null;
   }
   function reconcileGuidance() {
-    const cells=db.prepare("SELECT cell_id FROM work_guidance UNION SELECT cell_id FROM task_lines WHERE execution_state IN ('ready','working') UNION SELECT i.cell_id FROM stocktake_display_claims c JOIN stocktake_items i ON i.id=c.item_id").all();
+    const cells=db.prepare("SELECT cell_id FROM work_guidance UNION SELECT cell_id FROM task_lines WHERE execution_state IN ('ready','working') UNION SELECT i.cell_id FROM stocktake_display_claims c JOIN stocktake_items i ON i.id=c.item_id UNION SELECT i.cell_id FROM stocktake_items i JOIN stocktake_runs r ON r.id=i.run_id WHERE r.display_enabled=1").all();
     for(const {cell_id:cellId} of cells){
       const previous=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(cellId),old=previous?JSON.parse(previous.desired):null;
       const c=db.prepare('SELECT * FROM cells WHERE id=?').get(cellId);if(!c)continue;
@@ -179,11 +181,16 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const pausedTurn=db.prepare(`SELECT 1 FROM cell_turns turn JOIN task_lines l ON l.id=turn.line_id JOIN tasks t ON t.id=l.task_id
         WHERE turn.cell_id=? AND t.guidance_paused=1 AND l.execution_state='working'`).get(cellId);
       const owner=pausedTurn?null:existing||(!existingCount&&!countFirst?candidates[0]:null),count=pausedTurn?null:existingCount||(!owner?counts[0]:null);
-      const desired=!c.active?old?{action:'clear',binding:old.binding||binding}:null:count?{action:'count',itemId:count.item_id,itemGeneration:count.generation,binding:count.binding}:owner?{action:c.guidance_mode==='shared'?'locate':'quantity',lineId:owner.id,quantity:owner.planned_quantity,binding}:old?{action:'clear',binding:old.binding||binding}:null;
+      const indicator=stocktakeIndicator(db,cellId);
+      const scope=count?JSON.parse(db.prepare('SELECT scope_json FROM stocktake_runs WHERE id=?').get(count.run_id).scope_json):null;
+      const clear=old?{action:'clear',binding:old.binding||binding,...(old.action==='stocktake'||old.backgroundStocktake?{backgroundStocktake:true}:{})}:null;
+      const desired=!c.active?clear:count?{action:'count',itemId:count.item_id,itemGeneration:count.generation,binding:count.binding,color:'orange',values:countCellValues(db,cellId,scope.productId||null)}:owner?{action:c.guidance_mode==='shared'?'locate':'quantity',lineId:owner.id,quantity:owner.planned_quantity,binding}:!pausedTurn&&indicator?{...indicator,binding}:clear;
       if(desired&&JSON.stringify(desired)!==JSON.stringify(old))setGuidance(cellId,desired);
     }
   }
   function requestCountGuidance(actor,item){
+    const other=db.prepare("SELECT i.id,c.logical_code FROM stocktake_display_claims cl JOIN stocktake_items i ON i.id=cl.item_id JOIN stocktake_runs r ON r.id=i.run_id JOIN cells c ON c.id=i.cell_id WHERE cl.actor_id=? AND i.id!=? AND i.generation=cl.generation AND i.state IN ('pending','counting','skipped','recheck') AND r.status NOT IN ('closed','completed')").get(actor.id,item.id);
+    if(other)throw new Error('Finish or pause counting '+other.logical_code+' before starting another location.');
     const binding=guidanceBinding(db,item.cell_id),attempt=db.prepare('SELECT baseline_json FROM stocktake_attempts WHERE item_id=? AND generation=? AND observation_id IS NULL ORDER BY started_at DESC LIMIT 1').get(item.id,item.generation);
     if(attempt&&JSON.parse(attempt.baseline_json).guidanceBinding!==binding)throw new Error('Count location mapping changed. Save any earlier evidence or skip this attempt before starting a fresh count.');
     db.prepare(`INSERT INTO stocktake_display_claims(item_id,generation,actor_id,binding,requested_at) VALUES(?,?,?,?,?)
@@ -410,6 +417,20 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const raw=metadata('assignment_warning_minutes');
     return {enabled:raw!=='disabled',minutes:raw && raw!=='disabled'?Number(raw):120,timezone:metadata('warehouse_timezone')||Intl.DateTimeFormat().resolvedOptions().timeZone,
       inactivityMinutes:readPendingReviewTimeoutSettings(db).timeoutMinutes};
+  }
+  function reconcileCountReservations(actor,cellId,stocktakeId) {
+    const claims=db.prepare(`SELECT l.id,l.product_id,r.kind,r.quantity,p.items_per_cell,t.assigned_at FROM work_reservations r JOIN task_lines l ON l.id=r.line_id JOIN tasks t ON t.id=l.task_id JOIN products p ON p.id=l.product_id WHERE r.state='held' AND l.cell_id=? ORDER BY t.assigned_at,t.id,l.id`).all(cellId);
+    const pickRoom=new Map();let putSpace=1-db.prepare('SELECT COALESCE(SUM(MAX(0,b.available_quantity)/p.items_per_cell),0) n FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.cell_id=? AND p.items_per_cell>0').get(cellId).n;
+    for(const claim of claims){
+      let fits;
+      if(claim.kind==='pick'){const room=pickRoom.has(claim.product_id)?pickRoom.get(claim.product_id):balance(claim.product_id,cellId);fits=claim.quantity<=room+1e-9;pickRoom.set(claim.product_id,room-claim.quantity);}
+      else{fits=claim.items_per_cell>0&&claim.quantity/claim.items_per_cell<=putSpace+1e-9;putSpace-=claim.quantity/claim.items_per_cell;}
+      if(fits)continue;
+      const allocation=line(claim.id),reason=`Stocktake #${stocktakeId} changed the stock or space at this location. Update the remaining work or close this task.`;
+      let report=db.prepare("SELECT * FROM work_reports WHERE line_id=? AND status IN ('review','received') ORDER BY created_at LIMIT 1").get(allocation.id);
+      if(!report)report=insertReport(actor,{quantity:0,unknown:true,origin:`stocktake-reservation:${stocktakeId}:${allocation.id}`,reason},allocation);
+      review(report,reason);event('reservation_displaced',actor,allocation.id,{stocktakeId,reason},report.id);taskProgress(allocation.task_id);
+    }
   }
   function saveTiming(actor,input) {
     actorNow(actor,"work.timing");
@@ -1138,16 +1159,40 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       WHERE d.state IN ('active','expiring') AND json_extract(d.scope_json,'$.overrideWork')=1
       AND json_extract(t.value,'$.cellId')=? AND json_extract(t.value,'$.status')='sent' LIMIT 1`).get(cellId);
   }
+  const stocktakeFrames=new Map();
+  const stocktakeDisplayQueue=createStocktakeDisplayQueue({logger});
+  function sendBackgroundStocktake(cellId,generation){
+    const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=? AND generation=?').get(cellId,generation);
+    if(!row)return;
+    const desired=JSON.parse(row.desired);
+    if(!(desired.action==='stocktake'||desired.action==='clear'&&desired.backgroundStocktake)||overridingQuantityDisplay(cellId))return;
+    if(db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND json_extract(t.value,'$.cellId')=? AND json_extract(t.value,'$.status')='sent' AND json_extract(t.value,'$.workGeneration') IS ?").get(cellId,generation))return;
+    const cell=db.prepare('SELECT c.*,ctrl.address AS controller_address,ctrl.heartbeat_status FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(cellId);
+    if(!cell||desired.binding!==guidanceBinding(db,cellId))return;
+    if(cell.heartbeat_status&&cell.heartbeat_status!=='online'&&hardwareService.ensureControllerReady){const ready=hardwareService.ensureControllerReady(cell.controller_id);if(!ready?.ok||ready.degraded)return;}
+    const frame=Math.floor(Date.now()/4000)%(desired.values?.length||1),context={workGeneration:generation,workCellId:cellId,workBinding:desired.binding,source:'work_coordinator'};
+    const value=desired.values?.[frame]?.value??0;
+    const result=desired.action==='clear'?hardwareService.clearGuidance({id:null,type:'pick'},[cell],context):hardwareService.showCellQuantity(cell,Number.isInteger(value)&&value>=0&&value<=999?value:Number.isFinite(value)?String(value):'COUNT',desired.color,context);
+    if(result?.ok&&!result.degraded){db.prepare('UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?').run(cellId,generation);stocktakeFrames.set(cellId,generation+':'+frame);}
+  }
   function flushGuidance({restore=false,restoreCells=[],claims=null}={}) {
     withTransaction(db,()=>{
       reconcileGuidance();
-      if(restore){db.prepare("UPDATE work_guidance SET delivered=0 WHERE json_extract(desired,'$.action') IN ('quantity','locate','count')").run();}
+      if(restore){db.prepare("UPDATE work_guidance SET delivered=0 WHERE json_extract(desired,'$.action') IN ('quantity','locate','count','stocktake')").run();}
       for (const cellId of restoreCells) db.prepare("UPDATE work_guidance SET delivered=0 WHERE cell_id=?").run(cellId);
     });
     if (!hardwareService) return;
-    for (const row of db.prepare("SELECT * FROM work_guidance WHERE delivered=0").all()) {
+    for (const row of db.prepare("SELECT * FROM work_guidance WHERE delivered=0 OR json_extract(desired,'$.action') IN ('stocktake','count')").all()) {
       if (overridingQuantityDisplay(row.cell_id)) continue;
       const desired = JSON.parse(row.desired);
+      const countDisplay=['stocktake','count'].includes(desired.action);
+      const frame=countDisplay?Math.floor(Date.now()/4000)%(desired.values?.length||1):0;
+      if(row.delivered&&stocktakeFrames.get(row.cell_id)===row.generation+':'+frame)continue;
+      if(deferStocktakeDisplays&&(desired.action==='stocktake'||desired.backgroundStocktake)){
+        stocktakeDisplayQueue.add(row.cell_id,()=>sendBackgroundStocktake(row.cell_id,row.generation),{priority:desired.color==='blue'&&!stocktakeFrames.get(row.cell_id)?.startsWith(row.generation+':')});
+        continue;
+      }
+      if(countDisplay&&db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND json_extract(t.value,'$.cellId')=? AND json_extract(t.value,'$.status')='sent' AND json_extract(t.value,'$.workGeneration') IS ?").get(row.cell_id,row.generation))continue;
       if(claims&&!claims.some(c=>c.cellId===row.cell_id&&c.generation===row.generation&&c.lineId===desired.lineId))continue;
       const cell = db.prepare("SELECT c.*,ctrl.address AS controller_address FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?").get(row.cell_id);
       if (!cell || desired.binding!==guidanceBinding(db,row.cell_id)) continue;
@@ -1155,8 +1200,9 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const context = { workGeneration: row.generation, workCellId: row.cell_id, workBinding:desired.binding, source: "work_coordinator" };
       if (desired.action === "clear") {
         result = hardwareService.clearGuidance({ id: null, type: "pick" }, [cell], context);
-      } else if(desired.action==='count'){
-        result=hardwareService.showCellQuantity(cell,'LOC','yellow',context);
+      } else if(countDisplay){
+        const quantity=desired.values?.[frame]?.value??0;
+        result=hardwareService.showCellQuantity(cell,Number.isInteger(quantity)&&quantity>=0&&quantity<=999?quantity:Number.isFinite(quantity)?String(quantity):'COUNT',desired.color,context);
       } else {
         const allocation = line(desired.lineId);
         if (!["ready","working"].includes(allocation.execution_state)) continue;
@@ -1164,7 +1210,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
           ? hardwareService.showCellQuantity(cell, "LOC", "yellow", context)
           : hardwareService.activateGuidance({ id: allocation.task_id, type: allocation.type }, [allocation], context);
       }
-      if (result?.ok && !result.degraded) db.prepare("UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?").run(row.cell_id, row.generation);
+      if (result?.ok && !result.degraded) {db.prepare("UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?").run(row.cell_id, row.generation);if(countDisplay)stocktakeFrames.set(row.cell_id,row.generation+':'+frame);}
     }
   }
   function guidanceStatus(l,actor=null){
@@ -1333,5 +1379,5 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   const planningRecovery=createPlanningRecovery({db,workQuantity,event});
   function planningOptions(actor,input){return {...identity(),actorId:actor.id,...planningRecovery.options(actorNow(actor,'work.view'),input)};}
   const history=createWorkHistory({db,actorNow,task,identity});
-  return { ...history, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock, planningOptions };
+  return { ...history, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, reconcileCountReservations, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock, planningOptions, dispose:()=>stocktakeDisplayQueue.dispose() };
 }

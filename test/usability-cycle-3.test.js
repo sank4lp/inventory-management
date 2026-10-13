@@ -17,8 +17,8 @@ const item={id:10,assignee_id:1,active:1,state:'pending',generation:1,descriptio
 const runFixture=()=>({id:1,title:'Shelf check',status:'pending',pending:1,reviews:0,items:[{...item}],attempts:[],observations:[],scopeChanges:[]});
 test('selected count explicitly requests its locator and retains scan, manual and skip fallbacks',()=>{
  const v=countView();v.c.r=runFixture();const html=v.run('runView(r)');
- assert.match(html,/data-count-scan="10"/);assert.match(html,/<details><summary>Cannot scan/);assert.match(html,/Confirm exact location name or code/);
- assert.match(html,/Skip this location for now/);assert.match(html,/Return remaining work/);assert.match(html,/Results and differences/);
+ assert.match(html,/data-count-scan="10"/);assert.match(html,/Count this location/);assert.match(html,/name="method" value="manual"/);
+ assert.match(html,/Skip location/);assert.match(html,/Return remaining count work/);assert.match(html,/\/stocktaking\/results\?run=1/);
  assert.doesNotMatch(html,/data-count-action="start"/);assert.ok(html.indexOf('data-count-scan')<html.indexOf('data-count-action="begin"'));
  v.c.r.items[0].active=0;assert.doesNotMatch(v.run('runView(r)'),/data-count-scan/);
 });
@@ -38,7 +38,7 @@ test('zero-queue recovery is secondary, waiting and rejected counts remain disti
 test('duplicate counter names are disambiguated in assignment selectors and recorded observation attribution',()=>{
  const v=countView();v.run("snapshot.counters=[{id:1,name:'Sam Patel',username:'sam.one'},{id:2,name:'Sam Patel',username:'sam.two'}]");v.c.r=runFixture();
  const html=v.run('management(r)');assert.match(html,/Sam Patel · sam.one/);assert.match(html,/Sam Patel · sam.two/);
- v.c.o={id:'o',item_id:10,lines:[],status:'matched',unknown:[],counter_name:'Sam Patel',counter_username:'sam.one',received_at:'2026-09-28',method:'manual'};assert.match(v.run('observationCard(r,o)'),/Counted by Sam Patel · sam.one/);
+ v.c.o={id:'o',item_id:10,lines:[],status:'matched',unknown:[],counter_name:'Sam Patel',counter_username:'sam.one',received_at:'2026-09-28',method:'manual'};assert.match(v.run('observationCard(r,o)').replace(/<[^>]+>/g,' ').replace(/\s+/g,' '),/Counted by Sam Patel · sam.one/);
 });
 function countFormMock(){
  const fields=[{name:'attemptId',type:'hidden',value:'attempt'}];const rows=[];
@@ -98,6 +98,6 @@ test('explicit stale-field recovery loads the latest revision without silently r
 
 test('live count ownership status changes while a focused count draft remains untouched',()=>{
  const v=countView(),hint={dataset:{countGuidance:'10'},textContent:''},draft={value:'7'},scan={dataset:{countBeginItem:'10',countGeneration:'1'},disabled:false},manual={dataset:{countBeginItem:'10',countGeneration:'1'},disabled:false};v.c.r=runFixture();v.c.r.items[0].guidance={state:'waiting',message:'Waiting for Sam · Task #41.'};v.root.querySelectorAll=selector=>selector==='[data-count-guidance]'?[hint]:selector==='[data-count-begin-item]'?[scan,manual]:[];v.c.document.activeElement=draft;
- const full=readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8').replace('export async function mount() {','');v.run(full.slice(full.indexOf('function patchCountGuidance()'),full.indexOf('setInterval(async()=>')));v.run('snapshot.runs=[r];online=true;patchCountGuidance()');assert.match(hint.textContent,/Sam.*Task #41/);assert.equal(scan.disabled,true);assert.equal(manual.disabled,true);const waiting=v.run('countForm(r,r.items[0])');assert.match(waiting,/Wait until this location is available/);assert.match(waiting,/data-count-begin-item="10" data-count-generation="1" disabled/);
+ const full=readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8').replace('export async function mount() {','');v.run(full.slice(full.indexOf('function patchCountGuidance()'),full.indexOf('setInterval(async()=>')));v.run('snapshot.runs=[r];online=true;patchCountGuidance()');assert.match(hint.textContent,/Sam.*Task #41/);assert.equal(scan.disabled,true);assert.equal(manual.disabled,true);const waiting=v.run('countForm(r,r.items[0])');assert.match(waiting,/Waiting for Sam.*Task #41/);assert.match(waiting,/data-count-begin-item="10" data-count-generation="1" disabled/);
  v.run("r.items[0].guidance={state:'sent',message:'Count locator sent. Identify this location before counting.'};patchCountGuidance()");assert.match(hint.textContent,/Count locator sent/);assert.equal(scan.disabled,false);assert.equal(manual.disabled,false);assert.equal(draft.value,'7');assert.equal(v.c.document.activeElement,draft);v.run('online=false;patchCountGuidance()');assert.match(hint.textContent,/Offline/);
 });

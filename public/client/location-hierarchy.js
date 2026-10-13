@@ -1,9 +1,35 @@
 import {locationTree} from './location-tree.js';
 
+// Fit the content, then share its height across shelves. No square spacer or
+// clipped products; mixed cells and font/viewport changes are measured too.
+function compactLocationCards(root,scope) {
+ let frame=null,stopped=false;
+ const fit=()=>{
+  frame=null;if(stopped)return;
+  let height=0;
+  for(const card of root.querySelectorAll('.location-cell-card')){
+   if(!card.getBoundingClientRect().width)continue;
+   const style=getComputedStyle(card),parts=[...card.children];
+   const content=parts.reduce((sum,part)=>sum+part.getBoundingClientRect().height,0);
+   const inset=['paddingTop','paddingBottom','borderTopWidth','borderBottomWidth'].reduce((sum,key)=>sum+(parseFloat(style[key])||0),0);
+   height=Math.max(height,Math.ceil(content+inset+(parts.length-1)*(parseFloat(style.rowGap)||0)));
+  }
+  if(height&&root.style.getPropertyValue('--location-card-height')!==height+'px')root.style.setProperty('--location-card-height',height+'px');
+ };
+ const schedule=()=>{if(!stopped&&frame===null)frame=requestAnimationFrame(fit);};
+ const resize=typeof ResizeObserver==='undefined'?null:new ResizeObserver(schedule);
+ const observe=()=>{resize?.disconnect();resize?.observe(root);for(const part of root.querySelectorAll('.location-card-heading,.location-card-products,.location-cell-actions'))resize?.observe(part);schedule();};
+ const mutations=new MutationObserver(observe);mutations.observe(root,{childList:true,subtree:true});
+ root.addEventListener('toggle',schedule,true);window.addEventListener('resize',schedule);observe();
+ scope?.own(()=>{stopped=true;if(frame!==null)cancelAnimationFrame(frame);resize?.disconnect();mutations.disconnect();root.removeEventListener('toggle',schedule,true);window.removeEventListener('resize',schedule);});
+}
+
 export async function mount() {
  const root=document.querySelector('[data-location-tree]'),boot=document.querySelector('#location-hierarchy-boot'),edit=document.querySelector('[data-edit-layout]');
- if(!root||!boot||!edit)return;
+ if(!root||!boot)return;
  const scope=globalThis.WarehousePageLifecycle?.current;
+ compactLocationCards(root,scope);
+ if(!edit)return;
  const listen=(target,...args)=>scope?scope.listen(target,...args):target.addEventListener(...args);
  const read=JSON.parse(boot.textContent),cards=read.cards;
  let base=structuredClone(read),draft=structuredClone(read),editing=false,busy=false,pending=null,drag=null;

@@ -69,5 +69,18 @@ export function migrateStocktaking(db) {
       actor_id INTEGER NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL, accounted_delta REAL
     );
   `);
+  db.exec(`CREATE TABLE IF NOT EXISTS stocktake_item_counters (
+    item_id INTEGER NOT NULL REFERENCES stocktake_items(id), user_id INTEGER NOT NULL REFERENCES users(id),
+    PRIMARY KEY(item_id,user_id)
+  );`);
+  for(const [name,definition] of [['display_enabled','INTEGER NOT NULL DEFAULT 0'],['immediate_counts','INTEGER NOT NULL DEFAULT 1'],['assignment_groups',"TEXT NOT NULL DEFAULT '[]'"]]) {
+    if(!db.prepare('PRAGMA table_info(stocktake_runs)').all().some(c=>c.name===name))db.exec(`ALTER TABLE stocktake_runs ADD COLUMN ${name} ${definition}`);
+  }
+  // Upgrade future saves without applying or changing any historical observation.
+  db.exec('UPDATE stocktake_runs SET immediate_counts=1 WHERE immediate_counts=0');
+  if(!db.prepare('PRAGMA table_info(stocktake_items)').all().some(c=>c.name==='display_active')){
+    db.exec(`ALTER TABLE stocktake_items ADD COLUMN display_active INTEGER NOT NULL DEFAULT 0;
+      UPDATE stocktake_items SET display_active=1 WHERE run_id=(SELECT MAX(other.run_id) FROM stocktake_items other JOIN stocktake_runs r ON r.id=other.run_id WHERE other.cell_id=stocktake_items.cell_id AND r.display_enabled=1 AND r.status!='closed');`);
+  }
   if(!db.prepare('PRAGMA table_info(stocktake_movement_links)').all().some(c=>c.name==='accounted_delta'))db.exec('ALTER TABLE stocktake_movement_links ADD COLUMN accounted_delta REAL');
 }

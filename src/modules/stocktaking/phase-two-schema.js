@@ -19,6 +19,16 @@ export function migratePhaseTwo(db) {
       actor_id INTEGER NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result_json TEXT NOT NULL,
       PRIMARY KEY(actor_id,request_id)
     );
+    CREATE TABLE IF NOT EXISTS location_qr_reassignments (
+      id TEXT PRIMARY KEY, label_token TEXT NOT NULL REFERENCES location_labels(token),
+      source_cell_id INTEGER NOT NULL REFERENCES cells(id), target_cell_id INTEGER NOT NULL REFERENCES cells(id),
+      replacement_token TEXT NOT NULL REFERENCES location_labels(token), replacement_revision INTEGER NOT NULL,
+      target_label_id TEXT NOT NULL, target_label_revision INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ready', created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL, resolved_by INTEGER REFERENCES users(id), resolved_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS one_pending_qr_reassignment ON location_qr_reassignments(label_token) WHERE status='ready';
+    CREATE UNIQUE INDEX IF NOT EXISTS one_pending_destination_qr ON location_qr_reassignments(target_cell_id) WHERE status='ready';
     UPDATE location_labels SET scanned_at=(
       SELECT MAX(e.created_at) FROM location_setup_events e
       WHERE json_valid(e.payload) AND (

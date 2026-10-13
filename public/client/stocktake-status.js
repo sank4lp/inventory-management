@@ -8,7 +8,7 @@ async function update(){
   if(badge){badge.textContent=s.badge;badge.hidden=!s.badge;}
   const r=s.runs.find(r=>r.actionable);
   if(r){
-   const message=r.reviews&&(s.capabilities.approve||s.capabilities.recount)?`Stocktaking: ${r.reviews} differences need review`:!r.items.some(i=>s.capabilities.count&&i.active!==0&&i.assignee_id===s.user.id&&['pending','counting','skipped','recheck'].includes(i.state))?'Stocktaking — assign / review locations':r.overdue?'Stocktaking overdue — continue':r.started_at?'Stocktaking in progress — continue':'Stocktaking pending — start';
+   const message=r.reviews&&(s.capabilities.approve||s.capabilities.recount)?`Stocktaking: ${r.reviews} items need checking`:!r.items.some(i=>s.capabilities.count&&i.active!==0&&(i.assignee_id===s.user.id||i.counterIds?.includes(s.user.id))&&['pending','counting','skipped','recheck'].includes(i.state))?'Stocktaking — assign / review locations':r.overdue?'Stocktaking overdue — continue':r.started_at?'Stocktaking in progress — continue':'Stocktaking pending — start';
    globalThis.WarehouseNotifications?.notify(message,{key:'stocktaking-run:'+r.id,tone:'warning',href:'/stocktaking?run='+r.id});
   }
   const saved=JSON.parse(localStorage.getItem('lightguide-stocktaking-v1')||'null'),partition=`${s.site}:${s.user.id}`,requests=new Map((saved?.queues?.[partition]||[]).map(q=>[q.id,q]));

@@ -14,7 +14,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     const restoreCells=[];
     for(const target of JSON.parse(row.targets_json)) {
       if(target.status!=='sent')continue;
-      if(scope.overrideWork&&target.cellId)restoreCells.push(target.cellId);
+      if(target.cellId&&(scope.overrideWork||db.prepare("SELECT 1 FROM work_guidance WHERE cell_id=? AND generation IS ? AND json_extract(desired,'$.action')='stocktake'").get(target.cellId,target.workGeneration)))restoreCells.push(target.cellId);
       const c=target.cellId?cell(target.cellId):target.hardware;
       const controller=db.prepare('SELECT address,module_count,configured_at FROM controllers WHERE id=?').get(target.controllerId||null);
       if(target.controllerSnapshot!==JSON.stringify(controller||null))continue;
@@ -24,7 +24,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       hardwareService.clearCellQuantity(c,{source:'display_coordinator',displayId:row.id,displayActor:row.actor_id});
     }
     db.prepare("UPDATE display_requests SET state='stopped' WHERE id=?").run(row.id);
-    if(scope.overrideWork&&restoreCells.length)operationsService.flushGuidance({restoreCells:[...new Set(restoreCells)]});
+    if(restoreCells.length)operationsService.flushGuidance({restoreCells:[...new Set(restoreCells)]});
   }
   function expire(){
     const now=clock();

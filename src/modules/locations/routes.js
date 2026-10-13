@@ -4,7 +4,12 @@ import {ensureAuth,ensureApiAuth} from '../../server/http/auth-guards.js';
 import {sendHtml,sendJson} from '../../server/http/responses.js';
 export async function locationSetupRoutes(request,response,url,user,state){
  const service=state.locationSetupService;
- if(url.pathname.startsWith('/api/location-setup/')){if(!ensureApiAuth(response,user))return true;const action=url.pathname.split('/').pop();if(request.method==='GET'&&action==='snapshot')sendJson(response,service.snapshot(user));else if(request.method==='POST')sendJson(response,service.command(user,action,request.parsedForm));else sendJson(response,{error:'Unknown action'},404);return true;}
+ if(url.pathname.startsWith('/api/location-setup/')){
+  if(!ensureApiAuth(response,user))return true;const action=url.pathname.split('/').pop();
+  try{if(request.method==='GET'&&action==='snapshot')sendJson(response,service.snapshot(user));else if(request.method==='POST')sendJson(response,service.command(user,action,request.parsedForm));else sendJson(response,{error:'Unknown action'},404);}
+  catch(error){if(!['QR_ASSIGNED','QR_REASSIGNMENT_PENDING'].includes(error.code))throw error;sendJson(response,{error:error.message,code:error.code,qrConflict:error.qrConflict,transferId:error.transferId,targetCellId:error.targetCellId},409);}
+  return true;
+ }
  if(request.method!=='GET'||!(url.pathname.startsWith('/location-setup')||url.pathname==='/locations/manage'))return false;
  if(!ensureAuth(response,user))return true;
  const s=service.snapshot(user);

@@ -14,6 +14,7 @@ import {createStocktakingService} from '../src/modules/stocktaking/service.js';
 import {locationQrValue,resolveLocationLabel,validLocationLabel} from '../src/modules/operations/location-contract.js';
 import {countBoundary} from '../src/modules/stocktaking/accounting.js';
 import {locationBrowseRoutes} from '../src/modules/locations/browse.js';
+import {locationSetupRoutes} from '../src/modules/locations/routes.js';
 function fixture(){
  process.chdir(mkdtempSync(join(tmpdir(),'qr-product-count-')));
  const db=createDatabase({hashPassword,allowDemoInventorySeed:true}),work=createOperationsService({db});
@@ -80,7 +81,7 @@ test('product stocktake corrects only that product in mixed cells and does not c
  const run=f.cc('create',{mode:'product',productId:p.id}).runId;let state=f.count.snapshot(f.op).runs.find(r=>r.id===run);assert.equal(state.items.length,2);assert.equal(JSON.parse(state.scope_json).productId,p.id);
  const attempt=f.begin(run);assert.deepEqual(f.count.snapshot(f.op).runs.find(r=>r.id===run).attempts[0].baseline.products.map(v=>v.productId),[p.id]);
  assert.throws(()=>f.cc('observe',{attemptId:attempt,lines:[{productId:p.id,actual:5},{productId:b.id,actual:0}]}),/selected product/);
- const o=f.cc('observe',{attemptId:attempt,lines:[{productId:p.id,actual:5}]});assert.equal(o.status,'review');
+ const o=f.cc('observe',{attemptId:attempt,lines:[{productId:p.id,actual:5}]});assert.equal(o.status,'approved');assert.equal(f.db.prepare('SELECT available_quantity FROM inventory_balances WHERE cell_id=? AND product_id=?').get(c.id,p.id).available_quantity,5);
  const approval={requestId:randomUUID(),observationId:o.observationId,revision:1,action:'approve',reason:'Unknown',evidence:'Shelf counted twice'};f.count.command(f.admin,'review',approval);assert.equal(f.count.command(f.admin,'review',approval).replayed,true);
  const balances=f.db.prepare('SELECT product_id,available_quantity FROM inventory_balances WHERE cell_id=? ORDER BY product_id').all(c.id);
  assert.equal(balances.find(v=>v.product_id===p.id).available_quantity,5);assert.equal(balances.find(v=>v.product_id===b.id).available_quantity,2);
@@ -93,8 +94,8 @@ test('unexpected product location begins at zero and a changed cell requires a r
  const baseline=f.count.snapshot(f.op).runs.find(r=>r.id===run).attempts[0].baseline;assert.equal(baseline.products[0].recorded,0);
  // Another product moving makes this physical cell's counting boundary stale.
  f.db.prepare('UPDATE inventory_balances SET available_quantity=3 WHERE cell_id=? AND product_id=?').run(c.id,b.id);
- const o=f.cc('observe',{attemptId:attempt,lines:[{productId:p.id,actual:1}]});assert.equal(o.status,'recheck');
- assert.throws(()=>f.cc('review',{observationId:o.observationId,revision:1,action:'approve',reason:'Unknown',evidence:'Checked'},f.admin),/fresh count/);
+ assert.throws(()=>f.cc('observe',{attemptId:attempt,lines:[{productId:p.id,actual:1}]}),/fresh count/);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_observations').get().n,0);
  assert.equal(f.db.prepare('SELECT available_quantity FROM inventory_balances WHERE cell_id=? AND product_id=?').get(c.id,b.id).available_quantity,3);f.db.close();
 });
 test('customer QR works through operator arrival and verification without posting a movement',()=>{
@@ -123,4 +124,63 @@ test('upgrade keeps scanned status only for labels with recorded physical setup 
  migratePhaseTwo(f.db);assert.equal(f.db.prepare('SELECT scanned_at FROM location_labels WHERE token=?').get(verified.label_id).scanned_at,at);
  assert.equal(f.db.prepare('SELECT scanned_at FROM location_labels WHERE token=?').get(manual.label_id).scanned_at,null);migratePhaseTwo(f.db);
  assert.equal(f.db.prepare('SELECT scanned_at FROM location_labels WHERE token=?').get(verified.label_id).scanned_at,at);f.db.close();
+});
+function qrReassignmentFixture(){
+ const f=fixture(),[source,target,other]=f.cells;
+ f.assign(source,'QR-A');f.assign(target,'QR-B');f.stock(f.products[0],source,6);f.stock(f.products[0],target,2);
+ const currentSource=f.current(source.id),currentTarget=f.current(target.id);
+ const repair={sourceCellId:source.id,targetCellId:target.id,sourceLabelId:currentSource.label_id,sourceLabelRevision:currentSource.label_revision,targetLabelId:currentTarget.label_id,targetLabelRevision:currentTarget.label_revision,sourceQr:'QR-A',label:'QR-A-REPLACEMENT',sourceConfirmed:true,replacementConfirmed:true};
+ const finish=id=>({transferId:id,cellId:target.id,labelId:currentTarget.label_id,labelRevision:currentTarget.label_revision,label:'QR-A',confirmed:true});
+ return {...f,source,target,other,repair,finish};
+}
+test('duplicate QR returns a blocked disclaimer with original and destination locations, without changing either',async()=>{
+ const f=qrReassignmentFixture();try{
+  const before=f.db.prepare('SELECT * FROM cells WHERE id IN (?,?)').all(f.source.id,f.target.id),balances=f.db.prepare('SELECT * FROM inventory_balances').all(),target=f.current(f.target.id);
+  const input={requestId:randomUUID(),cellId:target.id,labelId:target.label_id,labelRevision:target.label_revision,label:'QR-A',confirmed:true};
+  assert.throws(()=>f.setup.command(f.admin,'assignQr',input),error=>error.code==='QR_ASSIGNED'&&error.qrConflict.sourceCellId===f.source.id&&error.qrConflict.targetCellId===f.target.id&&/not allowed yet/.test(error.message));
+  const response={writeHead(code){this.code=code;},end(body){this.body=JSON.parse(body);}};
+  await locationSetupRoutes({method:'POST',parsedForm:input},response,new URL('http://localhost/api/location-setup/assignQr'),f.admin,{locationSetupService:f.setup});
+  assert.equal(response.code,409);assert.equal(response.body.code,'QR_ASSIGNED');assert.equal(response.body.qrConflict.sourceCellId,f.source.id);
+  assert.deepEqual(f.db.prepare('SELECT * FROM cells WHERE id IN (?,?)').all(f.source.id,f.target.id),before);assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),balances);
+ }finally{f.db.close();}
+});
+test('reassignment requires checking the original QR and attaching a new unused replacement',()=>{
+ const f=qrReassignmentFixture();try{
+  for(const extra of [{sourceConfirmed:false},{replacementConfirmed:false},{sourceQr:'QR-B'},{label:'QR-A'},{label:'QR-B'}])assert.throws(()=>f.sc('repairQrReassignment',{...f.repair,...extra}));
+  assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A').id,f.source.id);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-B').id,f.target.id);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM location_qr_reassignments').get().n,0);
+  assert.throws(()=>f.sc('repairQrReassignment',f.repair,f.op),/permitted|admin/);
+ }finally{f.db.close();}
+});
+test('repair original location first, reserve its old QR, then assign it only to the intended location without moving stock',()=>{
+ const f=qrReassignmentFixture();try{
+  const balances=f.db.prepare('SELECT * FROM inventory_balances').all(),repair={requestId:randomUUID(),...f.repair},result=f.setup.command(f.admin,'repairQrReassignment',repair);
+  assert.equal(f.setup.command(f.admin,'repairQrReassignment',repair).replayed,true);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A'),null);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A-REPLACEMENT').id,f.source.id);
+  assert.throws(()=>f.assign(f.current(f.target.id),'QR-A'),error=>error.code==='QR_REASSIGNMENT_PENDING');assert.throws(()=>f.assign(f.other,'QR-A'),error=>error.code==='QR_REASSIGNMENT_PENDING');
+  const held=f.db.prepare("SELECT * FROM location_labels WHERE qr_value='QR-A'").get();assert.throws(()=>f.sc('revoke',{token:held.token}),error=>error.code==='QR_REASSIGNMENT_PENDING');assert.equal(f.setup.snapshot(f.admin).labels.find(l=>l.token===held.token).reassignment_id,result.transferId);
+  const restarted=createLocationSetupService({db:f.db,operationsService:f.work,displayCoordinator:f.display});assert.equal(restarted.snapshot(f.admin).qrReassignments[0].id,result.transferId);
+  assert.throws(()=>f.sc('completeQrReassignment',{...f.finish(result.transferId),confirmed:false}),/confirm/);assert.throws(()=>f.sc('completeQrReassignment',{...f.finish(result.transferId),label:'QR-A-REPLACEMENT'}),/released/);
+  assert.throws(()=>f.sc('completeQrReassignment',f.finish(result.transferId),f.op),/permitted|admin/);
+  const finish={requestId:randomUUID(),...f.finish(result.transferId)};f.setup.command(f.admin,'completeQrReassignment',finish);assert.equal(f.setup.command(f.admin,'completeQrReassignment',finish).replayed,true);
+  assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A').id,f.target.id);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A-REPLACEMENT').id,f.source.id);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-B'),null);
+  assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),balances);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,0);assert.equal(f.setup.snapshot(f.admin).qrReassignments.length,0);
+  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM location_setup_events WHERE event_type='qr_reassignment_source_repaired'").get().n,1);assert.equal(f.db.prepare("SELECT COUNT(*) n FROM location_setup_events WHERE event_type='qr_reassigned'").get().n,1);
+ }finally{f.db.close();}
+});
+for(const changed of ['source','target'])test('QR reassignment detects '+changed+' changing before completion, and cancellation preserves both current QRs',()=>{
+ const f=qrReassignmentFixture();try{
+  const result=f.sc('repairQrReassignment',f.repair),changedCell=f.current(f[changed].id);f.assign(changedCell,'NEW-'+changed.toUpperCase());
+  assert.throws(()=>f.sc('completeQrReassignment',f.finish(result.transferId)),/QR changed/);
+  const before=f.db.prepare('SELECT id,label_id FROM cells WHERE id IN (?,?)').all(f.source.id,f.target.id);
+  assert.throws(()=>f.sc('cancelQrReassignment',{transferId:result.transferId,confirmed:false}),/Confirm/);f.sc('cancelQrReassignment',{transferId:result.transferId,confirmed:true});
+  assert.deepEqual(f.db.prepare('SELECT id,label_id FROM cells WHERE id IN (?,?)').all(f.source.id,f.target.id),before);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A'),null);assert.throws(()=>f.assign(f.other,'QR-A'),/replaced/);
+ }finally{f.db.close();}
+});
+test('QR source repair waits for active counting and active task work rather than invalidating its instructions',()=>{
+ const f=qrReassignmentFixture();try{
+  const run=f.cc('create',{mode:'selected',cellIds:[f.source.id]}).runId,attempt=f.begin(run);
+  assert.throws(()=>f.sc('repairQrReassignment',f.repair),/Finish or pause counting/);
+  const item=f.count.snapshot(f.op).runs.find(r=>r.id===run).items[0];f.cc('pause',{itemId:item.id,generation:item.generation});
+  const target=f.current(f.target.id),made=f.work.command(f.op,'create',{requestId:randomUUID(),direction:'pick',quantity:1,productId:f.products[0].id,preferredCellId:target.id});
+  assert.throws(()=>f.sc('repairQrReassignment',f.repair),/outstanding warehouse work/);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A').id,f.source.id);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM location_qr_reassignments').get().n,0);
+ }finally{f.db.close();}
 });

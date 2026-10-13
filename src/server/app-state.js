@@ -110,11 +110,19 @@ function buildAppState() {
     config: appConfig,
     logger,
   });
-  const operationsService = createOperationsService({db, hardwareService, logger});
+  const operationsService = createOperationsService({db, hardwareService, logger,deferStocktakeDisplays:true});
   const stocktakingService=createStocktakingService({db,operationsService});
   const displayCoordinator=createDisplayCoordinator({db,hardwareService,operationsService});
   const locationSetupService=createLocationSetupService({db,operationsService,displayCoordinator});
-  if(process.env.NO_SERVER_LISTEN!=="1"){phaseTwoTimer=setInterval(()=>{try{displayCoordinator.expire();stocktakingService.tick();}catch(error){logger.warn("phase2.maintenance",{error:error.message});}},5000);phaseTwoTimer.unref?.();}
+  const controllerStates=new Map(db.prepare('SELECT id,heartbeat_status FROM controllers').all().map(c=>[c.id,c.heartbeat_status]));
+  if(process.env.NO_SERVER_LISTEN!=="1"){phaseTwoTimer=setInterval(()=>{try{
+    displayCoordinator.expire();stocktakingService.tick();const restoreCells=[];
+    for(const c of db.prepare('SELECT id,heartbeat_status FROM controllers WHERE active=1').all()){
+      if(c.heartbeat_status==='online'&&controllerStates.get(c.id)!=='online')restoreCells.push(...db.prepare('SELECT id FROM cells WHERE controller_id=?').all(c.id).map(c=>c.id));
+      controllerStates.set(c.id,c.heartbeat_status);
+    }
+    operationsService.flushGuidance({restoreCells});
+  }catch(error){logger.warn("warehouse.maintenance",{error:error.message});}},5000);phaseTwoTimer.unref?.();}
   const systemService = createSystemService({
     db,
     config: appConfig,
@@ -203,6 +211,7 @@ export function reloadAppState({ closeCurrentDb = true } = {}) {
   stopControllerHealthMaintenance();
   stopDatabaseMaintenance();
   appState?.hardwareService?.dispose?.();
+  appState?.operationsService?.dispose?.();
   if (closeCurrentDb && appState?.db) {
     appState.db.close();
   }

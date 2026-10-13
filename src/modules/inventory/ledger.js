@@ -1,8 +1,14 @@
+import {countCellOwner} from '../stocktaking/workflow.js';
 // Private inventory write primitive. Only transactional domain commands call this.
 // Authorization, reservations and physical evidence are validated by the command owner.
 export function postMovement(db,{actor,performer=null,productId,cellId,quantity,type,taskId=null,lineId=null,origin,reason,unit,expectedBalance}) {
   if(!db.isTransaction)throw new Error('Inventory posting requires the domain transaction.');
   if(!Number.isFinite(quantity)||!actor?.id||!origin||!unit)throw new Error('Incomplete inventory movement identity.');
+  const count=countCellOwner(db,cellId);
+  if(count){
+    const observation=type==='adjustment'&&origin.startsWith('stocktake:')?db.prepare('SELECT * FROM stocktake_observations WHERE id=? AND item_id=? AND counter_id=?').get(origin.slice(10),count.item_id,actor.id):null;
+    if(!observation)throw new Error('This location is being counted by '+count.name+'. Finish or pause that count before recording a movement here.');
+  }
   db.prepare('INSERT OR IGNORE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,0,0)').run(productId,cellId);
   const before=db.prepare('SELECT available_quantity q FROM inventory_balances WHERE product_id=? AND cell_id=?').get(productId,cellId).q;
   const totalBefore=db.prepare('SELECT ROUND(COALESCE(SUM(available_quantity),0),6) q FROM inventory_balances WHERE product_id=?').get(productId).q;
