@@ -177,3 +177,24 @@
  .stocktake-next-actions > [data-select-count-cell] { grid-column:2; grid-row:2; }
  .stocktake-cell-navigation button { width:100%; }
 }
+
+/* Keep stocktake history in rows only while every column fits on one line. */
+#stocktaking-app .stocktake-history-wrap { overflow-x:hidden; max-height:380px; }
+#stocktaking-app .stocktake-history-table { min-width:0; table-layout:auto; }
+#stocktaking-app .stocktake-history-table :is(th,td) { white-space:nowrap; padding:7px 10px; }
+#stocktaking-app .stocktake-history-table td > a:not(.mini-link) { padding:0; min-height:0; }
+#stocktaking-app .stocktake-history-table .mini-link { margin:0; }
+#stocktaking-app .stocktake-history-cards { display:block; width:100%; }
+#stocktaking-app .stocktake-history-cards > thead { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+#stocktaking-app .stocktake-history-cards > tbody { display:grid; gap:8px; }
+#stocktaking-app .stocktake-history-cards > tbody > tr { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr)); gap:8px 12px; padding:10px; border:1px solid #dce5e0; border-radius:8px; background:#fff; }
+#stocktaking-app .stocktake-history-cards td { display:grid; align-content:start; gap:3px; padding:0; border:0; white-space:normal; overflow-wrap:anywhere; min-width:0; }
+#stocktaking-app .stocktake-history-cards td[data-label]::before { content:attr(data-label); font-size:11px; line-height:1.3; color:#61716a; }
+#stocktaking-app .stocktake-history-cards td[data-label=Stocktake] { font-weight:650; }
+#stocktaking-app .stocktake-history-cards td[data-label=Action] > a { justify-self:start; }
+#stocktaking-app .stocktake-history-cards td[colspan] { grid-column:1 / -1; }
+@media(max-width:700px) {
+ #stocktaking-app .stocktake-scope-buttons { margin:8px 0 0; }
+ #stocktaking-app .stocktake-scope-buttons:has(+ form) { margin-bottom:12px; }
+ #stocktaking-app .stocktake-history-cards td[data-label=Action] > a { min-height:44px; }
+}

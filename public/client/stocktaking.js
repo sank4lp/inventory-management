@@ -12,7 +12,7 @@ function captureNotification(){globalThis.WarehouseNotifications?.setOfflineScop
 function announce(message){lastNotice='';notice=message;captureNotification();}
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID(),params=new URLSearchParams(location.search),runId=Number(params.get('run')),selectedItem=()=>Number(params.get('cell'));
-let uiScope=params.has('productId')?'product':params.has('cellId')?'selected':'warehouse';
+let uiScope=params.has('productId')?'product':params.has('cellId')?'selected':null;
 let locationQuery='',openingCell=null,countOpenFailure=null,countOpenFlight=null;
 const locationResultMarkup=new WeakMap();
 let presenceSession=null,presenceFlight=null,sessionContinues=false,sessionLeft=false,completionShown=false,lastRunStatus=snapshot?.runs.find(r=>r.id===runId)?.status;
@@ -75,7 +75,7 @@ function legacyManagement(r){return `<details class="work-panel"><summary>Assign
 function recoveryToolbar(){const pending=queue().filter(q=>!q.result),waiting=pending.filter(q=>!q.error).length,errors=pending.length-waiting;return `<div class="work-toolbar count-toolbar"><p role="status">${online?'Connected to warehouse':'Offline — saved status may be out of date'}${waiting?' · '+waiting+' saved update(s) awaiting confirmation':''}${errors?' · '+errors+' update(s) need correction':''}</p>${waiting||!online?'<button type="button" data-retry>'+(waiting?'Send saved counts':'Retry connection')+'</button>':''}<details ${params.has('device_help')||errors?'open':''}><summary>Saved count help</summary>${!waiting&&online?'<button type="button" class="secondary" data-retry>Refresh status</button>':''}<button type="button" class="secondary" data-export-counts>Download saved count evidence</button></details></div>`;}
 function extraEditable(f){return !queue().some(q=>q.action==='observe'&&q.input.attemptId===f.elements.attemptId?.value&&!q.error);}
 function removeExtra(b){const f=b.closest('form[data-count-action="observe"]'),row=b.closest('[data-count-line]');if(!f||!row||!row.closest('[data-extra-lines]')||!extraEditable(f))return false;row.remove();saveDraft(f);updateCountButtons();return true;}
-function render(){if(pageScope?.active===false)return;captureNotification();if(!snapshot){root.innerHTML='<p>Reconnect and sign in to load count instructions. No saved stocktake is available on this device.</p>';return;}const r=snapshot.runs.find(r=>r.id===runId);root.innerHTML=`${returnTo?`<a href="${esc(returnTo)}">← Back to where you started</a>`:''}${recoveryToolbar()}${queue().filter(q=>q.error).map(q=>`<p class="work-callout">${esc(q.error)} — retained on this device.</p>`).join('')}${runId?(r?runView(r):'<p>This run is unavailable in your permitted scope.</p>'):landing()}`;if(returnTo)for(const link of root.querySelectorAll('a[href^="/stocktaking"]')){const target=new URL(link.href,location.origin);target.searchParams.set('return_to',returnTo);link.href=target.pathname+target.search+target.hash;}restoreCountDrafts();updateCountButtons();completionNotice();renderedRunState=runViewState();const strip=root.querySelector?.('.stocktake-cell-strip'),selected=strip?.querySelector('.selected');if(selected){const edge=selected.getBoundingClientRect(),bounds=strip.getBoundingClientRect();if(edge.right>bounds.right)strip.scrollLeft+=edge.right-bounds.right;else if(edge.left<bounds.left)strip.scrollLeft-=bounds.left-edge.left;}void prepareSelectedCount();}
+function render(){if(pageScope?.active===false)return;captureNotification();if(!snapshot){root.innerHTML='<p>Reconnect and sign in to load count instructions. No saved stocktake is available on this device.</p>';return;}const r=snapshot.runs.find(r=>r.id===runId);root.innerHTML=`${returnTo?`<a href="${esc(returnTo)}">← Back to where you started</a>`:''}${recoveryToolbar()}${queue().filter(q=>q.error).map(q=>`<p class="work-callout">${esc(q.error)} — retained on this device.</p>`).join('')}${runId?(r?runView(r):'<p>This run is unavailable in your permitted scope.</p>'):landing()}`;if(returnTo)for(const link of root.querySelectorAll('a[href^="/stocktaking"]')){const target=new URL(link.href,location.origin);target.searchParams.set('return_to',returnTo);link.href=target.pathname+target.search+target.hash;}restoreCountDrafts();updateCountButtons();prepareStocktakeHistory();completionNotice();renderedRunState=runViewState();const strip=root.querySelector?.('.stocktake-cell-strip'),selected=strip?.querySelector('.selected');if(selected){const edge=selected.getBoundingClientRect(),bounds=strip.getBoundingClientRect();if(edge.right>bounds.right)strip.scrollLeft+=edge.right-bounds.right;else if(edge.left<bounds.left)strip.scrollLeft-=bounds.left-edge.left;}void prepareSelectedCount();}
 function updateCountButtons(){for(const f of root.querySelectorAll('[data-count-action="observe"]')){const rows=[...f.querySelectorAll('[data-count-line]')],b=f.querySelector('[data-accept-counts]');if(b)b.disabled=rows.some(row=>{const input=row.querySelector('[name^="actual_"]');return !input||input.value.trim()===''||Number(input.value)!==Number(row.cells[1].textContent.trim());});const empty=f.querySelector('[name="emptyConfirmed"]');if(empty){empty.disabled=rows.length>0;empty.required=!rows.length;if(rows.length)empty.checked=false;empty.closest('label').hidden=rows.length>0;}const table=f.querySelector('[data-count-products]');if(table)table.hidden=!rows.length;const text=f.querySelector('[data-count-empty-text]');if(text)text.hidden=rows.length>0;}}
 function restoreCountDrafts(){for(const f of root.querySelectorAll('form[data-count-action]')){const draft=saved.drafts[partition()+':'+f.dataset.key];if(!draft)continue;
  for(const id of draft._extra||[]){const p=snapshot.products.find(p=>p.id===id);if(p&&!f.querySelector(`[data-count-line="${id}"]`))f.querySelector('[data-extra-lines]')?.insertAdjacentHTML('beforeend',lineInputs({...p,productId:id,recorded:0},true,extraEditable(f)));}
@@ -120,7 +120,7 @@ async function drain(){busy=true;try{await refresh();let q;
  if(online)await refresh();}catch(e){online=false;notice=e.message;}finally{busy=false;render();}}
 
 function scopeFields(existing={}) {
- const chosen=JSON.parse(existing.scope_json||JSON.stringify({mode:uiScope,cellIds:params.get('cellId')?[Number(params.get('cellId'))]:[],productId:Number(params.get('productId'))||null}));
+ const chosen=JSON.parse(existing.scope_json||JSON.stringify({mode:uiScope||'warehouse',cellIds:params.get('cellId')?[Number(params.get('cellId'))]:[],productId:Number(params.get('productId'))||null}));
  const mode=chosen.mode,warehouse=chosen.warehouseId||(snapshot.warehouses?.length===1?snapshot.warehouses[0].id:'');
  const scheduleScope=existing._schedule;
  return `<div class="stocktake-scope-fields">${scheduleScope?`<label>Count<select name="mode">${[['warehouse','Whole warehouse'],['shelf','Shed / Shelf'],['product','Product'],['selected','Location']].map(([value,label])=>`<option value="${value}" ${value===mode?'selected':''}>${label}</option>`).join('')}</select></label>`:hidden('mode',mode)}<label>Warehouse<select data-searchable name="warehouseId" ${mode==='selected'?'':'required'}><option value="">Choose warehouse</option>${options(snapshot.warehouses||[],warehouse,w=>w.name)}</select></label>${mode==='shelf'||scheduleScope?`<label data-scope-kind="shelf" ${mode!=='shelf'?'hidden':''}>Shed / Shelf<select data-searchable name="shelfId" ${mode==='shelf'?'required':'disabled'}><option value="">Choose shed / shelf</option>${options((snapshot.shelves||[]).filter(v=>!warehouse||v.warehouse_id===Number(warehouse)),chosen.shelfId,v=>v.name)}</select></label>`:''}${mode==='product'||scheduleScope?`<label data-scope-kind="product" ${mode!=='product'?'hidden':''}>Product<select data-searchable name="productId" ${mode==='product'?'required':'disabled'}><option value="">Choose product</option>${options(snapshot.products,chosen.productId,p=>p.name+' · '+p.sku)}</select></label>`:''}${mode==='product'&&!scheduleScope?productLocations(chosen,warehouse):''}${mode==='selected'||scheduleScope?`<label data-scope-kind="selected" ${mode!=='selected'?'hidden':''}>Location<select data-searchable name="cellIds" ${mode==='selected'?'required':'disabled'}>${options(snapshot.cells,chosen.cellIds?.[0],c=>c.description.name)}</select></label>`:''}</div>`;
@@ -149,9 +149,37 @@ function counterPicker(ids=[]){
 function landing(){
  if(location.pathname.endsWith('/results'))return legacyLanding();
  const modes=[['warehouse','Whole warehouse'],['shelf','Shed / Shelf'],['product','Product']];
- const create=(snapshot.capabilities.create||snapshot.capabilities.manage)?panel('What do you want to count?',`<div class="stocktake-scope-buttons" role="group" aria-label="Stocktake scope">${modes.map(([mode,label])=>`<button type="button" class="${uiScope===mode?'':'secondary'}" data-count-scope="${mode}" aria-pressed="${uiScope===mode}">${label}</button>`).join('')}</div>${form('create',scopeFields()+`<div class="stocktake-create-options">${snapshot.capabilities.manage?counterPicker([snapshot.user.id]):hidden('assigneeId',snapshot.user.id)}${input('dueDate','Due date (optional)','date')}</div><button>Create Stocktake</button>`,'new-stocktake-'+uiScope)}`):'';
+ const create=(snapshot.capabilities.create||snapshot.capabilities.manage)?panel('What do you want to count?',`<div class="stocktake-scope-buttons" role="group" aria-label="Stocktake scope">${modes.map(([mode,label])=>`<button type="button" class="${uiScope===mode?'':'secondary'}" data-count-scope="${mode}" aria-pressed="${uiScope===mode}">${label}</button>`).join('')}</div>${uiScope?form('create',scopeFields()+`<div class="stocktake-create-options">${snapshot.capabilities.manage?counterPicker([snapshot.user.id]):hidden('assigneeId',snapshot.user.id)}${input('dueDate','Due date (optional)','date')}</div><button>Create Stocktake</button>`,'new-stocktake-'+uiScope):''}`):'';
 
- return create+panel('Previous Stocktakes',`<div class="table-wrap"><table class="stocktake-table"><thead><tr><th>Stocktake</th><th>Progress</th><th>Status</th><th>Assigned</th><th>Completed</th><th>Action</th></tr></thead><tbody>${snapshot.runs.map(r=>`<tr><td><a href="${stocktakeLink(r)}">#${r.id}</a></td><td>${r.completed??0} / ${r.total??r.items.length}</td><td>${esc(lifecycleLabel(r))}</td><td>${esc(countDate(r.assigned_at||r.created_at))}</td><td>${r.status==='completed'?esc(countDate(r.closed_at)):''}</td><td><a class="mini-link" href="${stocktakeLink(r)}">${r.status==='stopped'?'View / restart':r.status==='completed'?'View':r.started_at?'Resume':'Open'}</a></td></tr>`).join('')||'<tr><td colspan="6">No stocktakes.</td></tr>'}</tbody></table></div>`)+`<details class="work-panel"><summary>Schedule</summary>${schedule()}</details>`;
+ return create+panel('Previous Stocktakes',previousStocktakes())+`<details class="work-panel"><summary>Schedule</summary>${schedule()}</details>`;
+}
+function previousStocktakes(){
+ const columns=['Stocktake','Progress','Status','Assigned','Completed','Action'];
+ const rows=snapshot.runs.map(r=>{
+  const values=[`<a href="${stocktakeLink(r)}">#${r.id}</a>`,`${r.completed??0} / ${r.total??r.items.length}`,esc(lifecycleLabel(r)),esc(countDate(r.assigned_at||r.created_at)),r.status==='completed'?esc(countDate(r.closed_at)):'',`<a class="mini-link" href="${stocktakeLink(r)}">${r.status==='stopped'?'View / restart':r.status==='completed'?'View':r.started_at?'Resume':'Open'}</a>`];
+  return `<tr role="row">${values.map((value,index)=>`<td role="cell" data-label="${columns[index]}">${value}</td>`).join('')}</tr>`;
+ });
+ return `<div class="table-wrap stocktake-history-wrap" data-mobile-table="scroll"><table class="stocktake-table stocktake-history-table" data-stocktake-history role="table" aria-label="Previous Stocktakes"><thead role="rowgroup"><tr role="row">${columns.map(v=>`<th scope="col" role="columnheader">${v}</th>`).join('')}</tr></thead><tbody role="rowgroup">${rows.join('')||'<tr role="row"><td role="cell" colspan="6">No stocktakes.</td></tr>'}</tbody></table></div>`;
+}
+let historyLayoutObserver=null;
+pageScope?.own(()=>historyLayoutObserver?.disconnect());
+function prepareStocktakeHistory(){
+ historyLayoutObserver?.disconnect();historyLayoutObserver=null;
+ const table=root.querySelector?.('[data-stocktake-history]');if(!table)return;
+ const wrap=table.parentElement;
+ const fit=()=>{
+  if(!table.isConnected||!wrap.clientWidth)return;
+  // Measure the real one-line row before choosing cards; no duplicate controls.
+  table.classList.remove('stocktake-history-cards');table.style.width='max-content';
+  const required=table.getBoundingClientRect().width;table.style.removeProperty('width');
+  table.classList.toggle('stocktake-history-cards',required>wrap.clientWidth+1);
+ };
+ fit();
+ if(typeof ResizeObserver!=='undefined'){
+  let width=wrap.clientWidth;historyLayoutObserver=new ResizeObserver(()=>{if(wrap.clientWidth!==width){width=wrap.clientWidth;fit();}});historyLayoutObserver.observe(wrap);
+ }
+ document.fonts?.ready.then(()=>{if(pageScope?.active!==false)fit();});
+
 }
 function lineInputs(l,extra=false,removable=true){
  const id=l.productId,unit=l.unit||l.unit_of_measure;
