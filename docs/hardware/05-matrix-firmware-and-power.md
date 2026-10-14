@@ -52,6 +52,27 @@ Rules:
 - brightness is clamped from `0` to `100`,
 - each module keeps its own state, so changing module `3` does not stop module `1`.
 
+### Mixed-product quantities
+
+The app uses cyan, white and bright pink at 100% brightness for alternating
+mixed-product quantities. It does not reuse the yellow/red/green/blue/orange
+workflow colours. A single digit stays visible for four seconds. Longer
+numbers make one right-to-left pass at 120 ms per pixel before changing to
+the next product: about 2.76 seconds for two digits, 3.60 for three.
+
+The addressed command can add the optional `once` argument:
+
+```text
+to ESP32-01 text 1 "10" cyan 120 100 once
+```
+
+Rebuild and flash the updated `esp32-simple-matrix` sketch to enable exactly
+one scrolling pass. Existing sketches accept the normal text arguments but
+ignore `once` and may begin repeating while waiting for the next command.
+Regular task numbers and text commands without `once` keep their existing
+behaviour. Display ownership, expiry and restoring task lights still belong
+to the Pi app.
+
 ## Software brightness policy
 
 The application sends **100% brightness** for Pick, Put, stocktaking, Locate,

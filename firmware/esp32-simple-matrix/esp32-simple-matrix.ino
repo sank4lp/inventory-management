@@ -52,6 +52,7 @@ struct ModuleState {
   int brightness;
   int scrollOffset;
   int scrollSpeedMs;
+  bool scrollOnce;
   unsigned long lastStepAt;
   unsigned long testUntil;
   unsigned long testStartedAt;
@@ -513,7 +514,7 @@ void renderModule(int module) {
   }
 }
 
-void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int brightness, bool forceScroll) {
+void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int brightness, bool forceScroll, bool scrollOnce) {
   if (module < 0) {
     return;
   }
@@ -526,13 +527,14 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
   modules[module].color = scaleColor(color, brightness);
   modules[module].brightness = clampBrightness(brightness);
   modules[module].scrollSpeedMs = speedMs;
+  modules[module].scrollOnce = scrollOnce;
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
   if (modules[module].scrollSpeedMs <= 0) {
     modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
   }
-  modules[module].lastStepAt = 0;
+  modules[module].lastStepAt = scrollOnce ? millis() : 0;
 
   if (forceScroll) {
     modules[module].mode = MODE_SCROLL;
@@ -562,6 +564,7 @@ void showTaskModule(int module, const char *text, uint32_t color, int brightness
   modules[module].brightness = clampBrightness(brightness);
   modules[module].color = scaleColor(color, modules[module].brightness);
   modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
+  modules[module].scrollOnce = false;
   modules[module].lastStepAt = 0;
   modules[module].testUntil = 0;
   modules[module].locateUntil = 0;
@@ -889,6 +892,12 @@ void updateScrolls() {
 
     int width = strlen(modules[module].text) * CHAR_ADVANCE_SCROLL;
     if (modules[module].scrollOffset < -width) {
+      if (modules[module].scrollOnce) {
+        modules[module].mode = MODE_OFF;
+        clearModulePixels(module);
+        changed = true;
+        continue;
+      }
       modules[module].scrollOffset = W;
     }
 
@@ -957,8 +966,8 @@ void handleLine(char *cmdLine) {
   strncpy(local, cmdLine, sizeof(local) - 1);
   local[sizeof(local) - 1] = 0;
 
-  char *tokens[8];
-  int count = splitLine(local, tokens, 8);
+  char *tokens[10];
+  int count = splitLine(local, tokens, 10);
 
   if (count == 0) {
     return;
@@ -1174,7 +1183,7 @@ void handleLine(char *cmdLine) {
       if (strcmp(command, "digit") == 0) {
         showTaskModule(module, text, colorFor(color), brightness);
       } else {
-        showOrScroll(module, text, colorFor(color), speed, brightness, forceScroll);
+        showOrScroll(module, text, colorFor(color), speed, brightness, forceScroll, count >= 7 && strcmp(tokens[6], "once") == 0);
       }
       ack(command, module);
       return;
@@ -1198,7 +1207,7 @@ void handleLine(char *cmdLine) {
       if (count >= 5) {
         brightness = atoi(tokens[4]);
       }
-      showOrScroll(module, text, colorFor(color), speed, brightness, false);
+      showOrScroll(module, text, colorFor(color), speed, brightness, false, false);
       ack("display", module);
       return;
     }
@@ -1226,6 +1235,7 @@ void setup() {
     modules[module].brightness = DEFAULT_BRIGHTNESS_PERCENT;
     modules[module].scrollOffset = W;
     modules[module].scrollSpeedMs = DEFAULT_SCROLL_MS;
+    modules[module].scrollOnce = false;
     modules[module].lastStepAt = 0;
     modules[module].testUntil = 0;
     modules[module].testStartedAt = 0;

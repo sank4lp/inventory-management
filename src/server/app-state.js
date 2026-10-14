@@ -2,6 +2,7 @@ import { createOperationsService } from "../modules/operations/service.js";
 import {createStocktakingService} from '../modules/stocktaking/service.js';
 import {createLocationSetupService} from '../modules/locations/service.js';
 import {createDisplayCoordinator} from '../services/display-coordinator.js';
+import {DISPLAY_TICK_MS} from '../services/quantity-display.js';
 import { appConfig } from "../config.js";
 import { createDatabase } from "../db.js";
 import { createLogger } from "../logger.js";
@@ -32,6 +33,7 @@ let stalePendingTaskTimer = null;
 let databaseMaintenanceTimer = null;
 let controllerHealthTimer = null;
 let phaseTwoTimer=null;
+let displayTimer=null;
 
 const CONTROLLER_HEALTH_TIMER_INTERVAL_MS = 5 * 1000;
 
@@ -115,8 +117,10 @@ function buildAppState() {
   const displayCoordinator=createDisplayCoordinator({db,hardwareService,operationsService});
   const locationSetupService=createLocationSetupService({db,operationsService,displayCoordinator});
   const controllerStates=new Map(db.prepare('SELECT id,heartbeat_status FROM controllers').all().map(c=>[c.id,c.heartbeat_status]));
-  if(process.env.NO_SERVER_LISTEN!=="1"){phaseTwoTimer=setInterval(()=>{try{
-    displayCoordinator.expire();stocktakingService.tick();const restoreCells=[];
+  if(process.env.NO_SERVER_LISTEN!=="1"){
+    displayTimer=setInterval(()=>{try{displayCoordinator.expire();}catch(error){logger.warn("warehouse.display",{error:error.message});}},DISPLAY_TICK_MS);displayTimer.unref?.();
+    phaseTwoTimer=setInterval(()=>{try{
+    stocktakingService.tick();const restoreCells=[];
     for(const c of db.prepare('SELECT id,heartbeat_status FROM controllers WHERE active=1').all()){
       if(c.heartbeat_status==='online'&&controllerStates.get(c.id)!=='online')restoreCells.push(...db.prepare('SELECT id FROM cells WHERE controller_id=?').all(c.id).map(c=>c.id));
       controllerStates.set(c.id,c.heartbeat_status);
@@ -208,6 +212,7 @@ function buildAppState() {
 export function reloadAppState({ closeCurrentDb = true } = {}) {
   stopStalePendingTaskMaintenance();
   if(phaseTwoTimer){clearInterval(phaseTwoTimer);phaseTwoTimer=null;}
+  if(displayTimer){clearInterval(displayTimer);displayTimer=null;}
   stopControllerHealthMaintenance();
   stopDatabaseMaintenance();
   appState?.hardwareService?.dispose?.();

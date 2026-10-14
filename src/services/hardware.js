@@ -209,7 +209,7 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
       return run(
         "cell_quantity_display",
         adapter.showCellQuantity.bind(adapter),
-        [cell, quantity, color],
+        [cell, quantity, color, context.displayTiming||{}],
         {
           cellId: cell.id,
           controllerId: cell.controller_id,

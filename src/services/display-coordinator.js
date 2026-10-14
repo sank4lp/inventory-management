@@ -1,9 +1,10 @@
+import {MIXED_PRODUCT_COLORS,mixedQuantityTiming} from './quantity-display.js';
 import {activeWorkGuidance,displayOwner} from '../modules/operations/guidance.js';
 import {assertCan,can} from "../modules/access/catalog.js";
 import {randomUUID,createHash} from 'node:crypto';
 import {withTransaction} from '../db.js';
 export function createDisplayCoordinator({db,hardwareService,operationsService,clock=()=>new Date()}) {
-  const mixedColors=['amber','cyan','white','green','red'];
+  const mixedColors=MIXED_PRODUCT_COLORS;
   const numberDisplayKinds=new Set(['quantity','items_per_location','capacity_total','capacity_available']);
   const overrideDisplayKinds=new Set([...numberDisplayKinds,'locate','ping','module_number','cell_name']);
   const activeWork=id=>activeWorkGuidance(db,id);
@@ -34,11 +35,11 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       if(targets.some(t=>t.status==='sent'&&t.cellId&&(workGeneration(t.cellId)!==t.workGeneration||cell(t.cellId)?.binding_revision!==t.bindingRevision))){clear(row);continue;}
       let changed=false;
       for(const target of targets){
-        if(target.status!=='sent'||!target.sequence?.length||now.getTime()-Date.parse(target.lastShownAt||row.created_at)<4000)continue;
+        if(target.status!=='sent'||!target.sequence?.length||now.getTime()-Date.parse(target.lastShownAt||row.created_at)<mixedQuantityTiming(target.value).durationMs)continue;
         const c=cell(target.cellId),nextIndex=(Number(target.sequenceIndex||0)+1)%target.sequence.length,next=target.sequence[nextIndex];
-        const result=hardwareService.showCellQuantity(c,next.value,next.color,{source:'display_coordinator',displayId:row.id,displayActor:row.actor_id});
+        const result=hardwareService.showCellQuantity(c,next.value,next.color,{source:'display_coordinator',displayId:row.id,displayActor:row.actor_id,displayTiming:mixedQuantityTiming(next.value)});
         if(!result.ok||result.degraded)continue;
-        target.sequenceIndex=nextIndex;target.value=next.value;target.color=next.color;target.lastShownAt=now.toISOString();changed=true;
+        target.sequenceIndex=nextIndex;target.value=next.value;target.color=next.color;target.lastShownAt=clock().toISOString();changed=true;
       }
       if(changed)db.prepare("UPDATE display_requests SET targets_json=? WHERE id=? AND state IN ('active','expiring')").run(JSON.stringify(targets),row.id);
     }
@@ -99,7 +100,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     }
     const created=clock().toISOString(),expires=new Date(clock().getTime()+(scope.kind==='locate'?300000:scope.kind==='ping'?5000:120000)).toISOString();
     db.prepare('INSERT INTO display_requests(id,actor_id,fingerprint,scope_json,targets_json,created_at,expires_at) VALUES(?,?,?,?,?,?,?)').run(id,a.id,fingerprint,JSON.stringify(scope),JSON.stringify(targets),created,expires);
-    for(const target of targets){if(!['ready','selection','unsupported','uncertain'].includes(target.status)||scope.kind==='cell_name'&&target.status!=='ready')continue;const c=target.cellId?cell(target.cellId):target.hardware;const numeric=target.status==='ready'&&target.value!=='LOC';const context={source:'display_coordinator',displayId:id,displayActor:a.id};const result=scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);target.status=result.ok&&!result.degraded?'sent':'unreachable';target.numeric=numeric&&Number.isInteger(target.value)&&target.value<=999;}
+    for(const target of targets){if(!['ready','selection','unsupported','uncertain'].includes(target.status)||scope.kind==='cell_name'&&target.status!=='ready')continue;const c=target.cellId?cell(target.cellId):target.hardware;const numeric=target.status==='ready'&&target.value!=='LOC';const context={source:'display_coordinator',displayId:id,displayActor:a.id,...(target.sequence?.length?{displayTiming:mixedQuantityTiming(target.value)}:{})};const result=scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);target.status=result.ok&&!result.degraded?'sent':'unreachable';if(target.status==='sent')target.lastShownAt=clock().toISOString();target.numeric=numeric&&Number.isInteger(target.value)&&target.value<=999;}
     db.prepare('UPDATE display_requests SET targets_json=? WHERE id=?').run(JSON.stringify(targets),id);
     const sent=targets.filter(t=>t.status==='sent').length,skipped=targets.length-sent;
     const unsupportedNames=scope.kind==='cell_name'?targets.filter(t=>t.status==='unsupported').length:0;

@@ -119,10 +119,10 @@ test('mixed-product quantity display alternates readable colors while a selected
   f.db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,7,0)').run(other.id,f.cells[0].id);
   let time=new Date();const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work,clock:()=>time});
   const mixed=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id});
-  assert.deepEqual(mixed.targets[0].sequence.map(s=>s.color),['amber','cyan']);
+  assert.deepEqual(mixed.targets[0].sequence.map(s=>s.color),['cyan','white']);
   assert.deepEqual(mixed.targets[0].sequence.map(s=>s.value),[4,7]);
   time=new Date(time.getTime()+5000);display.expire();
-  assert.match(f.writes.at(-1),/text 1 "7" cyan/);
+  assert.match(f.writes.at(-1),/text 1 "7" white/);
   display.stop(f.admin,mixed.id);
   const selected=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id,productId:other.id});
   assert.equal(selected.targets[0].value,7);
@@ -254,5 +254,19 @@ test('Show all quantities sends numeric zero to empty mapped cells, including ex
    assert.ok(f.writes.some(s=>s===`to GUIDE text ${ch} "0" yellow 120 100`));
   }
   assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),before);display.stop(f.admin,result.id);
+ }finally{f.end();}
+});
+
+test('mixed quantities hold a single digit for four seconds then give each longer number one full slide',()=>{
+ const f=fixture();try{
+  const products=f.db.prepare('SELECT * FROM products ORDER BY id LIMIT 3').all();
+  for(const [index,p]of products.entries())f.db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,?,0)').run(p.id,f.cells[0].id,[4,10,100][index]);
+  let time=new Date();const display=createDisplayCoordinator({db:f.db,hardwareService:f.hardware,operationsService:f.work,clock:()=>time});
+  const shown=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id});
+  assert.deepEqual(shown.targets[0].sequence.map(s=>s.color),['cyan','white','pink']);
+  assert.match(f.writes.at(-1),/text 1 "4" cyan 120 100 once/);
+  const advance=(ms,expected)=>{const before=f.writes.length;time=new Date(time.getTime()+ms);display.expire();if(expected)assert.match(f.writes.at(-1),expected);else assert.equal(f.writes.length,before);};
+  advance(3999);advance(1,/text 1 "10" white 120 100 once/);advance(2759);advance(1,/text 1 "100" pink 120 100 once/);advance(3599);advance(1,/text 1 "4" cyan 120 100 once/);
+  const state=JSON.parse(f.db.prepare('SELECT targets_json FROM display_requests WHERE id=?').get(shown.id).targets_json);assert.equal(state[0].sequenceIndex,0);
  }finally{f.end();}
 });

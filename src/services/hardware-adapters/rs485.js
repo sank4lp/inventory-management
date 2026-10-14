@@ -656,7 +656,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         ],
       };
     },
-    showCellQuantity(cell, quantity, color = "yellow") {
+    showCellQuantity(cell, quantity, color = "yellow", options = {}) {
       const brightness = currentBrightness();
       const displayQuantity = String(quantity ?? "0").trim() || "0";
       if (!hasModuleTarget(cell)) {
@@ -684,9 +684,11 @@ export function createRs485Adapter({ config = {}, logger }) {
       }
       const controllerAddress = controllerAddressFor(cell);
       const resolvedColor = firmwareWord(color, "yellow");
+      const scrollSpeedMs=numberSetting(options.scrollSpeedMs,120,{min:20,max:1000});
+      const scrollOnce=options.scrollOnce===true;
       const command = addressedCommand(
         controllerAddress,
-        `text ${cell.hardware_channel} ${firmwareToken(displayQuantity)} ${resolvedColor} 120 ${brightness.brightnessPercent}`,
+        `text ${cell.hardware_channel} ${firmwareToken(displayQuantity)} ${resolvedColor} ${scrollSpeedMs} ${brightness.brightnessPercent}${scrollOnce?" once":""}`,
       );
       clearLocateTimer(cell.hardware_channel, controllerAddress);
       send(command);
@@ -705,6 +707,7 @@ export function createRs485Adapter({ config = {}, logger }) {
               controllerAddress,
               quantity: displayQuantity,
               color: resolvedColor,
+              scrollSpeedMs,scrollOnce,
               ...brightnessPayload(brightness),
             },
           }),

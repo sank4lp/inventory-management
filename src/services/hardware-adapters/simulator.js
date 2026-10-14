@@ -240,7 +240,7 @@ export function createSimulatorAdapter({ config = {}, logger }) {
         },
       ]);
     },
-    showCellQuantity(cell, quantity, color = "yellow") {
+    showCellQuantity(cell, quantity, color = "yellow", options = {}) {
       const brightness = brightnessPayload();
       const payload = {
         ts: stamp(),
@@ -250,6 +250,7 @@ export function createSimulatorAdapter({ config = {}, logger }) {
         hardwareChannel: cell.hardware_channel,
         quantity: String(quantity),
         color,
+        scrollOnce:options.scrollOnce===true,scrollSpeedMs:options.scrollSpeedMs||120,
         ...brightness,
         ...(hasModuleTarget(cell) ? {} : { reason: "cell-not-mapped-to-controller" }),
       };
