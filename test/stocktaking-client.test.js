@@ -53,3 +53,24 @@ test('opening a completed cell starts a fresh recount without changing its earli
  vm.runInContext("presenceSession={id:'active-session',active:true};",d.context);await d.api.openCountEditor(10);
  assert.deepEqual(calls.map(c=>c.url),['/api/stocktaking/recountCell','/api/stocktaking/begin']);assert.equal(calls[1].input.generation,2);assert.equal(state.runs[0].items[0].latest_observation,'earlier-count');assert.ok(!calls.some(c=>c.url.endsWith('/observe')));
 });
+
+test('saving a count selects and opens the next unfinished cell inside the same active session',async()=>{
+ const state=countEditorFixture(),calls=[],adopted=[],r=state.runs[0];r.paused_at=null;r.items[0].state='counting';r.items[0].guidance={state:'sent',ownerId:1};r.attempts=[{id:'count-A',item_id:10,generation:1,baseline:{products:[]}}];
+ const d=device(storage(),async(url,options)=>{
+  if(url.endsWith('/snapshot'))return {ok:true,json:async()=>state};const input=JSON.parse(options.body);calls.push({url,input});
+  if(url.endsWith('/observe')){const item=r.items.find(i=>i.id===(input.attemptId==='count-A'?10:20));item.state='counted';item.guidance={state:'idle'};item.latest_observation='observed-'+item.id;r.attempts=r.attempts.filter(a=>a.item_id!==item.id);if(r.items.every(i=>i.state==='counted'))r.status='completed';return {ok:true,json:async()=>({status:'matched',observationId:item.latest_observation})};}
+  if(url.endsWith('/begin')){r.items[1].state='counting';r.items[1].guidance={state:'sent',ownerId:1};r.attempts.push({id:'count-B',item_id:20,generation:1,baseline:{products:[]}});}
+  return {ok:true,json:async()=>({status:'recorded'})};
+ },{initial:state,search:'?run=1&cell=10'});
+ d.context.WarehouseNavigation={go(){throw new Error('Cell saves must not navigate away');},adopt:href=>adopted.push(href)};
+ vm.runInContext("presenceSession={id:'same-count-session',active:true};",d.context);
+ await d.api.submit('observe',{attemptId:'count-A',lines:[],emptyConfirmed:true},'draft-A');
+ assert.equal(vm.runInContext('selectedItem()',d.context),20);assert.deepEqual(adopted,['/stocktaking?run=1&cell=20']);assert.equal(vm.runInContext('presenceSession.id',d.context),'same-count-session');assert.equal(vm.runInContext('presenceSession.active',d.context),true);assert.equal(r.status,'in_progress');assert.equal(r.paused_at,null);
+ await d.api.prepareSelectedCount();assert.equal(calls.find(c=>c.url.endsWith('/begin')).input.itemId,20);assert.equal(calls.find(c=>c.url.endsWith('/begin')).input.sessionId,'same-count-session');assert.ok(!calls.some(c=>/\/(join|leave)$/.test(c.url)));
+ await d.api.submit('observe',{attemptId:'count-B',lines:[],emptyConfirmed:true},'draft-B');await d.api.prepareSelectedCount();assert.equal(r.status,'completed');assert.equal(adopted.length,1);assert.equal(calls.filter(c=>c.url.endsWith('/begin')).length,1);
+});
+test('next cell selection includes skipped and recheck cells and ignores already counted cells',()=>{
+ const state=countEditorFixture();state.runs[0].items[0].state='counted';state.runs[0].items[1].state='skipped';const d=device(storage(),async()=>{}, {initial:state,search:'?run=1&cell=10'});
+ assert.equal(vm.runInContext('nextUnfinishedCount(snapshot.runs[0],10).id',d.context),20);
+ vm.runInContext("snapshot.runs[0].items[1].state='recheck'",d.context);assert.equal(vm.runInContext('nextUnfinishedCount(snapshot.runs[0],10).id',d.context),20);
+});

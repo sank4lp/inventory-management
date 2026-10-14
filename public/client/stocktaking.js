@@ -95,12 +95,27 @@ async function submit(action,input,draftKey){
  notice='Saved on this tablet — awaiting warehouse confirmation.';await sync();
 }
 function sync(){if(syncing)return syncing;syncing=drain().finally(()=>{syncing=null;});return syncing;}
+function selectCountCell(itemId){
+ if(selectedItem()===Number(itemId))return;
+ params.set('cell',itemId);const href='/stocktaking?'+params.toString();
+ history.replaceState(history.state,'',href);globalThis.WarehouseNavigation?.adopt?.(href);
+}
+function nextUnfinishedCount(r,afterId){
+ const items=r.items.filter(i=>i.state!=='excluded'),index=items.findIndex(i=>i.id===afterId);
+ return [...items.slice(index+1),...items.slice(0,index+1)].find(i=>canCount(r,i));
+}
+
 function navigateCount(href){if(globalThis.WarehouseNavigation)void globalThis.WarehouseNavigation.go(href);else{sessionContinues=sameStocktake({url:href});location.href=href;}}
 async function drain(){busy=true;try{await refresh();let q;
  while((q=queue().find(q=>!q.result&&!q.error))){try{const response=await fetch('/api/stocktaking/'+q.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(q.input),signal:AbortSignal.timeout(15000)});const value=await response.json();if(!response.ok){q.error=value.error||'Request rejected. Correct the draft and submit again.';persist();continue;}q.result=value;q.error=null;delete saved.drafts[q.draftKey];persist();announce(value.message);
  if(value.runId&&q.action==='create'){navigateCount('/stocktaking?run='+value.runId+(returnTo?'&return_to='+encodeURIComponent(returnTo):''));return;}
  if(q.action==='begin'){await refresh();const r=snapshot.runs.find(r=>r.id===runId),item=r?.attempts.find(a=>a.id===value.attemptId);if(item){params.set('cell',item.item_id);history.replaceState(null,'', '/stocktaking?'+params.toString());}}
- if(q.action==='observe'){await refresh();const r=snapshot.runs.find(r=>r.id===runId),index=r?.items.findIndex(i=>i.id===selectedItem())??-1,ordered=r?[...r.items.slice(index+1),...r.items.slice(0,index+1)]:[],next=ordered.find(i=>canCount(r,i)&&i.state==='pending');if(next){navigateCount('/stocktaking?run='+runId+'&cell='+next.id+(returnTo?'&return_to='+encodeURIComponent(returnTo):''));return;}}
+ if(q.action==='observe'){
+  await refresh();const r=snapshot.runs.find(r=>r.id===runId),counted=r?.items.find(i=>i.latest_observation===value.observationId);
+  if(counted&&['counted','review'].includes(counted.state)&&counted.id===(selectedItem()||selectedCountLocation(r)?.id)&&!['completed','closed','stopped'].includes(r.status)){
+   const next=nextUnfinishedCount(r,counted.id);if(next)selectCountCell(next.id);
+  }
+ }
  }catch(e){online=false;notice='Saved on this tablet — awaiting upload. Do not recount solely because delivery is pending.';break;}}
  if(online)await refresh();}catch(e){online=false;notice=e.message;}finally{busy=false;render();}}
 
@@ -214,7 +229,7 @@ async function openCountEditor(itemId,{method='manual',label}={}){
   r=snapshot.runs.find(v=>v.id===runId);item=r.items.find(i=>i.id===itemId);
   if(canRecountLocation(r,item)){await liveAction('recountCell',{itemId:item.id,generation:item.generation});r=snapshot.runs.find(v=>v.id===runId);item=r.items.find(i=>i.id===itemId);}
   const value=await liveAction('begin',{itemId,generation:item.generation,method,location:item.logical_code,label});
-  params.set('cell',itemId);countOpenFailure=null;history.replaceState(history.state,'','/stocktaking?'+params.toString());return value;
+  selectCountCell(itemId);countOpenFailure=null;return value;
  }finally{busy=false;openingCell=null;}
 }
 async function prepareSelectedCount(){
@@ -261,7 +276,7 @@ async function scan(itemId){
  async function begin(item,method,label){
   if(closed||pageScope?.active===false)return;
   sending=true;feedback('Opening location…');
-  try{await openCountEditor(item.id,{method,label});if(closed||pageScope?.active===false)return;cleanup();const state={...history.state};delete state.stocktakeScan;params.set('cell',item.id);history.replaceState(state,'','/stocktaking?'+params.toString());render();}
+  try{await openCountEditor(item.id,{method,label});if(closed||pageScope?.active===false)return;cleanup();const state={...history.state};delete state.stocktakeScan;history.replaceState(state,'');selectCountCell(item.id);render();}
   catch(error){feedback(error.message);scanning=false;}
   finally{sending=false;}
  }
@@ -333,7 +348,7 @@ onPage(root,'click',async event=>{
   if(busy)return;countOpenFailure=null;
   const ownActive=r.items.find(v=>v.id!==item.id&&v.guidance?.ownerId===snapshot.user.id);
   if(ownActive){busy=true;try{await liveAction('pause',{itemId:ownActive.id,generation:ownActive.generation});}catch(error){announce(error.message);return;}finally{busy=false;}}
-  params.set('cell',item.id);history.replaceState(history.state,'','/stocktaking?'+params.toString());
+  selectCountCell(item.id);
   if(presenceSession?.active&&canRecountLocation(r,item)){try{await openCountEditor(item.id);}catch(error){countOpenFailure={key:countOpenKey(item),itemId:item.id,message:error.message};announce(error.message);}}
   render();return;
  }

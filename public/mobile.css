@@ -61,10 +61,11 @@
   body.mobile-menu-open { overflow: hidden; }
   /* Without scripting the complete navigation stays in normal document flow. */
   .dashboard-sidebar:not(.nav-ready) { position: relative !important; }
-  .global-toast-host { inset: calc(var(--mobile-header-height) + env(safe-area-inset-top) + 8px) 12px auto auto; width: min(360px, calc(100vw - 24px)); }
-  .global-toast { padding: 10px 12px; align-items: center; gap: 8px; border-radius: 10px; }
-  .global-toast p { font-size: 13px; line-height: 18px; max-height: 54px; }
-  .global-toast .notification-close, .global-notification-panel .notification-close { width: 44px; height: 44px; min-height: 44px; padding: 0; }
+  .global-toast-host { inset: calc(var(--mobile-header-height) + env(safe-area-inset-top) + 8px) 12px auto auto; width: min(360px, calc(100% - 24px)); }
+  .global-toast { padding: 8px 10px; gap: 8px; }
+  .global-toast p { font-size: 13px; line-height: 18px; }
+  .global-notification-panel .notification-close { width: 44px; height: 44px; min-height: 44px; padding: 0; }
+  .global-toast .notification-close { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; }
   .global-notification-panel { padding: 12px; border-radius: 12px; overscroll-behavior-y: contain; }
   .global-notification-panel li { padding-right: 44px; }
   .global-notification-panel li > .notification-close { right: 0; }
@@ -287,14 +288,6 @@
   .mobile-task-table > :is(thead,tbody) > tr > :nth-child(17) { grid-column: var(--mobile-column-17); grid-row: 1; }
 }
 @media screen and (max-width: 700px) {
-  /* Toasts preview the message; the bell retains its complete text. */
-  .global-toast-host { width: min(300px, calc(100vw - 24px)); }
-  .global-toast { box-sizing: border-box; padding: 6px 8px; gap: 6px; }
-  .global-toast p {
-    min-width: 0; max-height: 36px; overflow: hidden;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  }
-  .global-toast .notification-close { min-width: 44px; }
   .page-body .mobile-page-help, #work-app .mobile-page-help { margin: 12px 0 0; padding: 8px 0 0; border-top: 1px solid #dce6e2; }
   .mobile-page-help > summary { min-height: 44px; display: list-item; align-content: center; font-size: 13px; color: #537267; }
   .mobile-page-help p { font-size: 13px; line-height: 1.5; color: #5c726e; margin: 8px 0; }

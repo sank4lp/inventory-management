@@ -262,3 +262,16 @@ test('explicit recount uses a fresh baseline without overwriting earlier complet
   assert.equal(f.actual(f.cells[0]),7);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_observations WHERE item_id=?').get(item.id).n,2);assert.equal(f.count.snapshot(f.op).runs.find(r=>r.id===run).status,'completed');
  }finally{f.db.close();}
 });
+
+test('nonfinal counts keep the active counting session and final coverage alone completes it',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],6);f.stock(f.cells[1],7);const run=f.create({autoStart:false}),sessionId=randomUUID();f.cmd(f.op,'join',{runId:run,sessionId});
+  for(const [index,cell] of f.cells.slice(0,2).entries()){
+   const item=f.item(run,cell),attempt=f.cmd(f.op,'begin',{itemId:item.id,generation:item.generation,method:'manual',location:cell.logical_code,sessionId});
+   f.cmd(f.op,'observe',{attemptId:attempt.attemptId,lines:[{productId:f.p.id,actual:index?7:6}]});
+   const status=f.count.snapshot(f.op).runs.find(r=>r.id===run),session=f.db.prepare('SELECT * FROM stocktake_sessions WHERE id=?').get(sessionId);
+   if(index===0){assert.equal(status.status,'in_progress');assert.equal(status.paused_at,null);assert.equal(session.state,'active');f.count.heartbeat(f.op,{runId:run,sessionId});}
+   else{assert.equal(status.status,'completed');assert.equal(status.paused_at,null);assert.equal(session.state,'left');}
+  }
+ }finally{f.db.close();}
+});
