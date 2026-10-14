@@ -41,19 +41,20 @@ test('summary and quantity draft identities are bound to instruction, account an
  context.form={dataset:{workAction:'report'},elements:{lineId:{value:'7'},revision:{value:'2'}}};const normal=run('draftKey(form)');run("form.dataset.draftKind='difference'");assert.notEqual(run('draftKey(form)'),normal);
 });
 function scanner(){
- const {context,run}=client();const frames=[],commands=[],summaries=[];let stopped=0,removed=0;const buttons={};
+ const {context,run}=client();const frames=[],commands=[],summaries=[];let stopped=0,removed=0,zoomDisposed=0;const buttons={};
  const video={readyState:2,videoWidth:1,videoHeight:1,play:async()=>{}};
  const dialog={innerHTML:'',showModal(){},remove(){removed++;},addEventListener(){},querySelector(s){if(s==='video')return video;return buttons[s]||=( {} );}};
  context.document.createElement=tag=>tag==='dialog'?dialog:{getContext:()=>({drawImage(){},getImageData:()=>({data:[],width:1,height:1})})};context.document.body={append(){}};
  context.window={isSecureContext:true,jsQR:()=>({data:'expected-label'})};context.navigator={mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){stopped++;}}]})}};
+ context.WarehouseCamera={mountCameraZoom:()=>({drawFrame:()=>true,dispose:()=>{zoomDisposed++;}})};
  context.requestAnimationFrame=fn=>frames.push(fn);context.commands=commands;context.summaries=summaries;
  run("immediate=async(action,input)=>{commands.push({action,input});return {message:'Verified'};};showSummary=async(l,method,label)=>summaries.push({l,method,label});render=()=>{};");
  const a=source.indexOf('let stopCamera=null;'),b=source.indexOf("onPage(window,'pagehide'",a);run(source.slice(a,b));
  context.l={id:7,revision:2,current_generation:1,product_name:'Part',type:'pick',planned_quantity:5,unit_of_measure:'pieces',logical_code:'A'};
- return {context,run,frames,commands,summaries,buttons,counts:()=>({stopped,removed})};
+ return {context,run,frames,commands,summaries,buttons,counts:()=>({stopped,removed,zoomDisposed})};
 }
 test('simulated camera frame verifies then opens summary, stops stream and never sends a movement',async()=>{
- const s=scanner();await s.run('scanQR(l)');await s.frames.shift()();assert.deepEqual(s.commands.map(c=>c.action),['verify']);assert.equal(s.summaries[0].method,'camera');assert.equal(s.counts().stopped,1);assert.equal(s.counts().removed,1);
+ const s=scanner();await s.run('scanQR(l)');await s.frames.shift()();assert.deepEqual(s.commands.map(c=>c.action),['verify']);assert.equal(s.summaries[0].method,'camera');assert.equal(s.counts().stopped,1);assert.equal(s.counts().removed,1);assert.equal(s.counts().zoomDisposed,1);
 });
 test('camera is not shown before permission resolves, and cancelling releases a late stream',async()=>{
  const s=scanner();let grant;s.context.navigator.mediaDevices.getUserMedia=()=>new Promise(r=>grant=r);const pending=s.run('scanQR(l)');assert.equal(s.buttons['[data-close-camera]'],undefined);s.run('stopCamera()');let stops=0;grant({getTracks:()=>[{stop(){stops++;}}]});await pending;assert.equal(stops,1);assert.equal(s.commands.length,0);assert.equal(s.summaries.length,0);

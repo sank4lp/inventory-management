@@ -203,11 +203,12 @@ async function scan(itemId){
  const r=snapshot.runs.find(r=>r.id===runId);
  if(!r)return;
  const current=r.items.find(i=>i.id===itemId),choices=r.items.filter(i=>canCount(r,i));
- const dialog=document.createElement('dialog');dialog.className='qr-dialog stocktake-scan-dialog';dialog.dataset.stocktakeScan='';
- dialog.innerHTML=`<header class="qr-dialog-header"><button type="button" class="secondary" data-close-scan aria-label="Back">←</button><h2>Scan location</h2><button type="button" class="dialog-dismiss" data-close-scan aria-label="Close">×</button></header><video autoplay playsinline></video><p role="status" class="form-feedback"></p><div class="stocktake-manual-select"><label>Location<select data-searchable data-scan-location><option value="">Choose manually</option>${options(choices,current?.id,i=>i.description.name)}</select></label><button type="button" data-manual-count>Start counting</button></div><button type="button" class="stocktake-quiet-button" data-wrong-qr>Wrong / undetected location?</button><section data-qr-assignment hidden><p class="stocktake-hint">${snapshot.capabilities.bindQr?'Choose the physical location and confirm its sticker.':'Choose the location manually. Ask an administrator to assign this QR.'}</p>${snapshot.capabilities.bindQr?`<label>Scanned QR<input data-scanned-qr readonly placeholder="Scan a readable QR first"></label><label><input type="checkbox" data-confirm-qr>This sticker is at the selected location</label><button type="button" data-bind-qr>Assign QR and count</button>`:''}<button type="button" class="secondary" data-rescan>Scan again</button></section>`;
+ const dialog=document.createElement('dialog');dialog.className='qr-dialog stocktake-scan-dialog qr-camera-dialog';dialog.dataset.stocktakeScan='';
+ dialog.innerHTML=`<header class="qr-dialog-header"><button type="button" class="secondary" data-close-scan aria-label="Back">←</button><h2>Scan location</h2><button type="button" class="dialog-dismiss" data-close-scan aria-label="Close">×</button></header><video autoplay playsinline muted></video><p role="status" class="form-feedback"></p><div class="stocktake-manual-select"><label>Location<select data-searchable data-scan-location><option value="">Choose manually</option>${options(choices,current?.id,i=>i.description.name)}</select></label><button type="button" data-manual-count>Start counting</button></div><button type="button" class="stocktake-quiet-button" data-wrong-qr>Wrong / undetected location?</button><section data-qr-assignment hidden><p class="stocktake-hint">${snapshot.capabilities.bindQr?'Choose the physical location and confirm its sticker.':'Choose the location manually. Ask an administrator to assign this QR.'}</p>${snapshot.capabilities.bindQr?`<label>Scanned QR<input data-scanned-qr readonly placeholder="Scan a readable QR first"></label><label><input type="checkbox" data-confirm-qr>This sticker is at the selected location</label><button type="button" data-bind-qr>Assign QR and count</button>`:''}<button type="button" class="secondary" data-rescan>Scan again</button></section>`;
  document.body.append(dialog);dialog.showModal();let closed=false,scanning=true,repairing=false,lastQr='',sending=false;
  const modalId=uid();history.pushState({...history.state,stocktakeScan:modalId},'');
- const stop=()=>{stream?.getTracks().forEach(t=>t.stop());stream=null;};
+ let cameraZoom,cameraMedia;
+ const stop=()=>{cameraZoom?.dispose();cameraZoom=null;cameraMedia?.getTracks().forEach(t=>t.stop());if(stream===cameraMedia)stream=null;cameraMedia=null;};
  const cleanup=()=>{if(closed)return;closed=true;stop();dialog.remove();};
  const close=()=>{if(sending)return;if(history.state?.stocktakeScan===modalId)history.back();else cleanup();};
  onPage(window,'popstate',()=>{if(history.state?.stocktakeScan!==modalId)cleanup();});
@@ -242,13 +243,14 @@ async function scan(itemId){
   feedback('Opening camera…');
   if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera unavailable');
   const media=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-  if(closed){media.getTracks().forEach(t=>t.stop());return;}stream=media;
-  const video=dialog.querySelector('video');video.srcObject=media;await video.play();feedback('Point the camera at the QR sticker.');
+  if(closed){media.getTracks().forEach(t=>t.stop());return;}stream=cameraMedia=media;
+  const video=dialog.querySelector('video');video.srcObject=media;await video.play();
+  const camera=globalThis.WarehouseCamera||await import('./camera-zoom.js');if(closed)return;cameraZoom=camera.mountCameraZoom(video);feedback('Point the camera at the QR sticker.');
   const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
   const frame=async()=>{
    if(closed)return;
-   if(scanning&&!sending&&video.videoWidth){
-    canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);const data=ctx.getImageData(0,0,canvas.width,canvas.height),qr=window.jsQR(data.data,data.width,data.height);
+   if(scanning&&!sending&&cameraZoom?.drawFrame(canvas,ctx)){
+    const data=ctx.getImageData(0,0,canvas.width,canvas.height),qr=window.jsQR(data.data,data.width,data.height);
     if(qr){lastQr=qr.data;scanning=false;const input=dialog.querySelector('[data-scanned-qr]');if(input)input.value=lastQr;
      if(repairing){feedback('Choose the physical location and confirm its sticker.');requestAnimationFrame(frame);return;}
      try{const response=await fetch('/api/stocktaking/resolve?'+new URLSearchParams({runId,label:lastQr}),{cache:'no-store'}),value=await response.json();if(!response.ok)throw new Error(value.error);const item=r.items.find(i=>i.id===value.itemId);dialog.querySelector('[data-scan-location]').value=value.itemId;await begin(item,'qr',lastQr);}
@@ -257,7 +259,7 @@ async function scan(itemId){
    }
    requestAnimationFrame(frame);
   };frame();
- }catch(error){dialog.querySelector('video').hidden=true;feedback('Camera unavailable. Choose a location below.');}
+ }catch(error){if(closed)return;stop();dialog.querySelector('video').hidden=true;feedback('Camera unavailable. Choose a location below.');}
 }
 onPage(window,'online',sync);onPage(window,'pagehide',()=>stream?.getTracks().forEach(t=>t.stop()));
 try{cache();}catch{notice='Device storage failed. Do not rely on an unsaved draft.';}render();

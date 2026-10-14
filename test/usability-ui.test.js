@@ -81,9 +81,10 @@ test('role editor previews transitive requirements and adds them only after expl
 test('setup scan confirms a read label, focuses its name and keeps physical confirmation separate; failed camera reveals fallback',async()=>{
  let stopped=false,focused=false,failed=false;
  const input={value:'',dispatchEvent(){}},manual={open:true},status={textContent:''},name={focus(){focused=true;}},video={readyState:2,videoWidth:1,videoHeight:1,play:async()=>{}},host={innerHTML:'',querySelector:s=>s==='video'?video:{}};
- const panel={querySelector:s=>({'[data-camera-view]':host,'[name="label"]':input,'[data-label-status]':status,'[data-manual-label]':manual,'[name="displayName"]':name})[s]};
+ const panel={isConnected:true,querySelector:s=>({'[data-camera-view]':host,'[name="label"]':input,'[data-label-status]':status,'[data-manual-label]':manual,'[name="displayName"]':name})[s]};
  const root={addEventListener(){}},boot={site:'fixture',user:{id:1}};
  const context=vm.createContext({document:{querySelector:s=>s==='#location-setup-app'?root:{textContent:JSON.stringify(boot)},createElement:()=>({getContext:()=>({drawImage(){},getImageData:()=>({data:[],width:1,height:1})})})},localStorage:{getItem:()=>null},navigator:{mediaDevices:{getUserMedia:async()=>{if(failed)throw new Error('No camera');return{getTracks:()=>[{stop(){stopped=true;}}]};}}},Event:class{},jsQR:()=>({data:'lytguide:fixture:sticker:1'}),panel});
+ context.WarehouseCamera={mountCameraZoom:()=>({drawFrame:()=>true,dispose(){}})};
  vm.runInContext(readFileSync(new URL('../public/client/location-setup.js',import.meta.url),'utf8').replace('export async function mount() {','').split("onPage(window,'pagehide'")[0],context);
  await vm.runInContext('scan(panel)',context);assert.equal(input.value,'lytguide:fixture:sticker:1');assert.equal(manual.open,false);assert.equal(focused,true);assert.equal(stopped,true);assert.equal(status.textContent,'Sticker read. Check that it is beside the blinking light.');
  failed=true;await vm.runInContext('scan(panel)',context);assert.equal(manual.open,true);assert.match(host.textContent,/manual QR text option/);

@@ -1400,20 +1400,22 @@ root.addEventListener('click',async e=>{
 let stopCamera=null;
 async function scanQR(l){
  if(!l)return;stopCamera?.();
- let stopped=false,stream,dialog;
- const stop=()=>{stopped=true;stream?.getTracks().forEach(t=>t.stop());cameraStream=null;dialog?.remove();if(stopCamera===stop)stopCamera=null;};stopCamera=stop;
+ let stopped=false,stream,dialog,cameraZoom;
+ const stop=()=>{stopped=true;cameraZoom?.dispose();stream?.getTracks().forEach(t=>t.stop());cameraStream=null;dialog?.remove();if(stopCamera===stop)stopCamera=null;};stopCamera=stop;
  if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){stop();await showSummary(l,'manual','','No camera / camera unavailable');return;}
  try{
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
   if(stopped){stream.getTracks().forEach(t=>t.stop());return;}cameraStream=stream;
-  dialog=document.createElement('dialog');dialog.className='qr-dialog';dialog.innerHTML=`<header class="qr-dialog-header"><h2>Scan this cell</h2><button type="button" class="dialog-dismiss" data-close-camera aria-label="Skip scan and enter actual movement" title="Skip scan"><span aria-hidden="true">×</span></button></header><p>${esc(l.product_name)} · ${esc(l.type)} ${esc(l.planned_quantity)} ${esc(l.unit_of_measure)} · ${esc(l.logical_code)}</p><p>Scanning checks the cell. Complete ${esc(l.type)} only after confirming the actual location and quantity.</p><video autoplay playsinline muted></video><p role="status" class="scan-feedback"></p><button type="button" class="secondary" data-camera-manual>Confirm without scanning</button>`;
+  dialog=document.createElement('dialog');dialog.className='qr-dialog qr-camera-dialog';dialog.innerHTML=`<header class="qr-dialog-header"><h2>Scan this cell</h2><button type="button" class="dialog-dismiss" data-close-camera aria-label="Skip scan and enter actual movement" title="Skip scan"><span aria-hidden="true">×</span></button></header><dl class="qr-camera-info"><div class="qr-camera-product"><dt>Product</dt><dd>${esc(l.product_name)}</dd></div><div><dt>Location</dt><dd>${esc(l.logical_code)}</dd></div><div><dt>${l.type==='put'?'Put':'Pick'}</dt><dd>${esc(l.planned_quantity)} ${esc(l.unit_of_measure)}</dd></div></dl><p class="qr-camera-hint">Scan the sticker, then confirm the actual location and quantity.</p><video autoplay playsinline muted></video><p role="status" class="scan-feedback"></p><button type="button" class="secondary" data-camera-manual>Confirm without scanning</button>`;
   document.body.append(dialog);dialog.showModal();dialog.querySelector('[data-close-camera]').onclick=async()=>{stop();await showSummary(l,'manual');};dialog.addEventListener('cancel',e=>{e.preventDefault();stop();void showSummary(l,'manual');});
   dialog.querySelector('[data-camera-manual]').onclick=async()=>{stop();await showSummary(l,'manual');};
-  const video=dialog.querySelector('video');video.srcObject=stream;await video.play();const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});let lastRejected='';
+  const video=dialog.querySelector('video');video.srcObject=stream;await video.play();
+  const camera=globalThis.WarehouseCamera||await import('./camera-zoom.js');if(stopped)return;cameraZoom=camera.mountCameraZoom(video);
+  const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});let lastRejected='';
   if(stopped)return;
   async function frame(){
    if(stopped)return;
-   if(video.readyState>=2){canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);const p=ctx.getImageData(0,0,canvas.width,canvas.height),code=window.jsQR(p.data,p.width,p.height);
+   if(video.readyState>=2&&cameraZoom.drawFrame(canvas,ctx)){const p=ctx.getImageData(0,0,canvas.width,canvas.height),code=window.jsQR(p.data,p.width,p.height);
     if(code&&code.data!==lastRejected){try{const result=await immediate('verify',{requestId:uid(),lineId:l.id,revision:l.revision,assignmentGeneration:l.current_generation,location:code.data});if(stopped)return;announce(result.message);stop();await showSummary(l,'camera',code.data);return;}catch(error){lastRejected=code.data;if(!stopped)dialog.querySelector('.scan-feedback').textContent=error.message;}}
    }
    if(!stopped)requestAnimationFrame(frame);

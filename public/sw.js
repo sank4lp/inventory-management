@@ -1,6 +1,6 @@
-const CACHE='lytguide-public-v54';
+const CACHE='lytguide-public-v56';
 const ASSETS=['/client/navigation.js','/client/stable-buttons.js','/client/dom.js','/client/product-settings.js','/client/page-lifecycle.js','/offline','/stocktaking/offline','/styles.css','/client/stocktaking.js','/stocktaking.css','/client/stocktake-status.js','/theme.css','/work.css','/responsive.css','/layout.css','/mobile.css','/client/mobile-layout.js','/client/mobile-nav.js','/client/notifications.js','/client/notification-store.js','/client/work.js','/client/table-columns.js','/client/searchable-select.js','/client/work-outbox-status.js','/client/vendor/jsQR.js','/brand/lytguide-icon.svg'];
-ASSETS.push('/client/mobile-controls.js');
+ASSETS.push('/client/mobile-controls.js','/client/camera-zoom.js');
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{

@@ -169,6 +169,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <link rel="stylesheet" href="/mobile.css" />
     <script type="module" src="/client/navigation.js"></script>
     <script type="module" src="/client/stable-buttons.js"></script>
+    <script type="module" src="/client/camera-zoom.js"></script>
     <script type="module" src="/client/searchable-select.js"></script>
     <script type="module" src="/client/notifications.js"></script>
     <script type="module" src="/app.js"></script>

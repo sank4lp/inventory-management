@@ -6,7 +6,7 @@ const requestAnimationFrame=(...args)=>pageScope?pageScope.frame(...args):global
 const fetch=(...args)=>pageScope?pageScope.fetch(...args):globalThis.fetch(...args);
 const onPage=(target,...args)=>pageScope?pageScope.listen(target,...args):target.addEventListener(...args);
 const root=document.querySelector('#location-setup-app');
-let s=JSON.parse(document.querySelector('#location-setup-boot').textContent),message='',busy=false,stream=null,cameraVersion=0;
+let s=JSON.parse(document.querySelector('#location-setup-boot').textContent),message='',busy=false,stream=null,cameraVersion=0,cameraZoom;
 let lastMessage='';
 function captureNotification(){if(!message){lastMessage='';return;}if(message===lastMessage)return;lastMessage=message;const item={message};if(globalThis.WarehouseNotifications)globalThis.WarehouseNotifications.notify(message);else(globalThis.warehouseNotificationQueue||=[]).push(item);}
 function announce(text){lastMessage='';message=text;captureNotification();}
@@ -75,8 +75,23 @@ function wireManagement(){
 }
 const moduleDisplays=new Map();
 async function scanAssignment(panel){
- stopCamera();const version=cameraVersion;
- try{const host=panel.querySelector('[data-camera-view]');host.innerHTML='<video playsinline muted autoplay class="location-camera"></video><button type="button">Close camera</button>';host.querySelector('button').onclick=()=>{stopCamera();host.innerHTML='';};const media=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});if(version!==cameraVersion||!panel.isConnected||!root.querySelector('[data-location-dialog]').open){media.getTracks().forEach(t=>t.stop());return;}stream=media;const video=host.querySelector('video');video.srcObject=media;await video.play();const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});function frame(){if(stream!==media||version!==cameraVersion||!panel.isConnected)return;if(video.readyState>=2){canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);const qr=jsQR(ctx.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);if(qr){panel.querySelector('[name="'+(panel.dataset.qrField||'label')+'"]').value=qr.data;stopCamera();host.textContent='Sticker scanned. Confirm its location and save.';return;}}requestAnimationFrame(frame);}frame();}catch{if(version!==cameraVersion||!panel.isConnected)return;stopCamera();panel.querySelector('[data-camera-view]').textContent='Camera unavailable. Enter the QR text below.';}
+ stopCamera();const version=cameraVersion,host=panel.querySelector('[data-camera-view]');
+ try{
+  host.innerHTML='<video playsinline muted autoplay></video><button type="button" data-close-camera>Close camera</button>';
+  host.querySelector('[data-close-camera]').onclick=()=>{stopCamera();host.innerHTML='';};
+  const media=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+  if(version!==cameraVersion||!panel.isConnected||!root.querySelector('[data-location-dialog]').open){media.getTracks().forEach(t=>t.stop());return;}
+  stream=media;const video=host.querySelector('video');video.srcObject=media;await video.play();
+  const camera=globalThis.WarehouseCamera||await import('./camera-zoom.js');if(version!==cameraVersion)return;cameraZoom=camera.mountCameraZoom(video);
+  const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+  function frame(){
+   if(stream!==media||version!==cameraVersion||!panel.isConnected)return;
+   if(video.readyState>=2&&cameraZoom.drawFrame(canvas,ctx)){
+    const qr=jsQR(ctx.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);
+    if(qr){panel.querySelector('[name="'+(panel.dataset.qrField||'label')+'"]').value=qr.data;stopCamera();host.textContent='Sticker scanned. Confirm its location and save.';return;}
+   }requestAnimationFrame(frame);
+  }frame();
+ }catch{if(version!==cameraVersion||!panel.isConnected)return;stopCamera();host.textContent='Camera unavailable. Enter the QR text below.';}
 }
 pageScope?.own(()=>{stopCamera();for(const displayId of moduleDisplays.values())globalThis.fetch('/api/displays/stop',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({displayId})}).catch(()=>{});});
 
@@ -101,8 +116,26 @@ root.addEventListener('submit',ev=>{const f=ev.target.closest('form[data-action]
 root.addEventListener('input',ev=>{const field=ev.target.closest('form[data-action="field"]');if(field){try{saveFieldDraft(field);fieldControls(field);}catch{message='Device storage failed. Keep this page open until the server confirms the save.';}return;}const f=ev.target.closest('form[data-action="bind"]');if(!f)return;if(ev.target.name==='label')f.querySelector('[data-label-status]').textContent=ev.target.value?'Label entered. Check that it is beside the blinking light.':'Scan a sticker or enter its QR text.';try{saved.drafts||={};saved.drafts[f.elements.sessionId.value]={...values(f),generation:Number(f.elements.generation.value)};persist();}catch{message='Device storage failed. Keep this page open until the server confirms the save.';}});
 root.addEventListener('change',ev=>{const f=ev.target.closest('form[data-action]');if(f?.dataset.action==='field'){fieldControls(f);saveFieldDraft(f);}if(f?.dataset.action==='start')setupStartControls();});
 root.addEventListener('click',async ev=>{const b=ev.target.closest('button');if(!b)return;if(b.hasAttribute('data-reload-field')){await discardFieldDraft(b.closest('form'));return;}if(b.hasAttribute('data-retry')){if(saved.pending)send(saved.pending.action,saved.pending.input);return;}if(b.dataset.revoke){send('revoke',{token:b.dataset.revoke});return;}const panel=b.closest('[data-session]');if(b.hasAttribute('data-camera')){scan(panel);return;}if(panel&&b.dataset.action)send(b.dataset.action,{sessionId:panel.dataset.session,generation:Number(panel.dataset.generation),reason:b.dataset.reason});});
-function stopCamera(){cameraVersion++;stream?.getTracks().forEach(t=>t.stop());stream=null;}
-async function scan(panel){try{stopCamera();const host=panel.querySelector('[data-camera-view]');host.innerHTML='<video playsinline muted style="width:100%;max-width:400px"></video><button type="button" data-stop-camera>Close camera</button>';host.querySelector('button').onclick=()=>{stopCamera();host.innerHTML='';};stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});const video=host.querySelector('video');video.srcObject=stream;await video.play();const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});function frame(){if(!stream)return;if(video.readyState>=2){canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.drawImage(video,0,0);const code=jsQR(ctx.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);if(code){const input=panel.querySelector('[name="label"]');input.value=code.data;input.dispatchEvent(new Event('input',{bubbles:true}));stopCamera();host.innerHTML='Sticker read. Check its position and enter location details.';panel.querySelector('[data-label-status]').textContent='Sticker read. Check that it is beside the blinking light.';panel.querySelector('[data-manual-label]').open=false;panel.querySelector('[name="displayName"]').focus();return;}}requestAnimationFrame(frame);}frame();}catch(error){stopCamera();panel.querySelector('[data-camera-view]').textContent='Camera unavailable. Use the manual QR text option below.';panel.querySelector('[data-manual-label]').open=true;}}
+function stopCamera(){cameraVersion++;cameraZoom?.dispose();cameraZoom=null;stream?.getTracks().forEach(t=>t.stop());stream=null;}
+async function scan(panel){
+ stopCamera();const version=cameraVersion,host=panel.querySelector('[data-camera-view]');
+ try{
+  host.innerHTML='<video playsinline muted autoplay></video><button type="button" data-stop-camera>Close camera</button>';
+  host.querySelector('[data-stop-camera]').onclick=()=>{stopCamera();host.innerHTML='';};
+  const media=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+  if(version!==cameraVersion||!panel.isConnected){media.getTracks().forEach(t=>t.stop());return;}
+  stream=media;const video=host.querySelector('video');video.srcObject=media;await video.play();
+  const camera=globalThis.WarehouseCamera||await import('./camera-zoom.js');if(version!==cameraVersion)return;cameraZoom=camera.mountCameraZoom(video);
+  const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+  function frame(){
+   if(stream!==media||version!==cameraVersion||!panel.isConnected)return;
+   if(video.readyState>=2&&cameraZoom.drawFrame(canvas,ctx)){
+    const code=jsQR(ctx.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);
+    if(code){const input=panel.querySelector('[name="label"]');input.value=code.data;input.dispatchEvent(new Event('input',{bubbles:true}));stopCamera();host.textContent='Sticker read. Check its position and enter location details.';panel.querySelector('[data-label-status]').textContent='Sticker read. Check that it is beside the blinking light.';panel.querySelector('[data-manual-label]').open=false;panel.querySelector('[name="displayName"]').focus();return;}
+   }requestAnimationFrame(frame);
+  }frame();
+ }catch{if(version!==cameraVersion||!panel.isConnected)return;stopCamera();host.textContent='Camera unavailable. Use the manual QR text option below.';panel.querySelector('[data-manual-label]').open=true;}
+}
 onPage(window,'pagehide',stopCamera);render();
 
 pageScope?.beforeLeave(()=>{if(busy)throw new Error('Wait for setup to finish saving before leaving.');});

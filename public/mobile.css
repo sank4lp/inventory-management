@@ -350,8 +350,8 @@
   :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] > label[data-mobile-control-item="fit"] {
     display: flex !important; flex-direction: column; gap: 4px !important; margin-block: 0 !important;
   }
-  :is(.page-body,dialog,.offline-shell) :is(button,a.mini-link,a.ghost-button,a.green-button,a.action-cta-button,a.work-primary,a.work-secondary):not(.searchable-toggle,.combo-toggle,.icon-button,.dialog-dismiss,.notification-close,.row-collapse-icon-button),
-  :is(.page-body,dialog,.offline-shell) :is(input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=range]):not([type=color]),select) {
+  :is(.page-body:not(:has(.auth-shell)),dialog,.offline-shell) :is(button,a.mini-link,a.ghost-button,a.green-button,a.action-cta-button,a.work-primary,a.work-secondary):not(.searchable-toggle,.combo-toggle,.icon-button,.dialog-dismiss,.notification-close,.row-collapse-icon-button),
+  :is(.page-body:not(:has(.auth-shell)),dialog,.offline-shell) :is(input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=range]):not([type=color]),select) {
     box-sizing: border-box; height: 44px !important; min-height: 44px !important;
   }
   :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] :is(button,a.mini-link,a.ghost-button,a.green-button,a.action-cta-button,a.work-primary,a.work-secondary):not(.searchable-toggle,.combo-toggle,.dialog-dismiss) {
@@ -403,4 +403,59 @@
 }
 @media screen and (max-width: 700px) {
   .product-status-row .product-status-print { width: 44px; min-width: 44px; min-height: 44px !important; height: 44px; padding: 10px !important; }
+}
+
+/* Camera popups use the available phone viewport; only their contents scroll. */
+dialog.qr-camera-dialog {
+  width: min(480px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+  max-width: calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right));
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  padding: 12px; border-radius: 14px; box-sizing: border-box;
+  overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+}
+dialog.qr-camera-dialog .qr-dialog-header { gap: 8px; margin: 0 0 8px; }
+dialog.qr-camera-dialog .qr-dialog-header h2 { font-size: 19px; line-height: 1.25; margin: 0; }
+dialog.qr-camera-dialog .qr-dialog-header .dialog-dismiss {
+  position: static; width: 44px !important; min-width: 44px !important; height: 44px !important;
+  min-height: 44px !important; padding: 0 !important; margin: 0 0 0 auto;
+}
+.qr-camera-info { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 6px 12px; margin: 0 0 8px; }
+.qr-camera-info > div { min-width: 0; }
+.qr-camera-info .qr-camera-product { grid-column: 1 / -1; }
+.qr-camera-info dt { font-size: 12px; line-height: 1.25; color: #52675e; }
+.qr-camera-info dd { margin: 2px 0 0; font-size: 14px; line-height: 1.3; font-weight: 650; overflow-wrap: anywhere; }
+dialog.qr-camera-dialog .qr-camera-hint { margin: 0 0 8px; font-size: 12px; line-height: 1.35; }
+dialog.qr-camera-dialog :is(.scan-feedback,.form-feedback) { margin: 8px 0; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+dialog.qr-camera-dialog :is(.scan-feedback,.form-feedback):empty { display: none; }
+dialog.qr-camera-dialog [data-camera-manual] { min-width: 0 !important; width: 100%; min-height: 44px; margin: 8px 0 0; }
+.qr-camera-viewport {
+  position: relative; width: 100%; height: clamp(120px,34vh,320px); height: clamp(120px,34dvh,320px);
+  max-width: 100%; overflow: hidden; border-radius: 10px; background: #12221b;
+  touch-action: none; isolation: isolate;
+}
+.qr-camera-viewport video, dialog.qr-camera-dialog .qr-camera-viewport video {
+  display: block; width: 100%; height: 100%; max-width: none; max-height: none;
+  object-fit: cover; transform-origin: center; border-radius: 0; margin: 0;
+}
+.qr-camera-zoom {
+  position: absolute; inset-inline-end: 8px; bottom: 8px; z-index: 1;
+  display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: #10291ee8; border: 1px solid #ffffff50; border-radius: 12px; color: white;
+}
+.qr-camera-zoom button, dialog.qr-camera-dialog .qr-camera-zoom button {
+  display: inline-grid; place-items: center; flex: 0 0 44px;
+  width: 44px !important; min-width: 44px !important; max-width: 44px !important;
+  height: 44px !important; min-height: 44px !important; max-height: 44px !important;
+  padding: 0 !important; margin: 0 !important; border: 0; border-radius: 8px;
+  background: #fff; color: #184936; cursor: pointer; touch-action: manipulation;
+}
+.qr-camera-zoom button span { font-size: 25px; line-height: 1; font-weight: 500; }
+.qr-camera-zoom button:disabled { opacity: .5; cursor: default; }
+.qr-camera-zoom button:focus-visible { outline: 3px solid #f7d967; outline-offset: 2px; }
+.qr-camera-zoom output { min-width: 48px; font-size: 13px; font-weight: 650; text-align: center; font-variant-numeric: tabular-nums; }
+@media screen and (max-height: 520px) {
+  .qr-camera-viewport { height: clamp(96px,28vh,160px); height: clamp(96px,28dvh,160px); }
+  .qr-camera-info { grid-template-columns: minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr); }
+  .qr-camera-info .qr-camera-product { grid-column: auto; }
 }

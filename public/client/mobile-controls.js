@@ -20,7 +20,7 @@ const groups = [
 ].join(',');
 const fieldSelector = 'select,input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),textarea';
 const actionSelector = 'button,a.mini-link,a.ghost-button,a.green-button,a.action-cta-button,a.work-primary,a.work-secondary';
-const excluded = '.report-document,.report-format-preview,.mobile-task-table,.qr-dialog-header,.review-task-header,.task-cell-navigation,.global-toast-host,.global-notification-panel';
+const excluded = '.auth-shell,.report-document,.report-format-preview,.mobile-task-table,.qr-dialog-header,.review-task-header,.task-cell-navigation,.global-toast-host,.global-notification-panel';
 const managed = new Set();
 
 export function mobileFieldWidth(type, textWidth, chrome = 26) {
