@@ -7,7 +7,7 @@ import {WORK_TABS} from '../src/modules/access/catalog.js';
 test('My Work stocktake rows use Stocktaking resume and never offer Pick/Put mutation actions',()=>{
  const stocktake={id:-7,stocktake_id:7,work_kind:'stocktake',type:'stocktake',summary:'Main warehouse',lines:[],requested_quantity:10,recorded_quantity:3,remaining_quantity:7,work_progress:30,work_state:'in_progress',work_status:'Paused',assignee_id:1,canAct:true,action_label:'Resume',paused_at:'now',assignment_generation:1};
  const ui=view({role:'admin',tasks:[stocktake]});ui.context.stocktake=stocktake;ui.run("snapshot.taskPage={unified:true,view:'mine'};snapshot.myWorkNextTask=stocktake");
- const html=ui.run('myTaskRow(stocktake)');assert.match(html,/Stocktake #7/);assert.match(html,/href="\/stocktaking\?run=7&resume=1">Resume/);assert.match(html,/>3<\/td><td>7<\/td>/);assert.doesNotMatch(html,/data-work-action|data-task-edit|data-task-check/);
+ const html=ui.run('myTaskRow(stocktake)');assert.match(html,/Stocktake #7/);assert.match(html,/href="\/stocktaking\?run=7">Resume/);assert.match(html,/>3<\/td><td>7<\/td>/);assert.doesNotMatch(html,/data-work-action|data-task-edit|data-task-check/);
  assert.match(ui.run('myNextContent()'),/3 \/ 10 locations counted/);assert.equal(ui.run('canBulkDiscard(stocktake)'),false);
  ui.run('online=false');assert.doesNotMatch(ui.run('myTaskRow(stocktake)'),/resume=1/);assert.match(ui.run('myTaskRow(stocktake)'),/>View<\/a>/);
 });

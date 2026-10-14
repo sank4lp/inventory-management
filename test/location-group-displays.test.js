@@ -95,6 +95,7 @@ test('group displays preserve active stocktake lights even when task override is
  const f=fixture(t);f.stock(f.products[0],f.cells[0],4);
  const count=createStocktakingService({db:f.db,operationsService:f.work});
  const run=count.command(f.admin,'create',{requestId:randomUUID(),mode:'selected',cellIds:[f.cells[0].id],assigneeId:f.admin.id}),item=count.snapshot(f.admin).runs.find(r=>r.id===run.runId).items[0];
+ count.command(f.admin,'start',{requestId:randomUUID(),runId:run.runId});
  count.command(f.admin,'begin',{requestId:randomUUID(),itemId:item.id,generation:item.generation,method:'manual',location:f.cells[0].logical_code});
  for(const kind of ['cell_name','module_number','quantity']){
   const shown=f.display.start(f.admin,{kind,shelfId:f.shed,overrideWork:true},{confirmOverride:true});

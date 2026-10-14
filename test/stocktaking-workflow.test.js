@@ -20,9 +20,9 @@ function fixture({deferStocktakeDisplays=false}={}){
  const work=createOperationsService({db,hardwareService:hardware,deferStocktakeDisplays,clock}),count=createStocktakingService({db,operationsService:work,clock});
  const cmd=(actor,action,input={})=>count.command(actor,action,{requestId:randomUUID(),...input}),wcmd=(actor,action,input)=>work.command(actor,action,{requestId:randomUUID(),...input});
  const stock=(cell,q,product=p)=>db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,?,0) ON CONFLICT(product_id,cell_id) DO UPDATE SET available_quantity=excluded.available_quantity').run(product.id,cell.id,q);
- const create=(extra={})=>cmd(admin,'create',{mode:'selected',cellIds:cells.slice(0,2).map(c=>c.id),counterIds:[admin.id,op.id],...extra}).runId;
+ const create=({autoStart=true,...extra}={})=>{const result=cmd(admin,'create',{mode:'selected',cellIds:cells.slice(0,2).map(c=>c.id),counterIds:[admin.id,op.id],...extra});if(autoStart)cmd((extra.counterIds?.[0]===op.id||extra.assigneeId===op.id)?op:admin,'start',{runId:result.runId});return result.runId;};
  const item=(runId,cell=cells[0],actor=admin)=>count.snapshot(actor).runs.find(r=>r.id===runId).items.find(i=>i.cell_id===cell.id);
- const begin=(runId,actor=op,cell=cells[0])=>{const row=item(runId,cell,actor);return cmd(actor,'begin',{itemId:row.id,generation:row.generation,method:'manual',location:cell.logical_code});};
+ const begin=(runId,actor=op,cell=cells[0])=>{const r=count.snapshot(actor).runs.find(r=>r.id===runId);if(!r.started_at||r.paused_at)cmd(actor,'start',{runId});const row=item(runId,cell,actor);return cmd(actor,'begin',{itemId:row.id,generation:row.generation,method:'manual',location:cell.logical_code});};
  const actual=(cell)=>db.prepare('SELECT available_quantity q FROM inventory_balances WHERE product_id=? AND cell_id=?').get(p.id,cell.id)?.q||0;
  return {db,admin,op,p,cells,writes,hardware,work,count,cmd,wcmd,stock,create,item,begin,actual,advance:ms=>{instant=new Date(instant.getTime()+ms);}};
 }
@@ -60,7 +60,7 @@ test('an active Pick keeps its light until finished, then a waiting count takes 
  }finally{f.db.close();}
 });
 test('a stale count leaves inventory untouched and can be paused and recounted',()=>{
- const f=fixture();try{f.stock(f.cells[0],6);const run=f.create({cellIds:[f.cells[0].id]}),attempt=f.begin(run);f.stock(f.cells[0],7);assert.throws(()=>f.cmd(f.op,'observe',{attemptId:attempt.attemptId,lines:[{productId:f.p.id,actual:5}]}),/Pause this location/);assert.equal(f.actual(f.cells[0]),7);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_observations').get().n,0);
+ const f=fixture();try{f.stock(f.cells[0],6);const run=f.create({cellIds:[f.cells[0].id]}),attempt=f.begin(run);f.stock(f.cells[0],7);assert.throws(()=>f.cmd(f.op,'observe',{attemptId:attempt.attemptId,lines:[{productId:f.p.id,actual:5}]}),/Pause Stock Take/);assert.equal(f.actual(f.cells[0]),7);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_observations').get().n,0);
   let row=f.item(run);f.cmd(f.op,'pause',{itemId:row.id,generation:row.generation});const fresh=f.begin(run);f.cmd(f.op,'observe',{attemptId:fresh.attemptId,lines:[{productId:f.p.id,actual:7}]});assert.equal(f.item(run).state,'counted');
  }finally{f.db.close();}
 });
@@ -112,7 +112,7 @@ test('zero-only locations require an empty check and a rediscovered product can 
 });
 test('zero-product scope preserves other stock, and a newly positive hidden product invalidates an older count',()=>{
  const f=fixture();try{const other=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.p.id);f.stock(f.cells[0],0);f.stock(f.cells[0],4,other);let run=f.create({mode:'product',productId:f.p.id,cellIds:[f.cells[0].id]}),a=f.begin(run);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[],emptyConfirmed:true});assert.equal(f.db.prepare('SELECT available_quantity q FROM inventory_balances WHERE cell_id=? AND product_id=?').get(f.cells[0].id,other.id).q,4);
-  f.stock(f.cells[0],6);f.stock(f.cells[0],0,other);run=f.create({cellIds:[f.cells[0].id]});a=f.begin(run);f.stock(f.cells[0],3,other);assert.throws(()=>f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:6}]}),/Pause this location/);assert.equal(f.actual(f.cells[0]),6);
+  f.stock(f.cells[0],6);f.stock(f.cells[0],0,other);run=f.create({cellIds:[f.cells[0].id]});a=f.begin(run);f.stock(f.cells[0],3,other);assert.throws(()=>f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:6}]}),/Pause Stock Take/);assert.equal(f.actual(f.cells[0]),6);
  }finally{f.db.close();}
 });
 test('leaving releases only the counter cell; the last departure pauses without clearing active Pick lights',()=>{
@@ -145,7 +145,7 @@ test('shared stocktakes appear once per assignee in My Work and disappear for ev
  const f=fixture();try{
   const addPerson=name=>{const id=Number(f.db.prepare('INSERT INTO users(name,username,password_hash,role,created_at) VALUES(?,?,?,?,?)').run(name,name,hashPassword('test-password'),'operator',new Date().toISOString()).lastInsertRowid);return f.db.prepare('SELECT * FROM users WHERE id=?').get(id);};
   const third=addPerson('third-counter'),outsider=addPerson('unassigned-counter');f.stock(f.cells[0],6);f.stock(f.cells[1],7);
-  const run=f.create({counterIds:[f.op.id,f.admin.id,third.id]}),mine=actor=>f.work.snapshot(actor,{view:'mine'}).tasks.filter(t=>t.work_kind==='stocktake');
+  const run=f.create({autoStart:false,counterIds:[f.op.id,f.admin.id,third.id]}),mine=actor=>f.work.snapshot(actor,{view:'mine'}).tasks.filter(t=>t.work_kind==='stocktake');
   for(const actor of [f.op,f.admin,third]){assert.deepEqual(mine(actor).map(t=>t.stocktake_id),[run]);assert.equal(mine(actor)[0].action_label,'Start');}
   assert.equal(mine(outsider).length,0);
   const one=f.begin(run,f.op);f.cmd(f.op,'observe',{attemptId:one.attemptId,lines:[{productId:f.p.id,actual:6}]});
@@ -206,5 +206,59 @@ test('migration enables immediate future saves without posting a historical diff
   const a=f.begin(run),old=f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:4}],reason:'Maybe an earlier pick'});assert.equal(old.status,'review');assert.equal(f.actual(f.cells[0]),6);
   const transactions=f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n;migrateStocktaking(f.db);
   assert.equal(f.actual(f.cells[0]),6);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,transactions);assert.equal(f.db.prepare('SELECT status FROM stocktake_observations WHERE id=?').get(old.observationId).status,'review');assert.equal(f.db.prepare('SELECT immediate_counts FROM stocktake_runs WHERE id=?').get(run).immediate_counts,1);
+ }finally{f.db.close();}
+});
+
+test('opening a newly assigned stocktake keeps LEDs off until the counter starts',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],6);const run=f.create({autoStart:false});const row=f.item(run);
+  assert.equal(f.writes.length,0);assert.equal(f.count.snapshot(f.op).runs.find(r=>r.id===run).started_at,null);
+  f.work.snapshot(f.op,{view:'mine'});assert.equal(f.writes.length,0);
+  assert.throws(()=>f.cmd(f.op,'begin',{itemId:row.id,generation:row.generation,method:'manual',location:f.cells[0].logical_code}),/Start or resume/);
+  f.cmd(f.op,'join',{runId:run,sessionId:randomUUID()});assert.ok(f.writes.some(w=>w.color==='yellow'));
+ }finally{f.db.close();}
+});
+test('manager stop fences all sessions and stale counts; restart keeps progress and reassigns only unfinished cells',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],6);f.stock(f.cells[1],7);const run=f.create({autoStart:false});const first=randomUUID(),second=randomUUID();
+  f.cmd(f.op,'join',{runId:run,sessionId:first});f.cmd(f.admin,'join',{runId:run,sessionId:second});
+  let row=f.item(run);const a=f.cmd(f.op,'begin',{itemId:row.id,generation:row.generation,method:'manual',location:f.cells[0].logical_code,sessionId:first});
+  f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:5}]});
+  row=f.item(run,f.cells[1]);const pending=f.cmd(f.admin,'begin',{itemId:row.id,generation:row.generation,method:'manual',location:f.cells[1].logical_code,sessionId:second});
+  const revision=f.count.snapshot(f.admin).runs.find(r=>r.id===run).revision;
+  assert.throws(()=>f.cmd(f.op,'stop',{runId:run,revision,confirmed:true}),/not permitted/);
+  assert.throws(()=>f.cmd(f.admin,'stop',{runId:run,revision,confirmed:false}),/Confirm/);
+  const input={requestId:randomUUID(),runId:run,revision,confirmed:true};f.count.command(f.admin,'stop',input);assert.equal(f.count.command(f.admin,'stop',input).replayed,true);
+  for(const actor of [f.op,f.admin])assert.ok(!f.work.snapshot(actor,{view:'mine'}).tasks.some(t=>t.stocktake_id===run));
+  const stopped=f.count.snapshot(f.admin).runs.find(r=>r.id===run);assert.equal(stopped.status,'stopped');assert.equal(stopped.completed,1);assert.equal(stopped.display_enabled,0);
+  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM stocktake_sessions WHERE run_id=? AND state='active'").get(run).n,0);
+  assert.throws(()=>f.count.heartbeat(f.admin,{runId:run,sessionId:second}),/paused/);
+  const late=f.cmd(f.admin,'observe',{attemptId:pending.attemptId,lines:[{productId:f.p.id,actual:3}]});assert.equal(late.status,'recheck');assert.equal(f.actual(f.cells[1]),7);assert.equal(f.count.snapshot(f.admin).runs.find(r=>r.id===run).status,'stopped');
+  assert.throws(()=>f.cmd(f.op,'restart',{runId:run,revision:stopped.revision,dueDate:'2026-11-01',counterIds:[f.op.id]}),/not permitted/);
+  assert.throws(()=>f.cmd(f.admin,'restart',{runId:run,revision:stopped.revision,dueDate:'',counterIds:[f.op.id]}),/valid date/);
+  f.cmd(f.admin,'restart',{runId:run,revision:stopped.revision,dueDate:'2026-11-01',counterIds:[f.op.id]});
+  const restarted=f.count.snapshot(f.op).runs.find(r=>r.id===run);assert.equal(restarted.completed,1);assert.ok(restarted.paused_at);assert.equal(restarted.display_enabled,0);assert.equal(restarted.due_date,'2026-11-01');assert.deepEqual(restarted.items.find(i=>i.cell_id===f.cells[1].id).counterIds,[f.op.id]);
+  assert.ok(f.work.snapshot(f.op,{view:'mine'}).tasks.some(t=>t.stocktake_id===run));
+  f.cmd(f.op,'join',{runId:run,sessionId:randomUUID()});assert.equal(f.count.snapshot(f.op).runs.find(r=>r.id===run).display_enabled,1);assert.equal(f.actual(f.cells[0]),5);
+ }finally{f.db.close();}
+});
+test('summary covers the stocktake scope and warehouse totals while action ownership stays restricted',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],6);f.stock(f.cells[1],4);const run=f.create({autoStart:false});
+  f.cmd(f.admin,'assignAreas',{runId:run,assignments:[{mode:'selected',cellIds:[f.cells[0].id],counterIds:[f.op.id]},{mode:'selected',cellIds:[f.cells[1].id],counterIds:[f.admin.id]}]});
+  const snapshot=f.count.snapshot(f.op),r=snapshot.runs.find(r=>r.id===run);
+  assert.equal(r.items.length,1);assert.equal(r.summary.cells.length,2);assert.equal(r.summary.products.find(p=>p.id===f.p.id).quantity,10);assert.equal(snapshot.warehouseSummary.inStock,1);
+  assert.equal(snapshot.warehouseSummary.locations,f.db.prepare('SELECT COUNT(*) n FROM cells WHERE active=1').get().n);
+  assert.equal(f.writes.length,0);
+ }finally{f.db.close();}
+});
+test('explicit recount uses a fresh baseline without overwriting earlier completed counts',()=>{
+ const f=fixture();try{
+  f.stock(f.cells[0],6);const run=f.create({cellIds:[f.cells[0].id]}),a=f.begin(run);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:5}]});
+  assert.equal(f.count.snapshot(f.op).runs.find(r=>r.id===run).status,'completed');f.stock(f.cells[0],8);
+  let item=f.item(run);f.cmd(f.op,'recountCell',{itemId:item.id,generation:item.generation});
+  const reopened=f.count.snapshot(f.op).runs.find(r=>r.id===run);assert.ok(reopened.paused_at);assert.equal(reopened.completed,0);
+  f.cmd(f.op,'join',{runId:run,sessionId:randomUUID()});const next=f.begin(run);f.cmd(f.op,'observe',{attemptId:next.attemptId,lines:[{productId:f.p.id,actual:7}]});
+  assert.equal(f.actual(f.cells[0]),7);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_observations WHERE item_id=?').get(item.id).n,2);assert.equal(f.count.snapshot(f.op).runs.find(r=>r.id===run).status,'completed');
  }finally{f.db.close();}
 });

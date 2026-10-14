@@ -19,7 +19,7 @@ export function stocktakeWorkRowsSql(actor) {
   return `SELECT -r.id,'stocktake',CASE WHEN ${personal(actor)} THEN ${Number(actor.id)} ELSE NULL END,
     r.created_at,NULL,r.due_date,'open','started','stocktake',${total},${completed},MAX(0,${total}-${completed}),
     CASE WHEN ${total}>0 THEN ROUND(${completed}*100.0/${total},1) ELSE 0 END,${lifecycle},${status},0,${review},
-    NULL,r.title,'locations' FROM stocktake_runs r WHERE r.status NOT IN ('closed','completed') AND ${scope(actor)}`;
+    NULL,r.title,'locations' FROM stocktake_runs r WHERE r.status NOT IN ('closed','completed','stopped') AND ${scope(actor)}`;
 }
 
 export function stocktakeWorkItem(db, actor, id) {
@@ -27,7 +27,7 @@ export function stocktakeWorkItem(db, actor, id) {
   const r = db.prepare(`SELECT r.*,${total} total,${completed} completed,${personal(actor)} mine,${remaining(actor)} can_count,
     ${lifecycle} work_state,${status} work_status,u.name assigned_by_name
     FROM stocktake_runs r LEFT JOIN users u ON u.id=r.created_by
-    WHERE r.id=? AND r.status NOT IN ('closed','completed') AND ${scope(actor)}`).get(id);
+    WHERE r.id=? AND r.status NOT IN ('closed','completed','stopped') AND ${scope(actor)}`).get(id);
   if (!r) return null;
   return {
     id: -r.id, stocktake_id: r.id, work_kind: 'stocktake', type: 'stocktake', summary: r.title,
@@ -44,7 +44,7 @@ export function stocktakeWorkItem(db, actor, id) {
 
 export function nextAssignedStocktake(db, actor) {
   if (!can(actor, 'count.perform')) return null;
-  const r = db.prepare(`SELECT r.id FROM stocktake_runs r WHERE r.status NOT IN ('closed','completed')
+  const r = db.prepare(`SELECT r.id FROM stocktake_runs r WHERE r.status NOT IN ('closed','completed','stopped')
     AND ${remaining(actor)} ORDER BY r.created_at,r.id LIMIT 1`).get();
   return r ? stocktakeWorkItem(db, actor, r.id) : null;
 }

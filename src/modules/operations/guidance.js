@@ -7,7 +7,7 @@ export function displayOwner(db,cellId) {
   const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(cellId);
   if(!row)return null;const d=JSON.parse(row.desired);
   if(d.action==='count'){
-    const owner=db.prepare(`SELECT i.run_id AS runId,i.id AS itemId,u.name AS name FROM stocktake_items i JOIN stocktake_runs r ON r.id=i.run_id JOIN users u ON u.id=i.assignee_id WHERE i.id=? AND i.generation=? AND i.state IN ('pending','counting','skipped','recheck') AND r.status NOT IN ('closed','completed')`).get(d.itemId,d.itemGeneration);
+    const owner=db.prepare(`SELECT i.run_id AS runId,i.id AS itemId,u.name AS name FROM stocktake_items i JOIN stocktake_runs r ON r.id=i.run_id JOIN users u ON u.id=i.assignee_id WHERE i.id=? AND i.generation=? AND i.state IN ('pending','counting','skipped','recheck') AND r.status NOT IN ('closed','completed','stopped')`).get(d.itemId,d.itemGeneration);
     return owner?{...owner,kind:'count',generation:row.generation}:null;
   }
   if(!['quantity','locate'].includes(d.action)){

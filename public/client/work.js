@@ -15,7 +15,7 @@ const reviewInstruction=r=>r.quantity_known===0?'Ask the person who did the work
 const taskName=t=>t.lines?.[0]?.product_name||t.summary;
 const isStocktakeWork=t=>t?.work_kind==='stocktake';
 const workTaskLabel=t=>isStocktakeWork(t)?`Stocktake #${t.stocktake_id}`:`#${t.id} · ${t.type==='put'?'Put':'Pick'}`;
-const stocktakeHref=t=>`/stocktaking?run=${t.stocktake_id}`+(online&&t.canAct&&t.paused_at?'&resume=1':'');
+const stocktakeHref=t=>`/stocktaking?run=${t.stocktake_id}`;
 const stocktakeAction=t=>`<a class="work-secondary" href="${stocktakeHref(t)}">${esc(online&&t.canAct?t.action_label:'View')}</a>`;
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 let dirty=false;

@@ -124,3 +124,56 @@
   .stocktake-scan-dialog .stocktake-manual-select { grid-template-columns: 1fr; }
   .stocktake-scan-dialog .stocktake-manual-select > button { width: 100%; }
 }
+
+/* Stocktake summary and one-cell-at-a-time workspace. */
+.stocktake-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); margin:0; border:1px solid #dce5e0; border-radius:8px; overflow:hidden; }
+.stocktake-facts > div { padding:8px 10px; min-width:0; border:1px solid #edf1ee; }
+.stocktake-facts dt { font-size:12px; color:#61716a; }
+.stocktake-facts dd { margin:3px 0 0; font-size:14px; font-weight:650; overflow-wrap:anywhere; }
+#stocktaking-app .stocktake-fact-link { padding:0 !important; min-height:24px; height:auto; background:transparent; border:0; color:#17734f; text-decoration:underline; font:inherit; }
+.stocktake-session-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.stocktake-session-actions > :is(button,a) { margin:0; }
+.stocktake-cell-strip { display:flex; gap:8px; overflow-x:auto; padding:2px 2px 8px; overscroll-behavior-x:contain; scrollbar-width:thin; }
+#stocktaking-app .stocktake-cell-tile { flex:0 0 auto; display:grid; gap:3px; text-align:left; padding:8px 12px !important; background:#fff; color:#214b3c; border:1px solid #cfded6; border-radius:8px; min-width:126px; max-width:210px; }
+.stocktake-cell-tile strong { font-size:14px; overflow-wrap:anywhere; }
+.stocktake-cell-tile span { font-size:12px; font-weight:400; }
+#stocktaking-app .stocktake-cell-tile.done { background:#e2f4e9; border-color:#9bceb0; }
+#stocktaking-app .stocktake-cell-tile.selected { outline:2px solid #237f57; outline-offset:0; }
+.stocktake-cell-navigation { display:flex; justify-content:space-between; gap:8px; margin:0 0 10px; }
+.stocktake-cell-navigation button { margin:0; min-width:0; }
+.stocktake-detail-dialog { width:min(760px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); overflow:auto; }
+.stocktake-detail-dialog .review-task-header { display:flex; align-items:center; gap:8px; }
+.stocktake-detail-dialog .review-task-header h2 { flex:1; }
+.stocktake-detail-dialog .review-task-header > button { flex:0 0 44px; width:44px; height:44px; padding:0 !important; }
+.stocktake-detail-dialog .table-wrap { overflow:auto; margin:12px 0; }
+.stocktake-detail-dialog .stocktake-table { width:100%; border-collapse:collapse; }
+.stocktake-detail-dialog .stocktake-table :is(th,td) { padding:8px 10px; text-align:left; border-bottom:1px solid #e7eee9; font-size:14px; }
+.stocktake-detail-dialog .stocktake-table th { background:#f3f7f4; font-size:12px; }
+.stocktake-detail-dialog form { display:grid; gap:12px; }
+.stocktake-detail-dialog label { min-width:0; }
+.stocktake-detail-dialog input:not([type=checkbox]) { width:100%; box-sizing:border-box; min-height:44px; }
+@media(max-width:700px) {
+ .stocktake-facts { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .stocktake-facts > div { padding:7px 8px; }
+ .stocktake-session-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .stocktake-session-actions > :is(button,a) { width:100%; min-width:0; padding:6px 8px !important; }
+ .stocktake-cell-navigation button { padding:6px 8px !important; font-size:13px; }
+}
+
+.stocktake-detail-dialog .table-wrap { max-height:65dvh; }
+.stocktake-detail-dialog table.stocktake-summary-list.products { min-width:0; table-layout:fixed; }
+.stocktake-detail-dialog .stocktake-summary-list.products :is(th,td):last-child { width:95px; }
+.stocktake-detail-dialog .stocktake-summary-list.products :is(th,td) { white-space:normal; overflow-wrap:anywhere; }
+.stocktake-detail-dialog table.stocktake-summary-list.cells { min-width:480px; }
+.stocktake-detail-dialog .stocktake-summary-list th { position:sticky; top:0; z-index:1; }
+
+.stocktake-next-actions { display:flex; align-items:stretch; gap:8px; min-width:0; }
+.stocktake-cell-navigation > .stocktake-next-actions { margin-left:auto; }
+@media(max-width:700px){
+ .stocktake-cell-navigation { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; }
+ .stocktake-cell-navigation > .stocktake-next-actions { display:contents; }
+ .stocktake-cell-navigation > button { grid-column:1 / -1; grid-row:1; }
+ .stocktake-next-actions > [data-scan-stocktake] { grid-column:1; grid-row:2; }
+ .stocktake-next-actions > [data-select-count-cell] { grid-column:2; grid-row:2; }
+ .stocktake-cell-navigation button { width:100%; }
+}

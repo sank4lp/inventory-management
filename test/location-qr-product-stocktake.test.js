@@ -29,7 +29,7 @@ function fixture(){
  const current=id=>db.prepare('SELECT * FROM cells WHERE id=?').get(id);
  const stock=(p,c,q)=>db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,?,0)').run(p.id,c.id,q);
  const assign=(c,value)=>sc('assignQr',{cellId:c.id,labelId:c.label_id,labelRevision:c.label_revision,label:value,confirmed:true});
- const begin=runId=>{const i=count.snapshot(op).runs.find(r=>r.id===runId).items[0];return cc('begin',{itemId:i.id,generation:i.generation,method:'manual',location:current(i.cell_id).logical_code}).attemptId;};
+ const begin=runId=>{cc('start',{runId});const i=count.snapshot(op).runs.find(r=>r.id===runId).items[0];return cc('begin',{itemId:i.id,generation:i.generation,method:'manual',location:current(i.cell_id).logical_code}).attemptId;};
  return {db,work,display,setup,count,admin,op,cells,products,sc,cc,current,stock,assign,begin};
 }
 test('customer QR is opaque, unique, replaceable, permission protected and preserves existing stock identity',()=>{

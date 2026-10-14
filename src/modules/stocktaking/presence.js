@@ -11,7 +11,7 @@ export function createStocktakePresence({db,clock,run,event}) {
   const people=db.prepare("SELECT 1 FROM stocktake_sessions WHERE run_id=? AND state='active' AND expires_at>? LIMIT 1").get(runId,now());
   const claims=db.prepare('SELECT 1 FROM stocktake_display_claims cl JOIN stocktake_items i ON i.id=cl.item_id WHERE i.run_id=? AND i.generation=cl.generation LIMIT 1').get(runId);
   if(people||claims)return false;
-  stopDisplay(runId);db.prepare("UPDATE stocktake_runs SET paused_at=? WHERE id=? AND status NOT IN ('closed','completed')").run(now(),runId);return true;
+  stopDisplay(runId);db.prepare("UPDATE stocktake_runs SET paused_at=? WHERE id=? AND status NOT IN ('closed','completed','stopped')").run(now(),runId);return true;
  }
  function release(row){
   if(row.state!=='active')return;
@@ -31,12 +31,12 @@ export function createStocktakePresence({db,clock,run,event}) {
   join(actor,input){
    const current=run(actor,input.runId),id=sessionId(input),old=db.prepare('SELECT * FROM stocktake_sessions WHERE id=?').get(id);
    if(old&&(old.actor_id!==actor.id||old.run_id!==current.id||old.state!=='active'))throw new Error('Start a new counting session for this stocktake.');
-   if(['closed','completed'].includes(current.status))return {status:'recorded',active:false};
+   if(['closed','completed','stopped'].includes(current.status))return {status:'recorded',active:false};
    const assigned=db.prepare(`SELECT 1 FROM stocktake_items i WHERE i.run_id=? AND i.state IN ('pending','counting','skipped','recheck')
      AND (i.assignee_id=? OR EXISTS(SELECT 1 FROM stocktake_item_counters m WHERE m.item_id=i.id AND m.user_id=?)) LIMIT 1`).get(current.id,actor.id,actor.id);
    if(!assigned)throw new Error('No remaining count locations are assigned to you.');
    db.prepare("INSERT INTO stocktake_sessions(id,run_id,actor_id,expires_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET expires_at=excluded.expires_at").run(id,current.id,actor.id,expiry());
-   if(current.paused_at){enableStocktakeProgress(db,current.id,db.prepare("SELECT cell_id FROM stocktake_items WHERE run_id=? AND state!='excluded'").all(current.id).map(i=>i.cell_id));db.prepare('UPDATE stocktake_runs SET paused_at=NULL WHERE id=?').run(current.id);}
+   if(!current.started_at||current.paused_at||!current.display_enabled){enableStocktakeProgress(db,current.id,db.prepare("SELECT cell_id FROM stocktake_items WHERE run_id=? AND state!='excluded'").all(current.id).map(i=>i.cell_id));db.prepare('UPDATE stocktake_runs SET paused_at=NULL WHERE id=?').run(current.id);}
    db.prepare("UPDATE stocktake_runs SET started_at=COALESCE(started_at,?),status=CASE WHEN status='pending' THEN 'in_progress' ELSE status END WHERE id=?").run(now(),current.id);
    if(!old||current.paused_at)event(actor,current.paused_at?'resumed':current.started_at?'counter_joined':'started',{},current.id);
    const item=db.prepare('SELECT i.* FROM stocktake_items i JOIN stocktake_display_claims cl ON cl.item_id=i.id WHERE i.run_id=? AND cl.actor_id=? AND i.generation=cl.generation LIMIT 1').get(current.id,actor.id);

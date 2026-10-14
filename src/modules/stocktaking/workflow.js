@@ -28,7 +28,7 @@ export function countCellValues(db,cellId,productId=null){
 }
 export function stocktakeIndicator(db,cellId){
   const item=db.prepare(`SELECT i.*,r.scope_json FROM stocktake_items i JOIN stocktake_runs r ON r.id=i.run_id
-    WHERE i.cell_id=? AND i.display_active=1 AND r.display_enabled=1 AND i.state!='excluded' AND r.status!='closed'
+    WHERE i.cell_id=? AND i.display_active=1 AND r.display_enabled=1 AND i.state!='excluded' AND r.status NOT IN ('closed','stopped')
     ORDER BY r.id DESC LIMIT 1`).get(cellId);
   if(!item)return null;
   return {action:'stocktake',runId:item.run_id,itemId:item.id,color:item.state==='counted'?'blue':'yellow',values:countCellValues(db,cellId,JSON.parse(item.scope_json).productId||null)};
@@ -39,7 +39,7 @@ export function countCellOwner(db,cellId){
     JOIN work_guidance g ON g.cell_id=i.cell_id AND json_extract(g.desired,'$.action')='count'
       AND json_extract(g.desired,'$.itemId')=i.id AND json_extract(g.desired,'$.itemGeneration')=i.generation
     WHERE i.cell_id=? AND i.generation=cl.generation AND i.assignee_id=cl.actor_id AND i.state IN ('pending','counting','skipped','recheck')
-    AND r.status NOT IN ('closed','completed') ORDER BY cl.requested_at LIMIT 1`).get(cellId);
+    AND r.status NOT IN ('closed','completed','stopped') ORDER BY cl.requested_at LIMIT 1`).get(cellId);
 }
 export function enableStocktakeProgress(db,runId,cellIds){
   for(const cellId of cellIds){db.prepare('UPDATE stocktake_items SET display_active=0 WHERE cell_id=?').run(cellId);db.prepare('UPDATE stocktake_items SET display_active=1 WHERE run_id=? AND cell_id=?').run(runId,cellId);}

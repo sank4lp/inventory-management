@@ -173,7 +173,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         AND NOT EXISTS(SELECT 1 FROM work_reports w WHERE w.line_id=l.id AND w.status IN ('review','received'))
         ORDER BY COALESCE(t.started_at,t.assigned_at),l.id`).all(cellId).map(({id})=>line(id)).filter(l=>can(effectiveUser(db,db.prepare('SELECT * FROM users WHERE id=?').get(l.assignee_id)),'work.execute')&&!instructionProblem(l));
       const counts=db.prepare(`SELECT cl.*,i.run_id,i.cell_id FROM stocktake_display_claims cl JOIN stocktake_items i ON i.id=cl.item_id JOIN stocktake_runs r ON r.id=i.run_id
-        WHERE i.cell_id=? AND i.generation=cl.generation AND i.assignee_id=cl.actor_id AND i.state IN ('pending','counting','skipped','recheck') AND r.status NOT IN ('closed','completed') ORDER BY cl.requested_at,cl.item_id`).all(cellId).filter(v=>can(effectiveUser(db,db.prepare('SELECT * FROM users WHERE id=?').get(v.actor_id)),'count.perform'));
+        WHERE i.cell_id=? AND i.generation=cl.generation AND i.assignee_id=cl.actor_id AND i.state IN ('pending','counting','skipped','recheck') AND r.status NOT IN ('closed','completed','stopped') ORDER BY cl.requested_at,cl.item_id`).all(cellId).filter(v=>can(effectiveUser(db,db.prepare('SELECT * FROM users WHERE id=?').get(v.actor_id)),'count.perform'));
       // Preserve an existing display. Arrival never preempts it, including shared-locator cells.
       const existing=candidates.find(l=>l.id===old?.lineId),existingCount=counts.find(i=>i.item_id===old?.itemId&&i.generation===old?.itemGeneration);
       const countFirst=!existing&&!existingCount&&counts[0]&&(!candidates[0]||counts[0].requested_at<candidates[0].task_started_at);
@@ -190,7 +190,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     }
   }
   function requestCountGuidance(actor,item){
-    const other=db.prepare("SELECT i.id,c.logical_code FROM stocktake_display_claims cl JOIN stocktake_items i ON i.id=cl.item_id JOIN stocktake_runs r ON r.id=i.run_id JOIN cells c ON c.id=i.cell_id WHERE cl.actor_id=? AND i.id!=? AND i.generation=cl.generation AND i.state IN ('pending','counting','skipped','recheck') AND r.status NOT IN ('closed','completed')").get(actor.id,item.id);
+    const other=db.prepare("SELECT i.id,c.logical_code FROM stocktake_display_claims cl JOIN stocktake_items i ON i.id=cl.item_id JOIN stocktake_runs r ON r.id=i.run_id JOIN cells c ON c.id=i.cell_id WHERE cl.actor_id=? AND i.id!=? AND i.generation=cl.generation AND i.state IN ('pending','counting','skipped','recheck') AND r.status NOT IN ('closed','completed','stopped')").get(actor.id,item.id);
     if(other)throw new Error('Finish or pause counting '+other.logical_code+' before starting another location.');
     const binding=guidanceBinding(db,item.cell_id),attempt=db.prepare('SELECT baseline_json FROM stocktake_attempts WHERE item_id=? AND generation=? AND observation_id IS NULL ORDER BY started_at DESC LIMIT 1').get(item.id,item.generation);
     if(attempt&&JSON.parse(attempt.baseline_json).guidanceBinding!==binding)throw new Error('Count location mapping changed. Save any earlier evidence or skip this attempt before starting a fresh count.');
