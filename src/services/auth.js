@@ -76,17 +76,18 @@ export function getSessionUser(request, db) {
 
   let payload;
   try { payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")); } catch { return null; }
-  if (!Number.isFinite(payload.exp) || payload.exp < Date.now()) {
+  if (!Number.isFinite(payload.exp) || payload.exp <= Date.now()) {
     return null;
   }
 
-  return effectiveUser(db, (
+  const user=effectiveUser(db, (
     db
       .prepare(
         "SELECT id, name, username, role, status, created_at, last_active_at, session_version FROM users WHERE id = ? AND status = 'active' AND session_version = ?",
       )
       .get(payload.userId, payload.version || 1) || null
   ));
+  return user?{...user,sessionExpiresAt:payload.exp}:null;
 }
 
 export function requireRole(user, role) {

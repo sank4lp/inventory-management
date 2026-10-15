@@ -354,6 +354,7 @@ export function createDatabaseMaintenanceService({
       errors: [],
     };
 
+    logger?.info?.("database.maintenance.started", {startedAt:summary.startedAt});
     try {
       summary.operationalPrune = pruneOperationalEvents({ now: currentTime });
     } catch (error) {

@@ -2,7 +2,7 @@ import {can,SETTINGS} from './catalog.js';
 // Every public route is explicit. API command families additionally enforce action and resource scope in services.
 export const ROUTE_POLICY = [
   ['GET',/^\/(login|register|offline|stocktaking\/offline)$/,'public'],['POST',/^\/(login|register|logout)$/,'public'],
-  ['GET',/^\/profile$/,'account'],['GET',/^\/api\/system\/health$/,'account'],
+  ['GET',/^\/api\/session$/,'account'],['GET',/^\/profile$/,'account'],['GET',/^\/api\/system\/health$/,'account'],
   ['GET',/^\/(settings|admin)$/,'settings'],
   ['GET',/^\/settings\/roles$/,'access.manage'],['POST',/^\/settings\/roles(\/assign)?$/,'access.manage'],
   ['GET',/^\/settings\/people$/,'people.view'],['GET',/^\/admin\/users\/\d+$/,'people.view'],

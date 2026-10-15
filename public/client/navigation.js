@@ -1,3 +1,4 @@
+import './session.js';
 import {PageScope} from './page-lifecycle.js';
 
 export const PAGE_MODULES=new Set(['/app.js','/client/displays.js','/client/recommendation-actuals.js','/client/work.js','/client/stocktaking.js','/client/location-setup.js','/client/location-browse.js','/client/location-hierarchy.js','/client/location-history.js','/client/product-settings.js','/client/roles.js']);
@@ -9,7 +10,7 @@ if(shell&&body){
  document.body.dataset.shellId=crypto.randomUUID();
  const identity=document.body.dataset.notificationScope;
  const loadedClassic=new Set([...document.querySelectorAll('script[src]:not([type="module"])')].map(s=>new URL(s.src,location.href).pathname));
- const persistent=new Set(['/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/mobile-layout.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
+ const persistent=new Set(['/client/session.js','/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/mobile-layout.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
  const currentScope=()=>globalThis.WarehousePageLifecycle.current;
  const savedPositions=new Map();let deciding=false;
  async function permitLeave(pop,destination){if(deciding)return false;deciding=true;try{const permitted=await currentScope().canLeave(destination);if(!permitted&&pop){history.pushState({warehousePage:true},'',current);window.dispatchEvent(new CustomEvent('warehouse:navigation-cancelled'));}return permitted;}finally{deciding=false;}}
@@ -40,10 +41,12 @@ if(shell&&body){
    const token=++serial;loading?.abort();const controller=new AbortController();loading=controller;
    body.setAttribute('aria-busy','true');
    try{
-     const response=await fetch(target.href,{headers:{Accept:'text/html'},cache:'no-store',signal:controller.signal});
+     const response=await fetch(target.href,{headers:{Accept:'text/html'},cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
      if(!response.ok||!response.headers.get('content-type')?.includes('text/html'))throw Error('This page could not be opened. Try again.');
      const next=new DOMParser().parseFromString(await response.text(),'text/html'),content=next.querySelector('.page-body');
      if(token!==serial)return;
+     globalThis.WarehouseSession?.remaining(next.body.dataset.sessionRemainingMs);
+     if(globalThis.WarehouseSession?.check()===false)return;
      const sources=new Map();for(const source of next.querySelectorAll('script[src]'))sources.set(new URL(source.src,location.href).pathname,source);const scripts=[...sources.values()];
      const unsupported=[...next.querySelectorAll('script:not([src])')].some(s=>s.type!=='application/json'&&s.textContent.trim())||scripts.some(s=>s.type==='module'&&!persistent.has(new URL(s.src,location.href).pathname)&&!PAGE_MODULES.has(new URL(s.src,location.href).pathname));
      if(!content||next.body.dataset.notificationScope!==identity||unsupported){location.assign(response.url||target.href);return;}
@@ -68,9 +71,9 @@ if(shell&&body){
      if(anchor)anchor.scrollIntoView();else{const position=pop?savedPositions.get(current):null;scrollTo(position?.x||0,position?.y||0);}
      heading.tabIndex=-1;heading.focus({preventScroll:true});
    }catch(error){
-     if(error.name==='AbortError')return;
+     if(error.name==='AbortError'||error.name==='SessionExpiredError')return;
      if(pop)history.pushState({warehousePage:true},'',current);
-     globalThis.WarehouseNotifications?.notify(error.message||'Could not open this page. Try again.',{tone:'error'});
+     globalThis.WarehouseNotifications?.notify(error.name==='TimeoutError'?'The warehouse is not responding. Check its connection and try again.':error.message||'Could not open this page. Try again.',{tone:'error'});
      if(committing)location.replace(current);
    }finally{if(token===serial){body.removeAttribute('aria-busy');loading=null;}if(committing){committing=false;globalThis.WarehouseNavigation.mounting=false;if(queued){const next=queued;queued=null;void go(...next);}}}
  }

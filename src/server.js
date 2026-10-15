@@ -541,6 +541,9 @@ export const requestHandler = async (request, response) => {
       else sendRedirect(response,appendFlash(can(user,"work.view")?"/":"/profile","Admin access is required, or a role permitting this action. Saved physical evidence remains available in device help.","error"));
       return;
     }
+    if(request.method==='GET'&&url.pathname==='/api/session'){
+      sendJson(response,{userId:user.id,remainingMs:Math.max(0,user.sessionExpiresAt-Date.now())});return;
+    }
     if(await accessRoutes(request,response,url,user,getAppState()))return;
     if(locationBrowseRoutes(request,response,url,user,getAppState()))return;
     if(await locationSetupRoutes(request,response,url,user,getAppState()))return;

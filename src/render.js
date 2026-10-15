@@ -167,6 +167,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <link rel="stylesheet" href="/responsive.css" />
     <link rel="stylesheet" href="/layout.css" />
     <link rel="stylesheet" href="/mobile.css" />
+    ${user ? '<script type="module" src="/client/session.js"></script>' : ''}
     <script type="module" src="/client/navigation.js"></script>
     <script type="module" src="/client/stable-buttons.js"></script>
     <script type="module" src="/client/camera-zoom.js"></script>
@@ -178,7 +179,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <script type="module" src="/client/mobile-layout.js"></script>
     <script type="module" src="/client/displays.js"></script><script type="module" src="/client/recommendation-actuals.js"></script>
   </head>
-  <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}" ${user ? `data-account-id="${user.id}" data-notification-scope="${escapeHtml(JSON.stringify(notificationScope))}"` : ""}>
+  <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}" ${user ? `data-account-id="${user.id}" ${Number.isFinite(user.sessionExpiresAt)?`data-session-remaining-ms="${Math.max(0,user.sessionExpiresAt-Date.now())}"`:""} data-notification-scope="${escapeHtml(JSON.stringify(notificationScope))}"` : ""}>
     ${toast}
     <div class="dashboard-shell ${hasDashboardShell ? "" : "dashboard-shell-public"}">
       ${nav(user, title, currentPath)}
