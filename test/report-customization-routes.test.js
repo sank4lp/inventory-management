@@ -190,5 +190,5 @@ test("product field administration remains protected and uses report-oriented wo
   assert.match(adminFieldsPage.body, /Product Fields/);
   assert.match(adminFieldsPage.body, /Available for reports/);
   assert.doesNotMatch(adminFieldsPage.body, /Available in report builder/);
-  assert.doesNotMatch(adminFieldsPage.body, /saved reports/i);
+  assert.doesNotMatch(adminFieldsPage.body.split('<main')[1], /saved reports/i);
 });

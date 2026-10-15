@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import {
   getRecommendedActions,
   listRecentTasksForUser,
@@ -74,7 +75,7 @@ export function createHomePages({ db }) {
 
   function taskOwnerLink(user, task) {
     const label = task.created_by_name || task.created_by_username || `User #${task.created_by}`;
-    const href = user.role === "admin" ? `/admin/users/${task.created_by}` : "/profile";
+    const href = can(user,"people.view") ? `/admin/users/${task.created_by}` : "/profile";
     return `<a class="mini-link" href="${href}">${escapeHtml(label)}</a>`;
   }
 
@@ -87,6 +88,7 @@ export function createHomePages({ db }) {
       user,
       flash,
       content: `
+        ${can(user,'work.assign')?'<p><a class="action-cta-button" href="/work/overview">Assign Work</a></p>':can(user,'work.team')?'<p><a class="action-cta-button" href="/work/history?scope=team">Team history & workloads</a></p>':''}
         <section class="overview-action-grid" aria-label="Primary workflows">
           <a class="overview-action-tile overview-action-pick" href="/pick" aria-label="Pick">
             ${overviewActionIcon("pick")}
@@ -117,13 +119,13 @@ export function createHomePages({ db }) {
             ${
               tasks.length
                 ? table(
-                    ["Task", "User", "Product", "Type", "Status", "Started", "Correction"],
+                    ["Task", "Created by", "Product", "Type", "Status", "Started", "Correction"],
                     tasks.map((task) => [
                       `<a href="/tasks/${task.id}">#${task.id}</a>`,
                       taskOwnerLink(user, task),
                       `${escapeHtml(task.first_product_name || "—")}<br /><small>${escapeHtml(task.first_sku || "—")}</small>`,
                       statusBadge(task.type),
-                      statusBadge(task.status),
+                      statusBadge(task.outcome && task.outcome!=='open' ? task.outcome.replaceAll('_',' ') : task.status),
                       escapeHtml(formatDate(task.started_at)),
                       task.status === "completed"
                         ? `<a class="mini-link" href="/tasks/${task.id}?mode=edit">Correct</a>`

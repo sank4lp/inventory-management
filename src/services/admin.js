@@ -1,5 +1,5 @@
+import {currentActor,auditAccess} from "../modules/access/service.js";
 import {
-  createAdjustment,
   issueRegistrationKey,
   listRegistrationKeys,
   listUsers,
@@ -19,13 +19,15 @@ export function createAdminService({ db }) {
       return issueRegistrationKey(db, input);
     },
     revokeRegistrationKey(input) {
+      const actor=currentActor(db,input.actor,"access.manage");
+      auditAccess(db,actor,"invitation_revoked",input.keyId,{});
       return revokeRegistrationKey(db, input);
     },
     setUserStatus(input) {
       return setUserStatus(db, input);
     },
     createAdjustment(input) {
-      return createAdjustment(db, input);
+      throw new Error("Use a fresh Stocktaking observation and authorized review. Baseline-free adjustments are not an application command.");
     },
   };
 }

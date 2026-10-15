@@ -1,4 +1,7 @@
-import { spawn, spawnSync } from "node:child_process";
+import {createHostAdapter} from "../modules/hardware/host-adapter.js";
+import {currentActor} from "../modules/access/service.js";
+import { guardSetupChange } from "../modules/operations/guards.js";
+import { spawnSync } from "node:child_process";
 import { accessSync, constants, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
@@ -199,12 +202,13 @@ function mergePortAlias(port, alias) {
   return port;
 }
 
-function readArduinoBoards(arduinoCliPath) {
+function readArduinoBoards(arduinoCliPath,env=process.env) {
   if (!executableExists(arduinoCliPath)) {
     return new Map();
   }
 
   const result = spawnSync(arduinoCliPath, ["board", "list", "--format", "json"], {
+    env,
     encoding: "utf8",
     timeout: 3000,
   });
@@ -274,13 +278,13 @@ function addPort(ports, seen, path, label = "", arduinoBoards = new Map()) {
   seen.canonical.set(canonical, port);
 }
 
-function listSerialPorts(arduinoCliPath) {
+function listSerialPorts(arduinoCliPath,env=process.env) {
   const ports = [];
   const seen = {
     paths: new Set(),
     canonical: new Map(),
   };
-  const arduinoBoards = readArduinoBoards(arduinoCliPath);
+  const arduinoBoards = readArduinoBoards(arduinoCliPath,env);
 
   try {
     for (const name of readdirSync("/dev/serial/by-id")) {
@@ -393,6 +397,7 @@ function publicJob(job) {
 
 export function createFirmwareService({ db, config = {}, logger, backupService = null }) {
   const jobs = new Map();
+  const host=createHostAdapter({config,discover:listSerialPorts});
   const arduinoCliPath = config.arduinoCliPath || process.env.ARDUINO_CLI_PATH || "arduino-cli";
   const defaultFqbn = config.esp32Fqbn || process.env.ESP32_FQBN || DEFAULT_ESP32_FQBN;
   const sketchPath = resolve(
@@ -508,30 +513,11 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     }
   }
 
-  function runCommand(job, stage, progress, args) {
-    return new Promise((resolveCommand, rejectCommand) => {
-      job.stage = stage;
-      job.progress = progress;
-      job.currentCommand = commandLine(arduinoCliPath, args);
-      job.commands.push(job.currentCommand);
-      appendLog(job, `$ ${job.currentCommand}`);
-
-      const child = spawn(arduinoCliPath, args, {
-        cwd: process.cwd(),
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      child.stdout.on("data", (chunk) => appendLog(job, chunk.toString("utf8")));
-      child.stderr.on("data", (chunk) => appendLog(job, chunk.toString("utf8")));
-      child.on("error", rejectCommand);
-      child.on("close", (code) => {
-        if (code === 0) {
-          resolveCommand();
-          return;
-        }
-        rejectCommand(new Error(`${stage} command exited with code ${code}.`));
-      });
-    });
+  function runCommand(job,stage,progress,args) {
+    currentActor(db,job.flashedBy,'hardware.flash');
+    job.stage=stage;job.progress=progress;job.currentCommand=commandLine(host.command(),args);job.commands.push(job.currentCommand);
+    appendLog(job,`$ ${job.currentCommand}`);
+    return host.runFirmware(args,{onOutput:text=>appendLog(job,text)});
   }
 
   async function runFlashJob(job) {
@@ -562,7 +548,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         "--fqbn",
         job.fqbn,
         "--build-property",
-        `compiler.cpp.extra_flags=-DLED_MODULE_COUNT=${job.moduleCount} -DCONTROLLER_NAME="${cStringLiteral(job.controllerName)}" -DCONTROLLER_ADDRESS="${cStringLiteral(job.controllerAddress)}"`,
+        `compiler.cpp.extra_flags=-MMD -c -DLED_MODULE_COUNT=${job.moduleCount} -DCONTROLLER_NAME="${cStringLiteral(job.controllerName)}" -DCONTROLLER_ADDRESS="${cStringLiteral(job.controllerAddress)}"`,
         "--output-dir",
         buildDir,
         job.sketchPath,
@@ -582,6 +568,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
 
       job.stage = "configuring";
       job.progress = 92;
+      if(host.support().simulated){job.status="completed";job.stage="simulated";job.progress=100;job.finishedAt=nowIso();job.currentCommand=null;appendLog(job,"Simulation completed. No firmware was compiled or flashed and no controller configuration was saved.");return;}
       saveLastConfiguration(job);
       recordSystemEvent({
         eventType: "firmware_flash_completed",
@@ -647,6 +634,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         error: eventMessage,
       });
     }
+    finally { db.prepare("DELETE FROM app_metadata WHERE key='firmware_busy'").run(); }
   }
 
   function getLastConfiguration() {
@@ -699,7 +687,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     getFlashOptions() {
       const flashedDevices = getFlashedDevices();
       const controllerFlashRecords = listControllerFlashRecords(flashedDevices);
-      const ports = annotatePorts(listSerialPorts(arduinoCliPath), flashedDevices, controllerFlashRecords);
+      const ports = annotatePorts(host.listDevices(), flashedDevices, controllerFlashRecords);
       const lastConfiguration = getLastConfiguration();
       const lastPortAvailable = ports.some(
         (port) =>
@@ -716,9 +704,10 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       ).length;
       const ambiguousCount = esp32Ports.filter((port) => port.flashStatus === "ambiguous").length;
       return {
+        host:host.support(),
         arduinoCli: {
-          command: arduinoCliPath,
-          available: executableExists(arduinoCliPath),
+          command: host.command(),
+          available: config.firmwareSimulation===true||executableExists(host.command()),
         },
         defaultFqbn,
         sketchPath,
@@ -745,7 +734,10 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     },
     getLastConfiguration,
     startFlashJob(input = {}, actor = null) {
-      if (!executableExists(arduinoCliPath)) {
+      actor=currentActor(db,actor,"hardware.flash");
+      guardSetupChange(db);
+      if(config.firmwareToolchainRoot||process.env.FIRMWARE_TOOLCHAIN_ROOT)host.verifyToolchain();
+      if (!config.firmwareSimulation && !executableExists(host.command())) {
         throw new Error(
           `Arduino CLI was not found at "${arduinoCliPath}". Install arduino-cli or set ARDUINO_CLI_PATH.`,
         );
@@ -758,7 +750,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       if (!deviceIdentity) {
         throw new Error("Click Refresh ports and select the newly detected ESP32 before flashing.");
       }
-      const detectedPort = listSerialPorts(arduinoCliPath).find(
+      const detectedPort = host.listDevices().find(
         (entry) => entry.path === port || entry.canonicalPath === port,
       );
       if (!detectedPort) {
@@ -815,6 +807,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         logs: [],
       };
 
+      db.prepare("INSERT OR REPLACE INTO app_metadata(key,value,updated_at) VALUES('firmware_busy',?,?)").run(job.id,nowIso());
       jobs.set(job.id, job);
       runFlashJob(job);
       logger?.info("firmware.flash.started", {

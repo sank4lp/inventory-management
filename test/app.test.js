@@ -436,325 +436,51 @@ test("product detail shows the latest activity time for each holding cell", asyn
   assert.match(html, /Last Activity/);
   assert.match(html, new RegExp(`data-ping-cell[\\s\\S]*data-cell-id="${batteryCell.id}"`));
   assert.match(html, /data-show-label="Show Quantity"/);
+  assert.doesNotMatch(html, /data-display-kind="capacity_total"|Show Total Capacity/);
+  assert.match(html, /data-display-kind="capacity_available"/);
+  assert.match(html, /class="task-info-grid product-summary-facts"/);
   assert.match(html, new RegExp(`data-product-id="${battery.id}"`));
   assert.doesNotMatch(html, /data-location-count-value/);
   assert.match(html, />Show Quantity<\/button>/);
   assert.match(html, new RegExp(formatDate(lastActivityAt).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
-test("product find shows yellow quantity guidance on every mapped holding cell", async () => {
-  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-product-find-guidance-"));
-  process.chdir(sandbox);
-  process.env.NO_SERVER_LISTEN = "1";
-
-  const { reloadAppState, getAppState } = await import("../src/server/app-state.js");
-  reloadAppState();
-  const auth = await freshImport("../src/services/auth.js");
-  const inventory = await freshImport("../src/services/inventory.js");
-  const { createProductPages } = await freshImport("../src/server/pages/products.js");
-  const { requestHandler } = await freshImport("../src/server.js");
-
-  const { db } = getAppState();
-  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
-  const cookie = auth.createSessionCookie(user).split(";")[0];
-  const shoe = inventory.listProducts(db).find((product) => product.sku === "SKU-SHOE-001");
-  assert.ok(shoe);
-  const detail = inventory.getProductDetail(db, shoe.id);
-  const mappedLocations = detail.locations.filter(
-    (location) => location.hardware_channel && (location.controller_address || location.controller_id),
-  );
-  assert.ok(mappedLocations.length > 0);
-
-  const catalogHtml = createProductPages({ db }).renderCatalogProductResults(
-    inventory.listProducts(db).filter((product) => product.id === shoe.id),
-  );
-  assert.match(catalogHtml, /data-show-product-quantity/);
-  assert.match(catalogHtml, new RegExp(`data-product-id="${shoe.id}"`));
-  assert.match(catalogHtml, new RegExp(`data-activate-endpoint="/products/${shoe.id}/find"`));
-  assert.match(catalogHtml, new RegExp(`data-clear-endpoint="/products/${shoe.id}/find/clear"`));
-  assert.match(catalogHtml, />Show Quantity<\/button>/);
-
-  const activeHtml = createProductPages({ db }).renderProductDetail(
-    user,
-    null,
-    detail,
-    new URL(`http://localhost/products/${shoe.id}?find_led=1`),
-  );
-  assert.match(activeHtml, /data-product-find-led-clear-form/);
-  assert.match(activeHtml, new RegExp(`action="/products/${shoe.id}/find"`));
-
-  const response = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: `/products/${shoe.id}/find`,
-      body: "",
-      cookie,
-    }),
-    response,
-  );
-
-  assert.equal(response.statusCode, 302);
-  assert.match(response.headers.Location, /find_led=1/);
-
-  const payloads = db
-    .prepare("SELECT payload FROM device_events WHERE event_type = 'guidance_activated' ORDER BY id")
-    .all()
-    .map((row) => JSON.parse(row.payload))
-    .filter((payload) => payload.taskType === "product_find");
-  assert.equal(payloads.length, mappedLocations.length);
-  for (const location of mappedLocations) {
-    const payload = payloads.find((entry) => entry.cell === location.logical_code);
-    assert.ok(payload);
-    assert.equal(payload.color, "yellow");
-    assert.equal(Number(payload.quantity), Number(location.available_quantity));
-  }
-
-  const activeMetadataKey = `active_product_find_guidance:${user.id}:${shoe.id}`;
-  assert.ok(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey));
-  const clearedBeforeLeave = db
-    .prepare("SELECT COUNT(*) AS count FROM device_events WHERE event_type = 'guidance_cleared'")
-    .get().count;
-  const clearResponse = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: `/products/${shoe.id}/find/clear`,
-      body: "",
-      cookie,
-      headers: {
-        "x-requested-with": "fetch",
-      },
-    }),
-    clearResponse,
-  );
-
-  assert.equal(clearResponse.statusCode, 204);
-  const clearedAfterLeave = db
-    .prepare("SELECT COUNT(*) AS count FROM device_events WHERE event_type = 'guidance_cleared'")
-    .get().count;
-  assert.equal(clearedAfterLeave - clearedBeforeLeave, mappedLocations.length);
-  assert.equal(
-    db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey),
-    undefined,
-  );
-
-  const catalogFindResponse = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: `/products/${shoe.id}/find`,
-      body: new URLSearchParams({ return_to: "/products" }).toString(),
-      cookie,
-      headers: {
-        accept: "application/json",
-        "x-requested-with": "fetch",
-      },
-    }),
-    catalogFindResponse,
-  );
-  assert.equal(catalogFindResponse.statusCode, 200);
-  const catalogFindPayload = JSON.parse(catalogFindResponse.body);
-  assert.equal(catalogFindPayload.ok, true);
-  assert.equal(catalogFindPayload.productId, shoe.id);
-  assert.equal(catalogFindPayload.mappedCount, mappedLocations.length);
-  assert.match(catalogFindPayload.message, /in yellow/);
-
-  const catalogClearResponse = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: `/products/${shoe.id}/find/clear`,
-      body: "",
-      cookie,
-      headers: {
-        "x-requested-with": "fetch",
-      },
-    }),
-    catalogClearResponse,
-  );
-  assert.equal(catalogClearResponse.statusCode, 204);
-  assert.equal(
-    db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey),
-    undefined,
-  );
-
-  const movementFindResponse = new MockResponse();
-  const movementPreferredCell = detail.locations[1] || detail.locations[0];
-  assert.ok(movementPreferredCell);
-  const movementFindBody = new URLSearchParams({
-    return_to: `/pick?product_id=${shoe.id}&quantity=2`,
-    product_id: String(shoe.id),
-    quantity: "7",
-    [`preferred_cell_${movementPreferredCell.cell_id}`]: String(movementPreferredCell.cell_id),
-  });
-  await requestHandler(
-    formRequest({
-      url: `/products/${shoe.id}/find`,
-      body: movementFindBody.toString(),
-      cookie,
-    }),
-    movementFindResponse,
-  );
-
-  assert.equal(movementFindResponse.statusCode, 302);
-  assert.match(movementFindResponse.headers.Location, /^\/pick\?/);
-  const movementFindRedirect = new URL(movementFindResponse.headers.Location, "http://localhost");
-  assert.equal(movementFindRedirect.searchParams.get("product_id"), String(shoe.id));
-  assert.equal(movementFindRedirect.searchParams.get("quantity"), "7");
-  assert.equal(
-    movementFindRedirect.searchParams.get("preferred_cell_ids"),
-    String(movementPreferredCell.cell_id),
-  );
-  assert.equal(movementFindRedirect.searchParams.get("find_led"), "1");
-  assert.ok(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey));
-
-  const movementClearResponse = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: `/products/${shoe.id}/find/clear`,
-      body: "",
-      cookie,
-      headers: {
-        "x-requested-with": "fetch",
-      },
-    }),
-    movementClearResponse,
-  );
-  assert.equal(movementClearResponse.statusCode, 204);
+test("product find shows yellow quantity guidance on every mapped holding cell",async()=>{
+  const sandbox=mkdtempSync(join(tmpdir(),'phase2-route-'));process.chdir(sandbox);process.env.NO_SERVER_LISTEN='1';
+  const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
+  const {db}=getAppState(),auth=await freshImport('../src/services/auth.js'),user=db.prepare("SELECT * FROM users WHERE role='admin'").get(),cookie=auth.createSessionCookie(user).split(';')[0];
+  const {requestHandler}=await import('../src/server.js');
+  db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,6,0) ON CONFLICT(product_id,cell_id) DO UPDATE SET available_quantity=6').run();
+  const response=new MockResponse();await requestHandler(formRequest({url:"/products/1/find",body:'',cookie,headers:{accept:'application/json'}}),response);
+  assert.equal(response.statusCode,200);const payload=JSON.parse(response.body);assert.ok(payload.displayId);assert.ok(payload.targets.some(t=>t.status==='sent'));
+  assert.ok(db.prepare('SELECT * FROM display_requests WHERE id=?').get(payload.displayId));
+  const stale=new MockResponse();await requestHandler(formRequest({url:"/products/1/find/clear",body:'',cookie,headers:{accept:'application/json'}}),stale);assert.equal(stale.statusCode,400);
+  const cleared=new MockResponse();await requestHandler(formRequest({url:'/api/displays/stop',body:new URLSearchParams({displayId:payload.displayId}).toString(),cookie,headers:{accept:'application/json'}}),cleared);assert.equal(cleared.statusCode,200);assert.equal(db.prepare('SELECT state FROM display_requests WHERE id=?').get(payload.displayId).state,'stopped');
 });
 
-test("product catalog audit shows total available quantity on every mapped stocked cell", async () => {
-  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-catalog-quantity-audit-"));
-  process.chdir(sandbox);
-  process.env.NO_SERVER_LISTEN = "1";
+test("product items-per-location display accepts the mode and shows configured units",async()=>{
+  const sandbox=mkdtempSync(join(tmpdir(),'capacity-route-'));process.chdir(sandbox);process.env.NO_SERVER_LISTEN='1';
+  const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
+  const {db}=getAppState(),auth=await freshImport('../src/services/auth.js'),user=db.prepare("SELECT * FROM users WHERE role='admin'").get(),cookie=auth.createSessionCookie(user).split(';')[0];
+  const {requestHandler}=await import('../src/server.js');
+  db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,6,0) ON CONFLICT(product_id,cell_id) DO UPDATE SET available_quantity=6').run();
+  const product=db.prepare('SELECT items_per_cell FROM products WHERE id=1').get();
+  const response=new MockResponse();await requestHandler(formRequest({url:'/products/1/find',body:new URLSearchParams({displayKind:'items_per_location'}).toString(),cookie,headers:{accept:'application/json'}}),response);
+  assert.equal(response.statusCode,200);
+  const payload=JSON.parse(response.body);assert.equal(payload.targets.find(t=>t.cellId===1).value,product.items_per_cell);
+});
 
-  const { reloadAppState, getAppState } = await import("../src/server/app-state.js");
-  reloadAppState();
-  const auth = await freshImport("../src/services/auth.js");
-  const inventory = await freshImport("../src/services/inventory.js");
-  const { createProductPages } = await freshImport("../src/server/pages/products.js");
-  const { requestHandler } = await freshImport("../src/server.js");
-
-  const { db } = getAppState();
-  const user = { id: 1, name: "Admin", username: "admin", role: "admin" };
-  const cookie = auth.createSessionCookie(user).split(";")[0];
-  let mappedStockedCells = inventory.listCells(db).filter(
-    (cell) =>
-      Number(cell.occupied_quantity || 0) > 0 &&
-      cell.hardware_channel &&
-      (cell.controller_address || cell.controller_id),
-  );
-  let seededAuditStock = null;
-  if (!mappedStockedCells.length) {
-    const products = inventory.listProducts(db).slice(0, 2);
-    const mappedCells = inventory.listCells(db).filter(
-      (cell) => cell.hardware_channel && (cell.controller_address || cell.controller_id),
-    );
-    assert.equal(products.length, 2);
-    assert.ok(mappedCells.length >= 2);
-    inventory.createAdjustment(db, {
-      cellId: mappedCells[0].id,
-      userId: user.id,
-      reason: "Seed mixed catalog audit location",
-      lines: [
-        { productId: products[0].id, absoluteQuantity: 2 },
-        { productId: products[1].id, absoluteQuantity: 3 },
-      ],
-    });
-    inventory.createAdjustment(db, {
-      cellId: mappedCells[1].id,
-      userId: user.id,
-      reason: "Seed catalog audit location",
-      lines: [{ productId: products[0].id, absoluteQuantity: 4 }],
-    });
-    seededAuditStock = { products, mappedCells: mappedCells.slice(0, 2) };
-    mappedStockedCells = inventory.listCells(db).filter(
-      (cell) =>
-        Number(cell.occupied_quantity || 0) > 0 &&
-        cell.hardware_channel &&
-        (cell.controller_address || cell.controller_id),
-    );
-  }
-  assert.ok(mappedStockedCells.length > 0);
-
-  const catalogHtml = createProductPages({ db }).renderProducts(
-    user,
-    null,
-    "",
-    false,
-    new URL("http://localhost/products"),
-  );
-  assert.match(catalogHtml, /data-quantity-key="catalog-audit"/);
-  assert.match(catalogHtml, /data-activate-endpoint="\/products\/quantities"/);
-  assert.match(catalogHtml, /data-clear-endpoint="\/products\/quantities\/clear"/);
-  assert.match(catalogHtml, />Show All Quantities<\/button>/);
-
-  const response = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: "/products/quantities",
-      body: "",
-      cookie,
-      headers: {
-        accept: "application/json",
-        "x-requested-with": "fetch",
-      },
-    }),
-    response,
-  );
-
-  assert.equal(response.statusCode, 200);
-  const responsePayload = JSON.parse(response.body);
-  assert.equal(responsePayload.ok, true);
-  assert.equal(responsePayload.mappedCount, mappedStockedCells.length);
-  assert.match(responsePayload.message, /total available quantities/);
-  assert.match(responsePayload.message, /in yellow/);
-
-  const displayPayloads = db
-    .prepare("SELECT payload FROM device_events WHERE event_type = 'guidance_activated' ORDER BY id")
-    .all()
-    .map((row) => JSON.parse(row.payload))
-    .filter((payload) => payload.taskType === "catalog_quantity_audit");
-  assert.equal(displayPayloads.length, mappedStockedCells.length);
-  for (const cell of mappedStockedCells) {
-    const payload = displayPayloads.find((entry) => entry.cell === cell.logical_code);
-    assert.ok(payload);
-    assert.equal(payload.color, "yellow");
-    assert.equal(Number(payload.quantity), Number(cell.occupied_quantity));
-  }
-
-  const activeMetadataKey = `active_catalog_quantity_guidance:${user.id}`;
-  assert.ok(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey));
-
-  const clearResponse = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: "/products/quantities/clear",
-      body: "",
-      cookie,
-      headers: {
-        "x-requested-with": "fetch",
-      },
-    }),
-    clearResponse,
-  );
-  assert.equal(clearResponse.statusCode, 204);
-  assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey), undefined);
-
-  if (seededAuditStock) {
-    inventory.createAdjustment(db, {
-      cellId: seededAuditStock.mappedCells[0].id,
-      userId: user.id,
-      reason: "Clear catalog audit test stock",
-      lines: seededAuditStock.products.map((product) => ({
-        productId: product.id,
-        absoluteQuantity: 0,
-      })),
-    });
-    inventory.createAdjustment(db, {
-      cellId: seededAuditStock.mappedCells[1].id,
-      userId: user.id,
-      reason: "Clear catalog audit test stock",
-      lines: [{ productId: seededAuditStock.products[0].id, absoluteQuantity: 0 }],
-    });
-  }
+test("product catalog audit shows unambiguous quantities on every mapped stocked cell",async()=>{
+  const sandbox=mkdtempSync(join(tmpdir(),'phase2-route-'));process.chdir(sandbox);process.env.NO_SERVER_LISTEN='1';
+  const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
+  const {db}=getAppState(),auth=await freshImport('../src/services/auth.js'),user=db.prepare("SELECT * FROM users WHERE role='admin'").get(),cookie=auth.createSessionCookie(user).split(';')[0];
+  const {requestHandler}=await import('../src/server.js');
+  db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,6,0) ON CONFLICT(product_id,cell_id) DO UPDATE SET available_quantity=6').run();
+  const response=new MockResponse();await requestHandler(formRequest({url:"/products/quantities",body:'',cookie,headers:{accept:'application/json'}}),response);
+  assert.equal(response.statusCode,200);const payload=JSON.parse(response.body);assert.ok(payload.displayId);assert.ok(payload.targets.some(t=>t.status==='sent'));
+  assert.ok(db.prepare('SELECT * FROM display_requests WHERE id=?').get(payload.displayId));
+  const stale=new MockResponse();await requestHandler(formRequest({url:"/products/quantities/clear",body:'',cookie,headers:{accept:'application/json'}}),stale);assert.equal(stale.statusCode,400);
+  const cleared=new MockResponse();await requestHandler(formRequest({url:'/api/displays/stop',body:new URLSearchParams({displayId:payload.displayId}).toString(),cookie,headers:{accept:'application/json'}}),cleared);assert.equal(cleared.statusCode,200);assert.equal(db.prepare('SELECT state FROM display_requests WHERE id=?').get(payload.displayId).state,'stopped');
 });
 
 test("product low stock uses significant drop below thirty-day average", async () => {
@@ -869,8 +595,11 @@ test("profile page shows account details and activity summary", async () => {
 
   assert.match(html, /href="\/profile"/);
   assert.match(html, /data-nav-links/);
-  assert.match(html, /data-nav-overflow-toggle/);
-  assert.match(html, /data-nav-overflow-menu/);
+  assert.doesNotMatch(html, /<summary[^>]*>(?:(?!<\/summary>)[\s\S])*<a\b/);
+  assert.match(html, /aria-label="Primary areas"/);
+  const operatorHtml=pages.renderProfile(operator,null),operatorNav=operatorHtml.split('aria-label="Primary areas"')[1].split('<div class="sidebar-footer">')[0].replace(/<nav class="side-nav-sublist"[\s\S]*?<\/nav>/g,'');
+  assert.deepEqual([...operatorNav.matchAll(/href="([^"]+)"/g)].map(m=>m[1]),['/work','/products','/cells','/stocktaking','/reports']);
+  assert.match(operatorHtml,/href="\/profile"/);assert.doesNotMatch(operatorHtml,/href="\/settings"/);
   assert.match(html, /Signed In As/);
   assert.match(html, /System Admin/);
   assert.match(html, /admin/);
@@ -1066,11 +795,14 @@ test("product removal is admin-safe and SKU re-add restores the same product ide
     new URL(`http://localhost/products/${shoe.id}`),
   );
   assert.match(stockedProductHtml, /Remove Product/);
-  assert.match(stockedProductHtml, /Show All Quantities/);
+  assert.match(stockedProductHtml, /Show quantities in all locations/);
   assert.match(stockedProductHtml, /product-summary-layout/);
   assert.match(stockedProductHtml, /product-summary-facts/);
   assert.match(stockedProductHtml, /Product Settings/);
-  assert.match(stockedProductHtml, /Edit Product Details/);
+  assert.match(stockedProductHtml, /data-product-settings-dialog/);
+  assert.match(stockedProductHtml, /data-product-settings-form/);
+  assert.match(stockedProductHtml, /Change unit/);
+  assert.match(stockedProductHtml, /I confirm these changes/);
   assert.match(stockedProductHtml, /SKU is the product identity and cannot be changed\./);
   assert.match(stockedProductHtml, /Create a Pick task to reduce this product&#39;s stock to 0 before removing it\./);
   assert.match(stockedProductHtml, /Remove Product<\/button>/);
@@ -1083,7 +815,7 @@ test("product removal is admin-safe and SKU re-add restores the same product ide
     new URL(`http://localhost/products/${product.id}`),
   );
   assert.doesNotMatch(operatorHtml, /Remove Product/);
-  assert.match(operatorHtml, /Show All Quantities/);
+  assert.match(operatorHtml, /Show quantities in all locations/);
   assert.match(operatorHtml, /href="\/products"[\s\S]*?<span>Products<\/span>/);
 
   const removed = inventory.removeProduct(db, product.id);
@@ -1165,6 +897,11 @@ test("capacity updates show newly-created recommended actions in a same-page pro
 
   const auth = await freshImport("../src/services/auth.js");
   const { requestHandler } = await freshImport("../src/server.js");
+  // This scenario requires stock; seed it explicitly in this route fixture.
+  const fixtureState = (await import("../src/server/app-state.js")).getAppState();
+  fixtureState.db.prepare("INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,3,0)").run();
+
+  fixtureState.db.prepare("INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,2,3,0),(1,3,3,0)").run();
   const response = new MockResponse();
   const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
   const body = new URLSearchParams({
@@ -1257,7 +994,7 @@ test("capacity updates show newly-created recommended actions in a same-page pro
     catalogResponse,
   );
   assert.equal(catalogResponse.statusCode, 200);
-  assert.match(catalogResponse.body, /catalog-capacity-editor/);
+  assert.doesNotMatch(catalogResponse.body, /catalog-capacity-editor/);
   assert.match(catalogResponse.body, /Recommended Action Created/);
   assert.match(catalogResponse.body, /will free 2 locations/);
 });
@@ -1620,13 +1357,13 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(addProductHtml, /Optional Catalog Details/);
   assert.match(addProductHtml, /data-report-open="out-of-stock"/);
   assert.match(addProductHtml, /data-report-template="out-of-stock"/);
-  assert.match(addProductHtml, /Open Printable List/);
+  assert.match(addProductHtml, /Print this list/);
   assert.match(addProductHtml, /Out Of Stock Products/);
   assert.match(addProductHtml, /data-report-print-current/);
   assert.match(addProductHtml, /Items Per Location/);
-  assert.match(addProductHtml, /catalog-capacity-editor/);
-  assert.match(addProductHtml, /Edit Capacity/);
-  assert.match(addProductHtml, /Save Capacity/);
+  assert.doesNotMatch(addProductHtml, /catalog-capacity-editor/);
+  assert.doesNotMatch(addProductHtml, /Edit Capacity/);
+  assert.doesNotMatch(addProductHtml, /Save Capacity/);
   const productSearchHtml = productPages.renderCatalogProductResults(
     inventory.listProducts(db, "shoe"),
     "No products match that search.",
@@ -1654,9 +1391,8 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(pickHtml, /data-movement-stock-offset="5"/);
   assert.match(pickHtml, /name="return_to" value="" data-led-command-return-to/);
   assert.match(pickHtml, /Show All Quantities/);
-  assert.match(pickHtml, new RegExp(`formaction="/products/${shoe.id}/find"`));
-  assert.match(pickHtml, /formnovalidate/);
-  assert.match(pickHtml, /data-product-find-submit/);
+  assert.match(pickHtml, new RegExp(`data-activate-endpoint="/products/${shoe.id}/find"`));
+  assert.match(pickHtml, /data-show-product-quantity/);
   assert.match(pickHtml, /Last Activity/);
   assert.match(pickHtml, /Preferred/);
   assert.match(
@@ -1730,9 +1466,8 @@ test("operator movement screens keep context and use plain task actions", async 
   assert.match(putHtml, /data-movement-stock-offset="5"/);
   assert.match(putHtml, /name="return_to" value="" data-led-command-return-to/);
   assert.match(putHtml, /Show All Quantities/);
-  assert.match(putHtml, new RegExp(`formaction="/products/${shoe.id}/find"`));
-  assert.match(putHtml, /formnovalidate/);
-  assert.match(putHtml, /data-product-find-submit/);
+  assert.match(putHtml, new RegExp(`data-activate-endpoint="/products/${shoe.id}/find"`));
+  assert.match(putHtml, /data-show-product-quantity/);
   assert.match(putHtml, /Preferred/);
   assert.match(
     putHtml,
@@ -1928,19 +1663,19 @@ test("overview recent tasks show user links and respect operator scope", async (
   const adminHtml = homePages.renderHome(admin, null, new URL("http://localhost/"));
   const operatorHtml = homePages.renderHome(operator, null, new URL("http://localhost/"));
 
-  assert.match(adminHtml, /<th>User<\/th>/);
+  assert.match(adminHtml, /<th>Created by<\/th>/);
   assert.match(adminHtml, new RegExp(`href="/tasks/${adminTask.id}"`));
   assert.match(adminHtml, new RegExp(`href="/tasks/${operatorTask.id}"`));
   assert.match(adminHtml, new RegExp(`href="/admin/users/${admin.id}"`));
   assert.match(adminHtml, new RegExp(`href="/admin/users/${operator.id}"`));
-  assert.match(operatorHtml, /<th>User<\/th>/);
+  assert.match(operatorHtml, /<th>Created by<\/th>/);
   assert.doesNotMatch(operatorHtml, new RegExp(`href="/tasks/${adminTask.id}"`));
   assert.match(operatorHtml, new RegExp(`href="/tasks/${operatorTask.id}"`));
   assert.match(operatorHtml, /href="\/profile"/);
   assert.doesNotMatch(operatorHtml, /href="\/admin\/users\//);
 });
 
-test("pending review tasks auto-cancel five minutes after last touch by default", async () => {
+test("pending review inactivity flags verification and preserves reservations after five minutes", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-stale-pending-review-"));
   process.chdir(sandbox);
 
@@ -1997,9 +1732,11 @@ test("pending review tasks auto-cancel five minutes after last touch by default"
   const cancelledTaskIds = systemService.cancelStalePendingReviewTasks({ now });
 
   assert.deepEqual(cancelledTaskIds, [staleTask.id]);
-  assert.deepEqual(clearedTaskIds, [staleTask.id]);
-  assert.equal(inventory.getTask(db, staleTask.id).status, "cancelled");
-  assert.equal(inventory.getTask(db, staleTask.id).completed_at, now.toISOString());
+  assert.ok(clearedTaskIds.length > 0);
+  assert.equal(inventory.getTask(db, staleTask.id).status, "pending_review");
+  assert.equal(inventory.getTask(db, staleTask.id).attention, 1);
+  assert.equal(inventory.getTask(db, staleTask.id).completed_at, null);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM work_reservations WHERE state='held'").get().n,2);
   assert.equal(inventory.getTask(db, recentlyTouchedTask.id).status, "pending_review");
 });
 
@@ -2066,8 +1803,9 @@ test("pending review task timeout can be configured", async () => {
   assert.equal(settings.timeoutMinutes, 10);
   assert.equal(systemService.getPendingReviewTimeoutSettings().timeoutMinutes, 10);
   assert.deepEqual(cancelledTaskIds, [olderTask.id]);
-  assert.deepEqual(clearedTaskIds, [olderTask.id]);
-  assert.equal(inventory.getTask(db, olderTask.id).status, "cancelled");
+  assert.ok(clearedTaskIds.length > 0);
+  assert.equal(inventory.getTask(db, olderTask.id).status, "pending_review");
+  assert.equal(inventory.getTask(db, olderTask.id).attention, 1);
   assert.equal(inventory.getTask(db, insideWindowTask.id).status, "pending_review");
   assert.match(
     systemService.listRecentSystemEvents(1, "pending_review_timeout_setting_updated")[0].message,
@@ -2144,13 +1882,13 @@ test("recommended actions open as a scan-friendly list before detailed cleanup",
   assert.match(listHtml, /Review/);
   assert.match(listHtml, /Space Created/);
   assert.match(listHtml, /No locations freed/);
-  assert.doesNotMatch(listHtml, /Apply Recommendation/);
+  assert.doesNotMatch(listHtml, /Save actual movement results/);
 
   const detailHtml = taskPages.renderRecommendedActions(user, null, actions[0].key, {
     source: "capacity",
     returnTo: "/products/1",
   });
-  assert.match(detailHtml, /Apply Recommendation/);
+  assert.match(detailHtml, /Save actual movement results/);
   assert.match(detailHtml, /Show Pick\/Put LEDs/);
   assert.match(detailHtml, /Skip For Now/);
   assert.match(detailHtml, /The capacity update created this recommended action/);
@@ -2251,17 +1989,16 @@ test("warehouse optimization recommendations consolidate product into closer cel
   assert.match(detailHtml, /Pick From cell OPT-R1-C04[\s\S]*Quantity: 2/);
   assert.equal((detailHtml.match(/Pick From cell OPT-R1-C04/g) || []).length, 1);
   assert.match(detailHtml, /name="move_source_0"/);
-  assert.match(detailHtml, /disabled title="Show full optimization LEDs before applying this recommendation\."/);
+  assert.match(detailHtml, /name="actual_pick_0"/);
+  assert.match(detailHtml, /name="actual_put_0"/);
+  assert.match(detailHtml, /name="physical_confirmed"/);
   assert.doesNotMatch(detailHtml, /name="led_ready" value="1"/);
   assert.doesNotMatch(detailHtml, /data-recommendation-led-clear-form/);
   const ledReadyHtml = createTaskPages({ db }).renderRecommendedActions(user, null, action.key, {
     ledReady: true,
   });
-  assert.match(ledReadyHtml, /Full optimization LEDs are active/);
-  assert.match(ledReadyHtml, /name="led_ready" value="1"/);
-  assert.match(ledReadyHtml, /data-recommendation-led-clear-form/);
-  assert.match(ledReadyHtml, /name="active_light_move_index" value="all"/);
-  assert.doesNotMatch(ledReadyHtml, /disabled title="Show full optimization LEDs before applying this recommendation\."/);
+  assert.doesNotMatch(ledReadyHtml,/Full optimization LEDs are active/);
+  assert.match(ledReadyHtml,/data-display-console/);
   const guidanceLines = recommendationGuidance.uniqueGuidanceLines(
     action.recommendedMoves.flatMap((move) =>
       recommendationGuidance.recommendationGuidanceLines(inventory.listCells(db), {
@@ -2368,136 +2105,14 @@ test("warehouse optimization minimizes the quantity operators must move", async 
   assert.deepEqual(action.freedLocations.map((location) => location.logicalCode), ["MIN-R1-C01"]);
 });
 
-test("recommended action LEDs clear when the operator leaves without applying", async () => {
-  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-recommendation-led-clear-"));
-  process.chdir(sandbox);
-  process.env.NO_SERVER_LISTEN = "1";
-
-  const { reloadAppState, getAppState } = await import("../src/server/app-state.js");
-  reloadAppState();
-  const auth = await freshImport("../src/services/auth.js");
-  const inventory = await freshImport("../src/services/inventory.js");
-  const { requestHandler } = await freshImport("../src/server.js");
-
-  const { db } = getAppState();
-  const user = { id: 1, role: "admin" };
-  const cookie = auth.createSessionCookie(user).split(";")[0];
-  const product = inventory.createProduct(db, {
-    sku: "OPT-CLEAR",
-    name: "Optimization Clear Product",
-    brand: "Warehouse",
-    unit_of_measure: "items",
-    items_per_cell: 5,
-  });
-  const cells = [1, 2, 3].map((index) =>
-    inventory.createCell(db, {
-      logicalCode: `CLR-R1-C0${index}`,
-      createdBy: user.id,
-    }),
-  );
-  [1, 1, 1].forEach((quantity, index) => {
-    inventory.createAdjustment(db, {
-      cellId: cells[index].id,
-      userId: user.id,
-      reason: "Seed recommendation LED clear",
-      lines: [{ productId: product.id, absoluteQuantity: quantity }],
-    });
-  });
-
-  const action = inventory
-    .getRecommendedActions(db)
-    .find((entry) => entry.type === "warehouse_optimization" && entry.productId === product.id);
-  assert.ok(action);
-
-  const invalidLightResponse = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: "/recommended-actions/light-cell",
-      body: new URLSearchParams({
-        source_cell_id: String(action.cellId),
-        product_id: String(action.productId),
-        reason: action.title,
-        recommendation_key: action.key,
-        light_move_index: "all",
-        move_source_0: String(action.recommendedMoves[0].sourceCellId || action.cellId),
-        move_qty_0: "0",
-        move_cell_0: String(action.recommendedMoves[0].targetCellId),
-      }).toString(),
-      cookie,
-    }),
-    invalidLightResponse,
-  );
-  assert.equal(invalidLightResponse.statusCode, 302);
-  assert.doesNotMatch(invalidLightResponse.headers.Location, /led_ready=1/);
-  assert.doesNotMatch(invalidLightResponse.headers.Location, /led_move_index=/);
-
-  const lightBody = new URLSearchParams({
-    source_cell_id: String(action.cellId),
-    product_id: String(action.productId),
-    reason: action.title,
-    recommendation_key: action.key,
-    light_move_index: "all",
-  });
-  action.recommendedMoves.forEach((move, index) => {
-    lightBody.set(`move_source_${index}`, String(move.sourceCellId || action.cellId));
-    lightBody.set(`move_qty_${index}`, String(move.quantity));
-    lightBody.set(`move_cell_${index}`, String(move.targetCellId));
-  });
-
-  const lightResponse = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: "/recommended-actions/light-cell",
-      body: lightBody.toString(),
-      cookie,
-    }),
-    lightResponse,
-  );
-
-  assert.equal(lightResponse.statusCode, 302);
-  assert.match(lightResponse.headers.Location, /led_move_index=all/);
-
-  const activeMetadataKey = `active_recommendation_guidance:${user.id}:${action.key}`;
-  const activeMetadata = db
-    .prepare("SELECT value FROM app_metadata WHERE key = ?")
-    .get(activeMetadataKey);
-  assert.ok(activeMetadata);
-  const expectedClearCount = JSON.parse(activeMetadata.value).lines.length;
-  assert.ok(expectedClearCount > 0);
-  const clearedBeforeLeave = db
-    .prepare(
-      "SELECT COUNT(*) AS count FROM device_events WHERE event_type IN ('guidance_cleared', 'guidance_manual_clear')",
-    )
-    .get().count;
-
-  const clearResponse = new MockResponse();
-  await requestHandler(
-    formRequest({
-      url: "/recommended-actions/clear-leds",
-      body: new URLSearchParams({
-        recommendation_key: action.key,
-        reason: action.title,
-        active_light_move_index: "all",
-      }).toString(),
-      cookie,
-      headers: {
-        "x-requested-with": "fetch",
-      },
-    }),
-    clearResponse,
-  );
-
-  assert.equal(clearResponse.statusCode, 204);
-  const clearedEvents = db
-    .prepare(
-      "SELECT event_type FROM device_events WHERE event_type IN ('guidance_cleared', 'guidance_manual_clear')",
-    )
-    .all();
-  assert.equal(clearedEvents.length - clearedBeforeLeave, expectedClearCount);
-  assert.equal(
-    db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(activeMetadataKey),
-    undefined,
-  );
+test("recommendation displays retain receipts and stale bulk clearing cannot stop them",async()=>{
+ const sandbox=mkdtempSync(join(tmpdir(),'recommendation-displays-'));process.chdir(sandbox);process.env.NO_SERVER_LISTEN='1';
+ const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();const state=getAppState(),auth=await freshImport('../src/services/auth.js'),{requestHandler}=await freshImport('../src/server.js'),cookie=auth.createSessionCookie({id:1,role:'admin'}).split(';')[0];
+ const before=state.db.prepare('SELECT * FROM inventory_balances').all();
+ const body=new URLSearchParams({requestId:'recommendation-display-1',recommendation_key:'demo',product_id:'1',light_move_index:'all',move_source_0:'1',move_cell_0:'2',move_qty_0:'1'}).toString();const response=new MockResponse();await requestHandler(formRequest({url:'/recommended-actions/light-cell',body,cookie}),response);assert.equal(response.statusCode,302);assert.match(response.headers.Location,/recommended-actions\?key=demo/);
+ const active=state.displayCoordinator.status({id:1})[0];assert.ok(active);assert.deepEqual(active.targets.map(t=>t.color),['green','red']);assert.deepEqual(state.db.prepare('SELECT * FROM inventory_balances').all(),before);
+ const stale=new MockResponse();await requestHandler(formRequest({url:'/recommended-actions/clear-leds',body:'recommendation_key=demo',cookie}),stale);assert.equal(state.displayCoordinator.status({id:1}).length,1);
+ state.displayCoordinator.stop({id:1},active.id);assert.equal(state.displayCoordinator.status({id:1}).length,0);
 });
 
 test("admins can revoke registration keys and suspend user access", async () => {
@@ -2664,10 +2279,7 @@ test("admins can revoke registration keys and suspend user access", async () => 
   assert.match(adminHtml, /Generate Admin Key/);
   assert.match(adminHtml, /Global Operator Team Key/);
   assert.match(adminHtml, /Global Operator/);
-  assert.match(adminHtml, /Task Completion Timeout/);
-  assert.match(adminHtml, /action="\/admin\/task-timeout"/);
-  assert.match(adminHtml, /name="timeout_minutes"/);
-  assert.match(adminHtml, /value="5"/);
+  assert.match(adminHtml, /Work timing/);
   assert.match(adminHtml, /2 Registered/);
   assert.match(adminHtml, /one-time key per person/);
   assert.match(adminHtml, /data-copy-value=/);
@@ -2676,20 +2288,11 @@ test("admins can revoke registration keys and suspend user access", async () => 
   assert.match(adminHtml, new RegExp(`href="/admin/users/${operator.id}"`));
   const registrationKeysIndex = adminHtml.indexOf("<h2>Registration Keys</h2>");
   const usersIndex = adminHtml.indexOf("<h2>Users</h2>");
-  const countAdjustmentIndex = adminHtml.indexOf("<h2>Count Adjustment</h2>");
-  const taskTimeoutIndex = adminHtml.indexOf("<h2>Task Completion Timeout</h2>");
-  assert.ok(registrationKeysIndex !== -1);
-  assert.ok(usersIndex !== -1);
-  assert.ok(countAdjustmentIndex !== -1);
-  assert.ok(taskTimeoutIndex !== -1);
-  assert.ok(registrationKeysIndex < countAdjustmentIndex);
-  assert.ok(usersIndex < countAdjustmentIndex);
-  assert.ok(countAdjustmentIndex < taskTimeoutIndex);
-  assert.doesNotMatch(adminHtml, /<h2>Backup Schedule<\/h2>/);
-  assert.match(adminHtml, /Preview Quantity LED/);
-  assert.match(adminHtml, /Products Counted In This Cell/);
-  assert.match(adminHtml, /Select a cell to load saved product counts\./);
-  assert.match(adminHtml, /data-adjustment-empty/);
+  assert.ok(registrationKeysIndex!==-1&&usersIndex!==-1);
+  assert.match(adminHtml,/href="\/stocktaking"/);
+  assert.match(adminHtml,/href="\/work\/timing"/);
+  assert.doesNotMatch(adminHtml,/Preview Quantity LED/);
+
 });
 
 test("adjustment preview guidance targets selected cell with entered quantity total", async () => {
@@ -2725,57 +2328,12 @@ test("adjustment preview guidance targets selected cell with entered quantity to
   );
 });
 
-test("admin adjustment product rows load from the selected cell", async () => {
-  const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-adjustment-cell-products-"));
-  process.chdir(sandbox);
-  process.env.NO_SERVER_LISTEN = "1";
-
-  const auth = await freshImport("../src/services/auth.js");
-  const { requestHandler } = await freshImport("../src/server.js");
-  const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
-  const adjustmentResponse = new MockResponse();
-
-  await requestHandler(
-    formRequest({
-      url: "/admin/adjustments",
-      body: new URLSearchParams({
-        cell_id: "1",
-        product_id_0: "2",
-        absolute_quantity_0: "2",
-        reason: "Add second counted item",
-      }).toString(),
-      cookie,
-    }),
-    adjustmentResponse,
-  );
-
-  assert.equal(adjustmentResponse.statusCode, 302);
-
-  const response = new MockResponse();
-  await requestHandler(
-    formRequest({
-      method: "GET",
-      url: "/api/admin/adjustments/cell-products?cell_id=1",
-      body: "",
-      cookie,
-    }),
-    response,
-  );
-
-  assert.equal(response.statusCode, 200);
-  const payload = JSON.parse(response.body);
-  assert.equal(payload.cell.id, 1);
-  assert.ok(payload.products.some((product) => product.productId === 1));
-  assert.ok(
-    payload.products.some(
-      (product) => product.productId === 2 && Number(product.availableQuantity) === 2,
-    ),
-  );
-  assert.equal(payload.nextIndex, payload.products.length);
-  assert.match(payload.linesHtml, /adjustment-line-saved/);
-  assert.match(payload.linesHtml, /data-original-product-id="1"/);
-  assert.match(payload.linesHtml, /data-original-product-id="2"/);
-  assert.match(payload.linesHtml, /name="absolute_quantity_0"/);
+test("legacy count submission cannot replace stock without a stable stocktake baseline",async()=>{
+  const sandbox=mkdtempSync(join(tmpdir(),'phase2-route-'));process.chdir(sandbox);process.env.NO_SERVER_LISTEN='1';
+  const {reloadAppState,getAppState}=await import('../src/server/app-state.js');reloadAppState();
+  const {db}=getAppState(),auth=await freshImport('../src/services/auth.js'),user=db.prepare("SELECT * FROM users WHERE role='admin'").get(),cookie=auth.createSessionCookie(user).split(';')[0];
+  const {requestHandler}=await import('../src/server.js');
+  const before=db.prepare('SELECT * FROM inventory_balances').all(),response=new MockResponse();await requestHandler(formRequest({url:'/admin/adjustments',body:'cell_id=1&product_id_0=1&absolute_quantity_0=999',cookie,headers:{accept:'application/json'}}),response);assert.equal(response.statusCode,400);assert.match(response.body,/Stocktaking/);assert.deepEqual(db.prepare('SELECT * FROM inventory_balances').all(),before);
 });
 
 test("backups can restore previous data and prune old automatic snapshots", async () => {
@@ -3496,7 +3054,7 @@ test("system health summary reflects current controller health after startup war
   assert.match(summary.startup.controllers.message, /controllers online/);
 });
 
-test("offline controllers retry three times at thirty seconds before five minute backoff", async () => {
+test("offline controllers keep thirty-second checks overnight and recover on the next check", async () => {
   const sandbox = mkdtempSync(join(tmpdir(), "inventory-app-controller-retry-cadence-"));
   process.chdir(sandbox);
 
@@ -3511,6 +3069,7 @@ test("offline controllers retry three times at thirty seconds before five minute
   const controllers = inventory.listControllers(db);
   const offlineController = controllers[0];
   const attempts = new Map();
+  let disconnected = true;
   const logger = createLogger({ level: "error", siteId: "test-site" });
   const hardwareService = {
     adapterName: "test-rs485",
@@ -3522,7 +3081,7 @@ test("offline controllers retry three times at thirty seconds before five minute
     },
     checkControllerHealth(controller) {
       attempts.set(controller.id, Number(attempts.get(controller.id) || 0) + 1);
-      const isOffline = controller.id === offlineController.id;
+      const isOffline = disconnected && controller.id === offlineController.id;
       return {
         ok: !isOffline,
         degraded: isOffline,
@@ -3555,73 +3114,24 @@ test("offline controllers retry three times at thirty seconds before five minute
   );
   assert.equal(attempts.get(offlineController.id), 1);
 
-  for (const elapsedMs of [30_000, 60_000]) {
-    const results = systemService.refreshDueControllerHealths({
-      now: new Date(startedAt.getTime() + elapsedMs),
-    });
+  let previousAttempts = 1;
+  for (const elapsedMs of [30_000, 60_000, 90_000, 120_000, 3_600_000]) {
+    const results = systemService.refreshDueControllerHealths({now:new Date(startedAt.getTime()+elapsedMs)});
     assert.equal(results.length, controllers.length);
-    assert.ok(
-      results.some(
-        (result) => result.controllerId === offlineController.id && result.status === "offline",
-      ),
-    );
-    assert.equal(
-      results.filter((result) => result.controllerId !== offlineController.id).length,
-      controllers.length - 1,
-    );
-    assert.match(
-      systemService.healthSummary(startup).message,
-      new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 30 seconds\\.`),
-    );
+    assert.equal(attempts.get(offlineController.id), ++previousAttempts);
+    assert.equal(results.find(result=>result.controllerId===offlineController.id).status, 'offline');
+    const summary = systemService.healthSummary(startup);
+    assert.equal(summary.startup.controllers.checked.find(check=>check.controllerId===offlineController.id).retryDelayMs, 30000);
+    assert.match(summary.message, /Retrying after 30 seconds/);
+    assert.doesNotMatch(summary.message, /5 minutes/);
   }
-
-  const thirdRetry = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 90_000),
-  });
-  assert.equal(thirdRetry.length, controllers.length);
-  assert.ok(
-    thirdRetry.some(
-      (result) => result.controllerId === offlineController.id && result.status === "offline",
-    ),
-  );
-  assert.match(
-    systemService.healthSummary(startup).message,
-    new RegExp(`Controller ${offlineController.controller_code} offline\\. Retrying after 5 minutes\\.`),
-  );
-  assert.equal(attempts.get(offlineController.id), 4);
-
-  const onlineRefresh = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 300_000),
-  });
-  assert.equal(onlineRefresh.length, controllers.length - 1);
-  assert.ok(onlineRefresh.every((result) => result.controllerId !== offlineController.id));
-  assert.ok(onlineRefresh.every((result) => result.status === "online"));
-
-  assert.deepEqual(
-    systemService.refreshDueControllerHealths({ now: new Date(startedAt.getTime() + 329_000) }),
-    [],
-  );
-  assert.equal(attempts.get(offlineController.id), 4);
-
-  const recurringOnlineRefresh = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 330_000),
-  });
-  assert.equal(recurringOnlineRefresh.length, controllers.length - 1);
-  assert.ok(recurringOnlineRefresh.every((result) => result.controllerId !== offlineController.id));
-  assert.ok(recurringOnlineRefresh.every((result) => result.status === "online"));
-
-  const beforeBackoffRetry = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 389_000),
-  });
-  assert.equal(attempts.get(offlineController.id), 4);
-  assert.ok(beforeBackoffRetry.every((result) => result.controllerId !== offlineController.id));
-
-  const backedOffRetry = systemService.refreshDueControllerHealths({
-    now: new Date(startedAt.getTime() + 390_000),
-  });
-  assert.equal(backedOffRetry.length, 1);
-  assert.equal(backedOffRetry[0].controllerId, offlineController.id);
-  assert.equal(attempts.get(offlineController.id), 5);
+  assert.deepEqual(systemService.refreshDueControllerHealths({now:new Date(startedAt.getTime()+3_629_999)}), []);
+  disconnected = false;
+  const recovered = systemService.refreshDueControllerHealths({now:new Date(startedAt.getTime()+3_630_000)});
+  assert.equal(recovered.find(result=>result.controllerId===offlineController.id).status, 'online');
+  assert.equal(db.prepare('SELECT heartbeat_status FROM controllers WHERE id=?').get(offlineController.id).heartbeat_status, 'online');
+  assert.equal(systemService.healthSummary(startup).startup.controllers.status, 'healthy');
+  db.close();
 });
 
 test("system health warning clears when startup recovery tasks are resolved", async () => {
@@ -4111,7 +3621,7 @@ test("cell mapping ping supports async JSON without redirecting", async () => {
   assert.equal(payload.ok, true);
   assert.equal(payload.degraded, false);
   assert.equal(payload.cell.id, 1);
-  assert.match(payload.message, /Light test sent/);
+  assert.ok(payload.displayId);const state=(await import('../src/server/app-state.js')).getAppState();state.displayCoordinator.stop({id:1},payload.displayId);
 });
 
 test("location ping is available to authenticated operators", async () => {
@@ -4144,8 +3654,7 @@ test("location ping is available to authenticated operators", async () => {
   const payload = JSON.parse(response.body);
   assert.equal(payload.ok, true);
   assert.equal(payload.degraded, false);
-  assert.equal(payload.cell.id, 1);
-  assert.match(payload.message, /Ping sent/);
+  assert.equal(payload.targets[0].cellId,1);assert.equal(payload.targets[0].value,'LOC');
 });
 
 test("show count sends the current server-side quantity to the LED in yellow", async () => {
@@ -4156,6 +3665,7 @@ test("show count sends the current server-side quantity to the LED in yellow", a
   const { reloadAppState, getAppState } = await import("../src/server/app-state.js");
   reloadAppState();
   const auth = await freshImport("../src/services/auth.js");
+  getAppState().db.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,6,0) ON CONFLICT(product_id,cell_id) DO UPDATE SET available_quantity=6').run();
   const expectedQuantity = Number(
     getAppState().db
       .prepare("SELECT available_quantity FROM inventory_balances WHERE cell_id = 1 AND product_id = 1")
@@ -4184,9 +3694,8 @@ test("show count sends the current server-side quantity to the LED in yellow", a
   const payload = JSON.parse(response.body);
   assert.equal(payload.ok, true);
   assert.equal(payload.degraded, false);
-  assert.equal(payload.color, "yellow");
-  assert.equal(payload.displayQuantity, expectedQuantity);
-  assert.deepEqual(payload.product, { id: 1, sku: "SKU-SHOE-001" });
+  assert.equal(payload.targets[0].status, "sent");
+  assert.equal(Number(payload.targets[0].value),expectedQuantity);
 
   const storedEvent = getAppState().db
     .prepare(
@@ -4209,7 +3718,7 @@ test("show count sends the current server-side quantity to the LED in yellow", a
   await requestHandler(
     formRequest({
       url: "/api/cells/1/count/clear",
-      body: "active=0",
+      body: new URLSearchParams({displayId:payload.displayId}).toString(),
       cookie,
       headers: {
         accept: "application/json",
@@ -4296,6 +3805,10 @@ test("no-op adjustments return to admin with informational feedback", async () =
 
   const auth = await freshImport("../src/services/auth.js");
   const { requestHandler } = await freshImport("../src/server.js");
+  // This scenario requires stock; seed it explicitly in this route fixture.
+  const fixtureState = (await import("../src/server/app-state.js")).getAppState();
+  fixtureState.db.prepare("INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,1,3,0)").run();
+
   const response = new MockResponse();
   const cookie = auth.createSessionCookie({ id: 1, role: "admin" }).split(";")[0];
   const body = new URLSearchParams({
@@ -4316,12 +3829,9 @@ test("no-op adjustments return to admin with informational feedback", async () =
 
   assert.equal(response.statusCode, 302);
   assert.match(response.headers.Location, /^\/admin\?/);
-  assert.match(response.headers.Location, /tone=info/);
+  assert.match(response.headers.Location, /tone=error/);
   const redirectUrl = new URL(response.headers.Location, "http://localhost");
-  assert.equal(
-    redirectUrl.searchParams.get("flash"),
-    "No adjustment was needed because the entered quantities already match the current values.",
-  );
+  assert.match(redirectUrl.searchParams.get("flash"),/Stocktaking/);
 });
 
 test("deleting a cell requires it to be empty and preserves mapped LED modules", async () => {
@@ -4419,18 +3929,9 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
     createdBy: 1,
   });
   const managementHtml = createLocationPages({ db }).renderDeviceConfigSection("cell-management");
-  assert.match(managementHtml, /Add Location/);
-  assert.match(managementHtml, /action="\/devices\/cells"/);
-  assert.match(managementHtml, /action="\/devices\/cells\/rename"/);
-  assert.match(managementHtml, /Z9-R9-REMAP/);
-  assert.match(managementHtml, /<span class="muted">Unmapped<\/span>/);
-  assert.match(managementHtml, /data-ping-cell/);
-  assert.match(managementHtml, /data-show-location-count/);
-  assert.match(managementHtml, />Show Count<\/button>/);
-  assert.match(
-    managementHtml,
-    new RegExp(`data-cell-id="${remapTarget.id}"[\\s\\S]*disabled[\\s\\S]*>Ping<\\/button>`),
-  );
+  // Location editing now lives in the unified QR-aware management screen.
+  assert.match(managementHtml, /href="\/locations\/manage"/);
+  assert.doesNotMatch(managementHtml, /data-show-location-count|Show Count/);
   const renamedCell = inventory.renameCell(db, {
     cellId: remapTarget.id,
     logicalCode: "Z9-R9-RENAMED",

@@ -1326,11 +1326,9 @@ export function buildMovementOverTimeReport(db, options = {}) {
   const topN = reportTopN(options);
   const visualization = reportVisualization(options);
   const filters = reportFilters(options);
-  const { conditions: rangeConditions, params } = reportRangeConditions(options);
+  const { conditions: rangeConditions, params } = reportRangeConditions(options, "tr.created_at");
   const conditions = [
-    "t.status = 'completed'",
-    "t.type IN ('pick', 'put')",
-    "t.completed_at IS NOT NULL",
+    "tr.type IN ('pick', 'put', 'adjustment')",
     ...rangeConditions,
   ];
   if (filters.category) {
@@ -1342,9 +1340,9 @@ export function buildMovementOverTimeReport(db, options = {}) {
     params.push(filters.unitOfMeasure);
   }
   const periodExpression = {
-    day: "date(t.completed_at)",
-    week: "date(t.completed_at, '-' || ((CAST(strftime('%w', t.completed_at) AS INTEGER) + 6) % 7) || ' days')",
-    month: "date(t.completed_at, 'start of month')",
+    day: "date(tr.created_at)",
+    week: "date(tr.created_at, '-' || ((CAST(strftime('%w', tr.created_at) AS INTEGER) + 6) % 7) || ' days')",
+    month: "date(tr.created_at, 'start of month')",
   }[groupBy];
   const sourceRows = db
     .prepare(
@@ -1353,24 +1351,19 @@ export function buildMovementOverTimeReport(db, options = {}) {
           ${periodExpression} AS period,
           p.id AS product_id,
           p.unit_of_measure AS current_unit,
-          COALESCE(tl.unit_of_measure, p.unit_of_measure) AS recorded_unit,
-          SUM(CASE WHEN t.type = 'pick' THEN tl.actual_quantity ELSE 0 END) AS picked_quantity,
-          SUM(CASE WHEN t.type = 'put' THEN tl.actual_quantity ELSE 0 END) AS put_quantity,
-          SUM(tl.actual_quantity) AS total_handled,
-          SUM(CASE
-            WHEN t.type = 'put' THEN tl.actual_quantity
-            WHEN t.type = 'pick' THEN -tl.actual_quantity
-            ELSE 0
-          END) AS net_change
-        FROM task_lines tl
-        JOIN tasks t ON t.id = tl.task_id
-        JOIN products p ON p.id = tl.product_id
+          COALESCE(tr.unit_of_measure, p.unit_of_measure) AS recorded_unit,
+          SUM(CASE WHEN tr.type = 'pick' THEN -tr.quantity_delta ELSE 0 END) AS picked_quantity,
+          SUM(CASE WHEN tr.type = 'put' THEN tr.quantity_delta ELSE 0 END) AS put_quantity,
+          SUM(CASE WHEN tr.type IN ('pick','put') THEN ABS(tr.quantity_delta) ELSE 0 END) AS total_handled,
+          SUM(tr.quantity_delta) AS net_change
+        FROM transactions tr
+        JOIN products p ON p.id = tr.product_id
         WHERE ${conditions.join(" AND ")}
         GROUP BY
           ${periodExpression},
           p.id,
           p.unit_of_measure,
-          COALESCE(tl.unit_of_measure, p.unit_of_measure)
+          COALESCE(tr.unit_of_measure, p.unit_of_measure)
         ORDER BY period ASC, p.id
       `,
     )
@@ -1972,7 +1965,11 @@ export function buildTeamThroughputReport(db, options = {}) {
         WITH completed_tasks AS (
           SELECT
             t.id AS task_id,
-            t.created_by AS user_id,
+            CASE WHEN t.workflow_version=2 THEN (
+              SELECT CASE WHEN COUNT(DISTINCT tr.performed_by)=1 AND SUM(tr.performed_by IS NULL)=0
+                THEN MAX(tr.performed_by) ELSE NULL END FROM transactions tr
+              WHERE tr.task_id=t.id AND tr.type IN ('pick','put')
+            ) ELSE t.created_by END AS user_id,
             t.type,
             COALESCE(
               MAX(CASE WHEN tl.exception_quantity > 0 THEN 1 ELSE 0 END),
@@ -1992,8 +1989,8 @@ export function buildTeamThroughputReport(db, options = {}) {
         )
         SELECT
           u.id AS user_id,
-          u.name,
-          u.username,
+          COALESCE(u.name,'Multiple / unknown performers') AS name,
+          COALESCE(u.username,'unattributed') AS username,
           COUNT(*) AS completed_tasks,
           SUM(CASE WHEN completed.type = 'pick' THEN 1 ELSE 0 END) AS completed_pick_tasks,
           SUM(CASE WHEN completed.type = 'put' THEN 1 ELSE 0 END) AS completed_put_tasks,
@@ -2007,7 +2004,7 @@ export function buildTeamThroughputReport(db, options = {}) {
           ROUND(AVG(completed.duration_minutes), 1) AS average_completion_minutes,
           SUM(completed.duration_minutes) AS total_duration_minutes
         FROM completed_tasks completed
-        JOIN users u ON u.id = completed.user_id
+        LEFT JOIN users u ON u.id = completed.user_id
         GROUP BY u.id
         ORDER BY completed_tasks DESC, u.username COLLATE NOCASE, u.id
       `,
@@ -2033,7 +2030,7 @@ export function buildTeamThroughputReport(db, options = {}) {
     totals.exception_free_tasks += Number(row.exception_free_tasks || 0);
     totalDurationMinutes += Number(row.total_duration_minutes || 0);
     return {
-      user_id: Number(row.user_id),
+      user_id: row.user_id == null ? null : Number(row.user_id),
       name: String(row.name || row.username || "Unknown user"),
       username: String(row.username || ""),
       completed_tasks: completedTasks,
@@ -2216,7 +2213,9 @@ export function buildReports(db, { fromAt, toAt }) {
           tr.quantity_delta,
           COALESCE(tr.unit_of_measure, p.unit_of_measure) AS unit_of_measure,
           u.username,
-          tr.reason
+          tr.reason,
+          tr.origin_ref,
+          (SELECT i.run_id FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id WHERE o.id=substr(tr.origin_ref,11) AND tr.origin_ref LIKE 'stocktake:%') AS stocktake_run_id
         FROM transactions tr
         JOIN products p ON p.id = tr.product_id
         JOIN cells c ON c.id = tr.cell_id
