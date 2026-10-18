@@ -2,6 +2,7 @@ import './session.js';
 import {PageScope} from './page-lifecycle.js';
 
 export const PAGE_MODULES=new Set(['/client/ui-template.js','/app.js','/client/displays.js','/client/recommendation-actuals.js','/client/work.js','/client/stocktaking.js','/client/location-setup.js','/client/location-browse.js','/client/location-hierarchy.js','/client/location-history.js','/client/product-settings.js','/client/roles.js']);
+export const PERSISTENT_MODULES=new Set(['/client/session.js','/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/camera-zoom.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/mobile-layout.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
 export function navigationTarget(href,current){const target=new URL(href,current),from=new URL(current);return target.origin===from.origin&&!/^\/(api|auth|login|logout|register|offline)(\/|$)/.test(target.pathname)?target:null;}
 const shell=typeof document!=='undefined'&&document.querySelector('.dashboard-body .dashboard-shell'),body=typeof document!=='undefined'&&document.querySelector('.page-body');
 if(shell&&body){
@@ -10,7 +11,7 @@ if(shell&&body){
  document.body.dataset.shellId=crypto.randomUUID();
  const identity=document.body.dataset.notificationScope;
  const loadedClassic=new Set([...document.querySelectorAll('script[src]:not([type="module"])')].map(s=>new URL(s.src,location.href).pathname));
- const persistent=new Set(['/client/session.js','/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/mobile-layout.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
+ const persistent=PERSISTENT_MODULES;
  const currentScope=()=>globalThis.WarehousePageLifecycle.current;
  const savedPositions=new Map();let deciding=false;
  async function permitLeave(pop,destination){if(deciding)return false;deciding=true;try{const permitted=await currentScope().canLeave(destination);if(!permitted&&pop){history.pushState({warehousePage:true},'',current);window.dispatchEvent(new CustomEvent('warehouse:navigation-cancelled'));}return permitted;}finally{deciding=false;}}

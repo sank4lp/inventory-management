@@ -155,3 +155,34 @@
 @media screen and (max-width:700px) {
   .ui-template .ui-facts > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
+
+/* Role sections always start on their own row; expanding never shifts a
+   neighboring section into a different column. */
+.ui-template .ui-role-editor .ui-permissions { grid-template-columns: minmax(0,1fr); gap: 8px; }
+.ui-template .ui-role-editor .ui-permissions > details { padding: 0; overflow: hidden; }
+.ui-template .ui-role-editor .ui-permissions summary {
+  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 10px 12px;
+  list-style: none; background: #f6f9f7;
+}
+.ui-template .ui-role-editor .ui-permissions summary::-webkit-details-marker { display: none; }
+.ui-template .ui-role-editor .ui-permissions summary::before { content: '›'; flex: none; font-size: 20px; line-height: 1; }
+.ui-template .ui-role-editor .ui-permissions details[open] > summary::before { transform: rotate(90deg); }
+.ui-template .ui-role-editor .ui-permissions summary span { flex: 1; min-width: 0; }
+.ui-template .ui-role-editor .ui-permissions summary small { flex: none; color: var(--ui-muted); font-size: 12px; font-weight: 500; }
+.ui-template .role-permission-list { display: grid; gap: 0; padding: 4px 12px; }
+.ui-template .ui-role-editor .role-capability { display: grid !important; grid-template-columns: 20px minmax(0,1fr); align-items: start; gap: 10px; min-height: 44px; margin: 0 !important; padding: 10px 0; font-size: 14px; font-weight: 500; line-height: 1.4; }
+.ui-template .ui-role-editor .role-capability > span { display: block; }
+.ui-template .role-capability + .role-capability { border-top: 1px solid #edf1ef; }
+.ui-template .role-capability input { width: 18px; height: 18px; flex: none; margin: 1px 0 0; accent-color: var(--ui-accent); }
+.ui-template .role-capability small { display: block; margin-top: 3px; font-size: 12px; color: var(--ui-muted); font-weight: 400; }
+.ui-template .ui-role-editor .ui-permissions .role-more-permissions { margin: 0 12px 10px; padding: 0; border: 0; border-top: 1px solid var(--ui-border); border-radius: 0; }
+.ui-template .ui-role-editor .role-more-permissions summary { padding-inline: 0; background: transparent; font-size: 13px; }
+.ui-template .ui-role-editor .role-more-permissions .role-permission-list { padding-inline: 0; }
+.ui-template .role-access-preview { padding: 12px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-tint); }
+.ui-template .role-access-preview h3 { margin: 0 0 6px; }
+.ui-template .role-access-preview [data-role-prerequisites] { margin-top: 8px; color: #914334; }
+.ui-template .role-access-preview [data-include-required] { margin-top: 10px; }
+@media screen and (max-width:700px) {
+  .ui-template .ui-role-editor .ui-permissions summary { gap: 8px; }
+  .ui-template .ui-role-editor .ui-permissions summary small { font-size: 11px; }
+}

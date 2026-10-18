@@ -1,11 +1,12 @@
+const controllers = new WeakMap();
 const escapeHtml = value => String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 
-export function confirmationMarkup({title, message, label = 'Confirm', facts = [], danger = false}) {
+export function confirmationMarkup({title, message, label = 'Confirm', facts = [], danger = false, requireCheck = true, cancelLabel = 'Cancel'}) {
   return `<header class="review-task-header"><button type="button" class="ui-button-secondary" data-ui-back>← Back</button><h2 id="ui-confirm-title" tabindex="-1">${escapeHtml(title)}</h2></header>
     ${facts.length ? `<dl class="ui-facts" aria-label="Details">${facts.map(([name,value])=>`<div><dt>${escapeHtml(name)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>` : ''}
     <p class="ui-confirm-message">${escapeHtml(message)}</p>
-    <label class="ui-check"><input type="checkbox" data-ui-confirmed>I confirm this change.</label>
-    <div class="ui-dialog-actions"><button type="button" class="ui-button-secondary" data-ui-back>Cancel</button><button type="button" class="${danger?'danger-button':''}" data-ui-accept disabled>${escapeHtml(label)}</button></div>`;
+    ${requireCheck ? '<label class="ui-check"><input type="checkbox" data-ui-confirmed>I confirm this change.</label>' : ''}
+    <div class="ui-dialog-actions"><button type="button" class="ui-button-secondary" data-ui-back>${escapeHtml(cancelLabel)}</button><button type="button" class="${danger?'danger-button':''}" data-ui-accept${requireCheck?' disabled':''}>${escapeHtml(label)}</button></div>`;
 }
 
 export function mount() {
@@ -48,17 +49,18 @@ export function mount() {
       root.append(dialog);
       history.pushState({...history.state, uiDialog:id},'',location.href);
       dialog.addEventListener('cancel',event=>{event.preventDefault();back();});
-      dialog.querySelector('[data-ui-confirmed]').addEventListener('change',event=>{
+      dialog.querySelector('[data-ui-confirmed]')?.addEventListener('change',event=>{
         dialog.querySelector('[data-ui-accept]').disabled = !event.target.checked;
       });
       dialog.addEventListener('click',event=>{
         if (event.target.closest('[data-ui-back]')) back();
-        else if (event.target.closest('[data-ui-accept]') && dialog.querySelector('[data-ui-confirmed]').checked) back(true);
+        else if (event.target.closest('[data-ui-accept]') && (options.requireCheck === false || dialog.querySelector('[data-ui-confirmed]').checked)) back(true);
       });
       dialog.showModal();
       dialog.querySelector('h2').focus();
     });
   }
+  controllers.set(root, {confirm});
   async function submit(event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement) || !root.contains(form)) return;
@@ -120,6 +122,10 @@ export function mount() {
   const observer = new MutationObserver(enhanceDialogs);
   observer.observe(root,{subtree:true,childList:true});
   enhanceDialogs();
-  scope?.own(()=>{observer.disconnect();finish();scope.ownsPop=oldOwnsPop;});
+  scope?.own(()=>{observer.disconnect();finish();controllers.delete(root);scope.ownsPop=oldOwnsPop;});
 }
-if (typeof document!=='undefined'&&!globalThis.WarehouseNavigation?.mounting) mount();
+export function requestUiConfirmation(options, opener = document.activeElement) {
+  mount();
+  return controllers.get(document.querySelector('.ui-template'))?.confirm(options, opener) || Promise.resolve(false);
+}
+if (typeof document!=='undefined' &&!globalThis.WarehouseNavigation?.mounting) mount();

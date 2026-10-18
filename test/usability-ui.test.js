@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {CAPABILITIES,SETTINGS,OPERATOR_CAPABILITIES} from '../src/modules/access/catalog.js';
+import {requiredPermissions} from '../public/client/roles.js';
 
 function countUI(){
  const root={querySelectorAll:()=>[]},context=vm.createContext({document:{querySelector:s=>s==='#stocktaking-app'?root:null},localStorage:{getItem:()=>null},location:{pathname:'/stocktaking',search:''},URLSearchParams,FormData:class{constructor(f){this.values=new Map(Object.entries(f.data));}entries(){return this.values.entries();}get(k){return this.values.get(k)??null;}has(k){return this.values.has(k);}}});
@@ -68,14 +69,22 @@ test('searching stocktake product locations preserves hidden selections and ware
  search.value='missing';ui.run('filterProductLocations(picker)');assert.equal(status.hidden,false);assert.equal(rows[0].box.checked,true);
  search.value='';ui.run('filterProductLocations(picker)');assert.equal(status.hidden,true);assert.ok(rows.every(row=>row.hidden));
 });
-test('role editor previews transitive requirements and adds them only after explicit inclusion',()=>{
- const boxes=CAPABILITIES.map(c=>({dataset:{capability:c.id},checked:OPERATOR_CAPABILITIES.includes(c.id)})),nodes={'[data-role-preview]':{},'[data-role-prerequisites]':{},'[data-include-required]':{addEventListener(_,f){this.click=f;}}};let change;
- const form={querySelector:s=>nodes[s],querySelectorAll:s=>s.includes(':checked')?boxes.filter(b=>b.checked):boxes,addEventListener(_,f){change=f;}};
- vm.runInNewContext(readFileSync(new URL('../public/client/roles.js',import.meta.url),'utf8').replace('export function mount','function mount'),{document:{querySelector:s=>s==='[data-role-editor]'?form:{textContent:JSON.stringify({catalog:CAPABILITIES,settings:SETTINGS})}}});
- boxes.find(b=>b.dataset.capability==='work.assign').checked=true;change();assert.equal(nodes['[data-include-required]'].hidden,true);assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,false);
- boxes.find(b=>b.dataset.capability==='work.timing').checked=true;change();assert.match(nodes['[data-role-prerequisites]'].textContent,/View team work/);assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,false);
- nodes['[data-include-required]'].click();assert.equal(boxes.find(b=>b.dataset.capability==='work.team').checked,true);assert.equal(boxes.find(b=>b.dataset.capability==='hardware.flash').checked,false);assert.equal(nodes['[data-include-required]'].hidden,true);
- boxes.find(b=>b.dataset.capability==='access.manage').checked=true;change();assert.match(nodes['[data-role-prerequisites]'].textContent,/Required additional access/);assert.equal(boxes.find(b=>b.dataset.capability==='hardware.flash').checked,false);
+test('role editor previews transitive requirements without silently granting them',()=>{
+ const selected=new Set(OPERATOR_CAPABILITIES);
+ selected.add('work.assign');
+ assert.equal(requiredPermissions(CAPABILITIES,selected).length,0);
+ assert.equal(selected.has('work.team'),false);
+ selected.add('work.timing');
+ const missing=requiredPermissions(CAPABILITIES,selected);
+ assert.ok(missing.some(permission=>permission.id==='work.team'));
+ assert.equal(selected.has('work.team'),false);
+ // This is the explicit inclusion step, not a side effect of asking for a preview.
+ for(const permission of missing) selected.add(permission.id);
+ assert.equal(requiredPermissions(CAPABILITIES,selected).length,0);
+ assert.equal(selected.has('hardware.flash'),false);
+ selected.add('access.manage');
+ assert.ok(requiredPermissions(CAPABILITIES,selected).some(permission=>permission.id==='hardware.flash'));
+ assert.equal(selected.has('hardware.flash'),false);
 });
 
 test('setup scan confirms a read label, focuses its name and keeps physical confirmation separate; failed camera reveals fallback',async()=>{
