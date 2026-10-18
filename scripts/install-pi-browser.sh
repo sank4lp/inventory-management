@@ -17,5 +17,5 @@ install -d -m 0755 "$HOME/.local/share/applications" "$HOME/.config/autostart"
 install -m 0644 "$launcher" "$HOME/.local/share/applications/inventory-management-browser.desktop"
 install -m 0644 "$launcher" "$HOME/.config/autostart/inventory-management-browser.desktop"
 
-echo "Inventory browser launcher installed for admin. It will open after the next desktop login."
+echo "Inventory browser launcher installed for admin. It opens maximized after the next desktop login, or when reopened from the application shortcut."
 echo "The running browser and inventory service were not restarted."

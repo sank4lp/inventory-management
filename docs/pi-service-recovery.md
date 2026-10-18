@@ -87,9 +87,12 @@ cd /home/admin/inventory-management
 sh scripts/install-pi-browser.sh
 ```
 
-This adds an Inventory Management application shortcut and starts it after the
-next desktop login. The existing Chromium browser and the running app are not
-restarted. Sign in to the Inventory site once in the new browser profile. Do not
+This adds an Inventory Management application shortcut and opens it maximized
+after the next desktop login. After pulling a launcher update, run this installer
+again to update the installed shortcut and autostart entry. Close the Inventory
+browser window and reopen Inventory Management from the application menu to use
+the updated window size immediately. The existing Chromium browser and the
+running app are not restarted. Sign in to the Inventory site once in the new browser profile. Do not
 save passwords in that profile: Chromium's `basic` password store is
 unencrypted. If a keyring popup still appears, the regular Chromium profile
 or another desktop application may also be starting. Inspect which application

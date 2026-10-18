@@ -2540,6 +2540,12 @@ export const requestHandler = async (request, response) => {
       sendJson(response, { error: error.message }, error.statusCode || 400);
       return;
     }
+    // A failing GET must terminate rather than redirect back to the same renderer.
+    if (request.method === "GET" && url.pathname === "/recommended-actions") {
+      logger.error("recommendations.load.failed", { error: error.message });
+      sendHtml(response, pages.renderRecommendedActionsError(user), 500);
+      return;
+    }
     let target = user ? url.pathname : "/login";
     const confirmMatch = url.pathname.match(/^\/tasks\/(\d+)\/confirm$/);
     const putPlanMatch = url.pathname.match(/^\/tasks\/(\d+)\/put-plan$/);

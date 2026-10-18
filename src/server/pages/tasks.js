@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {can} from '../../modules/access/catalog.js';
 import {
   getRecommendedActions,
   listCells,
