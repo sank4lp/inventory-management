@@ -1,3 +1,4 @@
+import {withTransaction} from "../db.js";
 import {currentActor,auditAccess} from "../modules/access/service.js";
 import {
   issueRegistrationKey,
@@ -20,8 +21,11 @@ export function createAdminService({ db }) {
     },
     revokeRegistrationKey(input) {
       const actor=currentActor(db,input.actor,"access.manage");
-      auditAccess(db,actor,"invitation_revoked",input.keyId,{});
-      return revokeRegistrationKey(db, input);
+      return withTransaction(db, () => {
+        const key = revokeRegistrationKey(db, input);
+        auditAccess(db,actor,"invitation_revoked",key.id,{});
+        return key;
+      });
     },
     setUserStatus(input) {
       return setUserStatus(db, input);

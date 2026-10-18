@@ -1,3 +1,4 @@
+import {templatePage,uiConfirmation} from "../ui.js";
 import {can} from "../../modules/access/catalog.js";
 import { randomUUID } from "node:crypto";
 import { describeLocation } from "../../modules/operations/location-contract.js";
@@ -767,7 +768,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderDevices(user, flash) {
-    if(!can(user,'hardware.flash')&&!can(user,'hardware.map')&&!can(user,'locations.manage')&&!can(user,'hardware.test')&&!can(user,'hardware.controllers'))return page({title:'Hardware configuration and health',user,flash,content:`<p><a href="/settings">← Settings</a></p><p>Controller health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.</p>${table(['Controller','RS485 address','Health','Last seen','Outputs'],listControllers(db).map(c=>[escapeHtml(c.controller_code),escapeHtml(c.address),statusBadge(c.heartbeat_status),escapeHtml(formatDate(c.last_seen_at)),c.module_count]))}<h2>Location mappings</h2>${table(['Location','Controller','Output','Mapping'],listCells(db).map(c=>[escapeHtml(c.display_name||c.logical_code),escapeHtml(c.controller_code||c.controller_id||'Manual'),escapeHtml(c.hardware_channel||'—'),escapeHtml(c.mapping_status)]))}`});
+    if(!can(user,'hardware.flash')&&!can(user,'hardware.map')&&!can(user,'locations.manage')&&!can(user,'hardware.test')&&!can(user,'hardware.controllers'))return templatePage({title:'Hardware configuration and health',user,flash,content:`<p><a href="/settings">← Settings</a></p><p>Controller health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.</p>${table(['Controller','RS485 address','Health','Last seen','Outputs'],listControllers(db).map(c=>[escapeHtml(c.controller_code),escapeHtml(c.address),statusBadge(c.heartbeat_status),escapeHtml(formatDate(c.last_seen_at)),c.module_count]))}<h2>Location mappings</h2>${table(['Location','Controller','Output','Mapping'],listCells(db).map(c=>[escapeHtml(c.display_name||c.logical_code),escapeHtml(c.controller_code||c.controller_id||'Manual'),escapeHtml(c.hardware_channel||'—'),escapeHtml(c.mapping_status)]))}`});
     const controllers = listControllers(db);
     const cells = listCells(db);
     const mappedCells = cells.filter(cellIsMapped);
@@ -822,7 +823,7 @@ export function createLocationPages({ db }) {
           <form
             method="post"
             action="/devices/controller-delete"
-            onsubmit="return confirm('Delete this controller? Its cells will stay active for manual pick/put until remapped.');"
+            ${uiConfirmation({title:'Delete controller',label:'Delete controller',danger:true,message:'Its cells stay available for manual Pick/Put until remapped.',facts:[['Controller',controller.controller_code],['RS485 address',String(controller.address||'—')],['LED modules',String(controller.module_count||0)]]})}
           >
             <input type="hidden" name="controller_id" value="${controller.id}" />
             <button
@@ -836,7 +837,7 @@ export function createLocationPages({ db }) {
       `,
     ]);
 
-    return page({
+    return templatePage({
       title: "Configuration Console",
       user,
       flash,

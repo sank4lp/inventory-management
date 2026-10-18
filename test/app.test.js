@@ -615,7 +615,7 @@ test("profile page shows account details and activity summary", async () => {
   );
   assert.match(adminUserHtml, /User Account/);
   assert.match(adminUserHtml, /Warehouse Operator/);
-  assert.match(adminUserHtml, /Back To Admin/);
+  assert.match(adminUserHtml, /Back To People &amp; Access/);
   assert.match(adminUserHtml, /Recent Tasks/);
   assert.match(adminUserHtml, new RegExp(`href="/tasks/${operatorTask.id}"`));
   assert.match(adminUserHtml, new RegExp(`href="/tasks/${adminTaskCompletedByOperator.id}"`));
@@ -2274,17 +2274,15 @@ test("admins can revoke registration keys and suspend user access", async () => 
     { id: 1, name: "Admin", username: "admin", role: "admin" },
     null,
   );
-  assert.match(adminHtml, /Generate Operator Key/);
-  assert.match(adminHtml, /Generate Global Operator Key/);
-  assert.match(adminHtml, /Generate Admin Key/);
-  assert.match(adminHtml, /Global Operator Team Key/);
-  assert.match(adminHtml, /Global Operator/);
+  assert.doesNotMatch(adminHtml, /Generate Operator Key|Generate Global Operator Key|Generate Admin Key/);
+  assert.match(adminHtml, /Registers multiple users/);
+  assert.match(adminHtml, /Generate key/);
+  assert.match(adminHtml, /Multiple users/);
   assert.match(adminHtml, /Work timing/);
-  assert.match(adminHtml, /2 Registered/);
-  assert.match(adminHtml, /one-time key per person/);
+  assert.match(adminHtml, /Single user/);
   assert.match(adminHtml, /data-copy-value=/);
-  assert.match(adminHtml, new RegExp(`aria-label="Suspend registration key ${activeTeamKey.key_value}"[\\s\\S]*suspend-icon`));
-  assert.match(adminHtml, new RegExp(`aria-label="Delete registration key ${generatedKey.key_value}"[\\s\\S]*M3 6h18`));
+  assert.match(adminHtml, new RegExp(`aria-label="Disable registration key ${activeTeamKey.key_value}"[\\s\\S]*suspend-icon`));
+  assert.match(adminHtml, new RegExp(`aria-label="Disable registration key ${generatedKey.key_value}"`));
   assert.match(adminHtml, new RegExp(`href="/admin/users/${operator.id}"`));
   const registrationKeysIndex = adminHtml.indexOf("<h2>Registration Keys</h2>");
   const usersIndex = adminHtml.indexOf("<h2>Users</h2>");

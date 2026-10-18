@@ -5,6 +5,18 @@ export function migrateAccess(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS access_roles(id TEXT PRIMARY KEY,name TEXT NOT NULL COLLATE NOCASE UNIQUE,capabilities_json TEXT NOT NULL,builtin INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE IF NOT EXISTS access_events(id INTEGER PRIMARY KEY,actor_id INTEGER,event_type TEXT NOT NULL,target TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL);`);
   for(const table of ['users','registration_keys'])if(!db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name==='role_id'))db.exec(`ALTER TABLE ${table} ADD COLUMN role_id TEXT REFERENCES access_roles(id)`);
+  if(!db.prepare('PRAGMA table_info(users)').all().some(c=>c.name==='registration_key_id'))db.exec('ALTER TABLE users ADD COLUMN registration_key_id INTEGER REFERENCES registration_keys(id)');
+  // Reusable invitations must retain every membership, not only their last user.
+  // Older accounts are linked only when the existing audit provides evidence.
+  db.exec(`UPDATE users SET registration_key_id=(
+    SELECT k.id FROM access_events e JOIN registration_keys k
+      ON k.id=CASE WHEN json_valid(e.payload) THEN json_extract(e.payload,'$.invitationId') END
+    WHERE e.event_type='onboarded' AND e.target=CAST(users.id AS TEXT)
+    ORDER BY e.id LIMIT 1
+  ) WHERE registration_key_id IS NULL;
+  UPDATE users SET registration_key_id=(
+    SELECT MIN(k.id) FROM registration_keys k WHERE k.used_by=users.id HAVING COUNT(*)=1
+  ) WHERE registration_key_id IS NULL;`);
   for(const [id,name,caps] of [['admin','Admin',ADMIN_CAPABILITIES],['operator','Operator',OPERATOR_CAPABILITIES]])db.prepare('INSERT OR IGNORE INTO access_roles(id,name,capabilities_json,builtin) VALUES(?,?,?,1)').run(id,name,JSON.stringify(caps));
   for(const table of ['users','registration_keys']) {
     db.exec(`UPDATE ${table} SET role_id=role WHERE role_id IS NULL;

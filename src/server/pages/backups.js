@@ -1,10 +1,10 @@
+import {templatePage} from "../ui.js";
 import {
   backupScheduleForm,
   card,
   escapeHtml,
   formatBytes,
   formatDate,
-  page,
   statsGrid,
   table,
 } from "./shared.js";
@@ -94,7 +94,7 @@ export function createBackupPages({ backupService }) {
     const summary = backupService.getSummary();
     const backups = backupService.listBackups();
 
-    return page({
+    return templatePage({
       title: "Backups",
       user,
       flash,

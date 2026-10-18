@@ -1125,9 +1125,13 @@ export function listUsers(db) {
   return db
     .prepare(
       `
-        SELECT id, name, username, role, status, created_at, last_active_at
-        FROM users
-        ORDER BY role DESC, username
+        SELECT u.id, u.name, u.username, u.role, u.role_id, u.status, u.created_at, u.last_active_at,
+               u.registration_key_id, k.created_at AS key_issued_at, k.usage_policy AS key_usage_policy,
+               inviter.name AS invited_by_name
+        FROM users u
+        LEFT JOIN registration_keys k ON k.id=u.registration_key_id
+        LEFT JOIN users inviter ON inviter.id=k.created_by
+        ORDER BY u.role DESC, u.username
       `,
     )
     .all();
@@ -1152,9 +1156,13 @@ export function getUserProfile(db, userId) {
   const profile = db
     .prepare(
       `
-        SELECT id, name, username, role, status, created_at, last_active_at
-        FROM users
-        WHERE id = ?
+        SELECT u.id, u.name, u.username, u.role, u.role_id, u.status, u.created_at, u.last_active_at,
+               u.registration_key_id, k.created_at AS key_issued_at, k.usage_policy AS key_usage_policy,
+               inviter.name AS invited_by_name
+        FROM users u
+        LEFT JOIN registration_keys k ON k.id=u.registration_key_id
+        LEFT JOIN users inviter ON inviter.id=k.created_by
+        WHERE u.id = ?
       `,
     )
     .get(Number(userId));
@@ -1215,29 +1223,34 @@ export function issueRegistrationKey(db, { keyValue, role, userId, usagePolicy =
   const normalizedRole = role === "admin" ? "admin" : "operator";
   const normalized = String(keyValue || "").trim() || generateRegistrationKeyValue(normalizedRole);
   const normalizedUsagePolicy =
-    normalizedRole === "operator" && usagePolicy === "global" ? "global" : "single_use";
+    usagePolicy === "global" ? "global" : "single_use";
   const expiresAt =
     normalizedUsagePolicy === "global"
       ? null
       : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
-  const result = db.prepare(
-    `
-      INSERT INTO registration_keys (key_value, role, status, usage_policy, usage_count, expires_at, created_by, created_at)
-      VALUES (?, ?, 'active', ?, 0, ?, ?, ?)
-    `,
-  ).run(
-    normalized,
-    normalizedRole,
-    normalizedUsagePolicy,
-    expiresAt,
-    userId,
-    nowIso(),
-  );
+  return withTransaction(db, () => {
+    if (db.prepare('SELECT id FROM registration_keys WHERE key_value=?').get(normalized)) {
+      throw new Error('This key already exists. Enter a different key or leave it blank.');
+    }
+    const result = db.prepare(
+      `
+        INSERT INTO registration_keys (key_value, role, status, usage_policy, usage_count, expires_at, created_by, created_at)
+        VALUES (?, ?, 'active', ?, 0, ?, ?, ?)
+      `,
+    ).run(
+      normalized,
+      normalizedRole,
+      normalizedUsagePolicy,
+      expiresAt,
+      userId,
+      nowIso(),
+    );
 
-  db.prepare('UPDATE registration_keys SET role_id=? WHERE id=?').run(chosen.id,result.lastInsertRowid);
-  auditAccess(db,actor,'invitation_issued',result.lastInsertRowid,{roleId:chosen.id,usagePolicy:normalizedUsagePolicy});
-  return db.prepare("SELECT * FROM registration_keys WHERE id = ?").get(result.lastInsertRowid);
+    db.prepare('UPDATE registration_keys SET role_id=? WHERE id=?').run(chosen.id,result.lastInsertRowid);
+    auditAccess(db,actor,'invitation_issued',result.lastInsertRowid,{roleId:chosen.id,usagePolicy:normalizedUsagePolicy});
+    return db.prepare("SELECT * FROM registration_keys WHERE id = ?").get(result.lastInsertRowid);
+  });
 }
 
 export function revokeRegistrationKey(db, { keyId }) {
@@ -1309,7 +1322,7 @@ export function registerUser(db, { registrationKey, name, username, password, ha
         nowIso(),
       );
 
-    db.prepare('UPDATE users SET role_id=? WHERE id=?').run(key.role_id||key.role,result.lastInsertRowid);
+    db.prepare('UPDATE users SET role_id=?,registration_key_id=? WHERE id=?').run(key.role_id||key.role,key.id,result.lastInsertRowid);
     auditAccess(db,{id:Number(result.lastInsertRowid)},'onboarded',result.lastInsertRowid,{roleId:key.role_id||key.role,invitationId:key.id});
     if (key.usage_policy === "global") {
       db.prepare(

@@ -544,6 +544,10 @@ export const requestHandler = async (request, response) => {
     if(request.method==='GET'&&url.pathname==='/api/session'){
       sendJson(response,{userId:user.id,remainingMs:Math.max(0,user.sessionExpiresAt-Date.now())});return;
     }
+    // Page visits and commands count as activity; background API polling does not.
+    if (user && (request.method !== "GET" || !url.pathname.startsWith("/api/"))) {
+      updateUserLastActive(db, user.id);
+    }
     if(await accessRoutes(request,response,url,user,getAppState()))return;
     if(locationBrowseRoutes(request,response,url,user,getAppState()))return;
     if(await locationSetupRoutes(request,response,url,user,getAppState()))return;
@@ -551,10 +555,6 @@ export const requestHandler = async (request, response) => {
     if(phaseTwoNavigation(request,response,url,user,getAppState()))return;
     if(await stocktakingRoutes(request,response,url,user,getAppState()))return;
     if (await operationsRoutes(request,response,url,user,getAppState())) return;
-    if (user) {
-      updateUserLastActive(db, user.id);
-    }
-
     systemService.cancelStalePendingReviewTasks();
 
     if (request.method === "GET" && url.pathname === "/api/system/health") {
@@ -2372,9 +2372,9 @@ export const requestHandler = async (request, response) => {
       });
       const backupResult = createAutomaticBackup("registration-key-issue");
       const roleLabel = db.prepare("SELECT name FROM access_roles WHERE id=?").get(key.role_id)?.name || "Operator";
-      const keyLabel = key.usage_policy === "global" ? "global registration key" : "registration key";
+      const keyLabel = key.usage_policy === "global" ? "reusable registration key" : "registration key";
       const nextFlash = backupAwareFlash(`${roleLabel} ${keyLabel} issued.`, "success", backupResult);
-      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash("/settings/people#registration-keys", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -2388,8 +2388,8 @@ export const requestHandler = async (request, response) => {
         keyId: form.key_id,
       });
       const backupResult = createAutomaticBackup("registration-key-revoke");
-      const nextFlash = backupAwareFlash("Registration key suspended.", "success", backupResult);
-      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      const nextFlash = backupAwareFlash("Registration key disabled. Existing users keep their access.", "success", backupResult);
+      sendRedirect(response, appendFlash("/settings/people#registration-keys", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -2410,7 +2410,7 @@ export const requestHandler = async (request, response) => {
         "success",
         backupResult,
       );
-      sendRedirect(response, appendFlash("/admin", nextFlash.message, nextFlash.tone));
+      sendRedirect(response, appendFlash("/settings/people", nextFlash.message, nextFlash.tone));
       return;
     }
 
@@ -2566,6 +2566,9 @@ export const requestHandler = async (request, response) => {
     }
     if (url.pathname.startsWith("/devices/cells")) {
       target = "/devices#cell-management";
+    }
+    if (url.pathname.startsWith("/admin/registration-keys") || url.pathname === "/admin/users/status") {
+      target = "/settings/people";
     }
     if (url.pathname === "/admin/adjustments") {
       target = "/admin";

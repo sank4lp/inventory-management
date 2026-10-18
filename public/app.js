@@ -3636,7 +3636,7 @@ function confirmQuantityOverride(conflicts = [], locating = false, pinging = fal
     dialog.querySelector("[data-cancel]").addEventListener("click", () => dialog.close("cancel"));
     confirm.addEventListener("click", () => dialog.close("confirm"));
     dialog.addEventListener("close", () => { const accepted = dialog.returnValue === "confirm"; dialog.remove(); resolve(accepted); }, { once: true });
-    document.body.append(dialog);
+    (document.querySelector('.ui-template') || document.body).append(dialog);
     dialog.showModal();
     pageScope?.own(() => { if (dialog.isConnected) dialog.close("cancel"); });
   });

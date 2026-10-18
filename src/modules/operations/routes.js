@@ -1,3 +1,4 @@
+import {templatePage} from "../../server/ui.js";
 import {can,assertCan} from "../access/catalog.js";
 import { createHash } from "node:crypto";
 import {locationQrValue} from './location-contract.js';
@@ -70,6 +71,6 @@ export async function operationsRoutes(request,response,url,user,state) {
   if(match) { const requested=work.task(user,match[1]); if(requested&&!snapshot.tasks.some(t=>t.id===requested.id))snapshot.tasks.unshift(requested); }
   const titles={'/work':'My work','/work/overview':'Assign Work','/work/timing':'Work timing','/work/active-assignments':'Active Assignments','/work/history':'History','/work/task-history':'Task History','/pick':'Pick','/put':'Put','/pending-confirmations':'Needs review','/record-movement':'Record Movement','/movement-history':'Movement history','/labels':'Location labels'};
   const boot=JSON.stringify({snapshot,path:url.pathname}).replace(/</g,'\\u003c');
-  sendHtml(response,page({currentPath:url.pathname,title:titles[url.pathname]||`Task #${match[1]} - ${snapshot.tasks[0]?.type==='put'?'Put':'Pick'} ${snapshot.tasks[0]?.lines[0]?.product_name||''}`,user,content:`<link rel="manifest" href="/manifest.webmanifest"><div id="work-app"><p>Loading your warehouse work…</p></div><noscript>Work confirmations require JavaScript for durable receipts. Enable JavaScript to continue.</noscript><script id="work-boot" type="application/json">${boot}</script><script src="/client/vendor/jsQR.js"></script><script type="module" src="/client/stable-buttons.js"></script><script type="module" src="/client/searchable-select.js"></script><script type="module" src="/client/work.js"></script>`}),200,{'Cache-Control':'no-store'});
+  sendHtml(response,(url.pathname==='/work/timing'?templatePage:page)({currentPath:url.pathname,title:titles[url.pathname]||`Task #${match[1]} - ${snapshot.tasks[0]?.type==='put'?'Put':'Pick'} ${snapshot.tasks[0]?.lines[0]?.product_name||''}`,user,content:`<link rel="manifest" href="/manifest.webmanifest"><div id="work-app"><p>Loading your warehouse work…</p></div><noscript>Work confirmations require JavaScript for durable receipts. Enable JavaScript to continue.</noscript><script id="work-boot" type="application/json">${boot}</script><script src="/client/vendor/jsQR.js"></script><script type="module" src="/client/stable-buttons.js"></script><script type="module" src="/client/searchable-select.js"></script><script type="module" src="/client/work.js"></script>`}),200,{'Cache-Control':'no-store'});
   return true;
 }

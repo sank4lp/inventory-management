@@ -1,7 +1,8 @@
+import {templatePage} from "../../server/ui.js";
 import {can,SETTINGS} from "../access/catalog.js";
 import {randomUUID} from 'node:crypto';
 import {page} from '../../render.js';
-import {sendHtml,sendRedirect,sendJson} from '../../server/http/responses.js';
+import {sendHtml,sendRedirect,sendJson,getFlash} from '../../server/http/responses.js';
 import {ensureAdmin,ensureAuth} from '../../server/http/auth-guards.js';
 export function phaseTwoNavigation(request,response,url,user,state) {
   if(request.method==='POST'&&url.pathname==='/admin/adjustments') {
@@ -29,9 +30,9 @@ export function phaseTwoNavigation(request,response,url,user,state) {
     if(!ensureAuth(response,user))return true;
     const links=SETTINGS.filter(x=>can(user,x[2])).map(([href,title])=>[href,title,'']);
     const legacyRedirect=url.pathname==='/admin'?`<script>const targets={'#registration-keys':'/settings/people#registration-keys','#users':'/settings/people#users','#count-adjustment':'/stocktaking','#settings':'/settings/system','#report-format':'/reports?format=1','#database-health':'/settings/system#database-health'};if(targets[location.hash])location.replace(targets[location.hash]);</script>`:'';
-    sendHtml(response,page({title:'Settings',user,content:`<div class="work-grid">${links.map(([href,title,description])=>`<section class="work-panel"><h2><a href="${href}">${title}</a></h2><p>${description}</p></section>`).join('')}</div>${legacyRedirect}`}));return true;
+    sendHtml(response,templatePage({title:'Settings',currentPath:'/settings',user,content:`<div class="ui-grid">${links.map(([href,title])=>`<a class="ui-panel ui-setting-link" href="${href}"><strong>${title}</strong><span aria-hidden="true">→</span></a>`).join('')}</div>${legacyRedirect}`}));return true;
   }
-  if(['/settings/people','/settings/system'].includes(url.pathname)){if(!ensureAuth(response,user))return true;sendHtml(response,state.pages.renderAdmin(user,null,url.pathname.endsWith('people')?'people':'system'));return true;}
+  if(['/settings/people','/settings/system'].includes(url.pathname)){if(!ensureAuth(response,user))return true;sendHtml(response,state.pages.renderAdmin(user,getFlash(url),url.pathname.endsWith('people')?'people':'system'));return true;}
   if(url.pathname==='/locations/manage'){if(!ensureAuth(response,user))return true;sendHtml(response,page({title:'Locations · Manage',user,content:`<p><a href="/cells">← Locations</a> · <a href="/location-setup">Set up locations by scanning</a> · <a href="/location-setup?view=fields">Location fields</a></p>${state.pages.renderDeviceConfigSection('cell-management')}`}));return true;}
   if(url.pathname==='/reports/stocktake-differences'){if(!ensureAuth(response,user))return true;sendRedirect(response,'/stocktaking/results'+(url.search||''));return true;}
   return false;

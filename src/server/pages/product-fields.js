@@ -1,6 +1,7 @@
+import {templatePage} from "../ui.js";
 import { createProductFieldService } from "../../services/product-fields.js";
 import { createUnitConversionService } from "../../services/unit-conversions.js";
-import { card, escapeHtml, formatDate, formatQuantity, page, statusBadge, table } from "./shared.js";
+import { card, escapeHtml, formatDate, formatQuantity, statusBadge, table } from "./shared.js";
 
 function checked(value) {
   return Number(value) === 1 ? "checked" : "";
@@ -114,7 +115,7 @@ export function createProductFieldPages({
       .prepare("SELECT id, sku, name, unit_of_measure FROM products WHERE active = 1 ORDER BY name")
       .all();
     const conversionHistory = unitConversions.list();
-    return page({
+    return templatePage({
       title: "Admin Product Fields",
       user,
       flash,

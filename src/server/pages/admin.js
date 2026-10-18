@@ -1,28 +1,21 @@
-import {effectiveUser} from "../../modules/access/service.js";
-import {can} from "../../modules/access/catalog.js";
+import {templatePage} from "../ui.js";
+import {renderPeopleAccess} from "./people.js";
 import {
   listCells,
   listProducts,
-  listRegistrationKeys,
-  listUsers,
 } from "../../services/inventory.js";
 import { getReportFormatSettings } from "../../services/report-format.js";
 import { readPendingReviewTimeoutSettings } from "../../services/task-timeout-settings.js";
 import {
   card,
   cellPickerField,
-  copyIcon,
   escapeHtml,
   formatBytes,
   formatDate,
   formatQuantity,
-  page,
   renderAdjustmentLine,
-  rolePickerField,
   statusBadge,
-  suspendIcon,
   table,
-  trashIcon,
 } from "./shared.js";
 import { getRuntimeContext } from "../runtime-context.js";
 import { renderRetentionCard } from "./backups.js";
@@ -96,81 +89,6 @@ export function createAdminPages({ db, backupService = null }) {
     );
   }
 
-  function renderRegistrationKeyActions(key) {
-    if (key.status !== "active") {
-      return `<span class="muted">No Action</span>`;
-    }
-
-    const reusable = key.usage_policy === "global";
-    const confirmText = reusable
-      ? "Suspend this reusable operator registration key? New users will no longer be able to register with it."
-      : "Delete this registration key? New users will no longer be able to register with it.";
-    const label = `${reusable ? "Suspend" : "Delete"} registration key ${key.key_value}`;
-    const actionIcon = reusable ? suspendIcon() : trashIcon();
-
-    return `
-      <div class="mini-actions">
-        <button
-          type="button"
-          class="icon-button ghost-button"
-          data-copy-value="${escapeHtml(key.key_value)}"
-          aria-label="Copy registration key ${escapeHtml(key.key_value)}"
-          title="Copy registration key"
-        >${copyIcon()}</button>
-        <form method="post" action="/admin/registration-keys/revoke" class="inline-form">
-          <input type="hidden" name="key_id" value="${key.id}" />
-          <button
-            type="submit"
-            class="icon-button danger-button"
-            aria-label="${escapeHtml(label)}"
-            title="${escapeHtml(label)}"
-            onclick="return confirm(${escapeHtml(JSON.stringify(confirmText))});"
-          >${actionIcon}</button>
-        </form>
-      </div>
-    `;
-  }
-
-  function registrationKeyTypeLabel(key) {
-    return key.usage_policy === "global"
-      ? `<span class="badge badge-active">Global Operator</span>`
-      : `<span class="badge">One-Time</span>`;
-  }
-
-  function registrationKeyUsageLabel(key) {
-    const count = Number(key.usage_count || 0);
-    if (key.usage_policy === "global") {
-      return `${formatQuantity(count)} Registered`;
-    }
-    return key.status === "used" ? "1 Of 1 Used" : `${formatQuantity(count)} Of 1 Used`;
-  }
-
-  function renderUserActions(currentUser, entry) {
-    if (Number(entry.id) === Number(currentUser.id)) {
-      return `<span class="muted">Signed In</span>`;
-    }
-
-    const nextStatus = entry.status === "active" ? "inactive" : "active";
-    const label = entry.status === "active" ? "Suspend" : "Restore";
-    const buttonClass = entry.status === "active" ? "ghost-button danger-button" : "green-button";
-    const confirmText =
-      entry.status === "active"
-        ? `Suspend access for ${entry.username}?`
-        : `Restore access for ${entry.username}?`;
-
-    return `
-      <form method="post" action="/admin/users/status" class="inline-form">
-        <input type="hidden" name="user_id" value="${entry.id}" />
-        <input type="hidden" name="status" value="${nextStatus}" />
-        <button
-          type="submit"
-          class="${buttonClass}"
-          onclick="return confirm(${escapeHtml(JSON.stringify(confirmText))});"
-        >${escapeHtml(label)}</button>
-      </form>
-    `;
-  }
-
   function renderTaskTimeoutSettings() {
     const settings = readPendingReviewTimeoutSettings(db);
     return card(
@@ -206,8 +124,6 @@ export function createAdminPages({ db, backupService = null }) {
   }
 
   function renderAdmin(user, flash, section = "all") {
-    const users = listUsers(db);
-    const keys = listRegistrationKeys(db);
     const products = listProducts(db);
     const cells = listCells(db);
     const runtime = getRuntimeContext();
@@ -250,76 +166,7 @@ export function createAdminPages({ db, backupService = null }) {
       "",
       `id="count-adjustment"`,
     );
-    const accessManagementSection = `
-      <section class="two-column">
-        ${card(
-          "Registration Keys",
-          `
-            <div class="content-stack">
-              <p><a href="/settings/roles">Roles and Permissions — create roles or change assigned access</a></p>
-              <p class="muted">Create one one-time key per person. The key sets the account role during registration and becomes used after that person creates an account.</p>
-              <div class="key-quick-actions">
-                <form method="post" action="/admin/registration-keys" class="inline-form">
-                  <input type="hidden" name="role" value="operator" />
-                  <button type="submit" class="blue-button">Generate Operator Key</button>
-                </form>
-                <form method="post" action="/admin/registration-keys" class="inline-form">
-                  <input type="hidden" name="role" value="operator" />
-                  <input type="hidden" name="usage_policy" value="global" />
-                  <button type="submit" class="green-button">Generate Global Operator Key</button>
-                </form>
-                <form method="post" action="/admin/registration-keys" class="inline-form">
-                  <input type="hidden" name="role" value="admin" />
-                  <button type="submit" class="ghost-button">Generate Admin Key</button>
-                </form>
-              </div>
-              <details class="form-disclosure">
-                <summary>Choose a role and issue an invitation</summary>
-                <form method="post" action="/admin/registration-keys" class="stack-form">
-                  <label>Key Value<input name="key_value" placeholder="INVITE-AKSHAY-2026" /></label>
-                  <label>Role
-                    <select name="role">${db.prepare("SELECT id,name FROM access_roles ORDER BY builtin DESC,name").all().map(r=>`<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}</select>
-                  </label>
-                  <label class="checkbox-line">
-                    <input type="checkbox" name="usage_policy" value="global" />
-                    Global Operator Team Key
-                  </label>
-                  <button type="submit">Issue Custom Key</button>
-                </form>
-              </details>
-              <div class="copy-status" data-copy-status role="status" aria-live="polite"></div>
-              ${table(
-                ["Key", "Role", "Type", "Usage", "Status", "Action"],
-                (can(user,"access.manage")?keys:[]).map((key) => [
-                  `<code>${escapeHtml(key.key_value)}</code>`,
-                  statusBadge(db.prepare("SELECT name FROM access_roles WHERE id=?").get(key.role_id||key.role)?.name||key.role),
-                  registrationKeyTypeLabel(key),
-                  escapeHtml(registrationKeyUsageLabel(key)),
-                  statusBadge(key.status),
-                  renderRegistrationKeyActions(key),
-                ]),
-              )}
-            </div>
-          `,
-          "",
-          `id="registration-keys" data-row-collapser data-row-limit="4" data-row-label="keys"`,
-        )}
-        ${card(
-          "Users",
-          table(
-            ["Name", "Role", "Status", "Action"],
-            users.map((entry) => [
-              `<a href="/admin/users/${entry.id}">${escapeHtml(entry.name)}</a><br /><small>${escapeHtml(entry.username)}</small>`,
-              statusBadge(effectiveUser(db,entry).role_name),
-              statusBadge(entry.status),
-              renderUserActions(user, entry),
-            ]),
-          ),
-          "",
-          `id="users" data-row-collapser data-row-limit="4" data-row-label="users"`,
-        )}
-      </section>
-    `;
+    const accessManagementSection = renderPeopleAccess({db, user});
     const settingsSection = `
       <section id="settings" class="two-column admin-settings-grid">
         ${renderTaskTimeoutSettings()}
@@ -340,10 +187,11 @@ export function createAdminPages({ db, backupService = null }) {
       attributes: `id="report-format"`,
     });
 
-    return page({
+    return templatePage({
       title: section === "people" ? "Settings · People & access" : section === "system" ? "Settings · System" : "Settings",
       user,
       flash,
+      currentPath: section === "people" ? "/settings/people" : "/settings/system",
       content: `
         ${section === "people" || section === "all" ? accessManagementSection : ""}
         ${section === "all" ? `<p id="count-adjustment"><a href="/stocktaking">Stocktaking — count, review and correct</a></p><p id="report-format"><a href="/reports?format=1">Report appearance</a></p>` : ""}

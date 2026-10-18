@@ -1,3 +1,4 @@
+import {templatePage,uiPanel,uiTable,uiFacts,uiStatus,formatUiDate} from "../ui.js";
 import {effectiveUser} from "../../modules/access/service.js";
 import {can} from "../../modules/access/catalog.js";
 import {
@@ -5,18 +6,13 @@ import {
   listRecentTasksForProfileUser,
 } from "../../services/inventory.js";
 import {
-  card,
   escapeHtml,
-  formatDate,
   formatQuantity,
-  page,
-  statsGrid,
   statusBadge,
-  table,
 } from "./shared.js";
 
 function lastActiveLabel(profile) {
-  return profile.last_active_at || profile.activity.lastTransactionAt || profile.activity.lastTaskAt || profile.created_at;
+  return profile.last_active_at || profile.activity.lastTransactionAt || profile.activity.lastTaskAt;
 }
 
 export function createProfilePages({ db }) {
@@ -45,119 +41,41 @@ export function createProfilePages({ db }) {
   }
 
   function renderProfilePage({ user, flash, profile, title = "Profile", kicker = "Signed In As", backLink = "" }) {
-    if (!profile) {
-      return page({
-        title,
-        user,
-        flash,
-        content: `
-          <section class="single-column-wide profile-page">
-            <p class="flash flash-error">Profile Not Found.</p>
-            ${backLink}
-          </section>
-        `,
-      });
-    }
-
+    if (!profile) return templatePage({title, user, flash, content: `<p>Profile Not Found.</p>${backLink}`});
     const recentTasks = listRecentTasksForProfileUser(db, profile.id, 10);
-
-    return page({
-      title,
-      user,
-      flash,
-      content: `
-        <section class="single-column-wide profile-page">
-          ${backLink}
-          <section class="profile-hero app-panel">
-            <div class="profile-hero-mark">${escapeHtml(profile.name.charAt(0).toUpperCase())}</div>
-            <div class="profile-hero-copy">
-              <p class="profile-kicker">${escapeHtml(kicker)}</p>
-              <h2>${escapeHtml(profile.name)}</h2>
-              <p class="muted">${escapeHtml(profile.username)} · ${statusBadge(effectiveUser(db,profile).role_name)} ${statusBadge(profile.status)}</p>
-            </div>
-          </section>
-
-          ${statsGrid([
-            { label: "Tasks Created", value: formatQuantity(profile.activity.tasksCreated) },
-            { label: "Tasks Completed", value: formatQuantity(profile.activity.tasksCompleted) },
-            { label: "Inventory Transactions", value: formatQuantity(profile.activity.transactionsRecorded) },
-            { label: "Last Active", value: formatDate(lastActiveLabel(profile)), text: true },
-          ])}
-
-          ${card(
-            "Account Details",
-            `
-              <div class="meta-grid">
-                <div>
-                  <strong>Name</strong>
-                  <span>${escapeHtml(profile.name)}</span>
-                </div>
-                <div>
-                  <strong>Username</strong>
-                  <span>${escapeHtml(profile.username)}</span>
-                </div>
-                <div>
-                  <strong>Role</strong>
-                  <span>${statusBadge(effectiveUser(db,profile).role_name)}</span>
-                </div>
-                <div>
-                  <strong>Status</strong>
-                  <span>${statusBadge(profile.status)}</span>
-                </div>
-                <div>
-                  <strong>Date Joined</strong>
-                  <span>${escapeHtml(formatDate(profile.created_at))}</span>
-                </div>
-                <div>
-                  <strong>Last Active</strong>
-                  <span>${escapeHtml(formatDate(lastActiveLabel(profile)))}</span>
-                </div>
-              </div>
-            `,
-            "",
-            `id="account-details"`,
-          )}
-
-          ${card(
-            "Recent Activity",
-            `
-              <div class="meta-grid">
-                <div>
-                  <strong>Last Task Activity</strong>
-                  <span>${escapeHtml(formatDate(profile.activity.lastTaskAt))}</span>
-                </div>
-                <div>
-                  <strong>Last Inventory Transaction</strong>
-                  <span>${escapeHtml(formatDate(profile.activity.lastTransactionAt))}</span>
-                </div>
-              </div>
-            `,
-            "",
-            `id="recent-activity"`,
-          )}
-
-          ${card(
-            "Recent Tasks",
-            recentTasks.length
-              ? table(
-                  ["Task", "User", "Product", "Type", "Status", "Activity", "Relationship"],
-                  recentTasks.map((task) => [
-                    `<a href="/tasks/${task.id}">#${task.id}</a>`,
-                    taskOwnerLink(user, task),
-                    `${escapeHtml(task.first_product_name || "—")}<br /><small>${escapeHtml(task.first_sku || "—")}</small>`,
-                    statusBadge(task.type),
-                    statusBadge(task.status),
-                    escapeHtml(formatDate(taskActivityDate(task))),
-                    escapeHtml(taskRelationshipLabel(task)),
-                  ]),
-                )
-              : `<p class="muted">No recent tasks for this user.</p>`,
-            "",
-            `id="profile-recent-tasks"`,
-          )}
-        </section>
-      `,
-    });
+    const account = effectiveUser(db, profile);
+    const accountDetails = uiFacts([
+      ['Name', escapeHtml(profile.name)], ['Username', escapeHtml(profile.username)],
+      ['Role', escapeHtml(account.role_name)], ['Status', uiStatus(profile.status)],
+      ['Date Joined', escapeHtml(formatUiDate(profile.created_at))],
+      ['Last Active', escapeHtml(formatUiDate(lastActiveLabel(profile)))],
+      ['Key issued', escapeHtml(formatUiDate(profile.key_issued_at))],
+      ['Invited by', escapeHtml(profile.invited_by_name || '—')],
+    ], 'Account details');
+    const activity = uiFacts([
+      ['Tasks Created', escapeHtml(formatQuantity(profile.activity.tasksCreated))],
+      ['Tasks Completed', escapeHtml(formatQuantity(profile.activity.tasksCompleted))],
+      ['Inventory Transactions', escapeHtml(formatQuantity(profile.activity.transactionsRecorded))],
+      ['Last Task Activity', escapeHtml(formatUiDate(profile.activity.lastTaskAt))],
+      ['Last Inventory Transaction', escapeHtml(formatUiDate(profile.activity.lastTransactionAt))],
+    ], 'Activity summary');
+    const tasks = uiTable([
+      {key:'task',label:'Task'}, {key:'product',label:'Product'}, {key:'type',label:'Type'},
+      {key:'status',label:'Status'}, {key:'date',label:'Activity (IST)'},
+      {key:'user',label:'User'}, {key:'relationship',label:'Relationship'},
+    ], recentTasks.map(task => [
+      `<a href="/tasks/${task.id}">#${task.id}</a>`,
+      `${escapeHtml(task.first_product_name || '—')}<small>${escapeHtml(task.first_sku || '—')}</small>`,
+      statusBadge(task.type), statusBadge(task.status), escapeHtml(formatUiDate(taskActivityDate(task))),
+      taskOwnerLink(user, task), escapeHtml(taskRelationshipLabel(task)),
+    ]), {label:'Recent tasks',empty:'No recent tasks for this user.'});
+    return templatePage({title, user, flash, currentPath:'/profile', content: `
+      ${backLink}
+      <div class="ui-profile-heading"><span class="ui-avatar" aria-hidden="true">${escapeHtml(profile.name.charAt(0).toUpperCase())}</span><div><small>${escapeHtml(kicker)}</small><h2>${escapeHtml(profile.name)}</h2></div></div>
+      ${uiPanel('Account Details', accountDetails, {id:'account-details'})}
+      ${uiPanel('Recent Activity', activity, {id:'recent-activity'})}
+      ${uiPanel('Recent Tasks', tasks, {id:'profile-recent-tasks'})}
+    `});
   }
 
   function renderProfile(user, flash) {
@@ -175,7 +93,7 @@ export function createProfilePages({ db }) {
       profile: getUserProfile(db, targetUserId),
       title: "Admin User Profile",
       kicker: "User Account",
-      backLink: `<p><a class="mini-link" href="/admin">Back To Admin</a></p>`,
+      backLink: `<p><a class="mini-link" href="/settings/people">Back To People &amp; Access</a></p>`,
     });
   }
 
