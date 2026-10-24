@@ -1,3 +1,8 @@
+import { createOperationsService } from "../modules/operations/service.js";
+import {createStocktakingService} from '../modules/stocktaking/service.js';
+import {createLocationSetupService} from '../modules/locations/service.js';
+import {createDisplayCoordinator} from '../services/display-coordinator.js';
+import {DISPLAY_TICK_MS} from '../services/quantity-display.js';
 import { appConfig } from "../config.js";
 import { createDatabase } from "../db.js";
 import { createLogger } from "../logger.js";
@@ -27,6 +32,8 @@ let appState = null;
 let stalePendingTaskTimer = null;
 let databaseMaintenanceTimer = null;
 let controllerHealthTimer = null;
+let phaseTwoTimer=null;
+let displayTimer=null;
 
 const CONTROLLER_HEALTH_TIMER_INTERVAL_MS = 5 * 1000;
 
@@ -58,7 +65,7 @@ function startStalePendingTaskMaintenance(systemService) {
 
   stopStalePendingTaskMaintenance();
   stalePendingTaskTimer = setInterval(() => {
-    systemService.cancelStalePendingReviewTasks();
+    try { systemService.cancelStalePendingReviewTasks(); } catch(error) { logger.warn('work.inactivity.failed',{error:error.message}); }
   }, 30 * 1000);
   stalePendingTaskTimer.unref?.();
 }
@@ -105,6 +112,21 @@ function buildAppState() {
     config: appConfig,
     logger,
   });
+  const operationsService = createOperationsService({db, hardwareService, logger,deferStocktakeDisplays:true});
+  const stocktakingService=createStocktakingService({db,operationsService});
+  const displayCoordinator=createDisplayCoordinator({db,hardwareService,operationsService});
+  const locationSetupService=createLocationSetupService({db,operationsService,displayCoordinator});
+  const controllerStates=new Map(db.prepare('SELECT id,heartbeat_status FROM controllers').all().map(c=>[c.id,c.heartbeat_status]));
+  if(process.env.NO_SERVER_LISTEN!=="1"){
+    displayTimer=setInterval(()=>{try{displayCoordinator.expire();}catch(error){logger.warn("warehouse.display",{error:error.message});}},DISPLAY_TICK_MS);displayTimer.unref?.();
+    phaseTwoTimer=setInterval(()=>{try{
+    stocktakingService.tick();const restoreCells=[];
+    for(const c of db.prepare('SELECT id,heartbeat_status FROM controllers WHERE active=1').all()){
+      if(c.heartbeat_status==='online'&&controllerStates.get(c.id)!=='online')restoreCells.push(...db.prepare('SELECT id FROM cells WHERE controller_id=?').all(c.id).map(c=>c.id));
+      controllerStates.set(c.id,c.heartbeat_status);
+    }
+    operationsService.flushGuidance({restoreCells});
+  }catch(error){logger.warn("warehouse.maintenance",{error:error.message});}},5000);phaseTwoTimer.unref?.();}
   const systemService = createSystemService({
     db,
     config: appConfig,
@@ -112,7 +134,7 @@ function buildAppState() {
     hardwareService,
     getTask,
   });
-  systemService.cancelStalePendingReviewTasks();
+  operationsService.flagInactivity({timeoutMs:0,restoreGuidance:true});
   const startup = systemService.runStartupChecks();
   startup.recovery.recoveredTaskIds = systemService.recoverPendingGuidance();
   startStalePendingTaskMaintenance(systemService);
@@ -147,6 +169,10 @@ function buildAppState() {
   });
 
   setRuntimeContext({
+    locationSetupService,
+    displayCoordinator,
+    stocktakingService,
+    operationsService,
     config: appConfig,
     databaseMaintenanceService,
     firmwareService,
@@ -156,6 +182,10 @@ function buildAppState() {
   });
 
   return {
+    locationSetupService,
+    displayCoordinator,
+    stocktakingService,
+    operationsService,
     adminService: createAdminService({ db }),
     anomalyService: createAnomalyService({ db }),
     backupService,
@@ -181,8 +211,12 @@ function buildAppState() {
 
 export function reloadAppState({ closeCurrentDb = true } = {}) {
   stopStalePendingTaskMaintenance();
+  if(phaseTwoTimer){clearInterval(phaseTwoTimer);phaseTwoTimer=null;}
+  if(displayTimer){clearInterval(displayTimer);displayTimer=null;}
   stopControllerHealthMaintenance();
   stopDatabaseMaintenance();
+  appState?.hardwareService?.dispose?.();
+  appState?.operationsService?.dispose?.();
   if (closeCurrentDb && appState?.db) {
     appState.db.close();
   }

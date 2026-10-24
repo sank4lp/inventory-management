@@ -1,3 +1,8 @@
+import {effectiveUser,currentActor} from "../modules/access/service.js";
+import {fullAdministrator} from "../modules/access/catalog.js";
+import { createOperationsService } from "../modules/operations/service.js";
+import { adoptPendingLegacyTasks } from "../modules/operations/schema.js";
+import { withTransaction } from "../db.js";
 import { randomBytes } from "node:crypto";
 
 import { updateControllerHealth } from "./inventory.js";
@@ -7,8 +12,6 @@ import {
 } from "./task-timeout-settings.js";
 
 const CONTROLLER_QUICK_RETRY_MS = 30 * 1000;
-const CONTROLLER_QUICK_RETRY_LIMIT = 3;
-const CONTROLLER_SLOW_RETRY_MS = 5 * 60 * 1000;
 
 function nowIso() {
   return new Date().toISOString();
@@ -30,9 +33,6 @@ function addMs(date, ms) {
 function retryDelayLabel(delayMs) {
   if (delayMs === CONTROLLER_QUICK_RETRY_MS) {
     return "30 seconds";
-  }
-  if (delayMs === CONTROLLER_SLOW_RETRY_MS) {
-    return "5 minutes";
   }
   return `${Math.max(1, Math.round(delayMs / 1000))} seconds`;
 }
@@ -145,32 +145,11 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   function updateControllerHealthSchedule(controller, status, checkedAt) {
     const controllerId = Number(controller.id);
     const checkedAtIso = checkedAt.toISOString();
-
-    if (status === "online") {
-      controllerHealthSchedule.set(controllerId, {
-        status,
-        quickRetriesUsed: 0,
-        lastCheckedAt: checkedAtIso,
-        nextCheckAt: addMs(checkedAt, CONTROLLER_QUICK_RETRY_MS),
-        retryDelayMs: CONTROLLER_QUICK_RETRY_MS,
-      });
-      return;
-    }
-
-    const previous = controllerHealthSchedule.get(controllerId);
-    const continuingOffline = previous && previous.status !== "online";
-    const quickRetriesUsed = continuingOffline ? Number(previous.quickRetriesUsed || 0) + 1 : 0;
-    const retryDelayMs =
-      quickRetriesUsed < CONTROLLER_QUICK_RETRY_LIMIT
-        ? CONTROLLER_QUICK_RETRY_MS
-        : CONTROLLER_SLOW_RETRY_MS;
-
     controllerHealthSchedule.set(controllerId, {
       status,
-      quickRetriesUsed,
       lastCheckedAt: checkedAtIso,
-      nextCheckAt: addMs(checkedAt, retryDelayMs),
-      retryDelayMs,
+      nextCheckAt: addMs(checkedAt, CONTROLLER_QUICK_RETRY_MS),
+      retryDelayMs: CONTROLLER_QUICK_RETRY_MS,
     });
   }
 
@@ -281,8 +260,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
       .get();
     const schemaVersion = schemaVersionRow?.value || "unknown";
     const adminCount = Number(
-      db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND status = 'active'").get()
-        .count,
+      db.prepare("SELECT * FROM users WHERE status='active'").all().filter(u=>fullAdministrator(effectiveUser(db,u))).length,
     );
     const hardwareHealth = hardwareService.healthCheck();
     const controllerHealthResults = refreshControllerHealths({ now });
@@ -291,7 +269,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         `
           SELECT id
           FROM tasks
-          WHERE status = 'pending_review'
+          WHERE status = 'pending_review' AND workflow_version=1
           ORDER BY id
         `,
       )
@@ -340,7 +318,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         `
           SELECT id
           FROM tasks
-          WHERE status = 'pending_review'
+          WHERE status = 'pending_review' AND workflow_version=1
           ORDER BY id
         `,
       )
@@ -375,66 +353,13 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
     return recoveredTaskIds;
   }
 
-  function cancelStalePendingReviewTasks({
-    now = new Date(),
-    timeoutMs = null,
-  } = {}) {
-    const currentTime = now instanceof Date ? now : new Date(now);
-    const configuredTimeoutMs = timeoutMs ?? readPendingReviewTimeoutSettings(db).timeoutMs;
-    const cutoff = new Date(currentTime.getTime() - configuredTimeoutMs).toISOString();
-    const cancelledTaskIds = [];
-    const rows = db
-      .prepare(
-        `
-          SELECT id
-          FROM tasks
-          WHERE status = 'pending_review'
-            AND COALESCE(last_touched_at, started_at) <= ?
-          ORDER BY id
-        `,
-      )
-      .all(cutoff);
-
-    for (const row of rows) {
-      const task = getTask(db, row.id);
-      if (!task || task.status !== "pending_review") {
-        continue;
-      }
-
-      const cancelledAt = currentTime.toISOString();
-      const clearResult = hardwareService.clearGuidance(task, task.lines, {
-        source: "pending_review_timeout",
-      });
-      db.prepare(
-        `
-          UPDATE tasks
-          SET status = 'cancelled', completed_at = ?, last_touched_at = ?
-          WHERE id = ? AND status = 'pending_review'
-        `,
-      ).run(cancelledAt, cancelledAt, task.id);
-      cancelledTaskIds.push(task.id);
-      recordSystemEvent({
-        eventType: "pending_review_timeout",
-        status: clearResult.degraded ? "warning" : "info",
-        message: `Cancelled stale pending review task #${task.id}.`,
-        payload: {
-          taskId: task.id,
-          timeoutMs: configuredTimeoutMs,
-          lastTouchedAt: task.last_touched_at || task.started_at,
-          degraded: clearResult.degraded,
-          adapter: hardwareService.adapterName,
-        },
-      });
-    }
-
-    if (cancelledTaskIds.length) {
-      logger.info("task.pending_review.timeout_cancelled", {
-        cancelledTaskIds,
-        timeoutMs: configuredTimeoutMs,
-      });
-    }
-
-    return cancelledTaskIds;
+  // Name retained for callers; inactivity now flags uncertainty and never cancels stock claims.
+  function cancelStalePendingReviewTasks({now=new Date(),timeoutMs=null}={}) {
+    withTransaction(db,()=>adoptPendingLegacyTasks(db));
+    const work=createOperationsService({db,hardwareService,logger});
+    const ids=work.flagInactivity({at:now instanceof Date?now:new Date(now),timeoutMs:timeoutMs??readPendingReviewTimeoutSettings(db).timeoutMs});
+    work.flushGuidance();
+    return ids;
   }
 
   function getPendingReviewTimeoutSettings() {
@@ -442,6 +367,7 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
   }
 
   function updatePendingReviewTimeout({ timeoutMinutes, updatedBy = null, now = new Date() } = {}) {
+    currentActor(db,{id:updatedBy},'work.timing');
     const settings = savePendingReviewTimeoutSettings(db, {
       timeoutMinutes,
       now,

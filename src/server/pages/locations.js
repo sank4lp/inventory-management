@@ -1,3 +1,7 @@
+import {templatePage,uiConfirmation,uiFacts,uiTable,uiPanel,uiDisclosure} from "../ui.js";
+import {can} from "../../modules/access/catalog.js";
+import { randomUUID } from "node:crypto";
+import { describeLocation } from "../../modules/operations/location-contract.js";
 import {
   listCellCatalog,
   listCells,
@@ -198,6 +202,8 @@ function renderLocationCountButton(cell) {
       class="ghost-button count-button"
       data-show-location-count
       data-cell-id="${cell.id}"
+      data-activate-endpoint="/api/cells/${cell.id}/count"
+      data-clear-endpoint="/api/cells/${cell.id}/count/clear"
       data-show-label="Show Count"
       data-active-label="Showing Count"
       data-led-loading-label="Showing"
@@ -342,6 +348,7 @@ export function createLocationPages({ db }) {
           "Location Summary",
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
+            <p>${escapeHtml(describeLocation(db,cell.id).directions)}</p>
             <p>${
               cell.controller_code && cell.hardware_channel
                 ? `${escapeHtml(cell.controller_code)} · Channel ${escapeHtml(cell.hardware_channel)}`
@@ -366,6 +373,11 @@ export function createLocationPages({ db }) {
           "",
           `data-row-collapser data-row-limit="4" data-row-label="products"`,
         )}
+        ${can(user,'locations.manage')?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
+          <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="descriptionRevision" value="${describeLocation(db,cell.id).descriptionRevision}">
+          <label>Location name<input name="displayName" maxlength="160" value="${escapeHtml(cell.display_name||'')}"></label>
+          <label>Shed / shelf details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second shelf on the left"></label>
+          <p>The cell code, QR and stock history stay unchanged. </p><button>Save directions</button></form>`):''}
       `,
     });
   }
@@ -548,84 +560,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderCellManagementSection(cells) {
-    return `
-      <section id="cell-management" class="configuration-table-section app-panel" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
-        <div class="panel-heading">
-          <div>
-            <h2>Manage Locations</h2>
-            <p class="muted">Add logical locations, rename location names, or remove empty locations.</p>
-          </div>
-        </div>
-        <form method="post" action="/devices/cells" class="inline-form">
-          <label>Location Name
-            <input
-              name="logical_code"
-              placeholder="Z1-R1-C01"
-              pattern="[A-Za-z0-9._:-]+"
-              required
-            />
-          </label>
-          <button type="submit" class="ghost-button">Add Location</button>
-        </form>
-        ${
-          cells.length
-            ? table(
-                ["Location Name", "Mapped Controller", "Mapped LED Module", "Stock", "Products", "Actions"],
-                cells.map((cell) => {
-                  const hasStock = cellHasStock(cell);
-                  const deleteTitle = hasStock
-                    ? `Move all stock out of ${cell.logical_code} before deleting it`
-                    : `Delete ${cell.logical_code}`;
-                  return [
-                    `
-                      <form method="post" action="/devices/cells/rename" class="inline-form">
-                        <input type="hidden" name="cell_id" value="${cell.id}" />
-                        <label class="sr-only" for="rename-cell-${cell.id}">Location Name</label>
-                        <input
-                          id="rename-cell-${cell.id}"
-                          class="compact-input"
-                          name="logical_code"
-                          value="${escapeHtml(cell.logical_code)}"
-                          pattern="[A-Za-z0-9._:-]+"
-                          required
-                        />
-                        <button type="submit" class="ghost-button">Rename</button>
-                      </form>
-                    `,
-                    cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Unmapped</span>`,
-                    cellIsMapped(cell) ? escapeHtml(cell.hardware_channel) : `<span class="muted">Unmapped</span>`,
-                    escapeHtml(formatQuantity(cell.occupied_quantity)),
-                    cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
-                    `
-                      <div class="mini-actions">
-                        ${renderLocationPingButton(cell)}
-                        ${renderLocationCountButton(cell)}
-                        <form
-                          method="post"
-                          action="/devices/cells/delete"
-                          class="inline-form"
-                          data-delete-cell-form
-                          data-cell-name="${escapeHtml(cell.logical_code)}"
-                          data-cell-has-stock="${hasStock ? "true" : "false"}"
-                        >
-                          <input type="hidden" name="cell_id" value="${cell.id}" />
-                          <button
-                            type="submit"
-                            class="icon-button danger-button"
-                            aria-label="Delete ${escapeHtml(cell.logical_code)}"
-                            title="${escapeHtml(deleteTitle)}"
-                            ${hasStock ? "disabled" : ""}
-                          >${trashIcon()}</button>
-                        </form>
-                      </div>
-                    `,
-                  ];
-                }),
-              )
-            : `<p class="muted">No active cells are configured.</p>`
-        }
-      </section>
-    `;
+    return `<section id="cell-management" class="app-panel" data-config-section="cell-management"><h2>Manage Locations</h2><a class="green-button" href="/locations/manage">Manage names, QR codes and LED modules</a></section>`;
   }
 
   function renderCellMappingSection(cells) {
@@ -758,8 +693,9 @@ export function createLocationPages({ db }) {
                     title="Locate ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
                   >Locate</button>
                   <button
-                    type="submit"
-                    form="cell-ping-${cell.id}"
+                    type="button"
+                    data-ping-cell
+                    data-cell-id="${cell.id}"
                     class="green-button ping-button"
                     data-led-command-submit
                     data-led-loading-label="Pinging"
@@ -832,6 +768,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderDevices(user, flash) {
+    if(!can(user,'hardware.flash')&&!can(user,'hardware.map')&&!can(user,'locations.manage')&&!can(user,'hardware.test')&&!can(user,'hardware.controllers'))return templatePage({title:'Hardware configuration and health',user,flash,content:`<div class="ui-settings-page"><nav class="ui-toolbar"><a href="/settings">← Settings</a></nav>${uiPanel('Controller Health',uiTable([{key:'controller',label:'Controller'},{key:'address',label:'RS485 address'},{key:'health',label:'Health'},{key:'date',label:'Last seen'},{key:'outputs',label:'Outputs'}],listControllers(db).map(c=>[escapeHtml(c.controller_code),escapeHtml(c.address),statusBadge(c.heartbeat_status),escapeHtml(formatDate(c.last_seen_at)),c.module_count]),{label:'Controller Health'}))}${uiDisclosure('Location mappings',uiTable([{key:'location',label:'Location'},{key:'controller',label:'Controller'},{key:'output',label:'Output'},{key:'mapping',label:'Mapping'}],listCells(db).map(c=>[escapeHtml(c.display_name||c.logical_code),escapeHtml(c.controller_code||c.controller_id||'Manual'),escapeHtml(c.hardware_channel||'—'),escapeHtml(c.mapping_status)]),{label:'Location mappings'}))}<details class="ui-help"><summary>About controller status</summary><p>Health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.</p></details></div>`});
     const controllers = listControllers(db);
     const cells = listCells(db);
     const mappedCells = cells.filter(cellIsMapped);
@@ -840,7 +777,7 @@ export function createLocationPages({ db }) {
       (controller) => String(controller.heartbeat_status || "").toLowerCase() === "online",
     ).length;
     const moduleTotal = controllers.reduce(
-      (sum, controller) => sum + Number(controller.module_count || controller.mapped_cells || 0),
+      (sum, controller) => sum + Number(controller.module_count || 0),
       0,
     );
 
@@ -849,7 +786,7 @@ export function createLocationPages({ db }) {
       `<code>${escapeHtml(controller.address || "")}</code>`,
       statusBadge(controller.heartbeat_status),
       escapeHtml(formatDate(controller.last_seen_at)),
-      escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
+      controller.module_count ? escapeHtml(formatQuantity(controller.module_count)) : '<span class="muted">Light count not configured</span>',
       escapeHtml(formatQuantity(controller.mapped_cells)),
       `
         <div class="mini-actions">
@@ -876,7 +813,8 @@ export function createLocationPages({ db }) {
             <button
               type="submit"
               class="green-button ping-button"
-              data-led-command-submit
+              data-ping-controller
+              data-controller-id="${controller.id}"
               data-led-loading-label="Pinging"
               data-led-loading-title="Pinging ${escapeHtml(controller.controller_code)} modules"
               title="Ping all LED modules on ${escapeHtml(controller.controller_code)}"
@@ -885,7 +823,7 @@ export function createLocationPages({ db }) {
           <form
             method="post"
             action="/devices/controller-delete"
-            onsubmit="return confirm('Delete this controller? Its cells will stay active for manual pick/put until remapped.');"
+            ${uiConfirmation({title:'Delete controller',label:'Delete controller',danger:true,message:'Its cells stay available for manual Pick/Put until remapped.',facts:[['Controller',controller.controller_code],['RS485 address',String(controller.address||'—')],['LED modules',String(controller.module_count||0)]]})}
           >
             <input type="hidden" name="controller_id" value="${controller.id}" />
             <button
@@ -899,74 +837,48 @@ export function createLocationPages({ db }) {
       `,
     ]);
 
-    return page({
-      title: "Configuration Console",
+    return templatePage({
+      title: "Hardware",
       user,
       flash,
       content: `
-        <div class="app-console" data-config-workspace>
-          <section class="operation-grid" aria-label="Configuration actions" data-config-overview>
-            <a class="operation-tile" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
+        <div class="app-console ui-settings-page ui-hardware" data-config-workspace><nav class="ui-toolbar"><a href="/settings">← Settings</a><a href="/location-setup">Location setup</a></nav>
+          <section class="ui-settings-links" aria-label="Configuration actions" data-config-overview>
+            <a class="ui-button ui-button-secondary" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
               <span>
                 <strong>Add Controller</strong>
-                Flash a new ESP32 through a guided setup.
+
               </span>
-              <span class="operation-kbd">01</span>
+
             </a>
-            <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
+            <a class="ui-button ui-button-secondary" href="/locations/manage">
               <span>
                 <strong>Manage Locations</strong>
-                Add, rename, or remove active storage locations.
+
               </span>
-              <span class="operation-kbd">02</span>
+
             </a>
-            <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
-              <span>
-                <strong>Cell Mapping</strong>
-                Ping modules and assign them to storage locations.
-              </span>
-              <span class="operation-kbd">03</span>
-            </a>
+
           </section>
 
           <section id="configuration-status" class="app-panel" aria-labelledby="configuration-status-heading" data-config-overview>
             <div class="panel-heading">
               <div>
-                <h2 id="configuration-status-heading">System Status</h2>
-                <p class="muted">Controller health shows the latest saved check. Use refresh on a controller when you need a live RS485 check.</p>
+                <h2 id="configuration-status-heading">Hardware status</h2>
+                <details class="ui-help"><summary>About controller status</summary><p>Health shows the latest saved check. Use Refresh for a live RS485 check. Configured output counts come from controller setup; mapped locations do not establish the physical light count.</p></details>
               </div>
             </div>
-            <div class="status-strip">
-              <div class="status-metric">
-                <span class="muted">Controllers Online</span>
-                <strong>${escapeHtml(`${onlineControllers}/${controllers.length}`)}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">LED Modules</span>
-                <strong>${escapeHtml(formatQuantity(moduleTotal))}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">Mapped Cells</span>
-                <strong>${escapeHtml(formatQuantity(mappedCells.length))}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">Manual Cells</span>
-                <strong>${escapeHtml(formatQuantity(manualCells.length))}</strong>
-              </div>
-            </div>
+            ${uiFacts([['Controllers Online',escapeHtml(`${onlineControllers}/${controllers.length}`)],['Configured LED outputs',escapeHtml(formatQuantity(moduleTotal))],['Mapped Cells',escapeHtml(formatQuantity(mappedCells.length))],['Manual Cells',escapeHtml(formatQuantity(manualCells.length))]])}
           </section>
 
           <section id="controller-health" class="app-panel" data-config-overview>
             <div class="panel-heading">
               <div>
                 <h2>Controller Health</h2>
-                <p class="muted">Delete removes only the controller. Its cells stay active for manual pick and put until remapped.</p>
+                <details class="ui-help"><summary>About removing a controller</summary><p>Delete removes only the controller. Its cells stay active for manual pick and put until remapped.</p></details>
               </div>
             </div>
-            ${table(
-              ["Controller", "RS485 ID", "Health", "Last Seen", "LED Modules", "Cells", "Actions"],
-              controllerRows,
-            )}
+            ${uiTable([{key:'controller',label:'Controller'},{key:'address',label:'RS485 ID'},{key:'health',label:'Health'},{key:'date',label:'Last Seen'},{key:'outputs',label:'Configured outputs'},{key:'mapped',label:'Mapped locations'},{key:'action',label:'Actions'}],controllerRows,{label:'Controller Health'})}
           </section>
 
           <div class="configuration-section-host" data-config-section-host hidden>

@@ -27,22 +27,6 @@ export function resolveConfig(env = process.env) {
     min: 0,
     max: 500,
   });
-  const ledDayBrightnessPercent = numberSetting(env.LED_DAY_BRIGHTNESS_PERCENT, 20, {
-    min: 1,
-    max: 100,
-  });
-  const ledNightBrightnessPercent = numberSetting(env.LED_NIGHT_BRIGHTNESS_PERCENT, 8, {
-    min: 1,
-    max: 100,
-  });
-  const ledDayStartHour = numberSetting(env.LED_DAY_START_HOUR, 6, {
-    min: 0,
-    max: 23,
-  });
-  const ledNightStartHour = numberSetting(env.LED_NIGHT_START_HOUR, 18, {
-    min: 0,
-    max: 23,
-  });
   const automaticBackupIntervalHours = numberSetting(env.AUTO_BACKUP_INTERVAL_HOURS, 24, {
     min: 1,
     max: 24 * 30,
@@ -106,10 +90,6 @@ export function resolveConfig(env = process.env) {
     rs485SerialPort,
     rs485GuidanceBurstRepeats,
     rs485GuidanceBurstDelayMs,
-    ledDayBrightnessPercent,
-    ledNightBrightnessPercent,
-    ledDayStartHour,
-    ledNightStartHour,
     automaticBackupIntervalHours,
     reportDefaultDays,
     deviceEventRetentionDays,
