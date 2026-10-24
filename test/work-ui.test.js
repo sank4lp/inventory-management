@@ -611,3 +611,15 @@ test('Pick and Put quantity controls increment whole numbers without changing du
  assert.match(actual,/name="actualQuantity0"[^>]*step="1"/);
  const history=ui.run('activityHistoryPage()');assert.match(history,/type="search" name="taskId"/);
 });
+
+
+test('new assignment defaults follow Pick/Put, preserve an explicit duration and convert Settings units independently',()=>{
+ const ui=view({role:'admin'});ui.run("snapshot.capabilities={assign:true,pick:true,put:true,timing:true,countManage:true};snapshot.timing={minutes:120,enabled:true,inactivityMinutes:5,deadlineDefaults:{pickMinutes:30,putMinutes:2880,stocktakeDays:3}};snapshot.products=[{id:1,name:'Boots'}];snapshot.operators=[{id:1,name:'Admin',eligible:true}]");
+ assert.match(ui.run('assignmentPage()'),/name="dueDuration"[^>]*value="30"/);assert.match(ui.run('assignmentDueInputs("put")'),/name="dueDuration"[^>]*value="2"/);assert.match(ui.run('assignmentDueInputs("put")'),/value="days" selected/);
+ const f={dataset:{workAction:'assign'},elements:{direction:{value:'put'},dueDuration:{value:'30'},dueUnit:{value:'minutes'}},querySelectorAll:()=>[],querySelector:()=>({})};ui.context.f=f;ui.run('updateAssignmentForm(f,true)');assert.equal(f.elements.dueDuration.value,2);assert.equal(f.elements.dueUnit.value,'days');
+ f.dataset.dueEdited='true';f.elements.dueDuration.value='7';f.elements.direction.value='pick';ui.run('updateAssignmentForm(f,true)');assert.equal(f.elements.dueDuration.value,'7');assert.equal(f.elements.dueUnit.value,'days');
+ const form={dataset:{workAction:'timing'},elements:{minutes:{value:'2',dataset:{timeUnit:'hours'}},timeUnit:{value:'hours'},pickDueDuration:{value:'30',dataset:{timeUnit:'minutes'}},pickDueUnit:{value:'hours'},putDueDuration:{value:'2',dataset:{timeUnit:'days'}},putDueUnit:{value:'days'},stocktakeDueEnabled:{value:'false'},stocktakeDueDays:{}}};ui.context.f=form;
+ ui.run('updateTimingFields(f,true,"pickDueUnit")');assert.equal(form.elements.pickDueDuration.value,'0.5');assert.equal(form.elements.minutes.value,'2');assert.equal(form.elements.putDueDuration.value,'2');assert.equal(form.elements.stocktakeDueDays.disabled,true);
+ form.elements.stocktakeDueEnabled.value='true';ui.run('updateTimingFields(f,true,"stocktakeDueEnabled")');assert.equal(form.elements.stocktakeDueDays.disabled,false);assert.equal(form.elements.stocktakeDueDays.required,true);
+ const html=ui.run('timingPage()');assert.match(html,/Assigned Pick due in/);assert.match(html,/Assigned Put due in/);assert.match(html,/name="stocktakeDueDays"/);ui.run('snapshot.capabilities.countManage=false');assert.doesNotMatch(ui.run('timingPage()'),/name="stocktakeDueDays"/);
+});

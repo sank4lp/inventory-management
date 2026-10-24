@@ -186,3 +186,78 @@
   .ui-template .ui-role-editor .ui-permissions summary { gap: 8px; }
   .ui-template .ui-role-editor .ui-permissions summary small { font-size: 11px; }
 }
+
+/* Additional Settings pages opt into these layouts; earlier Settings screens
+   retain their original dimensions and behavior. */
+.ui-template .ui-settings-page { display:grid; gap:var(--ui-space); min-width:0; }
+.ui-template .ui-settings-page > * { min-width:0; }
+.ui-template .ui-disclosure > summary { display:flex; align-items:center; gap:10px; min-height:44px; cursor:pointer; font-size:16px; font-weight:700; color:var(--ui-ink); list-style:none; }
+.ui-template .ui-disclosure > summary::-webkit-details-marker { display:none; }
+.ui-template .ui-disclosure > summary::before { content:'›'; font-size:22px; line-height:1; }
+.ui-template .ui-disclosure[open] > summary::before { transform:rotate(90deg); }
+.ui-template .ui-disclosure-body { display:grid; gap:12px; margin-top:12px; min-width:0; }
+.ui-template .ui-dialog-body { display:grid; gap:12px; min-width:0; }
+.ui-template .ui-settings-page .ui-settings-links { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.ui-template .ui-settings-page .ui-settings-links a { display:inline-flex; align-items:center; min-height:44px; padding:8px 12px; border:1px solid var(--ui-border); border-radius:8px; text-decoration:none; font-weight:650; background:#fff; }
+.ui-template .ui-settings-page :is(.status-strip,.ui-settings-facts) { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr)); gap:0; border:1px solid var(--ui-border); border-radius:10px; overflow:hidden; }
+.ui-template .ui-settings-page .status-metric { padding:10px 12px; display:grid; gap:4px; border-right:1px solid var(--ui-border); background:#fff; }
+.ui-template .ui-settings-page .status-metric strong { font-size:16px; }
+.ui-template .ui-settings-page :is(.form-grid,.backup-schedule-form,.count-form) { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:12px; align-items:end; }
+.ui-template .ui-settings-page .count-form > :is(p,details,.work-callout,.form-actions) { grid-column:1/-1; }
+.ui-template .ui-settings-page :is(label,.ui-setting-label) { min-width:0; font-size:13px; font-weight:650; color:var(--ui-ink); }
+.ui-template .ui-settings-page label:not(:has(input[type=checkbox])) { display:grid; gap:5px; }
+.ui-template .ui-settings-page :is(textarea,pre,code.path-code) { max-width:100%; overflow-wrap:anywhere; white-space:pre-wrap; }
+.ui-template .ui-settings-page textarea { width:100%; border:1px solid var(--ui-border); border-radius:8px; padding:9px 12px; color:var(--text); font:inherit; }
+.ui-template .ui-settings-page .backup-schedule-summary { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:8px 16px; margin:0; padding:10px 12px; background:var(--ui-tint); border-radius:8px; }
+.ui-template .ui-settings-page .backup-schedule-summary span { font-size:13px; }
+.ui-template .ui-settings-page .ui-table .ui-col-detail { white-space:normal; min-width:240px; overflow-wrap:anywhere; }
+.ui-template .ui-settings-page .ui-table .ui-col-field { min-width:140px; max-width:160px; white-space:normal; overflow-wrap:anywhere; }
+.ui-template .ui-settings-page .ui-table .ui-col-edit { min-width:220px; }
+.ui-template .ui-settings-page .ui-table .ui-col-behavior { min-width:350px; white-space:normal; }
+.ui-template .ui-settings-page .ui-table .ui-field-form { display:grid; gap:8px; }
+.ui-template .ui-settings-page .ui-field-flags { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px 12px; }
+.ui-template .ui-settings-page .ui-field-flags .ui-check { font-size:12px; line-height:1.4; white-space:normal; }
+.ui-template .ui-settings-page .ui-field-note { margin-top:8px; font-size:12px; color:var(--ui-muted); }
+.ui-template .ui-settings-page .ui-settings-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,40%); gap:16px; padding:16px 0; border-bottom:1px solid var(--ui-border); align-items:start; }
+.ui-template .ui-settings-page .ui-settings-row:first-child { padding-top:0; }
+.ui-template .ui-settings-page .ui-settings-row:last-child { border-bottom:0; padding-bottom:0; }
+.ui-template .ui-settings-row h3 { margin:0 0 6px; font-size:14px; }
+.ui-template .ui-settings-row p { font-size:13px; color:var(--ui-muted); max-width:60ch; }
+.ui-template .ui-setting-control { display:grid; gap:8px; align-content:start; }
+.ui-template .ui-setting-inline { display:grid; grid-template-columns:minmax(0,1fr) minmax(100px,.7fr); gap:8px; }
+.ui-template .ui-settings-page .ui-storage-paths { display:grid; gap:8px; }
+.ui-template .ui-settings-page .ui-storage-paths code { font-size:12px; }
+.ui-template .ui-location-setup :is(.work-panel,.count-form) { margin:0; }
+.ui-template .ui-location-setup > .work-panel { margin:0; }
+.ui-template .ui-location-setup .ui-location-field { display:grid; gap:12px; }
+.ui-template .ui-settings-page :is(button,.ui-button) { white-space:normal; }
+@media screen and (max-width:700px) {
+ .ui-template .ui-settings-page .ui-settings-row { grid-template-columns:minmax(0,1fr); gap:10px; padding:14px 0; }
+ .ui-template .ui-settings-page .ui-settings-links { gap:6px; }
+ .ui-template .ui-settings-page :is(.ui-actions,.mini-actions) { gap:6px; }
+ .ui-template .ui-settings-page .ui-settings-links a { padding:8px; font-size:13px; }
+ .ui-template .ui-location-setup .count-form { grid-template-columns:minmax(0,1fr); }
+ .ui-template .ui-settings-page .ui-setting-inline { grid-template-columns:minmax(0,1fr) minmax(100px,.7fr); }
+}
+
+.ui-template .ui-hardware .ui-col-action .mini-actions { flex-wrap:nowrap; }
+.ui-template .ui-hardware .ui-col-action form { flex:none; width:auto; }
+.ui-template .ui-hardware .ui-col-action button { margin:0; }
+.ui-template .ui-hardware .ui-help { margin-top:6px; }
+.ui-template .ui-settings-page .ui-table .ui-col-controller { min-width:135px; }
+
+.ui-template .ui-hardware .wizard-step-indicator-active .wizard-step-node { background:var(--ui-accent); border-color:var(--ui-accent); box-shadow:0 0 0 4px #e4f0e9; }
+.ui-template .ui-hardware :is(.wizard-step-indicator-active,.wizard-step-indicator-active .wizard-step-copy strong,.wizard-step-indicator-complete .wizard-step-copy strong) { color:var(--ui-accent); }
+@media screen and (max-width:700px) {
+ .ui-template .ui-hardware .wizard-steps { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; overflow:visible; padding:4px; }
+ .ui-template .ui-hardware .wizard-step-indicator { min-width:0; padding:0; }
+ .ui-template .ui-hardware .wizard-step-indicator::before,.ui-template .ui-hardware .wizard-step-indicator::after { display:none; }
+}
+
+.ui-template .ui-location-field > label:has(input[type=checkbox]) { display:flex; align-items:center; gap:8px; min-height:44px; font-weight:500; }
+.ui-template .ui-location-field input[type=checkbox] { width:18px; height:18px; flex:none; margin:0; accent-color:var(--ui-accent); }
+.ui-template .ui-content-dialog:focus-visible { outline:2px solid var(--ui-accent); outline-offset:2px; }
+@media screen and (max-width:700px) {
+ .ui-template .ui-location-setup .ui-location-field { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+ .ui-template .ui-location-field > :is(button,details,p),.ui-template .ui-location-field > label:has(textarea),.ui-template .ui-location-field > label:has([name=label]),.ui-template .ui-location-field > label:has([name=useInDirections]) { grid-column:1/-1; }
+}

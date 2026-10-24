@@ -1,4 +1,4 @@
-import {templatePage} from "../ui.js";
+import {templatePage,uiPanel,uiFacts,uiTable,uiDisclosure} from "../ui.js";
 import {renderPeopleAccess} from "./people.js";
 import {
   listCells,
@@ -23,70 +23,21 @@ import { renderReportFormatEditor } from "./report-format-editor.js";
 
 export function createAdminPages({ db, backupService = null }) {
   function renderDatabaseHealth(health) {
-    const lastMaintenance = health.lastMaintenance;
-    const archive = health.archiveSummary;
-    const backupSummary = health.backupSummary;
-
-    return card(
-      "Database Health",
-      `
-        <div class="meta-grid compact-meta-grid">
-          <div><strong>Database</strong><br />${escapeHtml(formatBytes(health.databaseBytes))}</div>
-          <div><strong>WAL File</strong><br />${escapeHtml(formatBytes(health.walBytes))}</div>
-          <div><strong>Backups</strong><br />${escapeHtml(formatBytes(health.backupBytes))}</div>
-          <div><strong>Archives</strong><br />${escapeHtml(formatBytes(archive.totalBytes))}</div>
-          <div><strong>Free Pages</strong><br />${escapeHtml(formatBytes(health.freeBytes))}</div>
-          <div><strong>Auto Backup</strong><br />${escapeHtml(
-            health.settings.automaticBackupSchedule?.label ||
-              `Every ${String(health.settings.automaticBackupIntervalHours)} hour(s)`,
-          )}</div>
-        </div>
-        <h3>Maintenance Policy</h3>
-        <div class="meta-grid compact-meta-grid">
-          <div><strong>Reports Default</strong><br />Last ${escapeHtml(
-            String(health.settings.reportDefaultDays),
-          )} day(s)</div>
-          <div><strong>Device Logs</strong><br />${escapeHtml(
-            String(health.settings.deviceEventRetentionDays),
-          )} day(s)</div>
-          <div><strong>System Logs</strong><br />${escapeHtml(
-            String(health.settings.systemEventRetentionDays),
-          )} day(s)</div>
-          <div><strong>Business Archive</strong><br />After ${escapeHtml(
-            String(health.settings.businessArchiveAfterDays),
-          )} day(s)</div>
-        </div>
-        <h3>Storage Paths</h3>
-        <div class="meta-grid compact-meta-grid">
-          <div><strong>Database File</strong><br /><code class="path-code">${escapeHtml(health.databasePath)}</code></div>
-          <div><strong>Archive Folder</strong><br /><code class="path-code">${escapeHtml(health.archiveDirectory)}</code></div>
-          <div><strong>Latest Auto Backup</strong><br />${
-            backupSummary?.latestAutomaticBackup
-              ? escapeHtml(formatDate(backupSummary.latestAutomaticBackup.createdAt))
-              : "No automatic backup yet"
-          }</div>
-          <div><strong>Latest Archive</strong><br />${
-            archive.latestFile ? escapeHtml(formatDate(archive.latestFile.createdAt)) : "No archive files yet"
-          }</div>
-          <div><strong>Last Maintenance</strong><br />${
-            lastMaintenance?.completedAt ? escapeHtml(formatDate(lastMaintenance.completedAt)) : "Not recorded yet"
-          }</div>
-          <div><strong>Maintenance Errors</strong><br />${escapeHtml(
-            formatQuantity(lastMaintenance?.errors?.length || 0),
-          )}</div>
-        </div>
-        <h3>Rows By Table</h3>
-        ${table(
-          ["Table", "Rows"],
-          health.rowCounts.map((row) => [
-            escapeHtml(row.tableName),
-            escapeHtml(formatQuantity(row.count)),
-          ]),
-        )}
-      `,
-      "",
-      `id="database-health"`,
-    );
+    const last=health.lastMaintenance,archive=health.archiveSummary,backup=health.backupSummary;
+    return uiPanel('Database Health',`<div class="content-stack">
+      ${uiFacts([['Database',escapeHtml(formatBytes(health.databaseBytes))],['WAL File',escapeHtml(formatBytes(health.walBytes))],['Backups',escapeHtml(formatBytes(health.backupBytes))],['Archives',escapeHtml(formatBytes(archive.totalBytes))],['Free Pages',escapeHtml(formatBytes(health.freeBytes))],['Auto Backup',escapeHtml(health.settings.automaticBackupSchedule?.label||`Every ${health.settings.automaticBackupIntervalHours} hour(s)`)],['Last Maintenance',last?.completedAt?escapeHtml(formatDate(last.completedAt)):'Not recorded yet'],['Maintenance Errors',escapeHtml(formatQuantity(last?.errors?.length||0))]])}
+      ${uiDisclosure('Maintenance policy',uiFacts([['Reports Default',`Last ${escapeHtml(String(health.settings.reportDefaultDays))} day(s)`],['Device Logs',`${escapeHtml(String(health.settings.deviceEventRetentionDays))} day(s)`],['System Logs',`${escapeHtml(String(health.settings.systemEventRetentionDays))} day(s)`],['Business Archive',`After ${escapeHtml(String(health.settings.businessArchiveAfterDays))} day(s)`]]))}
+      ${uiDisclosure('Storage paths & latest files',uiFacts([['Database File',`<code class="path-code">${escapeHtml(health.databasePath)}</code>`],['Archive Folder',`<code class="path-code">${escapeHtml(health.archiveDirectory)}</code>`],['Latest Auto Backup',backup?.latestAutomaticBackup?escapeHtml(formatDate(backup.latestAutomaticBackup.createdAt)):'No automatic backup yet'],['Latest Archive',archive.latestFile?escapeHtml(formatDate(archive.latestFile.createdAt)):'No archive files yet']]))}
+      ${uiDisclosure('Rows by table',uiTable([{key:'table',label:'Table'},{key:'rows',label:'Rows'}],health.rowCounts.map(row=>[escapeHtml(row.tableName),escapeHtml(formatQuantity(row.count))]),{label:'Database rows'}))}
+    </div>`,{id:'database-health'});
+  }
+  function renderSystemOverview(dashboard) {
+    const recovery=uiTable([{key:'date',label:'When'},{key:'status',label:'Status'},{key:'detail',label:'Message'}],dashboard.recentRecoveryEvents.map(event=>[escapeHtml(formatDate(event.created_at)),statusBadge(event.status),escapeHtml(event.message)]),{label:'Recent recovery actions',empty:'No recent recovery actions recorded.'});
+    const warnings=uiTable([{key:'date',label:'When'},{key:'event',label:'Event'},{key:'detail',label:'Details'}],dashboard.recentHardwareFailures.map(event=>{let details='Hardware warning';try{const v=JSON.parse(event.payload);details=v.error||v.mode||v.type||v.message||details;}catch{}return [escapeHtml(formatDate(event.created_at)),escapeHtml(event.event_type),escapeHtml(details)];}),{label:'Recent hardware warnings',empty:'No hardware warnings recorded.'});
+    return uiPanel('System',`<div class="content-stack">${uiFacts([['Site',escapeHtml(dashboard.siteId)],['Adapter',statusBadge(dashboard.adapterName)],['Overall',statusBadge(dashboard.health.overallStatus)],['Recovery',escapeHtml(dashboard.health.startup.recovery.message)]])}
+      ${uiDisclosure('Recent recovery actions',recovery)}
+      ${uiDisclosure('Recent hardware warnings',`<p class="muted">Past command warnings. Check Hardware for current controller health.</p>${warnings}`)}
+    </div>`);
   }
 
   function renderTaskTimeoutSettings() {
@@ -195,66 +146,10 @@ export function createAdminPages({ db, backupService = null }) {
       content: `
         ${section === "people" || section === "all" ? accessManagementSection : ""}
         ${section === "all" ? `<p id="count-adjustment"><a href="/stocktaking">Stocktaking — count, review and correct</a></p><p id="report-format"><a href="/reports?format=1">Report appearance</a></p>` : ""}
-        ${section !== "people" ? `<p><a href="/work/timing">Work timing rules</a> · <a href="/backups">Backups, retention and recovery</a></p>` : ""}
-        ${
-          dashboard && section !== "people"
-            ? card(
-                "System",
-                `
-                  <div class="meta-grid compact-meta-grid">
-                    <div><strong>Site</strong><br />${escapeHtml(dashboard.siteId)}</div>
-                    <div><strong>Adapter</strong><br />${statusBadge(dashboard.adapterName)}</div>
-                    <div><strong>Overall</strong><br />${statusBadge(
-                      dashboard.health.overallStatus,
-                    )}</div>
-                    <div><strong>Recovery</strong><br />${escapeHtml(
-                      dashboard.health.startup.recovery.message,
-                    )}</div>
-                  </div>
-                  <h3>Recent Recovery Actions</h3>
-                  ${
-                    dashboard.recentRecoveryEvents.length
-                      ? table(
-                          ["When", "Status", "Message"],
-                          dashboard.recentRecoveryEvents.map((event) => [
-                            escapeHtml(event.created_at),
-                            statusBadge(event.status),
-                            escapeHtml(event.message),
-                          ]),
-                        )
-                      : `<p class="muted">No recent recovery actions recorded.</p>`
-                  }
-                  <h3>Recent Hardware Warnings</h3>
-                  <p class="muted">Historical warning log from hardware commands; current controller health is shown in Overall/Recovery and Devices.</p>
-                  ${
-                    dashboard.recentHardwareFailures.length
-                      ? table(
-                          ["When", "Event", "Details"],
-                          dashboard.recentHardwareFailures.map((event) => {
-                            let details = "Hardware warning";
-                            try {
-                              const payload = JSON.parse(event.payload);
-                              details =
-                                payload.error ||
-                                payload.mode ||
-                                payload.type ||
-                                payload.message ||
-                                details;
-                            } catch {}
-                            return [
-                              escapeHtml(event.created_at),
-                              escapeHtml(event.event_type),
-                              escapeHtml(details),
-                            ];
-                          }),
-                        )
-                      : `<p class="muted">No hardware warnings recorded.</p>`
-                  }
-                `,
-              )
-            : ""
-        }
+        ${section !== "people" ? `<nav class="ui-toolbar"><a href="/settings">← Settings</a><a href="/work/timing">Timing settings</a><a href="/backups">Backups & recovery</a></nav><div class="ui-settings-page">` : ""}
+        ${dashboard && section !== "people" ? renderSystemOverview(dashboard) : ""}
         ${databaseHealth && section !== "people" ? renderDatabaseHealth(databaseHealth) : ""}
+        ${section !== "people" ? '</div>' : ''}
       `,
     });
   }

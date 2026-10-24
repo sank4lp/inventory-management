@@ -371,7 +371,7 @@ test('Phase 1 assignments, deadlines, handback, stale evidence and partial hando
  assert.equal(db.prepare('SELECT COUNT(*) n FROM cell_turns').get().n,0);
  assert.throws(()=>arrive(op,l),/Start task/);assert.throws(()=>arrive(admin,l),/assigned operator/);
  const due=t.due_at;
- cmd(admin,'timing',{minutes:1,enabled:true});assert.equal(w.task(admin,t.id).due_at,due);
+ cmd(admin,'timing',{minutes:1,enabled:true,pickDueDuration:1,pickDueUnit:'minutes'});assert.equal(w.task(admin,t.id).due_at,due);
  cmd(op,'decline',{taskId:t.id,generation:t.assignment_generation,reason:'Busy',note:'Finishing aisle two'});
  t=w.task(admin,t.id);assert.equal(t.outcome,'needs_assignment');assert.equal(t.due_at,due);assert.equal(t.assignee_id,null);assert.equal(JSON.parse(t.assignment_history.at(-1).payload).note,'Finishing aisle two');
  assert.equal(db.prepare("SELECT COUNT(*) n FROM work_reservations WHERE state='held'").get().n,0);

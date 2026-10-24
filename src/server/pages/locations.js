@@ -1,4 +1,4 @@
-import {templatePage,uiConfirmation} from "../ui.js";
+import {templatePage,uiConfirmation,uiFacts,uiTable,uiPanel,uiDisclosure} from "../ui.js";
 import {can} from "../../modules/access/catalog.js";
 import { randomUUID } from "node:crypto";
 import { describeLocation } from "../../modules/operations/location-contract.js";
@@ -768,7 +768,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderDevices(user, flash) {
-    if(!can(user,'hardware.flash')&&!can(user,'hardware.map')&&!can(user,'locations.manage')&&!can(user,'hardware.test')&&!can(user,'hardware.controllers'))return templatePage({title:'Hardware configuration and health',user,flash,content:`<p><a href="/settings">← Settings</a></p><p>Controller health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.</p>${table(['Controller','RS485 address','Health','Last seen','Outputs'],listControllers(db).map(c=>[escapeHtml(c.controller_code),escapeHtml(c.address),statusBadge(c.heartbeat_status),escapeHtml(formatDate(c.last_seen_at)),c.module_count]))}<h2>Location mappings</h2>${table(['Location','Controller','Output','Mapping'],listCells(db).map(c=>[escapeHtml(c.display_name||c.logical_code),escapeHtml(c.controller_code||c.controller_id||'Manual'),escapeHtml(c.hardware_channel||'—'),escapeHtml(c.mapping_status)]))}`});
+    if(!can(user,'hardware.flash')&&!can(user,'hardware.map')&&!can(user,'locations.manage')&&!can(user,'hardware.test')&&!can(user,'hardware.controllers'))return templatePage({title:'Hardware configuration and health',user,flash,content:`<div class="ui-settings-page"><nav class="ui-toolbar"><a href="/settings">← Settings</a></nav>${uiPanel('Controller Health',uiTable([{key:'controller',label:'Controller'},{key:'address',label:'RS485 address'},{key:'health',label:'Health'},{key:'date',label:'Last seen'},{key:'outputs',label:'Outputs'}],listControllers(db).map(c=>[escapeHtml(c.controller_code),escapeHtml(c.address),statusBadge(c.heartbeat_status),escapeHtml(formatDate(c.last_seen_at)),c.module_count]),{label:'Controller Health'}))}${uiDisclosure('Location mappings',uiTable([{key:'location',label:'Location'},{key:'controller',label:'Controller'},{key:'output',label:'Output'},{key:'mapping',label:'Mapping'}],listCells(db).map(c=>[escapeHtml(c.display_name||c.logical_code),escapeHtml(c.controller_code||c.controller_id||'Manual'),escapeHtml(c.hardware_channel||'—'),escapeHtml(c.mapping_status)]),{label:'Location mappings'}))}<details class="ui-help"><summary>About controller status</summary><p>Health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.</p></details></div>`});
     const controllers = listControllers(db);
     const cells = listCells(db);
     const mappedCells = cells.filter(cellIsMapped);
@@ -838,25 +838,25 @@ export function createLocationPages({ db }) {
     ]);
 
     return templatePage({
-      title: "Configuration Console",
+      title: "Hardware",
       user,
       flash,
       content: `
-        <div class="app-console" data-config-workspace>
-          <section class="operation-grid" aria-label="Configuration actions" data-config-overview>
-            <a class="operation-tile" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
+        <div class="app-console ui-settings-page ui-hardware" data-config-workspace><nav class="ui-toolbar"><a href="/settings">← Settings</a><a href="/location-setup">Location setup</a></nav>
+          <section class="ui-settings-links" aria-label="Configuration actions" data-config-overview>
+            <a class="ui-button ui-button-secondary" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
               <span>
                 <strong>Add Controller</strong>
-                Flash a new ESP32 through a guided setup.
+
               </span>
-              <span class="operation-kbd">01</span>
+
             </a>
-            <a class="operation-tile" href="/locations/manage">
+            <a class="ui-button ui-button-secondary" href="/locations/manage">
               <span>
                 <strong>Manage Locations</strong>
-                Add, rename, or remove active storage locations.
+
               </span>
-              <span class="operation-kbd">02</span>
+
             </a>
 
           </section>
@@ -864,41 +864,21 @@ export function createLocationPages({ db }) {
           <section id="configuration-status" class="app-panel" aria-labelledby="configuration-status-heading" data-config-overview>
             <div class="panel-heading">
               <div>
-                <h2 id="configuration-status-heading">System Status</h2>
-                <p class="muted">Controller health shows the latest saved check. Configured output counts come from controller setup; mapped locations do not establish the physical light count. Use refresh on a controller when you need a live RS485 check.</p>
+                <h2 id="configuration-status-heading">Hardware status</h2>
+                <details class="ui-help"><summary>About controller status</summary><p>Health shows the latest saved check. Use Refresh for a live RS485 check. Configured output counts come from controller setup; mapped locations do not establish the physical light count.</p></details>
               </div>
             </div>
-            <div class="status-strip">
-              <div class="status-metric">
-                <span class="muted">Controllers Online</span>
-                <strong>${escapeHtml(`${onlineControllers}/${controllers.length}`)}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">Configured LED outputs</span>
-                <strong>${escapeHtml(formatQuantity(moduleTotal))}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">Mapped Cells</span>
-                <strong>${escapeHtml(formatQuantity(mappedCells.length))}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">Manual Cells</span>
-                <strong>${escapeHtml(formatQuantity(manualCells.length))}</strong>
-              </div>
-            </div>
+            ${uiFacts([['Controllers Online',escapeHtml(`${onlineControllers}/${controllers.length}`)],['Configured LED outputs',escapeHtml(formatQuantity(moduleTotal))],['Mapped Cells',escapeHtml(formatQuantity(mappedCells.length))],['Manual Cells',escapeHtml(formatQuantity(manualCells.length))]])}
           </section>
 
           <section id="controller-health" class="app-panel" data-config-overview>
             <div class="panel-heading">
               <div>
                 <h2>Controller Health</h2>
-                <p class="muted">Delete removes only the controller. Its cells stay active for manual pick and put until remapped.</p>
+                <details class="ui-help"><summary>About removing a controller</summary><p>Delete removes only the controller. Its cells stay active for manual pick and put until remapped.</p></details>
               </div>
             </div>
-            ${table(
-              ["Controller", "RS485 ID", "Health", "Last Seen", "Configured outputs", "Mapped locations", "Actions"],
-              controllerRows,
-            )}
+            ${uiTable([{key:'controller',label:'Controller'},{key:'address',label:'RS485 ID'},{key:'health',label:'Health'},{key:'date',label:'Last Seen'},{key:'outputs',label:'Configured outputs'},{key:'mapped',label:'Mapped locations'},{key:'action',label:'Actions'}],controllerRows,{label:'Controller Health'})}
           </section>
 
           <div class="configuration-section-host" data-config-section-host hidden>

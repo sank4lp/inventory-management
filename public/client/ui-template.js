@@ -23,7 +23,7 @@ export function mount() {
     const current = active;
     active = null;
     current.dialog.close();
-    current.dialog.remove();
+    if (!current.preserve) current.dialog.remove();
     current.opener?.focus?.();
     current.resolve(current.decision === true);
   }
@@ -60,6 +60,32 @@ export function mount() {
       dialog.querySelector('h2').focus();
     });
   }
+  function openPanel(dialog, opener) {
+    if (active || !dialog?.matches('[data-ui-panel-dialog]')) return;
+    const id = crypto.randomUUID();
+    active = {dialog, id, opener, decision:false, preserve:true, resolve:()=>{}};
+    history.pushState({...history.state, uiDialog:id},'',location.href);
+    dialog.showModal();
+    dialog.querySelector('h2')?.focus();
+  }
+  for (const dialog of root.querySelectorAll('[data-ui-panel-dialog]')) {
+    listen(dialog,'cancel',event=>{event.preventDefault();back();});
+  }
+  listen(root,'click',event=>{
+    const opener=event.target.closest('[data-ui-open-dialog]');
+    if (opener) openPanel(root.querySelector('#'+CSS.escape(opener.dataset.uiOpenDialog)),opener);
+    if (event.target.closest('[data-ui-close-dialog]')) back();
+  });
+  // Deep links still reveal their destination after moving occasional settings
+  // into disclosures (for example a product's unit conversion shortcut).
+  function revealHash() {
+    if (!location.hash) return;
+    let target; try { target=root.querySelector(location.hash); } catch { return; }
+    if (!target) return;
+    if (target.matches('[data-ui-panel-dialog]')) { openPanel(target,document.activeElement); return; }
+    for(let parent=target;parent&&parent!==root;parent=parent.parentElement) if(parent.matches('details')) parent.open=true;
+  }
+  revealHash(); listen(window,'hashchange',revealHash);
   controllers.set(root, {confirm});
   async function submit(event) {
     const form = event.target;
@@ -106,7 +132,7 @@ export function mount() {
           title.replaceWith(header); header.append(title);
         }
       }
-      if (!header || header.querySelector('[data-ui-dialog-back],[data-review-back]')) continue;
+      if (!header || header.querySelector('[data-ui-dialog-back],[data-review-back],[data-ui-close-dialog]')) continue;
       const button = document.createElement('button');
       button.type='button'; button.className='ui-button-secondary'; button.dataset.uiDialogBack=''; button.textContent='← Back';
       header.prepend(button);

@@ -2278,7 +2278,7 @@ test("admins can revoke registration keys and suspend user access", async () => 
   assert.match(adminHtml, /Registers multiple users/);
   assert.match(adminHtml, /Generate key/);
   assert.match(adminHtml, /Multiple users/);
-  assert.match(adminHtml, /Work timing/);
+  assert.match(adminHtml, /href="\/work\/timing"/);
   assert.match(adminHtml, /Single user/);
   assert.match(adminHtml, /data-copy-value=/);
   assert.match(adminHtml, new RegExp(`aria-label="Disable registration key ${activeTeamKey.key_value}"[\\s\\S]*suspend-icon`));
@@ -3951,11 +3951,11 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
   );
   assert.match(
     statusHtml,
-    /<span class="muted">Mapped Cells<\/span>\s*<strong>0<\/strong>/,
+    /<dt>Mapped Cells<\/dt><dd>0<\/dd>/,
   );
   assert.match(
     statusHtml,
-    /<span class="muted">Manual Cells<\/span>\s*<strong>82<\/strong>/,
+    /<dt>Manual Cells<\/dt><dd>82<\/dd>/,
   );
   const remapped = inventory.updateCellMapping(db, {
     cellId: deletedMapped.modulePlaceholder.id,

@@ -59,7 +59,7 @@ test('removing only unsaved extra rows persists removal and preserves baseline z
 });
 function setupView({localStorage=storage(),fetch=async()=>({ok:false,json:async()=>({error:'Provide distinct choices.'})})}={}){
  const state={site:'test',dataset:'generation',user:{id:1},fields:[],cells:[],controllers:[],sessions:[],capabilities:['locations.fields','locations.bind','locations.manage','hardware.view']};
- const root={innerHTML:'',querySelectorAll:()=>[],querySelector:()=>null};
+ const root={innerHTML:'',classList:{toggle(){}},querySelectorAll:()=>[],querySelector:q=>q==='nav'?{childNodes:[]}:null};
  const c=vm.createContext({document:{querySelector:q=>q==='#location-setup-app'?root:{textContent:JSON.stringify(state)}},location:{href:'http://localhost/location-setup?view=fields'},localStorage,URL,FormData:FormValues,AbortSignal,crypto:{randomUUID},fetch,stopCamera(){}});vm.runInContext(setupSource,c);return {c,root,localStorage,run:code=>vm.runInContext(code,c)};
 }
 test('adding or removing a found product updates the empty-location check immediately with the saved draft',()=>{

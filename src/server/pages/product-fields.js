@@ -1,7 +1,7 @@
-import {templatePage} from "../ui.js";
+import {templatePage, uiPanel, uiTable, uiDisclosure, uiDialog, uiDialogButton} from "../ui.js";
 import { createProductFieldService } from "../../services/product-fields.js";
 import { createUnitConversionService } from "../../services/unit-conversions.js";
-import { card, escapeHtml, formatDate, formatQuantity, statusBadge, table } from "./shared.js";
+import { escapeHtml, formatDate, formatQuantity, statusBadge } from "./shared.js";
 
 function checked(value) {
   return Number(value) === 1 ? "checked" : "";
@@ -18,56 +18,16 @@ function fieldTypeLabel(type) {
 }
 
 function fieldEditor(field) {
-  const protectedField = field.field_kind === "core" && [
-    "identifier",
-    "display_name",
-    "unit_of_measure",
-    "location_capacity",
-  ].includes(field.system_role);
-  const reportRequiredField = field.field_kind === "core" && [
-    "identifier",
-    "display_name",
-    "unit_of_measure",
-  ].includes(field.system_role);
-
-  return `
-    <article class="product-field-definition ${field.active ? "" : "product-field-definition-disabled"}">
-      <div class="product-field-definition-heading">
-        <div>
-          <span class="report-eyebrow">${escapeHtml(field.field_kind === "core" ? "System field" : "Custom field")}</span>
-          <h3>${escapeHtml(field.label)}</h3>
-          <code>${escapeHtml(field.field_key)}</code>
-        </div>
-        <div class="mini-actions">
-          ${statusBadge(field.active ? "active" : "inactive")}
-          <span class="badge">${escapeHtml(fieldTypeLabel(field.data_type))}</span>
-        </div>
-      </div>
-      <form method="post" action="/admin/product-fields/${escapeHtml(field.id)}" class="stack-form product-field-definition-form">
-        <div class="form-grid">
-          <label>Display Label
-            <input name="label" value="${escapeHtml(field.label)}" maxlength="80" required />
-          </label>
-          <label>Display Order
-            <input type="number" name="sort_order" value="${escapeHtml(field.sort_order)}" step="1" />
-          </label>
-        </div>
-        <div class="product-field-flags">
-          <label class="checkbox-line"><input type="checkbox" name="visible" value="1" ${checked(field.visible)} /> Show on product screens</label>
-          <label class="checkbox-line"><input type="checkbox" name="searchable" value="1" ${checked(field.searchable)} /> Include in product search</label>
-          <label class="checkbox-line"><input type="checkbox" name="filterable" value="1" ${checked(field.filterable)} /> Allow as a report filter</label>
-          <label class="checkbox-line"><input type="checkbox" name="reportable" value="1" ${checked(field.reportable)} ${reportRequiredField ? "disabled" : ""} /> Available for reports</label>
-          <label class="checkbox-line"><input type="checkbox" name="required" value="1" ${checked(field.required)} ${protectedField ? "disabled" : ""} /> Required product value</label>
-          <label class="checkbox-line"><input type="checkbox" name="active" value="1" ${checked(field.active)} ${protectedField ? "disabled" : ""} /> Field enabled</label>
-        </div>
-        ${protectedField ? `<input type="hidden" name="required" value="1" /><input type="hidden" name="active" value="1" />${reportRequiredField ? `<input type="hidden" name="reportable" value="1" />` : ""}<p class="muted">This field supports an operational workflow. You can rename or hide it, but disabling it${reportRequiredField ? " or removing it from reports" : ""} requires a compatible replacement migration.</p>` : ""}
-        ${field.data_type === "select" ? `<label>Selection Options<textarea name="options" rows="3">${escapeHtml((field.options || []).join("\n"))}</textarea></label>` : ""}
-        <div class="form-actions">
-          <button type="submit" class="blue-button">Save Field</button>
-        </div>
-      </form>
-    </article>
-  `;
+  const protectedField=field.field_kind==='core'&&['identifier','display_name','unit_of_measure','location_capacity'].includes(field.system_role);
+  const reportRequired=field.field_kind==='core'&&['identifier','display_name','unit_of_measure'].includes(field.system_role);
+  const id='product-field-'+field.id;
+  const flags=[['visible','Show on product screens',false],['searchable','Include in product search',false],['filterable','Allow as a report filter',false],['reportable','Available for reports',reportRequired],['required','Required product value',protectedField],['active','Field enabled',protectedField]];
+  return [
+    `<strong>${escapeHtml(field.label)}</strong><small>${escapeHtml(field.field_kind==='core'?'System field':'Custom field')} · ${escapeHtml(fieldTypeLabel(field.data_type))}</small><small>${escapeHtml(field.field_key)}</small>${statusBadge(field.active?'active':'inactive')}`,
+    `<form id="${id}" method="post" action="/admin/product-fields/${escapeHtml(field.id)}" class="ui-field-form"><label>Display label<input name="label" value="${escapeHtml(field.label)}" maxlength="80" required></label><label>Display order<input type="number" name="sort_order" value="${escapeHtml(field.sort_order)}" step="1"></label>${protectedField?'<input type="hidden" name="required" value="1"><input type="hidden" name="active" value="1">':''}${reportRequired?'<input type="hidden" name="reportable" value="1">':''}${field.data_type==='select'?`<label>Selection options<textarea name="options" rows="3">${escapeHtml((field.options||[]).join('\n'))}</textarea></label>`:''}</form>`,
+    `<div class="ui-field-flags">${flags.map(([name,label,disabled])=>`<label class="ui-check"><input form="${id}" type="checkbox" name="${name}" value="1" ${checked(field[name])} ${disabled?'disabled':''}>${label}</label>`).join('')}</div>${protectedField?'<p class="ui-field-note">Required for warehouse work. Its label and visibility can still change.</p>':''}`,
+    `<button type="submit" form="${id}">Save Field</button>`,
+  ];
 }
 
 function unitConversionPreview(preview) {
@@ -81,12 +41,12 @@ function unitConversionPreview(preview) {
         <h3 id="unit-conversion-preview-title">${escapeHtml(preview.product.sku)} · ${escapeHtml(preview.explanation)}</h3>
         <p>No inventory has been changed yet. Review the converted values before applying.</p>
       </div>
-      <div class="report-kpi-grid">
-        <article class="report-kpi"><span>Available</span><strong>${escapeHtml(formatQuantity(preview.before.available))} ${escapeHtml(preview.sourceUnit)}</strong><small>${escapeHtml(formatQuantity(preview.after.available))} ${escapeHtml(preview.targetUnit)}</small></article>
-        <article class="report-kpi"><span>Reserved</span><strong>${escapeHtml(formatQuantity(preview.before.reserved))} ${escapeHtml(preview.sourceUnit)}</strong><small>${escapeHtml(formatQuantity(preview.after.reserved))} ${escapeHtml(preview.targetUnit)}</small></article>
-        <article class="report-kpi"><span>Items Per Location</span><strong>${escapeHtml(formatQuantity(preview.before.itemsPerLocation))} ${escapeHtml(preview.sourceUnit)}</strong><small>${escapeHtml(formatQuantity(preview.after.itemsPerLocation))} ${escapeHtml(preview.targetUnit)}</small></article>
-        <article class="report-kpi"><span>Open Task Lines</span><strong>${escapeHtml(formatQuantity(preview.before.openTaskLines))}</strong><small>Converted atomically</small></article>
-      </div>
+      ${uiTable([{key:'field',label:'Quantity'},{key:'before',label:'Before'},{key:'after',label:'After'}],[
+        ['Available',`${escapeHtml(formatQuantity(preview.before.available))} ${escapeHtml(preview.sourceUnit)}`,`${escapeHtml(formatQuantity(preview.after.available))} ${escapeHtml(preview.targetUnit)}`],
+        ['Reserved',`${escapeHtml(formatQuantity(preview.before.reserved))} ${escapeHtml(preview.sourceUnit)}`,`${escapeHtml(formatQuantity(preview.after.reserved))} ${escapeHtml(preview.targetUnit)}`],
+        ['Items Per Location',`${escapeHtml(formatQuantity(preview.before.itemsPerLocation))} ${escapeHtml(preview.sourceUnit)}`,`${escapeHtml(formatQuantity(preview.after.itemsPerLocation))} ${escapeHtml(preview.targetUnit)}`],
+        ['Open Task Lines',escapeHtml(formatQuantity(preview.before.openTaskLines)),'Converted atomically'],
+      ],{label:'Unit conversion preview'})}
       <p class="muted">${escapeHtml(formatQuantity(preview.history.taskLineCount))} completed/cancelled task line(s) and ${escapeHtml(formatQuantity(preview.history.transactionCount))} transaction(s) retain their original recorded unit. Reports can distinguish those historical units.</p>
       <form method="post" action="/admin/product-unit-conversions/apply" class="stack-form">
         <input type="hidden" name="product_id" value="${escapeHtml(preview.product.id)}" />
@@ -115,19 +75,7 @@ export function createProductFieldPages({
       .prepare("SELECT id, sku, name, unit_of_measure FROM products WHERE active = 1 ORDER BY name")
       .all();
     const conversionHistory = unitConversions.list();
-    return templatePage({
-      title: "Admin Product Fields",
-      user,
-      flash,
-      content: `
-        <section class="product-field-workspace">
-          ${card(
-            "Product Field Registry",
-            `
-              <p>Rename the terminology shown throughout the product catalog and reports, or add structured product properties. Stable internal field IDs let labels change without changing stored product data.</p>
-              <details class="form-disclosure" ${definitions.length ? "" : "open"}>
-                <summary>Add A Custom Product Field</summary>
-                <form method="post" action="/admin/product-fields" class="stack-form product-field-create-form">
+    const createForm = `<form method="post" action="/admin/product-fields" class="ui-form product-field-create-form">
                   <div class="form-grid">
                     <label>Field Label<input name="label" maxlength="80" required placeholder="Rice grade" /></label>
                     <label>Data Type
@@ -144,23 +92,15 @@ export function createProductFieldPages({
                   <label>Selection Options <small>Only used for a selection-list field; enter one option per line.</small>
                     <textarea name="options" rows="4" placeholder="Grade A\nGrade B"></textarea>
                   </label>
-                  <div class="product-field-flags">
-                    <label class="checkbox-line"><input type="checkbox" name="visible" value="1" checked /> Show on product screens</label>
-                    <label class="checkbox-line"><input type="checkbox" name="searchable" value="1" /> Include in product search</label>
-                    <label class="checkbox-line"><input type="checkbox" name="filterable" value="1" checked /> Allow as a report filter</label>
-                    <label class="checkbox-line"><input type="checkbox" name="reportable" value="1" checked /> Available for reports</label>
+                  <div class="ui-field-flags">
+                    <label class="ui-check"><input type="checkbox" name="visible" value="1" checked /> Show on product screens</label>
+                    <label class="ui-check"><input type="checkbox" name="searchable" value="1" /> Include in product search</label>
+                    <label class="ui-check"><input type="checkbox" name="filterable" value="1" checked /> Allow as a report filter</label>
+                    <label class="ui-check"><input type="checkbox" name="reportable" value="1" checked /> Available for reports</label>
                   </div>
                   <button type="submit" class="blue-button">Add Field</button>
-                </form>
-              </details>
-            `,
-          )}
-          ${card(
-            "Unit Migration",
-            `
-              <div id="unit-migration" class="section-anchor" aria-hidden="true"></div>
-              <p>Convert one product from its current unit into a compatible target unit. The factor is product-specific—for example, one rice sack may equal 25 kg.</p>
-              <form method="post" action="/admin/product-unit-conversions/preview" class="stack-form unit-conversion-form">
+                </form>`;
+    const migrationForm = `<form method="post" action="/admin/product-unit-conversions/preview" class="stack-form unit-conversion-form">
                 <div class="form-grid">
                   <label>Product
                     <select name="product_id" required>
@@ -176,29 +116,15 @@ export function createProductFieldPages({
                 </div>
                 <p class="muted">The factor means: 1 current unit equals this many target units. Previewing is read-only.</p>
                 <button type="submit" class="ghost-button">Preview Migration</button>
-              </form>
-              ${unitConversionPreview(conversionPreview)}
-              ${
-                conversionHistory.length
-                  ? `<details class="form-disclosure"><summary>Previous Unit Migrations</summary>${table(
-                      ["When", "Product", "Conversion", "Admin"],
-                      conversionHistory.map((entry) => [
-                        escapeHtml(formatDate(entry.created_at)),
-                        `${escapeHtml(entry.name)}<br /><small>${escapeHtml(entry.sku)}</small>`,
-                        `1 ${escapeHtml(entry.from_unit)} = ${escapeHtml(formatQuantity(entry.factor))} ${escapeHtml(entry.to_unit)}`,
-                        escapeHtml(entry.created_by_username),
-                      ]),
-                    )}</details>`
-                  : ""
-              }
-            `,
-          )}
-          <section class="product-field-definition-list" aria-label="Configured product fields">
-            ${definitions.map(fieldEditor).join("")}
-          </section>
-        </section>
-      `,
-    });
+              </form>`;
+    const history=conversionHistory.length ? uiDisclosure('Previous Unit Migrations',uiTable([{key:'date',label:'When'},{key:'product',label:'Product'},{key:'detail',label:'Conversion'},{key:'person',label:'Admin'}],conversionHistory.map(entry=>[escapeHtml(formatDate(entry.created_at)),`${escapeHtml(entry.name)}<small>${escapeHtml(entry.sku)}</small>`,`1 ${escapeHtml(entry.from_unit)} = ${escapeHtml(formatQuantity(entry.factor))} ${escapeHtml(entry.to_unit)}`,escapeHtml(entry.created_by_username)]),{label:'Previous unit migrations'})) : '';
+    return templatePage({title:'Product Fields & Units',user,flash,content:`<div class="ui-settings-page">
+      <nav class="ui-toolbar"><a href="/settings">← Settings</a></nav>
+      ${uiPanel('Product fields', uiTable([{key:'field',label:'Field'},{key:'edit',label:'Label & order'},{key:'behavior',label:'Where it is used'},{key:'action',label:'Action'}],definitions.map(fieldEditor),{label:'Configured product fields'}),{actions:uiDialogButton('add-product-field','Add Field',{secondary:false})})}
+      ${uiDialog('add-product-field','Add a product field',createForm)}
+      ${uiDisclosure('Unit Migration',`<p>Convert a product to a compatible unit. Preview the values before applying.</p>${migrationForm}${unitConversionPreview(conversionPreview)}${history}`,{id:'unit-migration',open:Boolean(conversionPreview)})}
+      ${uiDisclosure('Help', '<p>Rename fields without changing stored product data. Use the checkboxes to choose where each field appears.</p><p>The conversion factor means one current unit equals that many target units. Historical movements keep their original units.</p>')}
+    </div>`});
   }
 
   return { renderProductFields };

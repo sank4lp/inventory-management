@@ -1,3 +1,4 @@
+import {readDeadlineDefaults,deadlineDefaultsPatch,writeDeadlineDefaults} from '../../services/deadline-defaults.js';
 import {protectedPicks,putRoom,usedSpace,taskPrioritySql,yieldableClaim,reviewClaim} from './planning-policy.js';
 import {stocktakeIndicator,countCellValues} from '../stocktaking/workflow.js';
 import {createStocktakeDisplayQueue} from '../stocktaking/display-queue.js';
@@ -417,7 +418,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function timingSettings() {
     const raw=metadata('assignment_warning_minutes');
     return {enabled:raw!=='disabled',minutes:raw && raw!=='disabled'?Number(raw):120,timezone:metadata('warehouse_timezone')||Intl.DateTimeFormat().resolvedOptions().timeZone,
-      inactivityMinutes:readPendingReviewTimeoutSettings(db).timeoutMinutes};
+      inactivityMinutes:readPendingReviewTimeoutSettings(db).timeoutMinutes,deadlineDefaults:readDeadlineDefaults(db)};
   }
   function reconcileCountReservations(actor,cellId,stocktakeId) {
     const claims=db.prepare(`SELECT l.id,l.product_id,r.kind,r.quantity,p.items_per_cell,t.assigned_at FROM work_reservations r JOIN task_lines l ON l.id=r.line_id JOIN tasks t ON t.id=l.task_id JOIN products p ON p.id=l.product_id WHERE r.state='held' AND l.cell_id=? ORDER BY t.assigned_at,t.id,l.id`).all(cellId);
@@ -434,13 +435,15 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     }
   }
   function saveTiming(actor,input) {
-    actorNow(actor,"work.timing");
+    actor=actorNow(actor,"work.timing");
+    const previousDefaults=readDeadlineDefaults(db),defaults=deadlineDefaultsPatch(input,{stocktakeAllowed:can(actor,'count.manage')});
     const minutes=Number(input.minutes)*(input.timeUnit==='hours'?60:1);
     if(input.enabled!==false && (!Number.isFinite(minutes)||minutes<=0||minutes>525600))throw new Error('Choose a positive warning duration up to one year.');
     const value=input.enabled===false?'disabled':String(minutes);
     db.prepare("INSERT INTO app_metadata(key,value,updated_at) VALUES('assignment_warning_minutes',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(value,now());
     if(input.inactivityMinutes!=null)savePendingReviewTimeoutSettings(db,{timeoutMinutes:input.inactivityMinutes});
-    event('work_timing_changed',actor,null,{previous:input.previous,value,inactivityMinutes:input.inactivityMinutes});
+    writeDeadlineDefaults(db,defaults,now());
+    event('work_timing_changed',actor,null,{previous:input.previous,value,inactivityMinutes:input.inactivityMinutes,previousDefaults,deadlineDefaults:readDeadlineDefaults(db)});
     return {status:'recorded',message:'Timing saved. Existing task deadlines are unchanged. Inactivity review remains a separate rule.'};
   }
   function validatedDue(actor,value) {
@@ -690,7 +693,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function assignmentDuration(input) {
     const defaulted=input.dueDuration===undefined&&input.dueUnit===undefined;
-    const value=defaulted?8:input.dueDuration,unit=defaulted?'hours':input.dueUnit;
+    const defaults=readDeadlineDefaults(db);
+    const value=defaulted?(input.direction==='put'?defaults.putMinutes:defaults.pickMinutes):input.dueDuration,unit=defaulted?'minutes':input.dueUnit;
     const factor={minutes:1,hours:60,days:1440}[unit];
     const minutes=Number(value)*factor;
     if(!['string','number'].includes(typeof value)||!String(value).trim()||!factor||!Number.isFinite(minutes)||minutes<1||minutes>525600)throw new Error('Choose a due duration from 1 minute to 365 days.');
@@ -714,8 +718,9 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     db.prepare('UPDATE tasks SET allow_mixed_put=?,plan_cell_id=? WHERE id=?').run(input.recovery?.mode==='mixed'?1:0,['location','mixed'].includes(input.recovery?.mode)?Number(input.recovery.cellId):null,task.id);
     const assignee = input.assigneeId ? eligibleAssignee(actor, input.assigneeId) : actor;
     const assignedAt=now(), timing=timingSettings();
-    const duration=assignmentForm?assignmentDuration(input):null;
-    const dueAt=assignmentForm?new Date(Date.parse(assignedAt)+duration*60000).toISOString():input.dueAt ? validatedDue(actor,input.dueAt) : timing.enabled ? new Date(Date.parse(assignedAt)+timing.minutes*60000).toISOString() : null;
+    const assignedDeadline=assignmentForm||Boolean(input.assigneeId&&!input.dueAt);
+    const duration=assignedDeadline?assignmentDuration(input):null;
+    const dueAt=assignedDeadline?new Date(Date.parse(assignedAt)+duration*60000).toISOString():input.dueAt ? validatedDue(actor,input.dueAt) : timing.enabled ? new Date(Date.parse(assignedAt)+timing.minutes*60000).toISOString() : null;
     db.prepare("UPDATE tasks SET workflow_version=2,assignee_id=?,assigned_by=?,assigned_at=?,assignment_state=?,assignment_source=?,due_at=?,requested_quantity=?,instruction_note=?,guidance_session=? WHERE id=?")
       .run(assignee.id,actor.id,assignedAt,input.assigneeId?'offered':'started',input.assigneeId?'assigned':'self',dueAt,workQuantity(input.quantity,true),String(input.note||'').slice(0,2000),input.assigneeId?null:input.guidanceSession||null,task.id);
     assignmentEvent(actor,task.id,'assigned',null,{dueAt,...(assignmentForm?{durationMinutes:duration}:{}),source:input.assigneeId?'assigned':'self'});

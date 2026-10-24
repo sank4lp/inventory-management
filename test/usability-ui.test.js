@@ -98,3 +98,10 @@ test('setup scan confirms a read label, focuses its name and keeps physical conf
  await vm.runInContext('scan(panel)',context);assert.equal(input.value,'lytguide:fixture:sticker:1');assert.equal(manual.open,false);assert.equal(focused,true);assert.equal(stopped,true);assert.equal(status.textContent,'Sticker read. Check that it is beside the blinking light.');
  failed=true;await vm.runInContext('scan(panel)',context);assert.equal(manual.open,true);assert.match(host.textContent,/manual QR text option/);
 });
+
+
+test('new Stocktaking form prefills the saved warehouse deadline and keeps its date editable',()=>{
+ const ui=countUI();ui.run("snapshot.defaultDueDate='2026-11-04';uiScope='warehouse'");
+ assert.match(ui.run('landing()'),/name="dueDate" type="date" value="2026-11-04"/);assert.doesNotMatch(ui.run('landing()'),/name="dueDate"[^>]*readonly/);
+ ui.run("snapshot.defaultDueDate=null");assert.match(ui.run('landing()'),/name="dueDate" type="date" value=""/);
+});
