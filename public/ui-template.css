@@ -361,6 +361,9 @@
 .setup-work-dialog th, .setup-work-dialog td { padding: 12px; text-align: left; vertical-align: top; border-bottom: 1px solid #e5ece7; }
 .setup-work-dialog th { background: #f0f6f2; white-space: nowrap; }
 .setup-work-dialog small { display: block; margin-top: 5px; color: #65736b; }
+.setup-work-dialog .setup-blockers-preserve { margin-top: 20px; padding: 18px; background: #f1f6f3; border-radius: 12px; }
+.setup-work-dialog .setup-blockers-preserve > p { margin: 0 0 14px; }
+.setup-work-dialog .setup-blockers-preserve .setup-blockers-actions { margin-top: 0; }
 .setup-work-dialog .setup-blockers-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 .setup-work-dialog [data-blockers-confirm] { padding: 16px; border: 1px solid #e3d6c4; border-radius: 10px; }
 .setup-work-dialog [data-blockers-confirm] label { display: flex; align-items: start; gap: 10px; margin: 12px 0; }

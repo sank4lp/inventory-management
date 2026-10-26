@@ -8,7 +8,7 @@ After a successful firmware flash, the app reads the complete controller configu
 
 To refresh a profile from a working board:
 
-1. Resolve outstanding work and stop active utility displays.
+1. Stop physical work at the controller and stop active utility displays. When the same registered ESP32 is connected, existing tasks and pending entries can stay in the app; saving its unchanged setup does not require discarding them.
 2. Isolate the controller for maintenance and connect the original ESP32 by USB to the host running the app. The original must run the current USB-maintenance firmware.
 3. Open Hardware → Controller Health and click **Edit** beside the controller.
 4. Follow Disconnect → Attach → Configure. The controller is already selected; check its USB port and choose Next.
@@ -33,7 +33,7 @@ Whenever a future controller editor changes the route/count, it must refresh thi
 
 The controller is left offline in the database after USB verification, until RS485 health checking confirms communication through the warehouse bus. Successful upload alone is not treated as proof that routing or bus wiring works.
 
-The same Edit flow can refresh firmware on the existing board when its saved profile is available. It preserves the logical controller and routing in the same way.
+The same Edit flow refreshes firmware on the existing board without discarding tasks when the detected USB identity matches the registered ESP32 and the saved LED count and order are unchanged. The app verifies the current routing before upload, restores and verifies it afterward, and preserves cell bindings, reservations, task progress and pending movement entries. It pauses hardware commands during maintenance and requests the current task lights again after verification; delivery waits for RS485 reconnection. When a different ESP32 is selected and work is outstanding, the task dialog offers **Keep work and use this controller**. This explicitly preserves existing tasks, reservations, pending entries and location mappings on the same logical controller while its physical board changes. The saved LED count and order must remain unchanged, and the old board must be disconnected. Failed uploads/restores retain the work and keep LED guidance held until a verified retry succeeds. Layout changes still require the existing work safeguards.
 
 ## Verification and recovery
 
@@ -43,7 +43,7 @@ USB maintenance accepts only exactly addressed `config-status` and `configure` c
 
 A lost restore acknowledgement triggers readback. If the complete routing/count match, the job can complete; otherwise it fails without changing the registered board identity or cell mappings. The app also checks authorization and controller/mapping revisions before committing replacement metadata.
 
-Before uploading a replacement, a durable `controller_replacement_pending:<controllerId>` record retains its source profile and selected device. Failures keep that record and the original profile. A retry reads and reconciles the actual board rather than assuming the failed attempt did nothing. The maintenance lock includes a process owner; after an interrupted process is confirmed no longer running, the lock can be released while recovery records remain intact. A lock with a live or unknown owner is not cleared automatically.
+Before uploading a replacement, a durable `controller_replacement_pending:<controllerId>` record retains its source profile and selected device. Failures keep that record and the original profile. A controller with an unverified upload stays held for LED commands until a verified retry; other work data is retained. The receipt records whether uploading started so a failed upload can be retried even if USB configuration status is temporarily unavailable. A retry reads and reconciles the actual board rather than assuming the failed attempt did nothing. The maintenance lock includes a process owner; after an interrupted process is confirmed no longer running, the lock can be released while recovery records remain intact. A lock with a live or unknown owner is not cleared automatically.
 
 Source profiles are stored in `app_metadata` as `controller_profile:<controllerId>`. They are not stored solely on the ESP32. If both the original board and every database/profile backup are lost, arbitrary custom routing cannot be recovered automatically.
 

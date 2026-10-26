@@ -3422,14 +3422,27 @@ function wireFirmwareFlash() {
       });
 
       try {
-        const response = await fetch("/api/firmware/flash", {
-          method: "POST",
-          headers: {
-            "X-Requested-With": "fetch",
-          },
-          body: new URLSearchParams(new FormData(form)),
+        // Capture the reviewed USB/controller selection; the dialog cannot change its target.
+        const body = new URLSearchParams(new FormData(form));
+        const send = () => (pageScope ? pageScope.fetch.bind(pageScope) : globalThis.fetch)("/api/firmware/flash", {
+          method: "POST", headers: {"X-Requested-With": "fetch"}, body,
         });
-        const payload = await response.json();
+        let response = await send();
+        let payload = await response.clone().json();
+        if (!response.ok && payload.code === 'OUTSTANDING_WORK') {
+          showFirmwareError(panel, payload.error);
+          syncFirmwareSubmitState(panel);
+          const replacement = Number(body.get('replacement_controller_id')) > 0;
+          const choice = await (await import('./client/setup-work-dialog.js')).showSetupWorkResponse(response, {
+            scope: pageScope,
+            preserveController: replacement ? {name: body.get('controller_name') || 'this controller'} : null,
+          });
+          if (choice !== 'preserve' || pageScope?.active === false || !form.isConnected) return;
+          body.set('keep_existing_work', '1');
+          updateFirmwarePanel(panel, {status: 'running', stage: 'queued', progress: 3, logs: [{line: 'Keeping existing work and starting controller update...'}]});
+          response = await send();
+          payload = await response.json();
+        }
         if (!response.ok) {
           throw new Error(payload.error || "Firmware job could not be started.");
         }

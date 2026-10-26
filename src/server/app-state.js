@@ -150,6 +150,7 @@ function buildAppState() {
     config: appConfig,
     logger,
     backupService,
+    onMaintenanceReleased:controllerId=>operationsService.flushGuidance({restoreCells:db.prepare('SELECT id FROM cells WHERE controller_id=?').all(controllerId).map(c=>c.id)}),
   });
   const databaseMaintenanceService = createDatabaseMaintenanceService({
     db,

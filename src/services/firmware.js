@@ -1,6 +1,6 @@
 import {createHostAdapter} from "../modules/hardware/host-adapter.js";
 import {currentActor} from "../modules/access/service.js";
-import { guardSetupChange } from "../modules/operations/guards.js";
+import { guardSetupChange, guardUtilityDisplays, hasOutstandingWork } from "../modules/operations/guards.js";
 import { spawnSync } from "node:child_process";
 import { accessSync, constants, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -398,11 +398,12 @@ function publicJob(job) {
     verificationHint: job.verificationHint,
     replacement: !!job.replacement,
     configurationVerified: !!job.configurationVerified,
+    preservesTasks: !!job.preserveExistingWork,
     mappingSummary: job.mappingSummary,
   };
 }
 
-export function createFirmwareService({ db, config = {}, logger, backupService = null, hostAdapter = null, serialSessionFactory = openUsbControllerSession }) {
+export function createFirmwareService({ db, config = {}, logger, backupService = null, hostAdapter = null, serialSessionFactory = openUsbControllerSession, onMaintenanceReleased = null }) {
   const jobs = new Map();
   const host=hostAdapter || createHostAdapter({config,discover:listSerialPorts});
   const arduinoCliPath = config.arduinoCliPath || process.env.ARDUINO_CLI_PATH || "arduino-cli";
@@ -426,18 +427,29 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     recoverInterruptedMaintenance();
     if(db.prepare("SELECT 1 FROM app_metadata WHERE key='firmware_busy'").get())throw new Error('Controller maintenance is already in progress.');
   }
-  function acquireMaintenance(id) {
+  function acquireMaintenance(id,{controllerId=null}={}) {
     withTransaction(db,()=>{
       if(db.prepare("SELECT 1 FROM app_metadata WHERE key='firmware_busy'").get())throw new Error('Controller maintenance is already in progress.');
       db.prepare("INSERT INTO app_metadata(key,value,updated_at) VALUES('firmware_busy',?,?)").run(id,nowIso());
       db.prepare("INSERT INTO app_metadata(key,value,updated_at) VALUES('firmware_busy_owner',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(JSON.stringify({id,pid:process.pid}),nowIso());
+      if(controllerId){
+        db.prepare('INSERT INTO app_metadata(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').run(`controller_firmware_hold:${controllerId}`,id,nowIso());
+        db.prepare('UPDATE work_guidance SET delivered=0 WHERE cell_id IN (SELECT id FROM cells WHERE controller_id=?)').run(controllerId);
+      }
     });
   }
-  function releaseMaintenance(id) {
-    withTransaction(db,()=>{
+  function releaseMaintenance(id,controllerId=null) {
+    const released=withTransaction(db,()=>{
       const removed=db.prepare("DELETE FROM app_metadata WHERE key='firmware_busy' AND value=?").run(id);
       if(removed.changes)db.prepare("DELETE FROM app_metadata WHERE key='firmware_busy_owner'").run();
+      return !!removed.changes;
     });
+    if(released&&controllerId&&onMaintenanceReleased){try{onMaintenanceReleased(controllerId);}catch(error){logger?.warn?.('firmware.guidance.deferred',{controllerId,error:error.message});}}
+  }
+  function sameBoard(controller,deviceIdentity){return !!controller?.device_identity&&controller.device_identity===deviceIdentity;}
+  function guardMaintenance(controller,deviceIdentity,preserveExistingWork=false){
+    // The saved layout is restored and verified before preserving work on the same logical controller.
+    if(controller&&(sameBoard(controller,deviceIdentity)||preserveExistingWork))guardUtilityDisplays(db);else guardSetupChange(db);
   }
   function appendLog(job, text) {
     for (const line of String(text).split(/\r?\n/)) {
@@ -518,7 +530,8 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     const controller = job.replacement ? withTransaction(db,()=>{
       currentActor(db,job.flashedBy,'hardware.flash');
       assertReplacementUnchanged(job);
-      db.prepare("UPDATE controllers SET device_identity=?,firmware_version=?,configured_at=?,configured_by=?,heartbeat_status='offline' WHERE id=?").run(job.deviceIdentity,ESP32_FIRMWARE_PROTOCOL,nowIso(),job.flashedBy.id,job.replacingControllerId);
+      const configuredAt=job.preserveExistingWork?db.prepare('SELECT configured_at FROM controllers WHERE id=?').get(job.replacingControllerId).configured_at:nowIso();
+      db.prepare("UPDATE controllers SET device_identity=?,firmware_version=?,configured_at=?,configured_by=?,heartbeat_status='offline' WHERE id=?").run(job.deviceIdentity,ESP32_FIRMWARE_PROTOCOL,configuredAt,job.flashedBy.id,job.replacingControllerId);
       const controller=db.prepare('SELECT * FROM controllers WHERE id=?').get(job.replacingControllerId);
       saveControllerProfile(db,controller,job.verifiedConfiguration);
       return {...controller,mappingSummary:{preserved:db.prepare('SELECT COUNT(*) n FROM cells WHERE controller_id=? AND active=1').get(controller.id).n,created:0,detached:0}};
@@ -536,7 +549,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     job.controllerAddress = controller.address;
     job.deviceName = controller.controller_code;
     job.mappingSummary = controller.mappingSummary || null;
-    job.verificationHint = job.replacement ? "Replacement firmware and routing verified over USB. Cell mappings are unchanged. Disconnect USB, reconnect the same LED/RS485 wiring, then Ping the controller to check the connection." :
+    job.verificationHint = job.preserveExistingWork ? "Firmware and the saved LED order verified. Existing tasks, locations and stock are unchanged. Reconnect the same LED/RS485 wiring; task lights resume when the controller reconnects." : job.replacement ? "Replacement firmware and routing verified over USB. Cell mappings are unchanged. Disconnect USB, reconnect the same LED/RS485 wiring, then Ping the controller to check the connection." :
       "Flash complete. Use Ping for each LED module in Cell mapping, then update the cell dropdown if a physical module is assigned to the wrong cell.";
     const payload = {
       jobId: job.id,
@@ -626,6 +639,13 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       });
 
       assertReplacementUnchanged(job);
+      if(job.sameControllerUpdate&&!job.recoveringUpload&&!host.support().simulated&&Number(/^simple-matrix-v(\d+)-rs485-addressed$/.exec(job.previousProtocol||'')?.[1])>=14){
+        const session=serialSessionFactory(job.port,host);
+        try{
+          const actual=await readUsbConfiguration(session,job.controllerAddress),desired=job.replacementProfile;
+          if(actual.physicalCount!==desired.physicalCount||JSON.stringify(actual.routing)!==JSON.stringify(desired.routing))throw new Error('The connected controller LED count or order differs from its saved setup. Review the layout before updating firmware. Existing tasks are kept.');
+        }finally{session.close();}
+      }
       const buildDir = join(tmpdir(), `inventory-esp32-${job.id}`);
       mkdirSync(buildDir, { recursive: true });
       job.buildDir = buildDir;
@@ -647,6 +667,11 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       currentActor(db,job.flashedBy,'hardware.flash');
       selectedUsbDevice({port:job.port,device_identity:job.deviceIdentity});
       job.progress = 58;
+      if(job.replacement&&!host.support().simulated){
+        const key=`controller_replacement_pending:${job.replacingControllerId}`,pending=parseMetadata(db.prepare('SELECT value FROM app_metadata WHERE key=?').get(key)?.value);
+        if(!pending||pending.jobId!==job.id)throw new Error('Controller maintenance receipt changed. Retry the update.');
+        db.prepare('UPDATE app_metadata SET value=?,updated_at=? WHERE key=?').run(JSON.stringify({...pending,uploadStarted:true}),nowIso(),key);
+      }
       await runCommand(job, "uploading", 62, [
         "upload",
         "--fqbn",
@@ -663,7 +688,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       if(host.support().simulated){job.status="completed";job.stage="simulated";job.progress=100;job.finishedAt=nowIso();job.currentCommand=null;appendLog(job,"Simulation completed. No firmware was compiled or flashed and no controller configuration was saved.");return;}
       await verifyUploadedConfiguration(job);
       currentActor(db,job.flashedBy,'hardware.flash');
-      guardSetupChange(db);
+      guardMaintenance(job.replacement?db.prepare('SELECT * FROM controllers WHERE id=?').get(job.replacingControllerId):null,job.deviceIdentity,job.preserveExistingWork);
       saveLastConfiguration(job);
       recordSystemEvent({
         eventType: "firmware_flash_completed",
@@ -681,7 +706,13 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         },
       });
 
-      if(job.replacement)db.prepare('DELETE FROM app_metadata WHERE key=?').run(`controller_replacement_pending:${job.replacingControllerId}`);
+      if(job.replacement){
+        withTransaction(db,()=>{
+          db.prepare('DELETE FROM app_metadata WHERE key=?').run(`controller_replacement_pending:${job.replacingControllerId}`);
+          db.prepare('DELETE FROM app_metadata WHERE key=? AND value=?').run(`controller_firmware_hold:${job.replacingControllerId}`,job.id);
+          db.prepare('INSERT INTO app_metadata(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').run(`controller_firmware_epoch:${job.replacingControllerId}`,job.id,nowIso());
+        });
+      }
       job.status = "completed";
       job.stage = "completed";
       job.progress = 100;
@@ -730,7 +761,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         error: eventMessage,
       });
     }
-    finally { releaseMaintenance(job.id); }
+    finally { releaseMaintenance(job.id,job.replacingControllerId); }
   }
 
   function getLastConfiguration() {
@@ -835,12 +866,13 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     },
     getLastConfiguration,
     async backupController(input={},actor=null) {
-      actor=currentActor(db,actor,'hardware.flash');guardSetupChange(db);
+      actor=currentActor(db,actor,'hardware.flash');guardUtilityDisplays(db);
       if(host.support().simulated)throw new Error('Simulation cannot create a verified controller backup.');
       assertNoMaintenance();
       const controller=db.prepare('SELECT * FROM controllers WHERE id=? AND active=1').get(Number(input.replacement_controller_id));
       if(!controller)throw new Error('Choose the existing controller whose connected board you are backing up.');
       const selected=selectedUsbDevice(input),signature=replacementSignature(controller.id),lock=randomUUID();
+      guardMaintenance(controller,selected.device.deviceIdentity);
       acquireMaintenance(lock);
       let session;
       try {
@@ -848,15 +880,19 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         const actual=await readUsbConfiguration(session,controller.address);
         currentActor(db,actor,'hardware.flash');
         if(replacementSignature(controller.id)!==signature)throw new Error('Controller setup changed during backup. Refresh and retry.');
+        if(hasOutstandingWork(db)&&sameBoard(controller,selected.device.deviceIdentity)){
+          const previous=loadControllerProfile(db,controller);
+          if(previous&&(actual.physicalCount!==previous.physicalCount||JSON.stringify(actual.routing)!==JSON.stringify(previous.routing)))throw new Error('The LED count or order changed. Resolve the layout separately before updating its backup; existing tasks are kept.');
+        }
         const profile=saveControllerProfile(db,controller,actual);
         recordSystemEvent({eventType:'controller_profile_saved',status:'info',message:`Replacement backup saved for ${controller.controller_code}.`,payload:{controllerId:controller.id,revision:actual.revision}});
         backupService?.createCriticalBackup?.({source:`controller-profile-${controller.controller_code}`});
         return {message:'Controller setup saved. You can now replace its ESP32 without remapping cells.',profile};
-      }finally{session?.close();releaseMaintenance(lock);}
+      }finally{session?.close();releaseMaintenance(lock,controller.id);}
     },
     startFlashJob(input = {}, actor = null) {
       actor=currentActor(db,actor,"hardware.flash");
-      guardSetupChange(db);
+      guardUtilityDisplays(db);
       assertNoMaintenance();
       if(config.firmwareToolchainRoot||process.env.FIRMWARE_TOOLCHAIN_ROOT)host.verifyToolchain();
       if (!config.firmwareSimulation && !executableExists(host.command())) {
@@ -889,6 +925,9 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         throw new Error("Selected ESP32 changed after detection. Refresh ports and select it again.");
       }
       selectedUsbDevice(input);
+      const preserveExistingWork=!!replacementController&&(sameBoard(replacementController,deviceIdentity)||input.keep_existing_work==='1');
+      guardMaintenance(replacementController,deviceIdentity,preserveExistingWork);
+      if(replacementProfile&&input.module_count!=null&&Number(input.module_count)!==replacementProfile.physicalCount)throw new Error('An in-place firmware update must keep the saved LED count and order. Change the physical layout separately.');
       const requestedControllerName = replacementController?.controller_code || String(input.controller_name || input.controllerName || "").trim();
       if (!requestedControllerName) {
         throw new Error("Controller name is required.");
@@ -905,6 +944,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       const addressOwner=db.prepare('SELECT id FROM controllers WHERE address=? AND active=1').get(controllerAddress);
       if(addressOwner && addressOwner.id!==existingController?.id)throw new Error('That controller address is already in use.');
       const assignedModules = replacementProfile ? replacementProfile.routing.flatMap((physical,index)=>physical?[index+1]:[]) : Array.from({ length: moduleCount }, (_, index) => index + 1);
+      const previousMaintenance=replacementController?parseMetadata(db.prepare('SELECT value FROM app_metadata WHERE key=?').get(`controller_replacement_pending:${replacementId}`)?.value):null;
       const job = {
         id: randomUUID(),
         status: "running",
@@ -919,6 +959,10 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         previousControllerAddress: existingController?.address || null,
         replacingControllerId: existingController?.id || null,
         replacement:!!replacementController,
+        sameControllerUpdate:sameBoard(replacementController,deviceIdentity),
+        preserveExistingWork,
+        previousProtocol:replacementController?.firmware_version,
+        recoveringUpload:previousMaintenance?.uploadStarted===true&&previousMaintenance.deviceIdentity===deviceIdentity&&previousMaintenance.controllerId===replacementId,
         replacementProfile,
         replacementSignature:replacementController?replacementSignature(replacementController.id):null,
         configurationVerified:false,
@@ -948,7 +992,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         backupService?.createCriticalBackup?.({source:`before-controller-replacement-${job.controllerName}`});
         db.prepare('INSERT INTO app_metadata(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').run(`controller_replacement_pending:${replacementId}`,JSON.stringify({jobId:job.id,controllerId:replacementId,deviceIdentity:job.deviceIdentity,profile:replacementProfile,startedAt:job.startedAt}),nowIso());
       }
-      acquireMaintenance(job.id);
+      acquireMaintenance(job.id,{controllerId:job.replacement&&!host.support().simulated?replacementId:null});
       jobs.set(job.id, job);
       runFlashJob(job);
       logger?.info("firmware.flash.started", {

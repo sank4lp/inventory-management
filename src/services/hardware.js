@@ -35,7 +35,7 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
   const adapter = adapterFactory(config, logger);
   let disposed=false;
   const controllerProbes = new Map();
-  const controllerIdentity = controller => JSON.stringify([controller.address, controller.configured_at]);
+  const controllerIdentity = controller => JSON.stringify([controller.address, controller.configured_at, db.prepare('SELECT value FROM app_metadata WHERE key=?').get(`controller_firmware_epoch:${controller.id}`)?.value||null]);
 
   function checkControllerHealth(controller, options = {}) {
     const result = run("controller_health", adapter.checkControllerHealth.bind(adapter), [controller, options], {
@@ -48,6 +48,7 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
   function ensureControllerReady(controllerId) {
     const controller = db.prepare('SELECT * FROM controllers WHERE id=?').get(Number(controllerId));
     if (!controller || !controller.active || disposed) return {ok:false,degraded:true,status:'offline',message:'Controller is unavailable. Check its power and connection.'};
+    if(db.prepare('SELECT 1 FROM app_metadata WHERE key=?').get(`controller_firmware_hold:${controller.id}`))return {ok:false,degraded:true,status:'offline',message:'Controller firmware is not yet verified. Retry the firmware update; existing tasks and mappings are kept.'};
     if (controller.heartbeat_status === 'online') return {ok:true,degraded:false,status:'online'};
     const previous = controllerProbes.get(Number(controller.id));
     const elapsed = previous ? clock().getTime() - previous.at : Infinity;

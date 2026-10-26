@@ -7,8 +7,12 @@ export function hasOutstandingWork(db, { cellId = null, productId = null } = {})
     .get(cellId, cellId, productId, productId));
 }
 
-export function guardSetupChange(db, scope = {}) {
+export function guardUtilityDisplays(db, scope = {}) {
   if(db.prepare("SELECT name FROM sqlite_master WHERE name='display_requests'").get()&&db.prepare("SELECT 1 FROM display_requests WHERE state IN ('active','expiring') AND id!=? LIMIT 1").get(scope.allowDisplayId||''))throw new Error('Stop the active utility display before changing setup. Its ownership receipt protects task and location guidance.');
+}
+
+export function guardSetupChange(db, scope = {}) {
+  guardUtilityDisplays(db,scope);
   if (hasOutstandingWork(db, scope)) {
     const error=new Error("This change affects outstanding warehouse work. Review the blocking tasks before continuing.");
     error.code='OUTSTANDING_WORK';error.statusCode=409;

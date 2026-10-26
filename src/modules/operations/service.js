@@ -1349,6 +1349,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       return {state:'waiting',message:waitingMessage(owner),blocker:{kind:owner.kind,name:owner.name,taskId:owner.taskId,runId:owner.runId,...(visible?{href:owner.kind==='task'?'/tasks/'+owner.taskId:'/stocktaking?run='+owner.runId}:{})}};
     }
     if(metadata('firmware_busy'))return {state:'manual',message:'Controller maintenance is in progress. Follow the cell instructions on screen.'};
+    if(l.controller_id&&metadata('controller_firmware_hold:'+l.controller_id))return {state:'manual',message:'Controller firmware update is not yet verified. Existing tasks are kept; retry the update to restore LED guidance.'};
     if(!l.controller_id||!l.hardware_channel)return {state:'manual',message:'Manual location — follow the cell name and quantity on your screen.'};
     const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(l.cell_id),d=row?JSON.parse(row.desired):null;
     if(!owner)return {state:'blocked',message:'This task is not eligible for light guidance. Refresh its assignment and permissions.'};
