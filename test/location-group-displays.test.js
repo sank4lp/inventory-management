@@ -13,7 +13,7 @@ import {createStocktakingService} from '../src/modules/stocktaking/service.js';
 import {displayRoutes} from '../src/modules/stocktaking/display-routes.js';
 import {locationBrowseRoutes} from '../src/modules/locations/browse.js';
 
-function fixture(t){
+function fixture(t, groupMode=null){
  process.chdir(mkdtempSync(join(tmpdir(),'location-group-display-')));
  const db=createDatabase({hashPassword,allowDemoInventorySeed:true});
  const admin=db.prepare("SELECT * FROM users WHERE role='admin'").get(),op=db.prepare("SELECT * FROM users WHERE role='operator'").get();
@@ -21,7 +21,14 @@ function fixture(t){
  db.exec('DELETE FROM inventory_balances; UPDATE cells SET active=0,controller_id=NULL,hardware_channel=NULL; UPDATE controllers SET heartbeat_status=\'online\',module_count=27');
  cells.forEach((c,n)=>db.prepare('UPDATE cells SET active=1,controller_id=?,hardware_channel=?,display_name=?,warehouse_name=?,travel_instructions=? WHERE id=?').run(controllers[n===3?1:0].id,n===3?1:n+1,['Alpha bin','Beta bin','Gamma bin','Other warehouse bin'][n],n===3?'West':'East',n<2?'Shed 1':n===2?'Shed 2':'Shed 3',c.id));
  const writes=[],errors=[],logger={debug(){},info(){},warn(){},error(event,detail){errors.push({event,detail});}};
- const hardware=createHardwareService({db,logger,config:{hardwareAdapter:'rs485',rs485WriteLine:line=>writes.push(line.trim()),rs485WriteRepeats:1,rs485WriteRepeatDelayMs:0,rs485GuidanceBurstRepeats:1,rs485GuidanceBurstDelayMs:0,rs485InterCommandDelayMs:0}});
+ const hardware=createHardwareService({db,logger,config:{hardwareAdapter:'rs485',rs485WriteLine:line=>writes.push(line.trim()),
+ rs485ReadWindow:groupMode ? (()=>{let consumed=0;return ()=>{
+   if(consumed===writes.length)return '';consumed=writes.length;
+   const tokens=writes.at(-1).split(' ');
+   if(tokens[2]==='ping')return JSON.stringify({type:'pong',address:tokens[1],groupBlink:1});
+   if(tokens[2]==='blink-group'&&groupMode!=='no-ack')return JSON.stringify({type:'ack',command:'blink-group',address:tokens[1],request:tokens[3]});
+   return '';
+ };})() : undefined,rs485WriteRepeats:1,rs485WriteRepeatDelayMs:0,rs485GuidanceBurstRepeats:1,rs485GuidanceBurstDelayMs:0,rs485InterCommandDelayMs:0}});
  const work=createOperationsService({db,hardwareService:hardware,logger}),display=createDisplayCoordinator({db,hardwareService:hardware,operationsService:work});
  t.after(()=>{hardware.dispose();db.close();});
  const east=db.prepare("SELECT id FROM location_warehouses WHERE name='East'").get().id,shed=db.prepare("SELECT id FROM location_shelves WHERE name='Shed 1'").get().id;
@@ -107,4 +114,49 @@ test('the rendered page has scoped group controls, with LED-number access follow
  const f=fixture(t),render=actor=>{let html;const response={writeHead(){},end(body){html=body;}};locationBrowseRoutes({method:'GET'},response,new URL('http://localhost/cells'),actor,{db:f.db,operationsService:f.work,displayCoordinator:f.display});return html;};
  const admin=render(f.admin);assert.match(admin,/Show cell names/);assert.match(admin,/Show LED numbers/);assert.match(admin,/Show quantities/);assert.match(admin,new RegExp(`data-warehouse-id="${f.east}"`));assert.match(admin,new RegExp(`data-shelf-id="${f.shed}"`));
  const operator=render(f.op);assert.match(operator,/Show cell names/);assert.match(operator,/Show quantities/);assert.doesNotMatch(operator,/Show LED numbers/);
+});
+
+
+test('group ping includes only selected shelf outputs and still stops each owned cell',t=>{
+ const f=fixture(t,'ack');
+ const shown=f.api({displayKind:'ping',shelfId:String(f.shed)});
+ assert.ok(shown.targets.every(target=>target.status==='sent'));
+ const groups=f.writes.filter(line=>line.includes('blink-group'));
+ assert.equal(groups.length,1);assert.equal(groups[0].split(' ')[4],'3'+'0'.repeat(63));
+ const request=f.db.prepare('SELECT * FROM display_requests WHERE id=?').get(shown.id);
+ assert.equal(Date.parse(request.expires_at)-Date.parse(request.created_at),5000);
+ const before=f.writes.length;f.display.stop(f.admin,shown.id);
+ assert.deepEqual([...new Set(f.writes.slice(before))].sort(),['to 1 clear 1','to 1 clear 2']);
+});
+
+test('unacknowledged group is reported uncertain and cleared rather than left as an active display',t=>{
+ const f=fixture(t,'no-ack');
+ const shown=f.api({displayKind:'ping',shelfId:String(f.shed)});
+ assert.equal(shown.state,'stopped');assert.ok(shown.targets.every(target=>target.status==='unreachable'));
+ assert.match(shown.message,/did not confirm/);
+ assert.equal(f.writes.filter(line=>line.includes('blink-group')).length,3);
+ assert.ok(f.writes.includes('to 1 clear 1'));assert.ok(f.writes.includes('to 1 clear 2'));
+ assert.equal(f.db.prepare('SELECT state FROM display_requests WHERE id=?').get(shown.id).state,'stopped');
+});
+
+for (const mode of ['ack','no-ack']) test(`group ping ${mode}: task guidance is restored without changing work state`,t=>{
+ const f=fixture(t,mode);f.stock(f.products[0],f.cells[0],4);
+ const task=f.work.command(f.op,'create',{requestId:randomUUID(),direction:'pick',productId:f.products[0].id,quantity:1});
+ const before=f.db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(f.cells[0].id);
+ const linesBefore=f.db.prepare('SELECT * FROM task_lines WHERE task_id=?').all(task.taskId);
+ const shown=f.display.start(f.admin,{kind:'ping',shelfId:f.shed,overrideWork:true},{confirmOverride:true});
+ if(mode==='ack')f.display.stop(f.admin,shown.id);else assert.equal(shown.state,'stopped');
+ assert.ok(f.writes.at(-1).includes('digit 1 "1" green'));
+ const after=f.db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(f.cells[0].id);
+ assert.equal(after.generation,before.generation);assert.equal(after.desired,before.desired);
+ assert.deepEqual(f.db.prepare('SELECT * FROM task_lines WHERE task_id=?').all(task.taskId),linesBefore);
+});
+
+
+test('group ping expiry clears only its selected outputs',t=>{
+ const f=fixture(t,'ack');const shown=f.api({displayKind:'ping',shelfId:String(f.shed)});
+ f.db.prepare("UPDATE display_requests SET expires_at='2000-01-01T00:00:00Z' WHERE id=?").run(shown.id);
+ const before=f.writes.length;f.display.expire();
+ assert.deepEqual([...new Set(f.writes.slice(before))].sort(),['to 1 clear 1','to 1 clear 2']);
+ assert.equal(f.db.prepare('SELECT state FROM display_requests WHERE id=?').get(shown.id).state,'stopped');
 });

@@ -197,6 +197,13 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
     },
     checkControllerHealth,
     ensureControllerReady,
+    sendCellTests(cells, color = "green", context = {}) {
+      const sendGroup = adapter.sendCellTests ? adapter.sendCellTests.bind(adapter) : (targets, shade) => {
+        const results = targets.map(cell => adapter.sendCellTest(cell, shade));
+        return {ok:results.every(r => r.ok !== false),degraded:results.some(r => r.degraded),events:results.flatMap(r => r.events || [])};
+      };
+      return run("cell_tests", sendGroup, [cells, color], {...context, color});
+    },
     sendCellTest(cell, color = "green", context = {}) {
       return run("cell_test", adapter.sendCellTest.bind(adapter), [cell, color], {
         cellId: cell.id,

@@ -18,7 +18,7 @@
 #endif
 
 #define MODULES LED_MODULE_COUNT
-#define FIRMWARE_PROTOCOL "simple-matrix-v12-rs485-addressed"
+#define FIRMWARE_PROTOCOL "simple-matrix-v13-rs485-addressed"
 #define W 8
 #define H 8
 #define LEDS_PER_MODULE 64
@@ -67,8 +67,9 @@ struct ModuleState {
 
 ModuleState modules[MODULES];
 
-char line[160];
+char line[320];
 int linePos = 0;
+bool lineOverflow = false;
 int layoutMode = DEFAULT_LAYOUT;
 int heartbeatColumn = 0;
 bool heartbeatPulseOn = true;
@@ -769,7 +770,7 @@ void fillModule(int module, uint32_t color, int brightness) {
   pixels.show();
 }
 
-void blinkModule(int module, uint32_t color, int brightness, unsigned long durationMs) {
+void blinkModule(int module, uint32_t color, int brightness, unsigned long durationMs, bool showNow = true, unsigned long startedAt = 0) {
   if (module < 0) {
     return;
   }
@@ -779,7 +780,7 @@ void blinkModule(int module, uint32_t color, int brightness, unsigned long durat
   if (durationMs == 0) {
     durationMs = DEFAULT_TEST_DURATION_MS;
   }
-  unsigned long now = millis();
+  unsigned long now = showNow ? millis() : startedAt;
   modules[module].mode = MODE_STATIC;
   modules[module].text[0] = 0;
   modules[module].brightness = clampBrightness(brightness);
@@ -791,7 +792,7 @@ void blinkModule(int module, uint32_t color, int brightness, unsigned long durat
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
   renderRippleModule(module, 0, false);
-  pixels.show();
+  if (showNow) pixels.show();
 }
 
 void locateModule(int module, uint32_t color, int brightness, unsigned long durationMs) {
@@ -961,8 +962,94 @@ void syncHeartbeat(int column) {
   pixels.show();
 }
 
+int groupHex(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  return -1;
+}
+
+uint32_t groupCrc(const char *text) {
+  uint32_t crc = 0xffffffff;
+  while (*text) {
+    crc ^= (uint8_t)*text++;
+    for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+  }
+  return crc ^ 0xffffffff;
+}
+
+bool groupUnsigned(const char *text, unsigned long minValue, unsigned long maxValue, unsigned long *value) {
+  if (!*text) return false;
+  for (const char *p = text; *p; p++) if (*p < '0' || *p > '9') return false;
+  char *end;
+  *value = strtoul(text, &end, 10);
+  return !*end && *value >= minValue && *value <= maxValue && strlen(text) <= 6;
+}
+
+// Remember recent requests so delivery retries cannot restart or resurrect an animation.
+char groupRequests[8][17] = {};
+uint32_t groupChecksums[8] = {};
+int groupRequestSlot = 0;
+
+void blinkGroup(char **tokens, int count) {
+  bool valid = count == 7;
+  unsigned long brightness = 0, duration = 0;
+  if (valid) valid = strlen(tokens[1]) == 16 && strlen(tokens[2]) == 64 && strlen(tokens[6]) == 8 &&
+    strcmp(tokens[3], "green") == 0 && groupUnsigned(tokens[4], 0, 100, &brightness) &&
+    groupUnsigned(tokens[5], 1, 300000, &duration);
+  if (valid) {
+    for (const char *p = tokens[1]; *p; p++) if (groupHex(*p) < 0) valid = false;
+    for (const char *p = tokens[2]; *p; p++) if (groupHex(*p) < 0) valid = false;
+    for (const char *p = tokens[6]; *p; p++) if (groupHex(*p) < 0) valid = false;
+  }
+  bool any = false;
+  if (valid) {
+    for (int i = 0; i < 256; i++) {
+      if (groupHex(tokens[2][i / 4]) & (1 << (i % 4))) {
+        any = true;
+        if (i >= MODULES || i >= 255) valid = false;
+      }
+    }
+  }
+  char payload[256];
+  uint32_t checksum = 0;
+  if (valid && any) {
+    char address[96];
+    strncpy(address, CONTROLLER_ADDRESS, sizeof(address) - 1);
+    address[sizeof(address) - 1] = 0;
+    for (char *p = address; *p; p++) *p = toupper(*p);
+    snprintf(payload, sizeof(payload), "%s %s %s %s %s %s", address, tokens[1], tokens[2], tokens[3], tokens[4], tokens[5]);
+    checksum = groupCrc(payload);
+    valid = checksum == (uint32_t)strtoul(tokens[6], NULL, 16);
+  } else valid = false;
+  bool duplicate = false;
+  if (valid) for (int i = 0; i < 8; i++) {
+    if (strcmp(groupRequests[i], tokens[1]) == 0) {
+      duplicate = true;
+      if (groupChecksums[i] != checksum) valid = false;
+    }
+  }
+  if (!valid) {
+    send485("{\"type\":\"error\",\"message\":\"invalid-blink-group\"}\n");
+    return;
+  }
+  if (!duplicate) {
+    unsigned long startedAt = millis();
+    for (int module = 0; module < MODULES && module < 255; module++) {
+      if (groupHex(tokens[2][module / 4]) & (1 << (module % 4)))
+        blinkModule(module, colorFor("green"), brightness, duration, false, startedAt);
+    }
+    pixels.show();
+    strcpy(groupRequests[groupRequestSlot], tokens[1]);
+    groupChecksums[groupRequestSlot] = checksum;
+    groupRequestSlot = (groupRequestSlot + 1) % 8;
+  }
+  char reply[240];
+  snprintf(reply, sizeof(reply), "{\"type\":\"ack\",\"command\":\"blink-group\",\"request\":\"%s\",\"address\":\"%s\"}\n", tokens[1], CONTROLLER_ADDRESS);
+  send485(reply);
+}
+
 void handleLine(char *cmdLine) {
-  char local[160];
+  char local[320];
   strncpy(local, cmdLine, sizeof(local) - 1);
   local[sizeof(local) - 1] = 0;
 
@@ -995,16 +1082,21 @@ void handleLine(char *cmdLine) {
     lowerToken(command);
   }
 
+  if (strcmp(command, "blink-group") == 0) {
+    blinkGroup(tokens, count);
+    return;
+  }
+
   if (strcmp(command, "ping") == 0) {
     char msg[180];
-    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
+    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
     send485(msg);
     return;
   }
 
   if (strcmp(command, "version") == 0 || strcmp(command, "status") == 0) {
     char msg[180];
-    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
+    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
     send485(msg);
     return;
   }
@@ -1251,7 +1343,7 @@ void setup() {
   pixels.show();
 
   char bootMsg[180];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v12\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v13\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
   send485(bootMsg);
 }
 
@@ -1260,13 +1352,16 @@ void loop() {
     char c = RS485.read();
     if (c == '\n') {
       line[linePos] = 0;
-      handleLine(line);
+      if (!lineOverflow) handleLine(line);
       linePos = 0;
+      lineOverflow = false;
     } else {
       if (c != '\r') {
         if (linePos < (int)sizeof(line) - 1) {
           line[linePos] = c;
           linePos++;
+        } else {
+          lineOverflow = true;
         }
       }
     }

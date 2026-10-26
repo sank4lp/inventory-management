@@ -1,5 +1,6 @@
 import {createHostAdapter} from "../../modules/hardware/host-adapter.js";
-import { createHash } from "node:crypto";
+import { groupChecksum, groupMask } from "./group-protocol.js";
+import { createHash, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { accessSync, closeSync, constants, openSync, readSync, writeSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
@@ -246,6 +247,8 @@ export function createRs485Adapter({ config = {}, logger }) {
     return chunks.join("");
   }
 
+  const groupCapabilities = new Map();
+
   function checkControllerHealth(controller, {timeoutMs=2000}={}) {
     const deadlineAt=Date.now()+numberSetting(timeoutMs,2000,{min:1,max:2000});
     const readWithinBudget=limit=>readSerialWindow(Math.min(limit,Math.max(0,deadlineAt-Date.now())));
@@ -295,6 +298,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     }
 
+    groupCapabilities.set(String(controllerAddress), { supported: matchedReply.groupBlink === 1, at: Date.now() });
     return {
       ok: true,
       degraded: false,
@@ -605,6 +609,42 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     },
     checkControllerHealth,
+    sendCellTests(cells, color = "green") {
+      if (!cells.length) return {ok:true, events:[]};
+      const address = controllerAddressFor(cells[0]);
+      if (!firmwareAddress(address) || cells.some(c => controllerAddressFor(c) !== address || !hasModuleTarget(c))) {
+        throw new Error('Grouped ping requires valid outputs on one controller.');
+      }
+      let capability = groupCapabilities.get(String(address));
+      if (!capability || Date.now() - capability.at > 60000) {
+        const health = checkControllerHealth({address, id:cells[0].controller_id, controller_code:cells[0].controller_code || address});
+        if (!health.ok) return health;
+        capability = groupCapabilities.get(String(address));
+      }
+      if (!capability.supported) {
+        const results = cells.map(cell => this.sendCellTest(cell, color));
+        return {ok:results.every(r => r.ok), degraded:results.some(r => r.degraded), events:results.flatMap(r => r.events)};
+      }
+      if (firmwareWord(color, "green") !== 'green') throw new Error('Grouped ping supports green only.');
+      const requestId = randomBytes(8).toString('hex');
+      const payload = `${requestId} ${groupMask(cells.map(c => Number(c.hardware_channel)))} ${firmwareWord(color, "green")} ${currentBrightness().brightnessPercent} ${BLINK_TEST_DURATION_MS}`;
+      const command = addressedCommand(address, `blink-group ${payload} ${groupChecksum(`${String(address).toUpperCase()} ${payload}`)}`);
+      // Drain stale replies; only a matching controller AND request can confirm this update.
+      let confirmed = false;
+      try {
+        readSerialWindow(20);
+        for (let attempt = 0; attempt < 3 && !confirmed; attempt++) {
+          send(command, {repeats:1});
+          confirmed = parseJsonLines(readSerialWindow(150)).some(reply =>
+            reply.type === 'ack' && reply.command === 'blink-group' && reply.request === requestId &&
+            String(reply.address).toUpperCase() === String(address).toUpperCase());
+        }
+      } catch (error) { logger?.warn('hardware.rs485.group_unconfirmed', {error:error.message,requestId}); }
+      return {ok:confirmed, degraded:!confirmed,
+        message:confirmed ? null : 'Grouped ping was not acknowledged. Check the controller connection.',
+        events:cells.map(cell => event({controllerId:cell.controller_id,cellId:cell.id,eventType:'cell_test',
+          status:confirmed?'ok':'degraded',payload:{type:'cell-test',command,controllerAddress:address,requestId,grouped:true,confirmed}}))};
+    },
     sendCellTest(cell, color = "green") {
       const brightness = currentBrightness();
       if (!hasModuleTarget(cell)) {

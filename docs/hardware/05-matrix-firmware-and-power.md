@@ -390,3 +390,7 @@ Recommended production starting point for 8x8 matrix modules:
 ```
 
 Use the lower end if wiring is long or converter quality is unknown.
+
+## Grouped ping
+
+Protocol v13 adds an acknowledged, checksummed group command so selected outputs on one controller start together. See [grouped LED ping](06-grouped-led-ping.md) for update steps, delivery guarantees and bench checks.
