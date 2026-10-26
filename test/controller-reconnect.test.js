@@ -81,10 +81,15 @@ test('a utility request never probes or overwrites a cell owned by active work',
   }finally{f.end();}
 });
 
-test('controller probe stops within its supplied budget before sending after a slow drain',()=>{
+test('controller probe retries only within its supplied budget',()=>{
   const writes=[];const adapter=createRs485Adapter({logger:{debug(){},warn(){}},config:{rs485WriteLine:line=>writes.push(line),rs485ReadWindow:timeout=>{Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,timeout);return '';}}});
   try{
-    const began=performance.now();assert.throws(()=>adapter.checkControllerHealth({id:1,address:'RECOVER',controller_code:'Test'},{timeoutMs:40}),/timed out/);
-    assert.ok(performance.now()-began<500);assert.equal(writes.length,0);
+    const began=performance.now();const result=adapter.checkControllerHealth({id:1,address:'RECOVER',controller_code:'Test'},{timeoutMs:40});
+    assert.equal(result.ok,false);assert.ok(performance.now()-began<500);assert.ok(writes.length>=1&&writes.length<=3);
   }finally{adapter.dispose();}
+});
+
+test('an over-budget serial drain cannot send a late probe',()=>{
+ const writes=[];const adapter=createRs485Adapter({logger:{debug(){},warn(){}},config:{rs485WriteLine:line=>writes.push(line),rs485ReadWindow:()=>{Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60);return '';}}});
+ try{assert.equal(adapter.checkControllerHealth({id:1,address:'RECOVER',controller_code:'Test'},{timeoutMs:40}).ok,false);assert.equal(writes.length,0);}finally{adapter.dispose();}
 });

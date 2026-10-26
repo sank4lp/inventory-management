@@ -1,6 +1,6 @@
 # Simultaneous LED ping
 
-The app and `firmware/esp32-simple-matrix/esp32-simple-matrix.ino` support grouped ping (introduced in v13, retained in `simple-matrix-v14-rs485-addressed`). A selected group of two or more cells on one controller is rendered in a single NeoPixel refresh, with one shared animation start time. Single-cell ping continues to use the individual command. Separate controllers receive separate groups; synchronization across controllers is not guaranteed. Other display actions retain their existing commands.
+The app and `firmware/esp32-simple-matrix/esp32-simple-matrix.ino` support grouped ping (introduced in v13, retained in `simple-matrix-v15-rs485-addressed`). A selected group of two or more cells on one controller is rendered in a single NeoPixel refresh, with one shared animation start time. Protocol v15 sends both single and grouped pings through the shared acknowledged display frame. Separate controllers receive separate groups; synchronization across controllers is not guaranteed. Quantities, LED numbers, cell names, task/count guidance, locate and clear also use synchronized frames; see [shared display updates](10-synchronized-led-displays.md).
 
 ## Update and bench check
 

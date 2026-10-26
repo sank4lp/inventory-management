@@ -21,7 +21,7 @@ Whenever a future controller editor changes the route/count, it must refresh thi
 
 ## Replace the board
 
-1. Deploy the updated app and current firmware source on the controlling host. A pinned offline toolchain manifest must match protocol v14.
+1. Deploy the updated app and current firmware source on the controlling host. A pinned offline toolchain manifest must match protocol v15.
 2. Switch off power. Disconnect the old ESP32 from the LED/RS485 wiring and power so it cannot share the replacement's address on the bus.
 3. Connect a compatible replacement ESP32 to the host by USB, isolated from the external 5V rail and LED data connection during flashing.
 4. In Hardware → Controller Health, click **Edit** beside the original controller, then follow **Disconnect → Attach** to select the new board's USB port.

@@ -1283,23 +1283,31 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function overridingQuantityDisplay(cellId) {
     return !!db.prepare(`SELECT 1 FROM display_requests d, json_each(d.targets_json) t
       WHERE d.state IN ('active','expiring') AND json_extract(d.scope_json,'$.overrideWork')=1
-      AND json_extract(t.value,'$.cellId')=? AND json_extract(t.value,'$.status')='sent' LIMIT 1`).get(cellId);
+      AND json_extract(t.value,'$.cellId')=? AND (json_extract(t.value,'$.status')='sent' OR json_extract(t.value,'$.deliveryUnconfirmed')=1) LIMIT 1`).get(cellId);
   }
   const stocktakeFrames=new Map();
-  const stocktakeDisplayQueue=createStocktakeDisplayQueue({logger});
+  let backgroundDeliveries=null;
+  const stocktakeDisplayQueue=createStocktakeDisplayQueue({logger,batch:callback=>{
+    backgroundDeliveries=[];
+    try{
+      if(hardwareService?.batchLedUpdates)hardwareService.batchLedUpdates(callback);else callback();
+      for(const {result,cellId,generation,frame} of backgroundDeliveries)if(result?.ok&&!result.degraded){db.prepare('UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?').run(cellId,generation);stocktakeFrames.set(cellId,generation+':'+frame);}
+    }finally{backgroundDeliveries=null;}
+  }});
   function sendBackgroundStocktake(cellId,generation){
     const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=? AND generation=?').get(cellId,generation);
     if(!row)return;
     const desired=JSON.parse(row.desired);
     if(!(desired.action==='stocktake'||desired.action==='clear'&&desired.backgroundStocktake)||overridingQuantityDisplay(cellId))return;
-    if(db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND json_extract(t.value,'$.cellId')=? AND json_extract(t.value,'$.status')='sent' AND json_extract(t.value,'$.workGeneration') IS ?").get(cellId,generation))return;
+    if(db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND json_extract(t.value,'$.cellId')=? AND (json_extract(t.value,'$.status')='sent' OR json_extract(t.value,'$.deliveryUnconfirmed')=1) AND json_extract(t.value,'$.workGeneration') IS ?").get(cellId,generation))return;
     const cell=db.prepare('SELECT c.*,ctrl.address AS controller_address,ctrl.heartbeat_status FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(cellId);
     if(!cell||desired.binding!==guidanceBinding(db,cellId))return;
     if(cell.heartbeat_status&&cell.heartbeat_status!=='online'&&hardwareService.ensureControllerReady){const ready=hardwareService.ensureControllerReady(cell.controller_id);if(!ready?.ok||ready.degraded)return;}
     const frame=Math.floor(Date.now()/4000)%(desired.values?.length||1),context={workGeneration:generation,workCellId:cellId,workBinding:desired.binding,source:'work_coordinator'};
     const value=desired.values?.[frame]?.value??0;
     const result=desired.action==='clear'?hardwareService.clearGuidance({id:null,type:'pick'},[cell],context):hardwareService.showCellQuantity(cell,Number.isInteger(value)&&value>=0&&value<=999?value:Number.isFinite(value)?String(value):'COUNT',desired.color,context);
-    if(result?.ok&&!result.degraded){db.prepare('UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?').run(cellId,generation);stocktakeFrames.set(cellId,generation+':'+frame);}
+    if(backgroundDeliveries)backgroundDeliveries.push({result,cellId,generation,frame});
+    else if(result?.ok&&!result.degraded){db.prepare('UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?').run(cellId,generation);stocktakeFrames.set(cellId,generation+':'+frame);}
   }
   function flushGuidance({restore=false,restoreCells=[],claims=null}={}) {
     withTransaction(db,()=>{
@@ -1308,7 +1316,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       for (const cellId of restoreCells) db.prepare("UPDATE work_guidance SET delivered=0 WHERE cell_id=?").run(cellId);
     });
     if (!hardwareService) return;
-    for (const row of db.prepare("SELECT * FROM work_guidance WHERE delivered=0 OR json_extract(desired,'$.action') IN ('stocktake','count')").all()) {
+    const deliveries=[];
+    const send=()=>{for (const row of db.prepare("SELECT * FROM work_guidance WHERE delivered=0 OR json_extract(desired,'$.action') IN ('stocktake','count')").all()) {
       if (overridingQuantityDisplay(row.cell_id)) continue;
       const desired = JSON.parse(row.desired);
       const countDisplay=['stocktake','count'].includes(desired.action);
@@ -1318,7 +1327,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         stocktakeDisplayQueue.add(row.cell_id,()=>sendBackgroundStocktake(row.cell_id,row.generation),{priority:desired.color==='blue'&&!stocktakeFrames.get(row.cell_id)?.startsWith(row.generation+':')});
         continue;
       }
-      if(countDisplay&&db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND json_extract(t.value,'$.cellId')=? AND json_extract(t.value,'$.status')='sent' AND json_extract(t.value,'$.workGeneration') IS ?").get(row.cell_id,row.generation))continue;
+      if(countDisplay&&db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND json_extract(t.value,'$.cellId')=? AND (json_extract(t.value,'$.status')='sent' OR json_extract(t.value,'$.deliveryUnconfirmed')=1) AND json_extract(t.value,'$.workGeneration') IS ?").get(row.cell_id,row.generation))continue;
       if(claims&&!claims.some(c=>c.cellId===row.cell_id&&c.generation===row.generation&&c.lineId===desired.lineId))continue;
       const cell = db.prepare("SELECT c.*,ctrl.address AS controller_address FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?").get(row.cell_id);
       if (!cell || desired.binding!==guidanceBinding(db,row.cell_id)) continue;
@@ -1336,8 +1345,10 @@ export function createOperationsService({ db, hardwareService = null, logger = n
           ? hardwareService.showCellQuantity(cell, "LOC", "yellow", context)
           : hardwareService.activateGuidance({ id: allocation.task_id, type: allocation.type }, [allocation], context);
       }
-      if (result?.ok && !result.degraded) {db.prepare("UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?").run(row.cell_id, row.generation);if(countDisplay)stocktakeFrames.set(row.cell_id,row.generation+':'+frame);}
-    }
+      deliveries.push({result,row,countDisplay,frame});
+    }};
+    if(hardwareService.batchLedUpdates)hardwareService.batchLedUpdates(send);else send();
+    for(const {result,row,countDisplay,frame} of deliveries)if(result?.ok&&!result.degraded){db.prepare("UPDATE work_guidance SET delivered=1 WHERE cell_id=? AND generation=?").run(row.cell_id,row.generation);if(countDisplay)stocktakeFrames.set(row.cell_id,row.generation+':'+frame);}
   }
   function guidanceStatus(l,actor=null){
     if(l.assignment_state!=='started'||!['ready','working'].includes(l.execution_state))return null;

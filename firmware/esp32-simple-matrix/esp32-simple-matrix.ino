@@ -22,7 +22,7 @@
 
 #define MAX_CONTROLLER_MODULES 64
 #define MODULES runtimeConfig.logicalCount
-#define FIRMWARE_PROTOCOL "simple-matrix-v14-rs485-addressed"
+#define FIRMWARE_PROTOCOL "simple-matrix-v15-rs485-addressed"
 #define W 8
 #define H 8
 #define LEDS_PER_MODULE 64
@@ -110,7 +110,7 @@ struct ModuleState {
 
 ModuleState modules[MAX_CONTROLLER_MODULES];
 
-char line[320];
+char line[9216];
 int linePos = 0;
 bool lineOverflow = false;
 int layoutMode = DEFAULT_LAYOUT;
@@ -559,7 +559,7 @@ void renderModule(int module) {
   }
 }
 
-void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int brightness, bool forceScroll, bool scrollOnce) {
+void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int brightness, bool forceScroll, bool scrollOnce, bool showNow = true) {
   if (module < 0) {
     return;
   }
@@ -593,10 +593,10 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
 
   modules[module].scrollOffset = W;
   renderModule(module);
-  pixels.show();
+  if (showNow) pixels.show();
 }
 
-void showTaskModule(int module, const char *text, uint32_t color, int brightness) {
+void showTaskModule(int module, const char *text, uint32_t color, int brightness, bool showNow = true) {
   if (module < 0) {
     return;
   }
@@ -624,7 +624,7 @@ void showTaskModule(int module, const char *text, uint32_t color, int brightness
   }
 
   renderModule(module);
-  pixels.show();
+  if (showNow) pixels.show();
 }
 
 void setModuleIdle(int module) {
@@ -839,7 +839,7 @@ void blinkModule(int module, uint32_t color, int brightness, unsigned long durat
   if (showNow) pixels.show();
 }
 
-void locateModule(int module, uint32_t color, int brightness, unsigned long durationMs) {
+void locateModule(int module, uint32_t color, int brightness, unsigned long durationMs, bool showNow = true, unsigned long startedAt = 0) {
   if (module < 0) {
     return;
   }
@@ -849,7 +849,7 @@ void locateModule(int module, uint32_t color, int brightness, unsigned long dura
   if (durationMs == 0) {
     durationMs = DEFAULT_LOCATE_DURATION_MS;
   }
-  unsigned long now = millis();
+  unsigned long now = showNow ? millis() : startedAt;
   modules[module].mode = MODE_STATIC;
   modules[module].text[0] = 0;
   modules[module].brightness = clampBrightness(brightness);
@@ -860,7 +860,7 @@ void locateModule(int module, uint32_t color, int brightness, unsigned long dura
   modules[module].testUntil = 0;
   modules[module].lastTestStep = -1;
   renderRippleModule(module, 0, true);
-  pixels.show();
+  if (showNow) pixels.show();
 }
 
 void updateModuleTests() {
@@ -1092,10 +1092,94 @@ void blinkGroup(char **tokens, int count) {
   send485(reply);
 }
 
+// Versioned, checksummed display frames: validate every output, then latch the chain once.
+// 1-byte count, then per-output: channel, mode, brightness, RGB, speed u16,
+// duration u32, flags, text length, printable ASCII text (all integers big-endian).
+struct DisplayEntry {
+  uint8_t channel, mode, brightness, flags;
+  uint32_t color, duration;
+  uint16_t speed;
+  char text[56];
+};
+DisplayEntry frameEntries[MAX_CONTROLLER_MODULES];
+char frameRequests[8][17] = {};
+uint32_t frameChecksums[8] = {};
+int frameRequestSlot = 0;
+
+uint32_t displayFrameCrc(const char *request, const char *data) {
+  char address[96];
+  strncpy(address, CONTROLLER_ADDRESS, sizeof(address)-1); address[sizeof(address)-1]=0;
+  for(char *p=address;*p;p++)*p=toupper(*p);
+  const char *parts[]={address," display-frame ",request," ",data};
+  uint32_t crc=0xffffffff;
+  for(const char *part:parts)while(*part){crc^=(uint8_t)*part++;for(int bit=0;bit<8;bit++)crc=(crc>>1)^((crc&1)?0xedb88320:0);}
+  return crc^0xffffffff;
+}
+bool frameReadByte(const char *data, size_t length, size_t *pos, uint8_t *value) {
+  if(*pos+2>length)return false;
+  int high=groupHex(data[*pos]),low=groupHex(data[*pos+1]);
+  if(high<0||low<0)return false;
+  *value=(high<<4)|low;*pos+=2;return true;
+}
+void handleDisplayFrame(char *input) {
+  if(usbMaintenance)return;
+  char *tokens[7];int count=splitLine(input,tokens,7);
+  if(count<2||!equalsIgnoreCase(tokens[1],CONTROLLER_ADDRESS))return;
+  bool valid=count==6&&strcmp(tokens[0],"to")==0&&strcmp(tokens[2],"display-frame")==0&&
+    strlen(tokens[3])==16&&strlen(tokens[5])==8&&!configurationFault;
+  if(valid)for(const char *p=tokens[3];*p;p++)if(groupHex(*p)<0)valid=false;
+  if(valid)for(const char *p=tokens[5];*p;p++)if(groupHex(*p)<0)valid=false;
+  uint32_t checksum=valid?displayFrameCrc(tokens[3],tokens[4]):0;
+  if(valid)valid=checksum==(uint32_t)strtoul(tokens[5],NULL,16);
+  size_t pos=0,length=valid?strlen(tokens[4]):0;
+  uint8_t entries=0;
+  if(valid)valid=length<=8834&&frameReadByte(tokens[4],length,&pos,&entries)&&entries>0&&entries<=MAX_CONTROLLER_MODULES;
+  bool seen[MAX_CONTROLLER_MODULES]={};
+  for(int i=0;valid&&i<entries;i++){
+    uint8_t fields[14];
+    for(int n=0;n<14;n++)if(!frameReadByte(tokens[4],length,&pos,&fields[n]))valid=false;
+    if(!valid)break;
+    DisplayEntry &entry=frameEntries[i];
+    entry.channel=fields[0];entry.mode=fields[1];entry.brightness=fields[2];
+    entry.color=pixels.Color(fields[3],fields[4],fields[5]);entry.speed=(fields[6]<<8)|fields[7];
+    entry.duration=((uint32_t)fields[8]<<24)|((uint32_t)fields[9]<<16)|(fields[10]<<8)|fields[11];entry.flags=fields[12];
+    int textLength=fields[13];
+    valid=entry.channel>=1&&entry.channel<=MAX_CONTROLLER_MODULES&&mappedModule(entry.channel-1)&&!seen[entry.channel-1]&&
+      entry.mode>=1&&entry.mode<=5&&entry.brightness<=100&&entry.speed>=20&&entry.speed<=1000&&entry.flags<=1&&(entry.flags==0||entry.mode==1)&&textLength<=55&&
+      ((entry.mode<=2&&entry.duration==0)||(entry.mode==3&&textLength==0&&entry.duration==0)||(entry.mode>=4&&textLength==0&&entry.duration>0&&entry.duration<=300000));
+    if(!valid)break;
+    seen[entry.channel-1]=true;
+    for(int n=0;n<textLength;n++){uint8_t ch;if(!frameReadByte(tokens[4],length,&pos,&ch)||ch<32||ch>126){valid=false;break;}entry.text[n]=ch;}
+    entry.text[textLength]=0;
+  }
+  valid=valid&&pos==length;
+  bool duplicate=false;
+  if(valid)for(int i=0;i<8;i++)if(strcmp(frameRequests[i],tokens[3])==0){duplicate=true;if(frameChecksums[i]!=checksum)valid=false;}
+  if(!valid){send485("{\"type\":\"error\",\"message\":\"invalid-display-frame\"}\n");return;}
+  if(!duplicate){
+    unsigned long startedAt=millis();
+    for(int i=0;i<entries;i++){
+      DisplayEntry &e=frameEntries[i];int module=e.channel-1;
+      if(e.mode==1)showOrScroll(module,e.text,e.color,e.speed,e.brightness,false,e.flags==1,false);
+      else if(e.mode==2)showTaskModule(module,e.text,e.color,e.brightness,false);
+      else if(e.mode==3)setModuleIdle(module);
+      else if(e.mode==4)blinkModule(module,e.color,e.brightness,e.duration,false,startedAt);
+      else locateModule(module,e.color,e.brightness,e.duration,false,startedAt);
+      if(e.mode<=2)modules[module].lastStepAt=startedAt;
+    }
+    pixels.show();
+    strcpy(frameRequests[frameRequestSlot],tokens[3]);frameChecksums[frameRequestSlot]=checksum;frameRequestSlot=(frameRequestSlot+1)%8;
+  }
+  char reply[256];snprintf(reply,sizeof(reply),"{\"type\":\"ack\",\"command\":\"display-frame\",\"request\":\"%s\",\"address\":\"%s\",\"checksum\":\"%08lx\"}\n",tokens[3],CONTROLLER_ADDRESS,(unsigned long)checksum);send485(reply);
+}
+
 void configureController(char **tokens, int count);
 void controllerConfigStatus(const char *request);
 
 void handleLine(char *cmdLine) {
+  char *firstSpace=strchr(cmdLine,' '),*secondSpace=firstSpace?strchr(firstSpace+1,' '):NULL;
+  if(secondSpace&&strncmp(secondSpace+1,"display-frame ",14)==0){handleDisplayFrame(cmdLine);return;}
+  if(strlen(cmdLine)>=320)return;
   char local[320];
   strncpy(local, cmdLine, sizeof(local) - 1);
   local[sizeof(local) - 1] = 0;
@@ -1154,14 +1238,14 @@ void handleLine(char *cmdLine) {
 
   if (strcmp(command, "ping") == 0) {
     char msg[512];
-    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
+    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
     send485(msg);
     return;
   }
 
   if (strcmp(command, "version") == 0 || strcmp(command, "status") == 0) {
     char msg[512];
-    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
+    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
     send485(msg);
     return;
   }
@@ -1537,7 +1621,7 @@ void setup() {
 
   Serial.setRxBufferSize(1024);
   Serial.begin(115200);
-  RS485.setRxBufferSize(1024); // Receive full configuration frames while LEDs are refreshing.
+  RS485.setRxBufferSize(10240); // Receive full configuration frames while LEDs are refreshing.
   RS485.begin(115200, SERIAL_8N1, RS485_RX, RS485_TX);
 
   loadControllerConfig();
@@ -1549,7 +1633,7 @@ void setup() {
   resetConfiguredModules();
 
   char bootMsg[512];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v14\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v15\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
   send485(bootMsg);
 }
 

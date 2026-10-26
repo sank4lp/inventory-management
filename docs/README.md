@@ -53,6 +53,7 @@ The [responsive UI contract and validation](RESPONSIVE-UI.md) records shared siz
 | `hardware/03-physical-installation-guide.md` | Step-by-step physical installation and wiring sequence |
 | `hardware/04-bench-controller-pinout.md` | Known-working ESP32, MAX485, LM2596, and WS2812 bench pinout |
 | `hardware/05-matrix-firmware-and-power.md` | Matrix firmware command inputs, color support, and buck-converter power sizing |
+| `hardware/10-synchronized-led-displays.md` | Shared acknowledged LED updates, protocol v15, and firmware update checks |
 | `architecture/01-software-architecture-outline.md` | Proposed software architecture direction |
 | `architecture/02-codebase-architecture.md` | Current local application layers and code organization |
 | `LOCAL-FIRST-OPERATIONS.md` | Implemented local multi-operator behavior and deployment/physical acceptance limits |

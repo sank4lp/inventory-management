@@ -3277,7 +3277,47 @@ function updateFirmwarePanel(panel, job) {
   syncFirmwareSubmitState(panel);
 }
 
-function showFirmwareError(panel, message) {
+const firmwareResultDialogs = new WeakMap();
+function showFirmwareResult(panel, job) {
+  if (!panel.isConnected || pageScope?.active === false) return;
+  const previous = firmwareResultDialogs.get(panel);
+  const key = `${job.id || 'request'}:${job.status}:${job.error || ''}`;
+  if (previous?.key === key) return;
+  previous?.dialog.remove();
+  const success = job.status === 'completed';
+  const simulated = success && job.stage === 'simulated';
+  const dialog = document.createElement('dialog');
+  dialog.className = 'task-edit-dialog firmware-result-dialog';
+  dialog.setAttribute('aria-labelledby', 'firmware-result-title');
+  dialog.setAttribute('aria-describedby', 'firmware-result-message');
+  const header = document.createElement('header');
+  header.className = 'review-task-header';
+  const title = document.createElement('h2');
+  title.id = 'firmware-result-title';
+  title.textContent = job.resultTitle || (simulated ? 'Simulation complete' : success ? 'Firmware updated successfully' : 'Firmware update failed');
+  header.append(title);
+  const message = document.createElement('p');
+  message.id = 'firmware-result-message';
+  message.textContent = simulated ? 'This was a simulation. No firmware was flashed.' : success ? (job.verificationHint || 'The firmware was uploaded and verified. You can now check the controller connection.') : (job.error || 'The firmware could not be updated.');
+  const next = document.createElement('p');
+  next.textContent = success ? '' : (job.recoveryHint || 'Keep the USB cable connected. Check the details on the update screen before trying again.');
+  next.hidden = !next.textContent;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = success ? 'Done' : 'Back to update';
+  onPage(button, 'click', () => dialog.close());
+  onPage(dialog, 'close', () => {
+    dialog.remove();
+    if (success && pageScope?.active !== false) window.location.reload();
+  });
+  dialog.append(header, message, next, button);
+  (document.querySelector('.ui-template') || document.body).append(dialog);
+  pageScope?.own(() => dialog.remove());
+  firmwareResultDialogs.set(panel, {key, dialog});
+  dialog.showModal();
+}
+
+function showFirmwareError(panel, message, {notify = true, resultTitle = 'Firmware update could not finish'} = {}) {
   updateFirmwarePanel(panel, {
     status: "failed",
     stage: "failed",
@@ -3285,6 +3325,7 @@ function showFirmwareError(panel, message) {
     error: message,
     logs: [{ line: `ERROR: ${message}` }],
   });
+  if (notify) showFirmwareResult(panel, {status: 'failed', error: message, resultTitle});
 }
 
 async function pollFirmwareJob(panel, jobId, submitButton) {
@@ -3303,7 +3344,7 @@ async function pollFirmwareJob(panel, jobId, submitButton) {
   if (payload.job.status === "running") {
     setTimeout(() => {
       pollFirmwareJob(panel, jobId, submitButton).catch((error) => {
-        showFirmwareError(panel, error.message);
+        showFirmwareError(panel, error.message, {resultTitle: 'Could not check firmware update'});
         syncFirmwareSubmitState(panel);
       });
     }, 900);
@@ -3314,11 +3355,7 @@ async function pollFirmwareJob(panel, jobId, submitButton) {
     submitButton.disabled = false;
   }
 
-  if (payload.job.status === "completed") {
-    setTimeout(() => {
-      window.location.reload();
-    }, 1200);
-  }
+  if (['completed', 'failed'].includes(payload.job.status)) showFirmwareResult(panel, payload.job);
 }
 
 function wireFirmwareFlash() {
@@ -3414,6 +3451,7 @@ function wireFirmwareFlash() {
       if(currentFirmwareWizardStep(panel)!==3){advanceFirmwareWizard(panel);return;}
       if(panel.dataset.firmwareJobRunning==='true')return;
       if(!form.reportValidity())return;
+      firmwareResultDialogs.delete(panel);
       updateFirmwarePanel(panel, {
         status: "running",
         stage: "queued",
@@ -3430,7 +3468,7 @@ function wireFirmwareFlash() {
         let response = await send();
         let payload = await response.clone().json();
         if (!response.ok && payload.code === 'OUTSTANDING_WORK') {
-          showFirmwareError(panel, payload.error);
+          showFirmwareError(panel, payload.error, {notify: false});
           syncFirmwareSubmitState(panel);
           const replacement = Number(body.get('replacement_controller_id')) > 0;
           const choice = await (await import('./client/setup-work-dialog.js')).showSetupWorkResponse(response, {

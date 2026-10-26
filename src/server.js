@@ -2027,7 +2027,7 @@ export const requestHandler = async (request, response) => {
         return;
       }
 
-      const results = targets.map((target) => hardwareService.sendCellTest(target, form.color || "green"));
+      const results = hardwareService.batchLedUpdates(() => targets.map((target) => hardwareService.sendCellTest(target, form.color || "green")));
       const degradedCount = results.filter((result) => result.degraded).length;
       const sentCount = targets.length - degradedCount;
       sendRedirect(

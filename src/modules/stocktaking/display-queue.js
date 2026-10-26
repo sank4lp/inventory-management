@@ -1,11 +1,11 @@
-// Yield between background LED writes so a warehouse-sized display does not block the app.
-export function createStocktakeDisplayQueue({logger=null}={}) {
+// Yield once, then commit queued background displays together per controller.
+export function createStocktakeDisplayQueue({logger=null,batch=callback=>callback()}={}) {
   let jobs=new Map(),timer=null,disposed=false;
-  function schedule(){if(!disposed&&!timer&&jobs.size){timer=setTimeout(drain,10);timer.unref?.();}}
+  function schedule(){if(!disposed&&!timer&&jobs.size){timer=setTimeout(drain,0);timer.unref?.();}}
   function drain(){
     timer=null;if(disposed)return;
-    const [id,job]=jobs.entries().next().value||[];
-    if(job){jobs.delete(id);try{job();}catch(error){logger?.warn('stocktaking.display.retry',{error:error.message});}}
+    const pending=[...jobs.values()];jobs.clear();
+    try{batch(()=>{for(const job of pending)try{job();}catch(error){logger?.warn('stocktaking.display.retry',{error:error.message});}});}catch(error){logger?.warn('stocktaking.display.retry',{error:error.message});}
     schedule();
   }
   return {

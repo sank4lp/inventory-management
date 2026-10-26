@@ -367,3 +367,5 @@
 .setup-work-dialog .setup-blockers-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 .setup-work-dialog [data-blockers-confirm] { padding: 16px; border: 1px solid #e3d6c4; border-radius: 10px; }
 .setup-work-dialog [data-blockers-confirm] label { display: flex; align-items: start; gap: 10px; margin: 12px 0; }
+
+.ui-template .firmware-result-dialog { width: min(560px, 92vw); max-width: 92vw; }

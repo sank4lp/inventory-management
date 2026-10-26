@@ -324,8 +324,8 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
       )
       .all();
 
-    const recoveredTaskIds = [];
-    for (const row of rows) {
+    const recoveredTaskIds = [], deliveries = [];
+    const send = () => {for (const row of rows) {
       const task = getTask(db, row.id);
       if (!task) {
         continue;
@@ -334,6 +334,10 @@ export function createSystemService({ db, config, logger, hardwareService, getTa
         source: "startup_recovery",
       });
       recoveredTaskIds.push(task.id);
+      deliveries.push({task,result});
+    }};
+    if(hardwareService.batchLedUpdates)hardwareService.batchLedUpdates(send);else send();
+    for(const {task,result} of deliveries){
       recordSystemEvent({
         eventType: "startup_recovery",
         status: result.degraded ? "warning" : "info",

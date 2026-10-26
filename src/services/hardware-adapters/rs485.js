@@ -1,4 +1,5 @@
 import {createHostAdapter} from "../../modules/hardware/host-adapter.js";
+import {displayEntry,displayFrame} from "./display-frame.js";
 import { groupChecksum, groupMask } from "./group-protocol.js";
 import { createHash, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -115,6 +116,7 @@ export function createRs485Adapter({ config = {}, logger }) {
   let configured = false;
   let portFd = null;
   let lastWriteAt = 0;
+  let lastReplyAt = -Infinity;
   let heartbeatSyncStarted = false;
   let heartbeatSyncTimer = null;
   const locateTimers = new Map();
@@ -155,13 +157,15 @@ export function createRs485Adapter({ config = {}, logger }) {
     startHeartbeatSync();
   }
 
-  function send(command, options = {}) {
+  function rawSend(command, options = {}) {
     ensureReady();
     const repeats = numberSetting(options.repeats, writeRepeats, { min: 1, max: 8 });
     try {
+      // Allow the controller's RS485 driver to release the bus after its final reply byte.
+      sleepMs(Math.max(0,1-(performance.now()-lastReplyAt)));
       const now = Date.now();
       const sinceLastWrite = now - lastWriteAt;
-      if (lastWriteAt > 0 && sinceLastWrite < interCommandDelayMs) {
+      if (!options.immediate && lastWriteAt > 0 && sinceLastWrite < interCommandDelayMs) {
         sleepMs(options.deadlineAt ? Math.min(interCommandDelayMs - sinceLastWrite, Math.max(0, options.deadlineAt-Date.now())) : interCommandDelayMs - sinceLastWrite);
       }
 
@@ -170,7 +174,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         if (writeLine) {
           writeLine(`${command}\n`, { command, attempt, repeats });
         } else {
-          writeSync(portFd, `${command}\n`);
+          const bytes=Buffer.from(`${command}\n`);let offset=0;while(offset<bytes.length){const written=writeSync(portFd,bytes,offset,bytes.length-offset);if(written<=0)throw new Error('Serial write did not complete.');offset+=written;}
         }
         lastWriteAt = Date.now();
         if (attempt < repeats) {
@@ -191,6 +195,51 @@ export function createRs485Adapter({ config = {}, logger }) {
     });
   }
 
+  let pendingDisplayCommands=null;
+  function send(command,options={}) {
+    const entry=displayEntry(command);
+    if(!entry){rawSend(command,options);return;}
+    if(pendingDisplayCommands){pendingDisplayCommands.push({entry,command,options});return;}
+    const failures=flushDisplayCommands([{entry,command,options}]);
+    if(failures.length)throw new Error(failures[0].message);
+  }
+  function flushDisplayCommands(commands) {
+    const groups=new Map(),failures=[];
+    for(const command of commands){const key=command.entry.address.toUpperCase();if(!groups.has(key))groups.set(key,[]);groups.get(key).push(command);}
+    for(const [address,group] of groups){
+      try{
+        let capability=groupCapabilities.get(address);
+        // Write-only injected transports retain the legacy test/integration contract.
+        if(writeLine&&typeof config.rs485ReadWindow!=='function'){for(const command of group)rawSend(command.command,command.options);continue;}
+        if(!capability||Date.now()-capability.at>60000){
+          const health=checkControllerHealth({address,controller_code:address});
+          if(!health.ok)throw new Error(health.message);
+          capability=groupCapabilities.get(address);
+        }
+        if(!capability?.displayFrame){for(const command of group)rawSend(command.command,command.options);continue;}
+        // Guidance retries and repeated clears collapse into one atomic final state per output.
+        const entries=[...new Map(group.map(c=>[c.entry.channel,c.entry])).values()];
+        const request=randomBytes(8).toString('hex'),frame=displayFrame(address,request,entries);
+        const accepts=reply=>reply.type==='ack'&&reply.command==='display-frame'&&reply.request===request&&reply.checksum===frame.checksum&&String(reply.address).toUpperCase()===address;
+        const timeout=250+Math.ceil(Buffer.byteLength(frame.command)*10*1000/115200);
+        let confirmed=false;
+        for(let attempt=0;attempt<3&&!confirmed;attempt++){
+          rawSend(frame.command,{repeats:1,immediate:true});
+          confirmed=parseJsonLines(readSerialWindow(timeout,accepts)).some(accepts);
+        }
+        if(!confirmed)throw new Error('Controller did not acknowledge the LED display. Check its connection; the update will be retried safely.');
+        lastReplyAt=performance.now();
+      }catch(error){failures.push({address,message:error.message});}
+    }
+    return failures;
+  }
+  function batch(callback) {
+    if(pendingDisplayCommands)return {value:callback(),failures:[]};
+    const commands=[];pendingDisplayCommands=commands;
+    let value;try{value=callback();}finally{pendingDisplayCommands=null;}
+    return {value,failures:flushDisplayCommands(commands)};
+  }
+
   function sendClear(hardwareChannel, controllerAddress = "") {
     send(addressedCommand(controllerAddress, `clear ${hardwareChannel}`), {
       repeats: Math.max(writeRepeats, DEFAULT_RS485_CLEAR_REPEATS),
@@ -203,7 +252,7 @@ export function createRs485Adapter({ config = {}, logger }) {
 
   function sendHeartbeatSync() {
     try {
-      send(`sync-heartbeat ${heartbeatColumnForNow()}`, { repeats: 2 });
+      send(`sync-heartbeat ${heartbeatColumnForNow()}`, { repeats: 1, immediate: true });
     } catch (error) {
       logger?.warn("hardware.rs485.heartbeat_sync_failed", {
         port,
@@ -212,7 +261,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     }
   }
 
-  function readSerialWindow(timeoutMs) {
+  function readSerialWindow(timeoutMs, accept = null) {
     if (timeoutMs <= 0) return '';
     if (typeof config.rs485ReadWindow === 'function') return config.rs485ReadWindow(timeoutMs);
     const startedAt = Date.now();
@@ -227,6 +276,8 @@ export function createRs485Adapter({ config = {}, logger }) {
           const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
           if (bytesRead > 0) {
             chunks.push(buffer.subarray(0, bytesRead).toString("utf8"));
+            const received=chunks.join('');
+            if(accept&&parseJsonLines(received.slice(0,received.lastIndexOf('\n')+1)).some(accept))break;
           } else {
             sleepMs(Math.min(20, Math.max(0, timeoutMs-(Date.now()-startedAt))));
           }
@@ -251,7 +302,7 @@ export function createRs485Adapter({ config = {}, logger }) {
 
   function checkControllerHealth(controller, {timeoutMs=2000}={}) {
     const deadlineAt=Date.now()+numberSetting(timeoutMs,2000,{min:1,max:2000});
-    const readWithinBudget=limit=>readSerialWindow(Math.min(limit,Math.max(0,deadlineAt-Date.now())));
+    const readWithinBudget=(limit,accept)=>readSerialWindow(Math.min(limit,Math.max(0,deadlineAt-Date.now())),accept);
     const controllerAddress = controllerAddressFor(controller);
     if (!controllerAddress) {
       return {
@@ -264,11 +315,16 @@ export function createRs485Adapter({ config = {}, logger }) {
     }
 
     ensureReady();
-    readWithinBudget(80);
+    readWithinBudget(1);
     const command = addressedCommand(controllerAddress, "ping");
-    send(command, { repeats: Math.max(2, Math.min(writeRepeats, 3)), deadlineAt });
-    const raw = readWithinBudget(CONTROLLER_PROBE_TIMEOUT_MS);
-    const replies = parseJsonLines(raw);
+    const accepts=reply=>reply.type==='pong'&&(String(reply.address||'').toUpperCase()===String(controllerAddress).toUpperCase()||String(reply.controller||'').toUpperCase()===String(controller.controller_code||'').toUpperCase());
+    let raw='',replies=[];
+    for(let attempt=0;attempt<3&&Date.now()<deadlineAt;attempt++){
+      send(command,{repeats:1,immediate:true,deadlineAt});
+      raw=readWithinBudget(Math.min(CONTROLLER_PROBE_TIMEOUT_MS,Math.max(1,Math.ceil((deadlineAt-Date.now())/(3-attempt)))),accepts);
+      replies=parseJsonLines(raw);
+      if(replies.some(accepts))break;
+    }
     const matchedReply = replies.find(
       (reply) =>
         reply.type === "pong" &&
@@ -298,16 +354,17 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     }
 
+    lastReplyAt=performance.now();
     if (matchedReply.configFault === true) {
-      groupCapabilities.delete(String(controllerAddress));
+      groupCapabilities.delete(String(controllerAddress).toUpperCase());
       return {ok:false,degraded:true,status:'unknown',message:'Controller configuration needs recovery. Outputs are disabled until its routing is verified.',events:[]};
     }
-    groupCapabilities.set(String(controllerAddress), { supported: matchedReply.groupBlink === 1, at: Date.now() });
+    groupCapabilities.set(String(controllerAddress).toUpperCase(), { supported: matchedReply.groupBlink === 1, displayFrame: matchedReply.displayFrame === 1, at: Date.now() });
     return {
       ok: true,
       degraded: false,
       status: "online",
-      message: `${controller.controller_code} responded on RS485.`,
+      message: `${controller.controller_code} responded on RS485.${matchedReply.displayFrame===1?'':' Update its firmware to enable synchronized displays.'}`,
       events: [
         event({
           controllerId: controller.id,
@@ -467,6 +524,7 @@ export function createRs485Adapter({ config = {}, logger }) {
 
   return {
     name: "rs485",
+    batch,
     dispose() {
       disposed=true;clearTimeout(heartbeatSyncTimer);clearInterval(heartbeatSyncTimer);
       for(const timer of locateTimers.values())clearTimeout(timer.timeout);
@@ -520,7 +578,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         for (const entry of commands) {
           send(entry.command, { repeats: 1 });
         }
-        if (burst < guidanceBurstRepeats) {
+        if (burst < guidanceBurstRepeats && !pendingDisplayCommands) {
           sleepMs(guidanceBurstDelayMs);
         }
       }
@@ -594,7 +652,7 @@ export function createRs485Adapter({ config = {}, logger }) {
     sendControllerTest(controller) {
       const controllerAddress = controllerAddressFor(controller);
       const command = addressedCommand(controllerAddress, "ping");
-      send(command);
+      send(command,{repeats:1,immediate:true});
       return {
         ok: true,
         degraded: false,
@@ -619,11 +677,16 @@ export function createRs485Adapter({ config = {}, logger }) {
       if (!firmwareAddress(address) || cells.some(c => controllerAddressFor(c) !== address || !hasModuleTarget(c))) {
         throw new Error('Grouped ping requires valid outputs on one controller.');
       }
-      let capability = groupCapabilities.get(String(address));
+      let capability = groupCapabilities.get(String(address).toUpperCase());
       if (!capability || Date.now() - capability.at > 60000) {
         const health = checkControllerHealth({address, id:cells[0].controller_id, controller_code:cells[0].controller_code || address});
         if (!health.ok) return health;
-        capability = groupCapabilities.get(String(address));
+        capability = groupCapabilities.get(String(address).toUpperCase());
+      }
+      if(capability.displayFrame){
+        const result=this.batch(()=>cells.map(cell=>this.sendCellTest(cell,color)));
+        const failed=result.failures.length>0;
+        return {ok:!failed,degraded:failed,message:result.failures[0]?.message||null,events:result.value.flatMap(r=>r.events).map(e=>({...e,status:failed?'degraded':'ok',payload:{...e.payload,grouped:true,confirmed:!failed}}))};
       }
       if (!capability.supported) {
         const results = cells.map(cell => this.sendCellTest(cell, color));
@@ -639,10 +702,10 @@ export function createRs485Adapter({ config = {}, logger }) {
         readSerialWindow(20);
         for (let attempt = 0; attempt < 3 && !confirmed; attempt++) {
           send(command, {repeats:1});
-          confirmed = parseJsonLines(readSerialWindow(150)).some(reply =>
-            reply.type === 'ack' && reply.command === 'blink-group' && reply.request === requestId &&
-            String(reply.address).toUpperCase() === String(address).toUpperCase());
+          const accepts=reply=>reply.type==='ack'&&reply.command==='blink-group'&&reply.request===requestId&&String(reply.address).toUpperCase()===String(address).toUpperCase();
+          confirmed=parseJsonLines(readSerialWindow(150,accepts)).some(accepts);
         }
+        if(confirmed)lastReplyAt=performance.now();
       } catch (error) { logger?.warn('hardware.rs485.group_unconfirmed', {error:error.message,requestId}); }
       return {ok:confirmed, degraded:!confirmed,
         message:confirmed ? null : 'Grouped ping was not acknowledged. Check the controller connection.',

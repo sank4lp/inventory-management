@@ -2,7 +2,7 @@
 
 ## Delivered scope
 
-The simple-matrix firmware now advertises `simple-matrix-v14-rs485-addressed`. It supports 0–64 physical 8×8 LED modules and 64 stable logical output slots. Module count and logical-to-physical routing can be changed over RS485 and saved in NVS without reflashing again. `LED_MODULE_COUNT` supplies only the first-boot default when there is no saved record. Existing saved configuration takes precedence on subsequent boots and firmware updates.
+The simple-matrix firmware now advertises `simple-matrix-v15-rs485-addressed`. It supports 0–64 physical 8×8 LED modules and 64 stable logical output slots. Module count and logical-to-physical routing can be changed over RS485 and saved in NVS without reflashing again. `LED_MODULE_COUNT` supplies only the first-boot default when there is no saved record. Existing saved configuration takes precedence on subsequent boots and firmware updates.
 
 The app's protocol constant is updated and `controller-configuration.js` builds/validates configuration frames. The application now sends and verifies configuration frames over USB for controller replacement and firmware updates, preserving the existing database mappings. A general editor for changing physical count/routing is still pending. See [controller replacement](08-controller-replacement.md). Cell merge, dimensions, stock transfer/removal choices, dynamic controller editing and one-cell-to-multiple-output database bindings remain application work. Do not physically rearrange a live chain until the maintenance workflow can reconcile firmware routing and database state.
 
@@ -60,4 +60,4 @@ The RX buffer is increased before serial startup to accommodate complete frames 
 
 Native C++ tests compile and exercise the actual sketch with fake serial, pixels, time and NVS. They cover host/firmware checksum agreement, 20-module provisioning, middle removal, insertion at position 4, disabled slots, duplicate/stale requests, reboot persistence, allocation/storage failures, active-display rejection, broadcast rejection, corrupted storage, explicit recovery and zero-module configuration. Grouped-ping tests continue to verify synchronized refresh and retry suppression.
 
-An actual ESP32 build and physical test remain necessary. The Arduino toolchain is not installed in the current development environment. Update any pinned offline toolchain manifest to protocol v14 before using the existing flashing workflow. Test power interruption/recovery and routing verification on the bench before enabling a controller editor.
+An actual ESP32 build and physical test remain necessary. The Arduino toolchain is not installed in the current development environment. Update any pinned offline toolchain manifest to protocol v15 before using the existing flashing workflow. Test power interruption/recovery and routing verification on the bench before enabling a controller editor.

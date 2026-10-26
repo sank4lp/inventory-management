@@ -10,11 +10,12 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
   const overrideDisplayKinds=new Set([...numberDisplayKinds,'locate','ping','module_number','cell_name']);
   const activeWork=id=>activeWorkGuidance(db,id);
   const cell=id=>db.prepare('SELECT c.*,ctrl.address AS controller_address,ctrl.heartbeat_status,ctrl.active AS controller_active,ctrl.configured_at AS controller_configured_at FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(id);
+  const batch=callback=>hardwareService.batchLedUpdates?hardwareService.batchLedUpdates(callback):callback();
   const workGeneration=id=>db.prepare('SELECT generation FROM work_guidance WHERE cell_id=?').get(id)?.generation||null;
   function clear(row) {
     const scope=JSON.parse(row.scope_json);
-    const restoreCells=[];
-    for(const target of JSON.parse(row.targets_json)) {
+    const restoreCells=[],clears=[];
+    batch(()=>{for(const target of JSON.parse(row.targets_json)) {
       if(target.status!=='sent'&&!target.deliveryUnconfirmed)continue;
       if(target.cellId&&(scope.overrideWork||db.prepare("SELECT 1 FROM work_guidance WHERE cell_id=? AND generation IS ? AND json_extract(desired,'$.action')='stocktake'").get(target.cellId,target.workGeneration)))restoreCells.push(target.cellId);
       const c=target.cellId?cell(target.cellId):target.hardware;
@@ -23,10 +24,13 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       if(target.cellId&&target.bindingRevision!==c?.binding_revision)continue;
       if(!c||c.controller_id!==target.controllerId||c.hardware_channel!==target.channel||workGeneration(target.cellId)!==target.workGeneration)continue;
       if(activeWork(target.cellId)&&!target.overrodeWork){continue;}
-      hardwareService.clearCellQuantity(c,{source:'display_coordinator',displayId:row.id,displayActor:row.actor_id});
+      clears.push(hardwareService.clearCellQuantity(c,{source:'display_coordinator',displayId:row.id,displayActor:row.actor_id}));
     }
+    });
+    if(clears.some(r=>!r.ok||r.degraded)){db.prepare("UPDATE display_requests SET state='expiring',expires_at=? WHERE id=?").run(clock().toISOString(),row.id);return false;}
     db.prepare("UPDATE display_requests SET state='stopped' WHERE id=?").run(row.id);
     if(restoreCells.length)operationsService.flushGuidance({restoreCells:[...new Set(restoreCells)]});
+    return true;
   }
   function expire(){
     const now=clock();
@@ -34,14 +38,14 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       if(row.expires_at<=now.toISOString()){clear(row);continue;}
       const targets=JSON.parse(row.targets_json);
       if(targets.some(t=>t.status==='sent'&&t.cellId&&(workGeneration(t.cellId)!==t.workGeneration||cell(t.cellId)?.binding_revision!==t.bindingRevision))){clear(row);continue;}
-      let changed=false;
-      for(const target of targets){
+      let changed=false;const deliveries=[];
+      batch(()=>{for(const target of targets){
         if(target.status!=='sent'||!target.sequence?.length||now.getTime()-Date.parse(target.lastShownAt||row.created_at)<mixedQuantityTiming(target.value).durationMs)continue;
         const c=cell(target.cellId),nextIndex=(Number(target.sequenceIndex||0)+1)%target.sequence.length,next=target.sequence[nextIndex];
         const result=hardwareService.showCellQuantity(c,next.value,next.color,{source:'display_coordinator',displayId:row.id,displayActor:row.actor_id,displayTiming:mixedQuantityTiming(next.value)});
-        if(!result.ok||result.degraded)continue;
-        target.sequenceIndex=nextIndex;target.value=next.value;target.color=next.color;target.lastShownAt=clock().toISOString();changed=true;
-      }
+        deliveries.push({target,result,next,nextIndex});
+      }});
+      for(const {target,result,next,nextIndex} of deliveries){if(!result.ok||result.degraded)continue;target.sequenceIndex=nextIndex;target.value=next.value;target.color=next.color;target.lastShownAt=clock().toISOString();changed=true;}
       if(changed)db.prepare("UPDATE display_requests SET targets_json=? WHERE id=? AND state IN ('active','expiring')").run(JSON.stringify(targets),row.id);
     }
   }
@@ -83,7 +87,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       }
       const owner=c.id?displayOwner(db,c.id):null,overrodeWork=!!(scope.overrideWork&&overrideDisplayKinds.has(scope.kind)&&owner?.kind==='task'&&activeWork(c.id));
       if(c.id&&activeWork(c.id)&&!overrodeWork)status='busy';
-      const utility=db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND json_extract(t.value,'$.status')='sent' AND json_extract(t.value,'$.controllerId')=? AND json_extract(t.value,'$.channel')=? AND json_extract(t.value,'$.workGeneration') IS ?").get(c.controller_id,c.hardware_channel,workGeneration(c.id||null));if(utility)status='busy';
+      const utility=db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND (json_extract(t.value,'$.status')='sent' OR json_extract(t.value,'$.deliveryUnconfirmed')=1) AND json_extract(t.value,'$.controllerId')=? AND json_extract(t.value,'$.channel')=? AND json_extract(t.value,'$.workGeneration') IS ?").get(c.controller_id,c.hardware_channel,workGeneration(c.id||null));if(utility)status='busy';
       if(!['busy','unmapped','unreachable'].includes(status)&&c.heartbeat_status&&c.heartbeat_status!=='online'){
         const ready=hardwareService.ensureControllerReady?.(c.controller_id);
         if(!ready?.ok||ready.degraded)status='unreachable';
@@ -121,19 +125,27 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
         }
       }
     }
-    for(const target of targets){if(groupedPingTargets.has(target))continue;if(!['ready','selection','unsupported','uncertain'].includes(target.status)||scope.kind==='cell_name'&&target.status!=='ready')continue;const c=target.cellId?cell(target.cellId):target.hardware;const numeric=target.status==='ready'&&target.value!=='LOC';const context={source:'display_coordinator',displayId:id,displayActor:a.id,...(target.sequence?.length?{displayTiming:mixedQuantityTiming(target.value)}:{})};const result=scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);target.status=result.ok&&!result.degraded?'sent':'unreachable';if(target.status==='sent')target.lastShownAt=clock().toISOString();target.numeric=numeric&&Number.isInteger(target.value)&&target.value<=999;}
+    const deliveries=[];
+    batch(()=>{for(const target of targets){
+      if(groupedPingTargets.has(target)||!['ready','selection','unsupported','uncertain'].includes(target.status)||scope.kind==='cell_name'&&target.status!=='ready')continue;
+      const c=target.cellId?cell(target.cellId):target.hardware,numeric=target.status==='ready'&&target.value!=='LOC';
+      const context={source:'display_coordinator',displayId:id,displayActor:a.id,...(target.sequence?.length?{displayTiming:mixedQuantityTiming(target.value)}:{})};
+      const result=scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);
+      deliveries.push({target,result,numeric});
+    }});
+    for(const {target,result,numeric} of deliveries){target.status=result.ok&&!result.degraded?'sent':'unreachable';if(target.status==='sent')target.lastShownAt=clock().toISOString();target.deliveryUnconfirmed=!!result.deliveryUnconfirmed;target.numeric=numeric&&Number.isInteger(target.value)&&target.value<=999;}
     db.prepare('UPDATE display_requests SET targets_json=? WHERE id=?').run(JSON.stringify(targets),id);
     if (targets.some(t => t.deliveryUnconfirmed)) {
-      clear(db.prepare('SELECT * FROM display_requests WHERE id=?').get(id));
-      return {id,state:'stopped',targets,expires_at:expires,
-        message:'Controller did not confirm the grouped ping. Ping was stopped and previous guidance was requested again. Check the controller connection before retrying.'};
+      const stopped=clear(db.prepare('SELECT * FROM display_requests WHERE id=?').get(id));
+      return {id,state:stopped?'stopped':'expiring',targets,expires_at:expires,
+        message:stopped?'Controller did not confirm the display. The display was stopped and previous guidance was requested again. Check the controller connection before retrying.':'Controller did not confirm the display. Clearing it will be retried automatically; previous task guidance will resume after that is confirmed. Check the controller connection.'};
     }
     const sent=targets.filter(t=>t.status==='sent').length,skipped=targets.length-sent;
     const unsupportedNames=scope.kind==='cell_name'?targets.filter(t=>t.status==='unsupported').length:0;
     const message=sent?scope.kind==='cell_name'?'Cell names are showing for up to two minutes. Click again to stop.':scope.kind==='module_number'?'LED numbers are showing for up to two minutes. Click again to stop.':scope.kind==='locate'?'Locating in red for up to five minutes. Click Locating to stop.':scope.kind==='ping'?'Pinging in green for five seconds.':'Numbers are showing for up to two minutes. Mixed-product locations alternate colors; task lights return when this display ends.':unsupportedNames?'These cell names cannot be shown on the LEDs. Use up to 55 English letters, numbers or symbols without double quotes.':!targets.length?'No active cells in this group.':targets.every(t=>t.status==='unreachable')?'Controller is offline. Check its power and connection, then try again.':scope.kind==='locate'?'This location could not be lit. It may be used for stocktaking or another display, or its controller may be offline.':'No display was sent. Check each location’s status; task and count lights were preserved.';
     return {id,state:targets.length&&targets.every(t=>t.status==='busy')?'busy':'active',targets,expires_at:expires,message:message+(sent&&skipped?` ${skipped} cell(s) were skipped: ${unsupportedNames?'some names cannot be shown; ':''}check busy lights, LED mappings or controller power.`:'')};
   }
-  function stop(actor,id){const a=operationsService.actorNow(actor),row=db.prepare('SELECT * FROM display_requests WHERE id=? AND actor_id=?').get(id,a.id);if(!row)throw new Error('This display belongs to another operator.');if(['active','expiring'].includes(row.state))clear(row);return {message:'Only this display request was stopped. Newer task guidance was preserved.'};}
+  function stop(actor,id){const a=operationsService.actorNow(actor),row=db.prepare('SELECT * FROM display_requests WHERE id=? AND actor_id=?').get(id,a.id);if(!row)throw new Error('This display belongs to another operator.');if(['active','expiring'].includes(row.state)&&clear(row)===false)return {message:'The controller has not confirmed clearing this display. Clearing will be retried automatically. Check its connection.'};return {message:'Only this display request was stopped. Newer task guidance was preserved.'};}
   function status(actor){const a=operationsService.actorNow(actor,"locations.view");expire();return db.prepare("SELECT id,actor_id,state,expires_at,scope_json,targets_json FROM display_requests WHERE state IN ('active','expiring')").all().filter(r=>r.actor_id===a.id||can(a,"hardware.view")).map(r=>({...r,canStop:r.actor_id===a.id,scope:JSON.parse(r.scope_json),targets:JSON.parse(r.targets_json)}));}
   return {start,stop,status,view,expire};
 }

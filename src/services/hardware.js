@@ -81,9 +81,33 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
     );
   }
 
+  let pendingResults=null;
+  function finishResult(result,operationName,context) {
+    for(const event of result.events)saveDeviceEvent(event);
+    logger[result.degraded?'warn':'info'](`hardware.${operationName}.${result.degraded?'degraded':'ok'}`,{adapter:adapter.name,...context,...(result.degraded?{message:result.message}:{})});
+  }
+  // Guards run for each command before it enters the frame. Callers inspect results
+  // after this synchronous boundary, when delivery is confirmed for each controller.
+  function batchLedUpdates(callback) {
+    if(pendingResults||!adapter.batch)return callback();
+    const results=[];pendingResults=results;
+    let batch;
+    try{batch=adapter.batch(callback);}finally{pendingResults=null;}
+    for(const entry of results){
+      const eventAddresses=event=>[event.payload?.controllerAddress,...(event.payload?.hardwareChannels||[]).map(t=>t.controllerAddress)].filter(Boolean).map(v=>String(v).toUpperCase());
+      const addresses=[...entry.args.flat().filter(v=>v&&typeof v==='object').map(v=>String(v.controller_address||v.address||'').toUpperCase()),...entry.result.events.flatMap(eventAddresses)];
+      const failure=batch.failures.find(f=>addresses.includes(f.address));
+      if(failure){entry.result.ok=false;entry.result.degraded=true;entry.result.message=failure.message;entry.result.deliveryUnconfirmed=true;
+        for(const event of entry.result.events)if(batch.failures.some(f=>eventAddresses(event).includes(f.address))){event.status='degraded';event.payload={...event.payload,confirmed:false,deliveryUnconfirmed:true};}}
+      finishResult(entry.result,entry.operationName,entry.context);
+    }
+    return batch.value;
+  }
+
   function targetCellId(t){return db.prepare('SELECT c.id FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE ctrl.address=(SELECT address FROM controllers WHERE id=?) AND c.hardware_channel=?').get(t.controller_id,t.hardware_channel)?.id??t.cell_id??t.id??-1;}
   function run(operationName, fn, args = [], context = {}) {
     try {
+      if(!pendingResults&&adapter.batch&&operationName!=='controller_health')return batchLedUpdates(()=>run(operationName,fn,args,context));
       if(disposed) return {ok:false,degraded:true,message:"Hardware service was replaced.",events:[]};
       if(operationName!=="controller_health" && db.prepare("SELECT 1 FROM app_metadata WHERE key='firmware_busy'").get())return {ok:false,degraded:true,message:'Controller maintenance is in progress. LED commands are paused.',events:[]};
       if(operationName!=="controller_health") {
@@ -118,7 +142,7 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
           if(!desired || desired.generation!==context.workGeneration || context.workBinding&&context.workBinding!==guidanceBinding(db,context.workCellId)) return {ok:false,degraded:true,message:"Superseded guidance ignored.",events:[]};
           const bound=db.prepare('SELECT c.id,c.controller_id,c.hardware_channel,ctrl.address FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(context.workCellId);
           if(!bound||targets.some(t=>(t.cell_id??t.id)!==bound.id||t.controller_id!==bound.controller_id||t.hardware_channel!==bound.hardware_channel||t.controller_address!==bound.address))return {ok:false,degraded:true,message:'Changed guidance mapping ignored.',events:[]};
-        } else if(targets.length?targets.some(t=>activeWorkGuidance(db,targetCellId(t))||db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) v WHERE d.state IN ('active','expiring') AND json_extract(v.value,'$.status')='sent' AND json_extract(v.value,'$.controllerId')=? AND json_extract(v.value,'$.channel')=?").get(t.controller_id,t.hardware_channel)):(activeWorkGuidance(db)||db.prepare("SELECT 1 FROM display_requests WHERE state IN ('active','expiring')").get())) {
+        } else if(targets.length?targets.some(t=>activeWorkGuidance(db,targetCellId(t))||db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) v WHERE d.state IN ('active','expiring') AND (json_extract(v.value,'$.status')='sent' OR json_extract(v.value,'$.deliveryUnconfirmed')=1) AND json_extract(v.value,'$.controllerId')=? AND json_extract(v.value,'$.channel')=?").get(t.controller_id,t.hardware_channel)):(activeWorkGuidance(db)||db.prepare("SELECT 1 FROM display_requests WHERE state IN ('active','expiring')").get())) {
           return {ok:false,degraded:true,message:"Location work is active. Utility displays and tests are paused until active turns settle.",events:[]};
         }
       }
@@ -133,21 +157,8 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
         }
       }
       const result = normalizeResult(fn(...args));
-      for (const event of result.events) {
-        saveDeviceEvent(event);
-      }
-      if (result.degraded) {
-        logger.warn(`hardware.${operationName}.degraded`, {
-          adapter: adapter.name,
-          ...context,
-          message: result.message,
-        });
-      } else {
-        logger.info(`hardware.${operationName}.ok`, {
-          adapter: adapter.name,
-          ...context,
-        });
-      }
+      if(pendingResults)pendingResults.push({result,operationName,context,args});
+      else finishResult(result,operationName,context);
       return result;
     } catch (error) {
       try { saveDeviceEvent({
@@ -174,6 +185,7 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
 
   return {
     adapterName: adapter.name,
+    batchLedUpdates,
     dispose() { disposed=true; adapter.dispose?.(); },
     healthCheck() {
       return adapter.healthCheck();
