@@ -24,3 +24,13 @@ Choose **View / discard move → Discard move**, then confirm.
 An untouched move cancels its tasks, releases reservations, and keeps the existing mapping and inventory. A started move stops remaining picks and routes active or uncertain quantities through Needs review. The linked puts remain available to account for products already picked. Reconcile those quantities and complete or cancel the relevant remaining work before discarding again. Fully accounted movements remain in inventory and history; discarding does not reverse them.
 
 Mapping saves, move creation and discard use saved request receipts. An unconfirmed request can be retried without duplicating locations or tasks. The editor rejects stale location/controller revisions, ambiguous assignments, active utility displays, outstanding warehouse work, and conflicting QR or stocktake activity.
+
+## Other work blocks a setup change
+
+When a setup change is blocked by warehouse work, the popup lists task IDs, Pick/Put action, product, location, planned and recorded quantities, assignee, and status. Expand pending-entry details when needed. Select individual tasks or select all available work, then choose **Discard selected tasks** and confirm. Entire selected tasks are stopped, including their other locations; their history is retained.
+
+Untouched reservations are released immediately. For started work or pending movement entries, an authorized verifier can additionally confirm that all workers stopped and no additional products moved beyond the recorded totals shown. Pending manual entries can be discarded only after explicitly verifying that their movement did not occur. The original evidence stays in history. If actual quantities differ or are uncertain, keep the work and use Needs review instead.
+
+The popup retains the setup draft. Close it and press Save again after clearing the blockers. It rejects changed tasks and permissions, and retries an unconfirmed discard with the same request receipt.
+
+Updating the same ESP32 restores its saved LED configuration and preserves the application's logical location identities, mappings, inventory and task history. Discard is optional; a firmware update does not itself delete work or inventory. Changes to physical LED order must be reconciled to the existing logical cells.

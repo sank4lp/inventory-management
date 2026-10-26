@@ -1,3 +1,4 @@
+import {setupBlockers,setupWorkScope} from './setup-blockers.js';
 import {readDeadlineDefaults,deadlineDefaultsPatch,writeDeadlineDefaults} from '../../services/deadline-defaults.js';
 import {protectedPicks,putRoom,usedSpace,taskPrioritySql,yieldableClaim,reviewClaim} from './planning-policy.js';
 import {stocktakeIndicator,countCellValues} from '../stocktaking/workflow.js';
@@ -533,6 +534,35 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const reports=db.prepare("SELECT * FROM work_reports WHERE line_id=? AND status IN ('review','received')").all(l.id);
     if(!reports.length||reports.some(r=>r.origin_ref!==`attention:${l.id}`||r.quantity_known!==0||r.reason!=="Inactivity needs verification. Expected quantity is shown for context; enter an actual quantity or keep pending."||JSON.parse(r.payload).reason!=="Actual quantity is unknown; zero is not a verified answer."))return;
     for(const r of reports){db.prepare("UPDATE work_reports SET status='resolved',resolver_id=?,resolved_at=?,verification=?,case_revision=case_revision+1 WHERE id=?").run(actor.id,now(),'Untouched instruction cancelled/returned; automatic inactivity case retired. No actual quantity was inferred or stock posted.',r.id);event('untouched_inactivity_retired',actor,l.id,{reportId:r.id},r.id);}
+  }
+  function discardSetupTasks(actor,input){
+    actorNow(actor,'locations.manage');
+    if(input.confirmed!==true)throw new Error('Confirm discarding the selected work.');
+    const requests=input.tasks||[],reportRequests=input.reports||[];
+    if(!Array.isArray(requests)||!Array.isArray(reportRequests)||!requests.length&&!reportRequests.length||requests.length+reportRequests.length>200||new Set(requests.map(t=>Number(t.id))).size!==requests.length||new Set(reportRequests.map(r=>r.id)).size!==reportRequests.length)throw new Error('Choose each task or entry once (up to 200).');
+    const before=setupBlockers(db,actor,setupWorkScope(input.scope));
+    const selected=requests.map(request=>{
+      const current=before.tasks.find(t=>t.id===Number(request.id));
+      if(!current||current.token!==request.token)throw new Error('A blocking task changed. Refresh the list and review it again.');
+      if(!current.canDiscard)throw new Error(current.reason||'You cannot discard this task.');
+      if(input.verifiedNoAdditionalMovement===true&&current.needsCheck&&!current.canVerify)throw new Error('An authorized verifier must confirm the actual movement.');
+      return current;
+    });
+    const reports=reportRequests.map(request=>{const current=before.manual.find(r=>r.id===request.id);if(!current||current.token!==request.token)throw new Error('A pending entry changed. Refresh the list.');if(!current.canDiscard||input.verifiedNoAdditionalMovement!==true)throw new Error('An authorized verifier must confirm that no movement occurred for the selected entries.');return current;});
+    const verification='Setup discard: verifier confirmed all workers stopped, recorded task totals are accurate, and no additional movement occurred. Selected manual entries did not occur.';
+    const results=selected.map(t=>{
+      if(t.needsCheck&&input.verifiedNoAdditionalMovement===true){
+        const actuals=closure.totals(t.id),common={taskId:t.id,generation:t.generation,progressToken:progressToken(t.id),closureToken:closure.token(t.id),currentStatus:'no',actuals,verifiedClosure:true,workerStopped:true,verification,requestId:input.requestId+':task:'+t.id};
+        const pending=closure.pendingCase(t.id);
+        const result=pending?closure.resolve(actor,common,pending):closure.close(actor,common);
+        return {taskId:t.id,...result};
+      }
+      return {taskId:t.id,...stopTask(actor,{taskId:t.id,generation:t.generation})};
+    });
+    for(const report of reports)results.push({reportId:report.id,...resolve(actor,{reportId:report.id,caseRevision:report.case_revision,quantity:0,verification,performerId:'unknown'})});
+    event('setup_tasks_discarded',actor,null,{taskIds:selected.map(t=>t.id),reportIds:reports.map(r=>r.id),scope:before.scope,verifiedNoAdditionalMovement:input.verifiedNoAdditionalMovement===true,results});
+    const remaining=setupBlockers(db,actor,before.scope);
+    return {status:remaining.remaining?'review':'recorded',results,...remaining,message:remaining.remaining?'Selected work was stopped. Some tasks or entries still need a quantity check. Recorded inventory was kept.':'Selected work discarded. Reservations released; recorded inventory and original evidence were kept. Close this dialog and save your setup change again.'};
   }
   function stopTask(actor,input) {
     const t=currentTask(actor,input);
@@ -1187,7 +1217,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       return {status:'review',reportIds:reports,message:'Actual movements saved for supervisor verification, including any partial or interrupted move. No suggested quantity was posted automatically.'};
     },
     locationDetails(actor,input) {actorNow(actor,"locations.manage");const result=saveLocationDescription(db,actor,input);event("location_description_changed",actor,null,input);return result;},
-    closeTask:closure.close,sendTaskReview:closure.send,
+    discardSetupTasks,closeTask:closure.close,sendTaskReview:closure.send,
     assign:(actor,input)=>create(actor,input,true), reopen:reopenTask, updateReviewTask, updateActiveAssignments, replan, verify, start: startTask, decline: returnTask, handBack:(actor,input)=>returnTask(actor,input,true), acknowledgeReturn, updateReturned, assignReview, observeReview, resumeFollowup, reassign, stop: stopTask, deadline, timing: saveTiming, askReview,
     reconcile(actor,input) {
       actorNow(actor,"review.reconcile");
@@ -1226,7 +1256,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
       if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
-      const permissions={updateActiveAssignments:'work.assign',reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',pause:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recordMovement:'work.report',recommendation:'work.report',cancel:'work.stop',rejectCell:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
+      const permissions={discardSetupTasks:'locations.manage',updateActiveAssignments:'work.assign',reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',pause:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recordMovement:'work.report',recommendation:'work.report',cancel:'work.stop',rejectCell:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
       if(['reassign','stop','handBack','decline'].includes(action)&&input.progressToken&&input.progressToken!==progressToken(Number(input.taskId)))throw new Error('Task quantities changed. Refresh before changing this task.');
@@ -1476,5 +1506,5 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   const planningRecovery=createPlanningRecovery({db,workQuantity,event});
   function planningOptions(actor,input){return {...identity(),actorId:actor.id,...planningRecovery.options(actorNow(actor,'work.view'),input)};}
   const history=createWorkHistory({db,actorNow,task,identity});
-  return { ...history, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, reconcileCountReservations, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock, planningOptions, locationMovePlan, reserveLocationMove, discardLocationMove, dispose:()=>stocktakeDisplayQueue.dispose() };
+  return { ...history, setupBlockers:(a,i)=>{const actor=actorNow(a,'locations.manage');return {...identity(),actorId:actor.id,...setupBlockers(db,actor,i)};}, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, reconcileCountReservations, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock, planningOptions, locationMovePlan, reserveLocationMove, discardLocationMove, dispose:()=>stocktakeDisplayQueue.dispose() };
 }

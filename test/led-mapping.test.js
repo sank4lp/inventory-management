@@ -109,3 +109,11 @@ test('a fully accounted move can be discarded while retaining posted movements a
  for(const taskId of [...move.picks,...move.puts])for(const l of f.work.task(f.admin,taskId).lines){f.work.command(f.admin,'acquire',{requestId:randomUUID(),lineId:l.id,revision:l.revision,location:l.logical_code,deviceId:'test'});f.work.command(f.admin,'report',{requestId:randomUUID(),lineId:l.id,revision:f.work.line(l.id).revision,cellId:l.cell_id,unit:l.unit_of_measure,quantity:l.planned_quantity,deviceId:'test'});}
  const before=f.db.prepare('SELECT * FROM inventory_balances').all(),history=f.db.prepare('SELECT * FROM transactions').all();f.command('discardLedMove',{cellId:id,confirmed:true});assert.equal(f.service.snapshot(f.admin).ledMoves.length,0);assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),before);assert.deepEqual(f.db.prepare('SELECT * FROM transactions').all(),history);assert.equal(f.map().leds[0].cellId,id);f.db.close();
 });
+test('generic setup discard cannot cancel put tasks while moved goods remain in transit',()=>{
+ const f=fixture(),id=f.save([{physical:1,name:'Stocked'}]).cellIds[0];f.stock(id,2);const move=f.command('moveLedStock',{cellId:id});
+ const l=f.work.task(f.admin,move.picks[0]).lines[0];f.work.command(f.admin,'acquire',{requestId:randomUUID(),lineId:l.id,revision:l.revision,location:l.logical_code,deviceId:'test'});
+ let row=f.work.setupBlockers(f.admin,{}).tasks.find(t=>t.id===move.puts[0]);assert.equal(row.canDiscard,false);
+ f.work.command(f.admin,'report',{requestId:randomUUID(),lineId:l.id,revision:f.work.line(l.id).revision,cellId:l.cell_id,unit:l.unit_of_measure,quantity:l.planned_quantity,deviceId:'test'});
+ row=f.work.setupBlockers(f.admin,{}).tasks.find(t=>t.id===move.puts[0]);assert.equal(row.canDiscard,false);assert.match(row.reason,/put away/);
+ assert.throws(()=>f.work.command(f.admin,'discardSetupTasks',{requestId:randomUUID(),confirmed:true,tasks:[{id:row.id,token:row.token}]}),/put away/);assert.ok(!f.work.task(f.admin,row.id).completed_at);f.db.close();
+});

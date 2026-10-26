@@ -2544,7 +2544,7 @@ export const requestHandler = async (request, response) => {
     sendHtml(response, pages.renderNotFound(user), 404);
   } catch (error) {
     if (url.pathname.startsWith("/api/") || requestWantsJson(request)) {
-      sendJson(response, { error: error.message }, error.statusCode || 400);
+      sendJson(response, { error: error.message,...(error.code==='OUTSTANDING_WORK'?{code:error.code,scope:error.scope}:{}) }, error.statusCode || 400);
       return;
     }
     // A failing GET must terminate rather than redirect back to the same renderer.

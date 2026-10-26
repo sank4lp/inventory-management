@@ -14,7 +14,7 @@ export function createLedMapper({root,getSnapshot,refresh,render,scope,escapeHtm
     const r=await fetch('/api/location-setup/'+receipt.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(receipt.input),signal:AbortSignal.timeout(15000)});
     const result=await r.json();
     if(mutation&&(r.ok||r.status<500)){pending=null;sessionStorage.removeItem(requestKey);}
-    if(!r.ok||result.error)throw Error(result.error||'Could not save.');
+    if(!r.ok||result.error){if(result.code==='OUTSTANDING_WORK')await(await import('./setup-work-dialog.js')).showSetupWorkResponse(r,{scope,error:result});throw Error(result.error||'Could not save.');}
     return result;
   }
   function showRecovery(){if(!pending)return;const d=root.querySelector('[data-led-dialog][open]');if(d&&!d.querySelector('[data-led-retry]'))d.insertAdjacentHTML('beforeend','<button type="button" data-led-retry>Retry unconfirmed save</button>');}

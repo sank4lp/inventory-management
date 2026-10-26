@@ -17,6 +17,7 @@ export async function operationsRoutes(request,response,url,user,state) {
     if (!ensureApiAuth(response,user)) return true;
     const action=url.pathname.slice('/api/work/'.length);
     if(request.method==='GET' && action==='snapshot') {const data=work.snapshot(user,Object.fromEntries(url.searchParams));const taskId=Number(url.searchParams.get('taskId'));if(!['activity','active'].includes(url.searchParams.get('view'))&&taskId&&data.capabilities.view&&!data.tasks.some(t=>t.id===taskId)){const task=work.task(user,taskId);if(task)data.tasks.unshift(task);}sendJson(response,data);}
+    else if(request.method==='GET' && action==='setupBlockers') sendJson(response,work.setupBlockers(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='taskHistory') sendJson(response,work.taskHistory(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='activityHistory') sendJson(response,work.activityHistory(user,Object.fromEntries(url.searchParams)));
     else if(request.method==='GET' && action==='cellHistory') sendJson(response,work.cellHistory(user,Object.fromEntries(url.searchParams)));

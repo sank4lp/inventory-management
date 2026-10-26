@@ -9,7 +9,7 @@ const pageScope=globalThis.WarehousePageLifecycle?.current;
 const setTimeout=(...args)=>pageScope?pageScope.timeout(...args):globalThis.setTimeout(...args);
 const setInterval=(...args)=>pageScope?pageScope.interval(...args):globalThis.setInterval(...args);
 const requestAnimationFrame=(...args)=>pageScope?pageScope.frame(...args):globalThis.requestAnimationFrame(...args);
-const fetch=(...args)=>pageScope?pageScope.fetch(...args):globalThis.fetch(...args);
+const fetch=async(...args)=>{const response=await(pageScope?pageScope.fetch(...args):globalThis.fetch(...args));if(!response.ok&&response.clone){try{const error=await response.clone().json();if(error.code==='OUTSTANDING_WORK')await(await import('./client/setup-work-dialog.js')).showSetupWorkResponse(response,{scope:pageScope});}catch{}}return response;};
 const onPage=(target,...args)=>pageScope?pageScope.listen(target,...args):target.addEventListener(...args);
 
 
