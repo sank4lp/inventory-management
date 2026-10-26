@@ -11,7 +11,7 @@ export const ROUTE_POLICY = [
   ['GET',/^\/admin\/product-fields$/,'products.fields'],['POST',/^\/admin\/(product-fields(\/\d+)?|product-unit-conversions\/(preview|apply))$/,'products.fields'],
   ['GET',/^\/backups$/,'backups.view'],['POST',/^\/backups\/create$/,'backups.create'],['POST',/^\/backups\/restore$/,'backups.restore'],['POST',/^\/backups\/(schedule|retention)$/,'backups.configure'],
   ['GET',/^\/devices(\/sections\/[a-z-]+)?$/,'hardware.view'],['POST',/^\/devices\/(controller-test|controller-ping|cell-test)$/,'hardware.test'],['POST',/^\/devices\/controller-delete$/,'hardware.controllers'],
-  ['GET',/^\/api\/firmware\/options$/,'hardware.view'],['GET',/^\/api\/firmware\/jobs\/[A-Za-z0-9-]+$/,'hardware.flash'],['POST',/^\/api\/firmware\/flash$/,'hardware.flash'],
+  ['GET',/^\/api\/firmware\/options$/,'hardware.view'],['GET',/^\/api\/firmware\/jobs\/[A-Za-z0-9-]+$/,'hardware.flash'],['POST',/^\/api\/firmware\/(flash|controller-backup)$/,'hardware.flash'],
   ['POST',/^\/mapping(\/bulk)?$/,'hardware.map'],['POST',/^\/devices\/cells(\/(rename|delete))?$/,'locations.manage'],
   ['GET',/^\/location-setup(\/print)?$/,'locations.manage'],['GET',/^\/locations\/manage$/,'locations.manage'],
   ['GET',/^\/api\/location-setup\/snapshot$/,'locations.manage'],['POST',/^\/api\/location-setup\/[A-Za-z]+$/,'account'],

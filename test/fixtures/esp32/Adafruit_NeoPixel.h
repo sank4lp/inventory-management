@@ -21,6 +21,7 @@ inline void delayMicroseconds(int) {}
 struct HardwareSerial {
   std::string output;
   HardwareSerial(int=0) {}
+  size_t setRxBufferSize(size_t length) { return length; }
   void begin(int,int=0,int=0,int=0) {}
   void print(const char *s) { output += s; }
   void flush() {}
@@ -29,9 +30,11 @@ struct HardwareSerial {
 };
 inline HardwareSerial Serial;
 struct Adafruit_NeoPixel {
+  inline static bool failAllocation = false;
   int shows = 0;
   std::vector<uint32_t> colors;
   Adafruit_NeoPixel(int n,int,int): colors(n) {}
+  uint8_t *getPixels() { return (failAllocation || colors.empty()) ? nullptr : reinterpret_cast<uint8_t *>(colors.data()); }
   void begin() {}
   void setBrightness(int) {}
   uint32_t Color(int r,int g,int b) { return (r<<16)|(g<<8)|b; }

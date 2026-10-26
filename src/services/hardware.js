@@ -84,6 +84,7 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
   function run(operationName, fn, args = [], context = {}) {
     try {
       if(disposed) return {ok:false,degraded:true,message:"Hardware service was replaced.",events:[]};
+      if(operationName!=="controller_health" && db.prepare("SELECT 1 FROM app_metadata WHERE key='firmware_busy'").get())return {ok:false,degraded:true,message:'Controller maintenance is in progress. LED commands are paused.',events:[]};
       if(operationName!=="controller_health") {
         const targets=args.flat().filter(v=>v&&typeof v==='object'&&('hardware_channel' in v));
         for(const target of targets) {

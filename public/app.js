@@ -2846,6 +2846,7 @@ function firmwareStageLabel(stage) {
     compiling: "Compiling",
     uploading: "Uploading",
     configuring: "Configuring",
+    verifying: "Restoring and verifying setup",
     completed: "Completed",
     failed: "Failed",
   };
@@ -2950,9 +2951,21 @@ function syncFirmwareSubmitState(panel) {
   const controller = panel.querySelector('input[name="controller_name"]');
   const modules = panel.querySelector('input[name="module_count"]');
   const submitButton = panel.querySelector("[data-firmware-flash-form] button[type='submit']");
+  const replacement = panel.querySelector('[data-firmware-replacement]');
+  const option = replacement?.selectedOptions?.[0];
+  const replacing = Boolean(replacement?.value);
+  const confirmation = panel.querySelector('input[name="replacement_confirmed"]');
+  const help = panel.querySelector('[data-firmware-replacement-help]');
+  if(help)help.hidden=!replacing;
+  if(controller)controller.readOnly=replacing;
+  if(modules){modules.readOnly=replacing;modules.min=replacing?'0':'1';}
+  if(replacing && option){controller.value=option.dataset.name||'';modules.value=option.dataset.count||'0';}
+  if(confirmation)confirmation.required=replacing;
   if (submitButton && input && identity && controller && modules) {
+    submitButton.textContent=replacing?'Flash and restore controller':'Flash Controller';
     submitButton.disabled =
-      !input.value.trim() || !identity.value.trim() || !controller.value.trim() || !modules.value.trim();
+      !input.value.trim() || !identity.value.trim() || !controller.value.trim() || !modules.value.trim() ||
+      replacing && (option?.dataset.ready!=='1' || !confirmation?.checked);
   }
 }
 
@@ -3264,10 +3277,10 @@ async function refreshFirmwarePorts(panel, settings = {}) {
       setFirmwareDetectStatus(panel, error.message);
     }
   } finally {
-    syncFirmwareSubmitState(panel);
     for (const button of buttons) {
       button.disabled = false;
     }
+    syncFirmwareSubmitState(panel);
   }
 }
 
@@ -3366,6 +3379,22 @@ function wireFirmwareFlash() {
     if (panel) {
       setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel));
 
+      panel.querySelector('[data-firmware-replacement]')?.addEventListener('change',()=>{
+        const confirmation=panel.querySelector('input[name="replacement_confirmed"]');if(confirmation)confirmation.checked=false;
+        syncFirmwareSubmitState(panel);
+      });
+      panel.querySelector('input[name="replacement_confirmed"]')?.addEventListener('change',()=>syncFirmwareSubmitState(panel));
+      panel.querySelector('[data-firmware-controller-backup]')?.addEventListener('click',async event=>{
+        const button=event.currentTarget,status=panel.querySelector('[data-firmware-backup-status]');
+        button.disabled=true;status.textContent='Reading the connected ESP32 and saving its setup…';
+        try {
+          const response=await fetch('/api/firmware/controller-backup',{method:'POST',headers:{'X-Requested-With':'fetch'},body:new URLSearchParams(new FormData(form))});
+          const payload=await response.json();if(!response.ok)throw new Error(payload.error||payload.message||'Controller backup failed.');
+          const option=panel.querySelector('[data-firmware-replacement]')?.selectedOptions?.[0];
+          if(option && option.value===String(payload.profile.controllerId)){option.dataset.ready='1';option.dataset.count=String(payload.profile.physicalCount);}
+          status.textContent=payload.message;syncFirmwareSubmitState(panel);
+        }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+      });
       panel.addEventListener("click", (event) => {
         const baselineButton = event.target.closest("[data-firmware-scan-baseline]");
         if (baselineButton) {

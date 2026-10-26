@@ -465,6 +465,19 @@ export function createLocationPages({ db }) {
             </section>
 
             <section class="firmware-step" data-firmware-step="2" hidden>
+              <label>Controller action
+                <select name="replacement_controller_id" data-firmware-replacement>
+                  <option value="">Add a new controller</option>
+                  ${(firmwareOptions.controllerFlashRecords||[]).map(c=>`<option value="${c.controllerId}" data-name="${escapeHtml(c.controllerName)}" data-count="${c.physicalModuleCount ?? c.moduleCount}" data-ready="${c.replacementReady?'1':'0'}">Replace / update ${escapeHtml(c.controllerName)} · ${c.replacementReady?'saved setup available':'backup needed'}</option>`).join('')}
+                </select>
+              </label>
+              <div class="work-callout" data-firmware-replacement-help hidden>
+                <p>The selected controller keeps its name, LED routing, cells and inventory. Only its ESP32 board is replaced or updated.</p>
+                <p>Before a future board failure, connect the original ESP32 by USB and save its setup here. A replacement restores the saved setup automatically.</p>
+                <button type="button" class="secondary" data-firmware-controller-backup>Save connected controller’s setup</button>
+                <p role="status" data-firmware-backup-status></p>
+                <label><input type="checkbox" name="replacement_confirmed" value="1">The old board is disconnected from power and RS485, and the LED chain is unchanged. For an update of the same board, it is isolated for USB maintenance.</label>
+              </div>
               <div class="firmware-grid">
                 <label>Controller Name
                   <input

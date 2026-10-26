@@ -298,6 +298,10 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     }
 
+    if (matchedReply.configFault === true) {
+      groupCapabilities.delete(String(controllerAddress));
+      return {ok:false,degraded:true,status:'unknown',message:'Controller configuration needs recovery. Outputs are disabled until its routing is verified.',events:[]};
+    }
     groupCapabilities.set(String(controllerAddress), { supported: matchedReply.groupBlink === 1, at: Date.now() });
     return {
       ok: true,

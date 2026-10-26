@@ -1,4 +1,7 @@
 #include <Adafruit_NeoPixel.h>
+#include <Preferences.h>
+#include <stddef.h>
+#include <new>
 
 #define RS485_DE_RE 4
 #define RS485_RX 16
@@ -17,12 +20,13 @@
 #define CONTROLLER_ADDRESS CONTROLLER_NAME
 #endif
 
-#define MODULES LED_MODULE_COUNT
-#define FIRMWARE_PROTOCOL "simple-matrix-v13-rs485-addressed"
+#define MAX_CONTROLLER_MODULES 64
+#define MODULES runtimeConfig.logicalCount
+#define FIRMWARE_PROTOCOL "simple-matrix-v14-rs485-addressed"
 #define W 8
 #define H 8
 #define LEDS_PER_MODULE 64
-#define LED_COUNT (MODULES * LEDS_PER_MODULE)
+#define LED_COUNT (runtimeConfig.physicalCount * LEDS_PER_MODULE)
 #define DEFAULT_BRIGHTNESS_PERCENT 100
 #define DEFAULT_TASK_BRIGHTNESS_PERCENT 100
 #define DEFAULT_TEST_BRIGHTNESS_PERCENT 100
@@ -42,8 +46,47 @@
 #define MODE_STATIC 2
 #define MODE_SCROLL 3
 
+struct ControllerConfig {
+  uint32_t magic;
+  uint32_t revision;
+  uint32_t owner;
+  uint32_t requestCrc;
+  uint8_t physicalCount;
+  uint8_t logicalCount;
+  uint8_t routing[MAX_CONTROLLER_MODULES]; // Stable logical output -> 1-based physical position; 0 disables it.
+  char request[17];
+  uint8_t reserved;
+  uint32_t crc;
+};
+
+ControllerConfig defaultControllerConfig() {
+  ControllerConfig config = {};
+  config.magic = 0x4c594301;
+  config.physicalCount = LED_MODULE_COUNT;
+  config.logicalCount = LED_MODULE_COUNT;
+  for (int i = 0; i < LED_MODULE_COUNT && i < MAX_CONTROLLER_MODULES; i++) config.routing[i] = i + 1;
+  return config;
+}
+static_assert(LED_MODULE_COUNT >= 0 && LED_MODULE_COUNT <= MAX_CONTROLLER_MODULES, "Invalid initial module count");
+ControllerConfig runtimeConfig = defaultControllerConfig();
+bool configurationFault = false;
+Preferences controllerPreferences;
+bool preferencesReady = false;
+bool usbMaintenance = false;
+char usbLine[320];
+int usbLinePos = 0;
+bool usbLineOverflow = false;
+
+bool mappedModule(int module) {
+  return module >= 0 && module < MODULES && runtimeConfig.routing[module] > 0;
+}
+int modulePixelBase(int module) {
+  return mappedModule(module) ? (runtimeConfig.routing[module] - 1) * LEDS_PER_MODULE : -LEDS_PER_MODULE;
+}
+
 HardwareSerial RS485(2);
-Adafruit_NeoPixel pixels(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel *pixelDriver = new Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+#define pixels (*pixelDriver)
 
 struct ModuleState {
   int mode;
@@ -65,7 +108,7 @@ struct ModuleState {
   int lastLocateStep;
 };
 
-ModuleState modules[MODULES];
+ModuleState modules[MAX_CONTROLLER_MODULES];
 
 char line[320];
 int linePos = 0;
@@ -209,10 +252,11 @@ int mappedLocalIndex(int x, int y) {
 }
 
 int pixelIndex(int module, int x, int y) {
-  return module * LEDS_PER_MODULE + mappedLocalIndex(x, y);
+  return modulePixelBase(module) + mappedLocalIndex(x, y);
 }
 
 void send485(const char *msg) {
+  if (usbMaintenance) { Serial.print(msg); Serial.flush(); return; }
   digitalWrite(RS485_DE_RE, HIGH);
   delayMicroseconds(100);
   RS485.print(msg);
@@ -328,11 +372,11 @@ void clearModulePixels(int module) {
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
   for (int i = 0; i < LEDS_PER_MODULE; i++) {
-    pixels.setPixelColor(module * LEDS_PER_MODULE + i, 0);
+    pixels.setPixelColor(modulePixelBase(module) + i, 0);
   }
 }
 
@@ -340,7 +384,7 @@ void drawGlyph(int module, char ch, int ox, int oy, uint32_t color, bool bold) {
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
 
@@ -450,7 +494,7 @@ void renderRippleModule(int module, int step, bool reverse) {
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
 
@@ -491,7 +535,7 @@ void renderModule(int module) {
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
 
@@ -519,7 +563,7 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
 
@@ -556,7 +600,7 @@ void showTaskModule(int module, const char *text, uint32_t color, int brightness
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
 
@@ -587,7 +631,7 @@ void setModuleIdle(int module) {
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
   modules[module].mode = MODE_IDLE;
@@ -603,7 +647,7 @@ void setModuleOff(int module) {
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
   modules[module].mode = MODE_OFF;
@@ -628,7 +672,7 @@ bool parseModuleNumber(const char *s, int *moduleIndex) {
     value = (value * 10) + (s[i] - '0');
   }
 
-  if (value < 1 || value > MODULES) {
+  if (value < 1 || value > MODULES || !mappedModule(value - 1)) {
     return false;
   }
 
@@ -722,7 +766,7 @@ void setSinglePixel(int module, int row, int column, uint32_t color) {
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
 
@@ -753,7 +797,7 @@ void fillModule(int module, uint32_t color, int brightness) {
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
 
@@ -765,7 +809,7 @@ void fillModule(int module, uint32_t color, int brightness) {
   modules[module].lastLocateStep = -1;
   uint32_t scaled = scaleColor(color, modules[module].brightness);
   for (int i = 0; i < LEDS_PER_MODULE; i++) {
-    pixels.setPixelColor(module * LEDS_PER_MODULE + i, scaled);
+    pixels.setPixelColor(modulePixelBase(module) + i, scaled);
   }
   pixels.show();
 }
@@ -774,7 +818,7 @@ void blinkModule(int module, uint32_t color, int brightness, unsigned long durat
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
   if (durationMs == 0) {
@@ -799,7 +843,7 @@ void locateModule(int module, uint32_t color, int brightness, unsigned long dura
   if (module < 0) {
     return;
   }
-  if (module >= MODULES) {
+  if (!mappedModule(module)) {
     return;
   }
   if (durationMs == 0) {
@@ -1006,7 +1050,7 @@ void blinkGroup(char **tokens, int count) {
     for (int i = 0; i < 256; i++) {
       if (groupHex(tokens[2][i / 4]) & (1 << (i % 4))) {
         any = true;
-        if (i >= MODULES || i >= 255) valid = false;
+        if (i >= MAX_CONTROLLER_MODULES || !mappedModule(i)) valid = false;
       }
     }
   }
@@ -1048,6 +1092,9 @@ void blinkGroup(char **tokens, int count) {
   send485(reply);
 }
 
+void configureController(char **tokens, int count);
+void controllerConfigStatus(const char *request);
+
 void handleLine(char *cmdLine) {
   char local[320];
   strncpy(local, cmdLine, sizeof(local) - 1);
@@ -1065,11 +1112,13 @@ void handleLine(char *cmdLine) {
   command[sizeof(command) - 1] = 0;
   lowerToken(command);
 
+  bool exactTarget = false;
   if (strcmp(command, "to") == 0 || strcmp(command, "target") == 0) {
     if (count < 3) {
       send485("{\"type\":\"error\",\"message\":\"missing-target-command\"}\n");
       return;
     }
+    exactTarget = equalsIgnoreCase(tokens[1], CONTROLLER_ADDRESS);
     if (!isControllerTarget(tokens[1])) {
       return;
     }
@@ -1082,21 +1131,37 @@ void handleLine(char *cmdLine) {
     lowerToken(command);
   }
 
+  if (usbMaintenance && strcmp(command, "configure") != 0 && strcmp(command, "config-status") != 0) {
+    send485("{\"type\":\"error\",\"message\":\"usb-maintenance-only\"}\n"); return;
+  }
+
+  if (strcmp(command, "configure") == 0) {
+    if (!exactTarget) { send485("{\"type\":\"error\",\"message\":\"configuration-requires-exact-address\"}\n"); return; }
+    configureController(tokens, count);
+    return;
+  }
+  if (strcmp(command, "config-status") == 0) {
+    bool validRequest = count == 1 || (count == 2 && strlen(tokens[1]) == 16);
+    if (count == 2 && validRequest) for (const char *p = tokens[1]; *p; p++) if (groupHex(*p) < 0) validRequest = false;
+    if (exactTarget && validRequest) controllerConfigStatus(count == 2 ? tokens[1] : "-");
+    return;
+  }
+
   if (strcmp(command, "blink-group") == 0) {
     blinkGroup(tokens, count);
     return;
   }
 
   if (strcmp(command, "ping") == 0) {
-    char msg[180];
-    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
+    char msg[512];
+    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
     send485(msg);
     return;
   }
 
   if (strcmp(command, "version") == 0 || strcmp(command, "status") == 0) {
-    char msg[180];
-    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
+    char msg[512];
+    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
     send485(msg);
     return;
   }
@@ -1308,18 +1373,141 @@ void handleLine(char *cmdLine) {
   send485("{\"type\":\"error\",\"message\":\"unknown-command\"}\n");
 }
 
-void setup() {
-  pinMode(RS485_DE_RE, OUTPUT);
-  digitalWrite(RS485_DE_RE, LOW);
+uint32_t controllerConfigCrc(const void *data, size_t length) {
+  const uint8_t *bytes = (const uint8_t *)data;
+  uint32_t crc = 0xffffffff;
+  for (size_t i = 0; i < length; i++) {
+    crc ^= bytes[i];
+    for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+  }
+  return crc ^ 0xffffffff;
+}
 
-  Serial.begin(115200);
-  RS485.begin(115200, SERIAL_8N1, RS485_RX, RS485_TX);
+bool validControllerRouting(const ControllerConfig &config) {
+  if (config.physicalCount > MAX_CONTROLLER_MODULES || config.logicalCount > MAX_CONTROLLER_MODULES) return false;
+  bool used[MAX_CONTROLLER_MODULES + 1] = {};
+  int logicalCount = 0;
+  for (int i = 0; i < MAX_CONTROLLER_MODULES; i++) {
+    int physical = config.routing[i];
+    if (physical > config.physicalCount || (physical && used[physical])) return false;
+    if (physical) { used[physical] = true; logicalCount = i + 1; }
+  }
+  for (int i = 1; i <= config.physicalCount; i++) if (!used[i]) return false;
+  return config.logicalCount == logicalCount;
+}
 
-  pixels.begin();
-  pixels.setBrightness(255);
-  lastHeartbeatAt = millis();
-  heartbeatPulseStartedAt = lastHeartbeatAt;
+bool replacePixelDriver(int physicalCount) {
+  Adafruit_NeoPixel *candidate = new (std::nothrow) Adafruit_NeoPixel(physicalCount * LEDS_PER_MODULE, LED_PIN, NEO_GRB + NEO_KHZ800);
+  if (!candidate || (physicalCount && !candidate->getPixels())) { delete candidate; return false; }
+  delete pixelDriver;
+  pixelDriver = candidate;
+  return true;
+}
 
+void loadControllerConfig() {
+  preferencesReady = controllerPreferences.begin("lyt-controller", false);
+  configurationFault = !preferencesReady;
+  if (preferencesReady && controllerPreferences.getBytesLength("configuration")) {
+    ControllerConfig saved = {};
+    bool valid = controllerPreferences.getBytesLength("configuration") == sizeof(saved) &&
+      controllerPreferences.getBytes("configuration", &saved, sizeof(saved)) == sizeof(saved) &&
+      saved.magic == runtimeConfig.magic && saved.owner == groupCrc(CONTROLLER_ADDRESS) &&
+      saved.crc == controllerConfigCrc(&saved, offsetof(ControllerConfig, crc)) && validControllerRouting(saved);
+    if (valid) runtimeConfig = saved; else configurationFault = true;
+  }
+  if (configurationFault) {
+    runtimeConfig = {};
+    runtimeConfig.magic = 0x4c594301;
+  }
+  if (!replacePixelDriver(runtimeConfig.physicalCount)) {
+    runtimeConfig = {};
+    runtimeConfig.magic = 0x4c594301;
+    configurationFault = true;
+    // The previous buffer is still owned and remains blank; outputs are disabled.
+  }
+}
+
+void resetConfiguredModules();
+
+void controllerConfigStatus(const char *request) {
+  char map[129];
+  for (int i = 0; i < MAX_CONTROLLER_MODULES; i++) snprintf(map + i * 2, 3, "%02x", runtimeConfig.routing[i]);
+  char address[96];
+  strncpy(address, CONTROLLER_ADDRESS, sizeof(address) - 1); address[sizeof(address) - 1] = 0;
+  for (char *p = address; *p; p++) *p = toupper(*p);
+  char payload[300];
+  snprintf(payload, sizeof(payload), "%s config-status %s %08lx %d %s %d", address, request, (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount, map, configurationFault ? 1 : 0);
+  char reply[512];
+  snprintf(reply, sizeof(reply), "{\"type\":\"controller-config\",\"address\":\"%s\",\"request\":\"%s\",\"revision\":%lu,\"physicalModules\":%d,\"logicalModules\":%d,\"routing\":\"%s\",\"maxModules\":64,\"fault\":%s,\"checksum\":\"%08lx\"}\n", CONTROLLER_ADDRESS, request, (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount, MODULES, map, configurationFault ? "true" : "false", (unsigned long)groupCrc(payload));
+  send485(reply);
+}
+
+void configureController(char **tokens, int count) {
+  bool valid = count == 6;
+  unsigned long physicalCount = 0;
+  if (valid) valid = strlen(tokens[1]) == 16 && strlen(tokens[2]) == 8 && strlen(tokens[4]) == 128 && strlen(tokens[5]) == 8 &&
+    groupUnsigned(tokens[3], 0, MAX_CONTROLLER_MODULES, &physicalCount);
+  const int hexFields[] = {1, 2, 4, 5};
+  if (valid) for (int field : hexFields) {
+    for (const char *p = tokens[field]; *p; p++) if (groupHex(*p) < 0) valid = false;
+  }
+  if (!valid) { send485("{\"type\":\"error\",\"message\":\"invalid-controller-config\"}\n"); return; }
+  char address[96];
+  strncpy(address, CONTROLLER_ADDRESS, sizeof(address) - 1); address[sizeof(address) - 1] = 0;
+  for (char *p = address; *p; p++) *p = toupper(*p);
+  char payload[300];
+  snprintf(payload, sizeof(payload), "%s configure %s %s %s %s", address, tokens[1], tokens[2], tokens[3], tokens[4]);
+  uint32_t checksum = groupCrc(payload);
+  if (checksum != (uint32_t)strtoul(tokens[5], NULL, 16)) { send485("{\"type\":\"error\",\"message\":\"config-checksum\"}\n"); return; }
+  bool duplicate = !configurationFault && strcmp(runtimeConfig.request, tokens[1]) == 0;
+  if (duplicate && runtimeConfig.requestCrc != checksum) { send485("{\"type\":\"error\",\"message\":\"config-request-conflict\"}\n"); return; }
+  uint32_t expected = (uint32_t)strtoul(tokens[2], NULL, 16);
+  if (!duplicate && (expected != runtimeConfig.revision || expected == 0xffffffff)) {
+    send485("{\"type\":\"error\",\"message\":\"config-revision-conflict\"}\n"); return;
+  }
+  if (!duplicate) {
+    for (int module = 0; module < MODULES; module++) {
+      if (mappedModule(module) && (modules[module].mode == MODE_STATIC || modules[module].mode == MODE_SCROLL || modules[module].testUntil || modules[module].locateUntil)) {
+        send485("{\"type\":\"error\",\"message\":\"configuration-busy-stop-displays-first\"}\n"); return;
+      }
+    }
+    ControllerConfig next = {};
+    next.magic = 0x4c594301;
+    next.owner = groupCrc(CONTROLLER_ADDRESS);
+    next.revision = expected + 1;
+    next.physicalCount = physicalCount;
+    next.requestCrc = checksum;
+    strcpy(next.request, tokens[1]);
+    for (int i = 0; i < MAX_CONTROLLER_MODULES; i++) {
+      next.routing[i] = groupHex(tokens[4][i * 2]) * 16 + groupHex(tokens[4][i * 2 + 1]);
+      if (next.routing[i]) next.logicalCount = i + 1;
+    }
+    if (!validControllerRouting(next)) { send485("{\"type\":\"error\",\"message\":\"invalid-routing\"}\n"); return; }
+    Adafruit_NeoPixel *candidate = new (std::nothrow) Adafruit_NeoPixel(physicalCount * LEDS_PER_MODULE, LED_PIN, NEO_GRB + NEO_KHZ800);
+    if (!candidate || (physicalCount && !candidate->getPixels())) {
+      delete candidate; send485("{\"type\":\"error\",\"message\":\"config-allocation-failed\"}\n"); return;
+    }
+    next.crc = controllerConfigCrc(&next, offsetof(ControllerConfig, crc));
+    if (!preferencesReady || controllerPreferences.putBytes("configuration", &next, sizeof(next)) != sizeof(next)) {
+      delete candidate; send485("{\"type\":\"error\",\"message\":\"config-storage-failed\"}\n"); return;
+    }
+    // Commit one complete NVS blob before activating its routing. Never persist fields separately.
+    for (int i = 0; i < runtimeConfig.physicalCount * LEDS_PER_MODULE; i++) pixels.setPixelColor(i, 0);
+    pixels.show();
+    delete pixelDriver;
+    pixelDriver = candidate;
+    pixels.begin(); pixels.setBrightness(255);
+    runtimeConfig = next;
+    configurationFault = false;
+    resetConfiguredModules();
+  }
+  char reply[300];
+  snprintf(reply, sizeof(reply), "{\"type\":\"ack\",\"command\":\"configure\",\"address\":\"%s\",\"request\":\"%s\",\"revision\":%lu,\"physicalModules\":%d}\n", CONTROLLER_ADDRESS, tokens[1], (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount);
+  send485(reply);
+}
+
+void resetConfiguredModules() {
+  memset(modules, 0, sizeof(modules));
   for (int module = 0; module < MODULES; module++) {
     modules[module].mode = MODE_IDLE;
     modules[module].text[0] = 0;
@@ -1341,13 +1529,44 @@ void setup() {
     renderModule(module);
   }
   pixels.show();
+}
 
-  char bootMsg[180];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v13\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES);
+void setup() {
+  pinMode(RS485_DE_RE, OUTPUT);
+  digitalWrite(RS485_DE_RE, LOW);
+
+  Serial.setRxBufferSize(1024);
+  Serial.begin(115200);
+  RS485.setRxBufferSize(1024); // Receive full configuration frames while LEDs are refreshing.
+  RS485.begin(115200, SERIAL_8N1, RS485_RX, RS485_TX);
+
+  loadControllerConfig();
+  pixels.begin();
+  pixels.setBrightness(255);
+  lastHeartbeatAt = millis();
+  heartbeatPulseStartedAt = lastHeartbeatAt;
+
+  resetConfiguredModules();
+
+  char bootMsg[512];
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v14\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
   send485(bootMsg);
 }
 
 void loop() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      usbLine[usbLinePos] = 0;
+      usbMaintenance = true;
+      if (!usbLineOverflow) handleLine(usbLine);
+      usbMaintenance = false;
+      usbLinePos = 0; usbLineOverflow = false;
+    } else if (c != '\r') {
+      if (usbLinePos < (int)sizeof(usbLine) - 1) usbLine[usbLinePos++] = c;
+      else usbLineOverflow = true;
+    }
+  }
   while (RS485.available()) {
     char c = RS485.read();
     if (c == '\n') {

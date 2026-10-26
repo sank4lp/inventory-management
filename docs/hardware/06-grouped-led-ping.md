@@ -1,6 +1,6 @@
 # Simultaneous LED ping
 
-The app and `firmware/esp32-simple-matrix/esp32-simple-matrix.ino` support grouped ping in protocol `simple-matrix-v13-rs485-addressed`. A selected group of two or more cells on one controller is rendered in a single NeoPixel refresh, with one shared animation start time. Single-cell ping continues to use the individual command. Separate controllers receive separate groups; synchronization across controllers is not guaranteed. Other display actions retain their existing commands.
+The app and `firmware/esp32-simple-matrix/esp32-simple-matrix.ino` support grouped ping (introduced in v13, retained in `simple-matrix-v14-rs485-addressed`). A selected group of two or more cells on one controller is rendered in a single NeoPixel refresh, with one shared animation start time. Single-cell ping continues to use the individual command. Separate controllers receive separate groups; synchronization across controllers is not guaranteed. Other display actions retain their existing commands.
 
 ## Update and bench check
 
@@ -33,3 +33,5 @@ If acknowledgements remain missing, the app reports failure, stops the display, 
 `node --test test/grouped-ping.test.js test/location-group-displays.test.js test/location-setup-display.test.js test/cell-display-ownership.test.js`
 
 The native firmware test needs a C++17 compiler (`CXX` or `c++`). It covers shared timing/single refresh, bad CRC, invalid group member, invalid duration, duplicate retries, ID collisions, selected subsets and delayed retries after expiry. Adapter tests cover acknowledgement matching, lost delivery/retry, legacy fallback and offline controllers. Integration tests cover scoped targeting, Stop, uncertain-delivery cleanup and unchanged task restoration.
+
+Runtime count and stable logical-to-physical routing are described in [controller configuration](07-runtime-controller-configuration.md).

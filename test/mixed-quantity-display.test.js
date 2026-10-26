@@ -25,6 +25,7 @@ test('actual matrix sketch parses addressed once, scrolls one pass and preserves
  writeFileSync(join(folder,'Adafruit_NeoPixel.h'),`
 #pragma once
 #include <cstdint>
+#include <cctype>
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
@@ -40,9 +41,9 @@ inline void pinMode(int,int){} inline void digitalWrite(int,int){} inline void d
 #define SERIAL_8N1 0
 #define NEO_GRB 0
 #define NEO_KHZ800 0
-class HardwareSerial{public:HardwareSerial(int=0){} void begin(int,int=0,int=0,int=0){} int available(){return 0;} int read(){return -1;} void print(const char*){} void flush(){}};
+class HardwareSerial{public:HardwareSerial(int=0){} size_t setRxBufferSize(size_t n){return n;} void begin(int,int=0,int=0,int=0){} int available(){return 0;} int read(){return -1;} void print(const char*){} void flush(){}};
 inline HardwareSerial Serial;
-class Adafruit_NeoPixel{public:std::vector<uint32_t> values;int brightness=0;Adafruit_NeoPixel(int n,int,int):values(n){} void begin(){} void show(){} void setBrightness(int n){brightness=n;} uint32_t Color(int r,int g,int b){return (r<<16)|(g<<8)|b;} void setPixelColor(int i,uint32_t c){values.at(i)=c;}};
+class Adafruit_NeoPixel{public:std::vector<uint32_t> values;int brightness=0;Adafruit_NeoPixel(int n,int,int):values(n){} uint8_t *getPixels(){return values.empty()?nullptr:reinterpret_cast<uint8_t *>(values.data());} void begin(){} void show(){} void setBrightness(int n){brightness=n;} uint32_t Color(int r,int g,int b){return (r<<16)|(g<<8)|b;} void setPixelColor(int i,uint32_t c){values.at(i)=c;}};
 `);
  const sketch=fileURLToPath(new URL('../firmware/esp32-simple-matrix/esp32-simple-matrix.ino',import.meta.url));
  writeFileSync(join(folder,'check.cpp'),`
@@ -65,7 +66,7 @@ int main(){
  return 0;
 }
 `);
- const output=join(folder,'check'),build=spawnSync(compiler,['-std=c++17','-I',folder,join(folder,'check.cpp'),'-o',output],{encoding:'utf8',timeout:30000});
+ const output=join(folder,'check'),build=spawnSync(compiler,['-std=c++17','-I',folder,'-I',fileURLToPath(new URL('./fixtures/esp32',import.meta.url)),join(folder,'check.cpp'),'-o',output],{encoding:'utf8',timeout:30000});
  assert.equal(build.status,0,build.stdout+'\n'+build.stderr);
  const run=spawnSync(output,[],{encoding:'utf8',timeout:10000});assert.equal(run.status,0,run.stdout+'\n'+run.stderr);
 });

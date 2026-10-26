@@ -1912,6 +1912,13 @@ export const requestHandler = async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/firmware/controller-backup") {
+      if (!ensureApiAuth(response, user)) return;
+      const form = await parseForm(request);
+      sendJson(response, await firmwareService.backupController(form, user));
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/api/firmware/flash") {
       if (!ensureApiAuth(response, user)) {
         return;
