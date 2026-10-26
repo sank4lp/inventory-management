@@ -39,87 +39,6 @@ function wizardCheckIcon() {
   `;
 }
 
-function renderModuleChips(modules = []) {
-  return modules
-    .map((moduleNumber) => `<span class="module-chip">Module ${escapeHtml(moduleNumber)}</span>`)
-    .join("");
-}
-
-function renderFirmwareVerification(config) {
-  if (!config) {
-    return "";
-  }
-
-  const summary = config.mappingSummary
-    ? ` Preserved ${formatQuantity(config.mappingSummary.preserved)} mapping(s), added ${formatQuantity(
-        config.mappingSummary.created,
-      )} new module slot(s), and left ${formatQuantity(config.mappingSummary.detached)} cell(s) in manual mode.`
-    : "";
-  return `
-    <div class="firmware-verify">
-      Flash saved for ${escapeHtml(config.controllerName || config.deviceName || "this controller")}.
-      Use Ping on each LED module below, then update the cell dropdown if any physical module is assigned to the wrong cell.
-      ${escapeHtml(summary)}
-    </div>
-  `;
-}
-
-function renderPortOptions(ports = []) {
-  return ports
-    .map((port) => `<option value="${escapeHtml(port.path)}">${escapeHtml(port.label)}</option>`)
-    .join("");
-}
-
-function flashRecordSummary(port) {
-  if (port.flashRecordAmbiguous || port.flashRecords?.length > 1) {
-    const names = (port.flashRecords || [])
-      .map((record) => record.controllerName || record.deviceName)
-      .filter(Boolean)
-      .join(", ");
-    return `<span class="firmware-device-summary">Shared USB-UART identity${names ? ` for ${escapeHtml(names)}` : ""}. Choose the exact controller name before flashing.</span>`;
-  }
-
-  if (!port.flashRecord) {
-    return `<span class="firmware-device-summary">New ESP32 detected. Flash this controller before mapping cells.</span>`;
-  }
-
-  const flashedBy = port.flashRecord.flashedBy?.name || port.flashRecord.flashedBy?.username || "unknown user";
-  return `
-    <span class="firmware-device-summary">
-      Already flashed as ${escapeHtml(port.flashRecord.deviceName || port.deviceName || "ESP32 controller")}
-      · id ${escapeHtml(port.flashRecord.controllerAddress || port.flashRecord.controllerId || "unknown")}
-      · ${escapeHtml(port.flashRecord.moduleCount)} LED module(s)
-      · ${escapeHtml(formatDate(port.flashRecord.configuredAt))}
-      · by ${escapeHtml(flashedBy)}
-    </span>
-  `;
-}
-
-function renderPortChoices(ports = [], selectedPort = "") {
-  if (!ports.length) {
-    return `<p class="muted">No detected ESP32 target yet. Unplug the ESP32, scan without it, then plug it in and detect the added port.</p>`;
-  }
-
-  return ports
-    .map(
-      (port) => `
-        <button
-          type="button"
-          class="firmware-port-choice ${port.path === selectedPort ? "firmware-port-choice-active" : ""}"
-          data-firmware-port-choice
-          data-port-path="${escapeHtml(port.path)}"
-          data-device-identity="${escapeHtml(port.deviceIdentity || port.path)}"
-        >
-          <strong>${escapeHtml(port.flashRecord?.deviceName || port.deviceName || "ESP32 controller")}</strong>
-          <code>${escapeHtml(port.path)}</code>
-          ${statusBadge(port.flashRecordAmbiguous ? "shared" : port.flashStatus === "configured" ? "flashed" : "new")}
-          ${flashRecordSummary(port)}
-        </button>
-      `,
-    )
-    .join("");
-}
-
 function cellMappingOptionLabel(cell) {
   const stock = Number(cell.occupied_quantity || 0) > 0 ? ` · stock ${formatQuantity(cell.occupied_quantity)}` : "";
   const controller = cellIsMapped(cell)
@@ -382,194 +301,64 @@ export function createLocationPages({ db }) {
     });
   }
 
-  function renderControllerSetupSection(controllers) {
+  function renderControllerSetupSection(controllers, controllerId = null) {
     const runtime = getRuntimeContext();
     const firmwareOptions = runtime.firmwareService?.getFlashOptions();
-    const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
-    const port = "";
-    const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
-    const hasPorts = false;
-
-    if (!firmwareOptions) {
-      return `
-        <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
-          <p class="muted">Firmware flashing is not available in this runtime.</p>
-        </section>
-      `;
-    }
-
-    return `
-      <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
-        <div class="firmware-panel" data-firmware-panel>
-          ${
-            firmwareOptions.arduinoCli.available
-              ? ""
-              : `<div class="firmware-port-status firmware-port-status-missing">Arduino CLI is missing.</div>`
-          }
-          <form class="stack-form firmware-wizard" data-firmware-flash-form data-firmware-wizard data-current-step="0">
-            <ol class="wizard-steps" aria-label="Controller setup progress">
-              <li class="wizard-step-indicator wizard-step-indicator-active" data-firmware-step-indicator="0" aria-current="step">
-                <span class="wizard-step-node" aria-hidden="true">
-                  <span class="wizard-step-number">1</span>
-                  ${wizardCheckIcon()}
-                </span>
-                <span class="wizard-step-copy">
-                  <strong>Disconnect</strong>
-                  <span>Save current ports</span>
-                </span>
-              </li>
-              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="1">
-                <span class="wizard-step-node" aria-hidden="true">
-                  <span class="wizard-step-number">2</span>
-                  ${wizardCheckIcon()}
-                </span>
-                <span class="wizard-step-copy">
-                  <strong>Attach</strong>
-                  <span>Find new ESP32</span>
-                </span>
-              </li>
-              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="2">
-                <span class="wizard-step-node" aria-hidden="true">
-                  <span class="wizard-step-number">3</span>
-                  ${wizardCheckIcon()}
-                </span>
-                <span class="wizard-step-copy">
-                  <strong>Configure</strong>
-                  <span>Name and modules</span>
-                </span>
-              </li>
-              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="3">
-                <span class="wizard-step-node" aria-hidden="true">
-                  <span class="wizard-step-number">4</span>
-                  ${wizardCheckIcon()}
-                </span>
-                <span class="wizard-step-copy">
-                  <strong>Flash</strong>
-                  <span>Upload firmware</span>
-                </span>
-              </li>
-            </ol>
-
-            <section class="firmware-step" data-firmware-step="0">
-              <div class="mini-actions">
-                <button type="button" class="blue-button" data-firmware-scan-baseline data-firmware-next-on-success>Next</button>
-              </div>
-            </section>
-
-            <section class="firmware-step" data-firmware-step="1" hidden>
-              <div class="mini-actions">
-                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
-                <button type="button" class="blue-button" data-firmware-refresh-ports data-firmware-next-on-success>Next</button>
-              </div>
-              <div class="firmware-port-status firmware-port-status-missing" data-firmware-detect-status hidden></div>
-            </section>
-
-            <section class="firmware-step" data-firmware-step="2" hidden>
-              <label>Controller action
-                <select name="replacement_controller_id" data-firmware-replacement>
-                  <option value="">Add a new controller</option>
-                  ${(firmwareOptions.controllerFlashRecords||[]).map(c=>`<option value="${c.controllerId}" data-name="${escapeHtml(c.controllerName)}" data-count="${c.physicalModuleCount ?? c.moduleCount}" data-ready="${c.replacementReady?'1':'0'}">Replace / update ${escapeHtml(c.controllerName)} · ${c.replacementReady?'saved setup available':'backup needed'}</option>`).join('')}
-                </select>
-              </label>
-              <div class="work-callout" data-firmware-replacement-help hidden>
-                <p>The selected controller keeps its name, LED routing, cells and inventory. Only its ESP32 board is replaced or updated.</p>
-                <p>Before a future board failure, connect the original ESP32 by USB and save its setup here. A replacement restores the saved setup automatically.</p>
-                <button type="button" class="secondary" data-firmware-controller-backup>Save connected controller’s setup</button>
-                <p role="status" data-firmware-backup-status></p>
-                <label><input type="checkbox" name="replacement_confirmed" value="1">The old board is disconnected from power and RS485, and the LED chain is unchanged. For an update of the same board, it is isolated for USB maintenance.</label>
-              </div>
-              <div class="firmware-grid">
-                <label>Controller Name
-                  <input
-                    name="controller_name"
-                    list="firmware-controller-names"
-                    placeholder="ESP32-Z1-A"
-                    required
-                  />
-                </label>
-                <label>LED Modules
-                  <input
-                    type="number"
-                    name="module_count"
-                    min="${firmwareOptions.moduleCount.min}"
-                    max="${firmwareOptions.moduleCount.max}"
-                    step="1"
-                    placeholder="4"
-                    required
-                  />
-                </label>
-                <label>Serial Port
-                  <div class="firmware-port-input-row">
-                    <input
-                      name="port"
-                      list="firmware-ports"
-                      value="${escapeHtml(port)}"
-                      placeholder="/dev/ttyUSB0"
-                      data-firmware-port-input
-                      required
-                    />
-                    <input type="hidden" name="device_identity" value="" data-firmware-device-identity />
-                  </div>
-                </label>
-                <label>Board FQBN
-                  <input name="fqbn" value="${escapeHtml(fqbn)}" required />
-                </label>
-              </div>
-              <datalist id="firmware-ports">
-                ${renderPortOptions([])}
-              </datalist>
-              <datalist id="firmware-controller-names">
-                ${controllers
-                  .map(
-                    (controller) =>
-                      `<option value="${escapeHtml(controller.controller_code)}">${escapeHtml(
-                        `${controller.controller_code} · replace/migrate existing mapping`,
-                      )}</option>`,
-                  )
-                  .join("")}
-              </datalist>
-              <div
-                class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
-                data-firmware-port-status
-              >${escapeHtml(firmwareOptions.portStatus)}</div>
-              <div class="firmware-port-list" data-firmware-port-list>
-                ${renderPortChoices([], port)}
-              </div>
-              <details class="firmware-other-devices" data-firmware-other-devices>
-                <summary>Other Serial Devices / Manual Reflash</summary>
-                <div class="firmware-other-device-list" data-firmware-other-device-list></div>
-              </details>
-              <div class="mini-actions">
-                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
-                <button type="button" class="blue-button" data-firmware-next>Next</button>
-              </div>
-            </section>
-
-            <section class="firmware-step" data-firmware-step="3" hidden>
-              <div class="mini-actions">
-                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
-                <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Flash Controller</button>
-              </div>
-              <div class="firmware-progress" data-firmware-progress hidden>
-                <div class="firmware-progress-head">
-                  <strong data-firmware-stage>Queued</strong>
-                  <span data-firmware-percent>0%</span>
-                </div>
-                <progress data-firmware-progress-bar value="0" max="100"></progress>
-                <div class="firmware-hint" data-firmware-hint hidden></div>
-                <pre class="firmware-log" data-firmware-log></pre>
-              </div>
-            </section>
-          </form>
-          <div
-            class="module-assignment-strip"
-            data-firmware-modules
-            ${lastFirmwareConfig?.assignedModules?.length ? "" : "hidden"}
-          >${renderModuleChips(lastFirmwareConfig?.assignedModules || [])}</div>
-          ${renderFirmwareVerification(lastFirmwareConfig)}
-        </div>
-      </section>
-    `;
+    const editing = controllerId != null;
+    const selected = editing ? controllers.find(c => c.id === Number(controllerId)) : null;
+    if (editing && !selected) throw new Error('Controller is no longer available. Return to Hardware and refresh.');
+    if (!firmwareOptions) return `<section id="controller-setup" class="app-panel" data-config-section="controller-setup"><p class="muted">Firmware flashing is not available in this runtime.</p></section>`;
+    const saved = firmwareOptions.controllerFlashRecords?.find(c => c.controllerId === selected?.id);
+    const fqbn = firmwareOptions.defaultFqbn || 'esp32:esp32:esp32';
+    const name = selected?.controller_code || '';
+    const count = saved?.physicalModuleCount ?? selected?.module_count ?? '';
+    const ready = saved?.replacementReady === true;
+    const steps = [['Disconnect','Unplug the ESP32'],['Attach','Connect by USB'],['Configure','Check the details'],['Flash','Upload and verify']];
+    return `<section id="controller-setup" class="app-panel controller-wizard" data-config-section="controller-setup">
+      <div class="firmware-panel" data-firmware-panel data-firmware-mode="${editing?'edit':'add'}">
+        <form class="firmware-wizard" data-firmware-flash-form data-firmware-wizard data-current-step="0">
+          <div class="firmware-navigation-slot"><nav class="firmware-navigation" aria-label="Controller setup navigation">
+            <button type="button" class="ghost-button firmware-nav-button" data-firmware-back>← Back</button>
+            <div class="firmware-navigation-forward">
+              <button type="button" class="green-button firmware-nav-button" data-firmware-forward>Next →</button>
+              <button type="submit" class="green-button firmware-nav-button" data-firmware-submit hidden disabled>${editing?'Update firmware':'Flash controller'}</button>
+            </div>
+          </nav></div>
+          <header class="firmware-wizard-head"><h2>${editing?`Edit ${escapeHtml(name)}`:'Add a new controller'}</h2><p class="muted">${editing?'Update this ESP32 or connect a replacement. Your cells and LED mappings stay with this controller.':'Connect an ESP32 and choose how many LED modules it controls.'}</p></header>
+          ${firmwareOptions.arduinoCli.available?'':'<p class="firmware-port-status firmware-port-status-missing" role="alert">The firmware tools are not installed on this host.</p>'}
+          <ol class="wizard-steps" aria-label="Controller setup progress">${steps.map(([title,subtitle],i)=>`<li class="wizard-step-indicator ${i===0?'wizard-step-indicator-active':'wizard-step-indicator-upcoming'}" data-firmware-step-indicator="${i}" ${i===0?'aria-current="step"':''}><span class="wizard-step-node" aria-hidden="true"><span class="wizard-step-number">${i+1}</span>${wizardCheckIcon()}</span><span class="wizard-step-copy"><strong>${title}</strong><span>${subtitle}</span></span></li>`).join('')}</ol>
+          <input type="hidden" name="replacement_controller_id" value="${selected?.id||''}" data-firmware-replacement data-name="${escapeHtml(name)}" data-count="${count}" data-ready="${ready?'1':'0'}">
+          <input type="hidden" name="fqbn" value="${escapeHtml(fqbn)}">
+          <section class="firmware-step" data-firmware-step="0">
+            <h3>Disconnect the ESP32</h3><p>Unplug its USB cable from the Raspberry Pi, then choose Next.</p>
+            <p class="muted">Switch off external power before changing wires. Keep the ESP32 isolated from external power and LED/RS485 connections during flashing.</p>
+          </section>
+          <section class="firmware-step" data-firmware-step="1" hidden>
+            <h3>Connect the ESP32 via USB</h3><p>Connect ${editing?'this controller or its replacement':'the new controller'} to the Raspberry Pi using a USB data cable, then choose Next.</p>
+            <p class="firmware-port-status" role="status" data-firmware-detect-status hidden></p>
+          </section>
+          <section class="firmware-step" data-firmware-step="2" hidden>
+            <div class="firmware-grid">
+              <label>Controller name<input name="controller_name" placeholder="e.g. Shelf A" ${editing?`value="${escapeHtml(name)}" readonly`:''} required maxlength="80"></label>
+              <label>LED modules<input type="number" name="module_count" min="${editing?0:firmwareOptions.moduleCount.min}" max="${firmwareOptions.moduleCount.max}" step="1" placeholder="4" ${editing?`value="${count}" readonly`:''} required></label>
+              <label>Serial port<input name="port" list="firmware-ports" placeholder="Select the connected ESP32" data-firmware-port-input required><input type="hidden" name="device_identity" value="" data-firmware-device-identity></label>
+            </div>
+            <datalist id="firmware-ports"></datalist>
+            <section class="firmware-added-device" aria-label="Added serial device"><h3>Added serial device</h3><p class="firmware-port-status" role="status" data-firmware-port-status>Select the ESP32 detected in the previous step.</p><div class="firmware-port-list" data-firmware-port-list></div></section>
+            <details class="firmware-other-devices" data-firmware-other-devices><summary>Other serial devices / Manual refresh</summary><button type="button" class="ghost-button" data-firmware-refresh-ports>Refresh devices</button><div class="firmware-other-device-list" data-firmware-other-device-list></div></details>
+          </section>
+          <section class="firmware-step" data-firmware-step="3" hidden>
+            <h3>${editing?'Ready to update':'Ready to add your controller'}</h3>
+            <dl class="firmware-review"><div><dt>Controller</dt><dd data-firmware-review-name></dd></div><div><dt>LED modules</dt><dd data-firmware-review-count></dd></div><div><dt>Serial port</dt><dd data-firmware-review-port></dd></div></dl>
+            <p>${editing?'The saved LED setup will be restored and checked. Existing locations and inventory stay unchanged.':'The application will upload the firmware and save the controller setup.'}</p>
+            ${editing?`<div data-firmware-replacement-help><details class="firmware-backup-help" ${ready?'':'open'}><summary>${ready?'Save a setup backup':'Setup backup needed'}</summary><p>With the original ESP32 connected, save its LED setup before updating or replacing it.</p><button type="button" class="ghost-button" data-firmware-controller-backup>Save connected controller’s setup</button><p role="status" data-firmware-backup-status></p></details><label class="firmware-confirmation"><input type="checkbox" name="replacement_confirmed" value="1" required>The ESP32 is isolated for USB maintenance and the LED chain is unchanged.</label></div>`:''}
+            <p class="muted">Keep USB connected until verification finishes.</p>
+            <div class="firmware-progress" data-firmware-progress hidden><div class="firmware-progress-head"><strong data-firmware-stage>Queued</strong><span data-firmware-percent>0%</span></div><progress data-firmware-progress-bar value="0" max="100"></progress><p class="firmware-hint" role="status" data-firmware-hint hidden></p><details class="firmware-diagnostics"><summary>Upload details</summary><pre class="firmware-log" data-firmware-log></pre></details></div>
+          </section>
+          <p class="firmware-flow-status" role="status" data-firmware-flow-status hidden></p>
+        </form>
+      </div>
+    </section>`;
   }
 
   function renderCellManagementSection(cells) {
@@ -762,13 +551,13 @@ export function createLocationPages({ db }) {
     `;
   }
 
-  function renderDeviceConfigSection(sectionKey) {
+  function renderDeviceConfigSection(sectionKey, {controllerId=null} = {}) {
     const controllers = listControllers(db);
     const cells = listCells(db);
 
     switch (sectionKey) {
       case "controller-setup":
-        return renderControllerSetupSection(controllers);
+        return renderControllerSetupSection(controllers,controllerId);
       case "cell-create":
         return renderCellManagementSection(cells);
       case "cell-management":
@@ -833,6 +622,8 @@ export function createLocationPages({ db }) {
               title="Ping all LED modules on ${escapeHtml(controller.controller_code)}"
             >Ping</button>
           </form>
+          ${can(user,'hardware.map')&&can(user,'locations.manage')?`<a class="ghost-button" href="/locations/manage?view=leds&controller=${controller.id}">Map locations</a>`:''}
+          ${can(user,'hardware.flash')?`<a class="ghost-button controller-edit-button" href="#controller-edit-${controller.id}" data-controller-edit="${controller.id}" aria-label="Edit ${escapeHtml(controller.controller_code)}">Edit</a>`:''}
           <form
             method="post"
             action="/devices/controller-delete"

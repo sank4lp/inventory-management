@@ -1,3 +1,4 @@
+import {loadControllerProfile} from './controller-profiles.js';
 import {MIXED_PRODUCT_COLORS,mixedQuantityTiming} from './quantity-display.js';
 import {activeWorkGuidance,displayOwner} from '../modules/operations/guidance.js';
 import {assertCan,can} from "../modules/access/catalog.js";
@@ -87,7 +88,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
         const ready=hardwareService.ensureControllerReady?.(c.controller_id);
         if(!ready?.ok||ready.degraded)status='unreachable';
       }
-      if(scope.kind==='module_number'){value=c.hardware_channel;if(!Number.isInteger(value)||value<1||value>999)status='unsupported';}
+      if(scope.kind==='module_number'){const controller=db.prepare('SELECT * FROM controllers WHERE id=?').get(c.controller_id);let profile;try{profile=controller&&loadControllerProfile(db,controller);}catch{}value=profile?profile.routing[c.hardware_channel-1]:c.hardware_channel;if(!Number.isInteger(value)||value<1||value>999)status='unsupported';}
       if(scope.kind==='cell_name'){
         value=String(c.display_name||c.logical_code||'').trim();
         // The installed matrix firmware has a 55-character ASCII text buffer.

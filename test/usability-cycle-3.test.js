@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 const countSource=readFileSync(new URL('../public/client/stocktaking.js',import.meta.url),'utf8').replace('export async function mount() {','').split("root.addEventListener('submit'")[0];
-const setupSource=readFileSync(new URL('../public/client/location-setup.js',import.meta.url),'utf8').replace('export async function mount() {','').split("root.addEventListener('invalid'")[0];
+const setupSource=readFileSync(new URL('../public/client/location-setup.js',import.meta.url),'utf8').replace(/^import .*\n/gm,'').replace('export async function mount() {','').split("root.addEventListener('invalid'")[0];
 const storage=()=>{const m=new Map();return {get length(){return m.size;},key:i=>[...m.keys()][i],getItem:k=>m.get(k)||null,setItem:(k,v)=>m.set(k,v)};};
 class FormValues extends Map {constructor(f){super(f.elements.filter(e=>e.name&&(!['checkbox','radio'].includes(e.type)||e.checked)).map(e=>[e.name,e.value]));}getAll(n){return this.has(n)?[this.get(n)]:[];}}
 function countView(search='?run=1&cell=10'){

@@ -134,6 +134,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       .run(l.id,l.revision,l.assignee_id,l.current_generation,JSON.stringify(context),now());
   }
   function executeOwner(actor,l,input) {
+    checkMoveDependency(l.task_id);
     if(actor.id!==l.assignee_id) throw new Error('Only the current assigned operator can execute this work. Reassign eligible work first.');
     if(input.assignmentGeneration!=null && Number(input.assignmentGeneration)!==l.current_generation) throw new Error('This assignment changed. Refresh before continuing.');
     if(l.review_followup)throw new Error('Check moved quantity first. This assignment is for observation only until verified.');
@@ -150,6 +151,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     // Reconciliation after the transaction elects the next display without clearing a newer owner.
   }
   function instructionProblem(l){
+    try{checkMoveDependency(l.task_id);}catch(error){return error.message;}
     if(l.instruction_snapshot&&JSON.parse(l.instruction_snapshot).bindingRevision!==l.binding_revision)return 'Location mapping changed. Ask a supervisor to update these instructions before new work.';
     if(!l.cell_active)return 'Location is inactive. Ask a supervisor to update this task.';
     if(controlledCell(db,l.cell_id))return 'Stock is under condition review. Ask a supervisor before continuing.';
@@ -489,6 +491,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function startTask(actor,input) {
     const t=currentTask(actor,input);
+    checkMoveDependency(t.id);
     if(input.progressToken&&input.progressToken!==progressToken(t.id))throw new Error('Task instructions changed. Refresh before starting.');
     if(t.review_followup)throw new Error('Check moved quantity first. Resume verified remaining work after the check.');
     if(db.prepare("SELECT 1 FROM work_events e JOIN task_lines l ON l.id=e.line_id JOIN work_reports r ON r.id=e.report_id WHERE l.task_id=? AND e.event_type='reservation_displaced' AND r.status IN ('review','received')").get(t.id))throw new Error('Stock or space for this task was taken over by newer work. Ask a supervisor to update or close it before starting.');
@@ -715,7 +718,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const recoveryResult=planningRecovery.prepare(actor,input,product);
     const allocations=plan(product,input,remaining);
     const task = tasks.createPendingReviewTask({ type: input.direction, summary: `${input.direction === "pick" ? "Pick" : "Put"} ${input.quantity} ${product.unit_of_measure} of ${product.sku}`, createdBy: actor.id, lines: allocations });
-    db.prepare('UPDATE tasks SET allow_mixed_put=?,plan_cell_id=? WHERE id=?').run(input.recovery?.mode==='mixed'?1:0,['location','mixed'].includes(input.recovery?.mode)?Number(input.recovery.cellId):null,task.id);
+    db.prepare('UPDATE tasks SET allow_mixed_put=?,plan_cell_id=? WHERE id=?').run(input.recovery?.mode==='mixed'?1:0,['location','mixed'].includes(input.recovery?.mode)?Number(input.recovery.cellId):Number(input.plan_cell_id)||null,task.id);
     const assignee = input.assigneeId ? eligibleAssignee(actor, input.assigneeId) : actor;
     const assignedAt=now(), timing=timingSettings();
     const assignedDeadline=assignmentForm||Boolean(input.assigneeId&&!input.dueAt);
@@ -733,6 +736,93 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     event("task_reserved", actor, null, { taskId: task.id, lines: task.lines.map(l => l.id) });
     if(!input.assigneeId)assignmentEvent(actor,task.id,'started',assignee.id);
     return { ...recoveryResult, status: "reserved", taskId: task.id, generation:1, message: assignmentForm?`Task assigned to ${assignee.name}.`:"Quantities reserved. Follow the location guidance, then tap I’m at this location on arrival." };
+  }
+  function checkMoveDependency(taskId) {
+    const value=metadata('led_move_dependency:'+taskId);if(!value)return;
+    const picks=JSON.parse(value),picked=new Map(),needed=new Map();
+    for(const id of picks){
+      const t=db.prepare('SELECT completed_at FROM tasks WHERE id=?').get(id);
+      const pending=db.prepare("SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.status IN ('review','received')").get(id);
+      if(!t?.completed_at||pending)throw new Error('Finish and verify all linked pick tasks before putting these products away. If quantities differ, ask a supervisor to reconcile this move.');
+      for(const row of db.prepare('SELECT l.product_id,s.quantity FROM task_lines l JOIN work_settlements s ON s.line_id=l.id WHERE l.task_id=? AND s.cell_id=l.cell_id AND s.unit=l.unit_of_measure').all(id))picked.set(row.product_id,(picked.get(row.product_id)||0)+row.quantity);
+    }
+    const linked=db.prepare("SELECT key,value FROM app_metadata WHERE key LIKE 'led_move_dependency:%'").all().filter(r=>r.value===value);
+    for(const r of linked)for(const l of db.prepare("SELECT l.product_id,l.planned_quantity,s.quantity actual FROM task_lines l LEFT JOIN work_settlements s ON s.line_id=l.id WHERE l.task_id=? AND l.execution_state NOT IN ('cancelled','superseded')").all(Number(r.key.split(':')[1])))needed.set(l.product_id,(needed.get(l.product_id)||0)+(l.actual??l.planned_quantity));
+    if([...needed].some(([product,quantity])=>quantity>(picked.get(product)||0)+0.000001))throw new Error('Picked quantities differ from the put plan. Ask a supervisor to update the put tasks to the verified amount before continuing.');
+  }
+
+  function locationMovePlan(actor,input) {
+    actor=actorNow(actor,'work.put');assertCan(actor,'work.pick');
+    const source=Number(input.sourceCellId),used=new Map(),chosenProducts=new Map();
+    const products=db.prepare('SELECT p.*,b.available_quantity quantity FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.cell_id=? AND b.available_quantity!=0').all(source);
+    const plans=products.map(p=>{
+      if(p.quantity<0||!p.active)throw new Error('Reconcile negative stock or inactive products before moving this location.');
+      const choices=planningRecovery.options(actor,{direction:'put',productId:p.id}).cells.filter(c=>c.id!==source);
+      let remaining=p.quantity;
+      const suggested=[];
+      for(const c of choices){
+        const room=c.mixed||c.blocked||chosenProducts.has(c.id)&&chosenProducts.get(c.id)!==p.id?0:Math.max(0,Math.floor((c.space-(used.get(c.id)||0)*p.items_per_cell)*1e6)/1e6);
+        c.space=room;
+        const quantity=Math.min(room,remaining);
+        if(quantity>0){suggested.push({cellId:c.id,quantity});remaining=rounded(remaining-quantity);used.set(c.id,(used.get(c.id)||0)+quantity/p.items_per_cell);chosenProducts.set(c.id,p.id);}
+      }
+      return {productId:p.id,name:p.name,unit:p.unit_of_measure,quantity:p.quantity,itemsPerCell:p.items_per_cell,shortfall:remaining,choices,suggested};
+    });
+    return {sourceCellId:source,products:plans,canEditCapacity:can(actor,'products.capacity')};
+  }
+  // Called inside the location command's receipt transaction: every reservation succeeds or none do.
+  function discardLocationMove(actor,input){
+    actor=actorNow(actor,'work.stop');
+    const key='led_move_source:'+Number(input.sourceCellId),raw=metadata(key);if(!raw)throw new Error('No move tasks remain for this location.');
+    if(input.confirmed!==true)throw new Error('Confirm discarding this move.');
+    const move=JSON.parse(raw),ids=[...move.picks,...move.puts];
+    const touched=ids.some(id=>db.prepare("SELECT 1 FROM task_lines WHERE task_id=? AND (started_at IS NOT NULL OR execution_state='working' OR actual_quantity>0 OR EXISTS(SELECT 1 FROM work_reports WHERE line_id=task_lines.id))").get(id));
+    const allClosed=ids.every(id=>db.prepare('SELECT completed_at FROM tasks WHERE id=?').get(id)?.completed_at);
+    const unresolved=ids.some(id=>db.prepare("SELECT 1 FROM work_reports r JOIN task_lines l ON l.id=r.line_id WHERE l.task_id=? AND r.status IN ('review','received')").get(id));
+    const net=new Map();for(const id of ids)for(const l of db.prepare('SELECT l.product_id,t.type,s.quantity FROM task_lines l JOIN tasks t ON t.id=l.task_id JOIN work_settlements s ON s.line_id=l.id WHERE l.task_id=?').all(id))net.set(l.product_id,(net.get(l.product_id)||0)+(l.type==='pick'?l.quantity:-l.quantity));
+    const balanced=[...net.values()].every(q=>Math.abs(q)<0.000001);
+    const picksClosed=move.picks.every(id=>db.prepare('SELECT completed_at FROM tasks WHERE id=?').get(id)?.completed_at);
+    const untouchedPuts=move.puts.every(id=>!db.prepare("SELECT 1 FROM task_lines WHERE task_id=? AND (started_at IS NOT NULL OR execution_state='working' OR EXISTS(SELECT 1 FROM work_reports WHERE line_id=task_lines.id))").get(id)||db.prepare('SELECT completed_at FROM tasks WHERE id=?').get(id)?.completed_at);
+    const reconciled=!unresolved&&balanced&&(allClosed||picksClosed&&untouchedPuts);
+    if(touched&&!reconciled){
+      for(const id of move.picks){const t=db.prepare('SELECT * FROM tasks WHERE id=?').get(id);if(!t.completed_at)stopTask(actor,{taskId:id,generation:t.assignment_generation});}
+      return {status:'review',message:'This move has started. Remaining picks were stopped; active work needs a quantity check. Complete or reconcile the put tasks for anything already picked before discarding the move. Your LED mapping is unchanged.'};
+    }
+    for(const id of ids){const t=db.prepare('SELECT * FROM tasks WHERE id=?').get(id);if(!t.completed_at)stopTask(actor,{taskId:id,generation:t.assignment_generation});}
+    for(const id of move.puts)db.prepare('DELETE FROM app_metadata WHERE key=?').run('led_move_dependency:'+id);
+    db.prepare('DELETE FROM app_metadata WHERE key=?').run(key);
+    event('location_move_discarded',actor,null,{sourceCellId:Number(input.sourceCellId),...move});
+    return {status:'recorded',message:touched?'Move discarded. Completed movements remain in inventory and history. The LED mapping is unchanged.':'Move discarded. Reservations released. The LED mapping and inventory are unchanged.'};
+  }
+  function reserveLocationMove(actor,input) {
+    actor=actorNow(actor,'work.pick');assertCan(actor,'work.put');
+    const source=Number(input.sourceCellId);
+    if(db.prepare("SELECT value FROM app_metadata WHERE key=?").get('led_move_source:'+source))throw new Error('Move tasks already exist for this location. Finish them in My work before creating another move.');
+    for(const capacity of input.capacities||[]){
+      const p=db.prepare('SELECT * FROM products WHERE id=? AND active=1').get(Number(capacity.productId));if(!p)throw new Error('Product changed. Reopen the move.');
+      planningRecovery.prepare(actor,{direction:'put',recovery:{mode:'capacity',itemsPerCell:capacity.itemsPerCell,previousCapacity:capacity.previousCapacity,confirmed:capacity.confirmed===true}},p);
+    }
+    const plan=locationMovePlan(actor,input);
+    if(!plan.products.length)throw new Error('This location is already empty. Return to mapping.');
+    const picks=[],puts=[];
+    if(input.products!=null&&(!Array.isArray(input.products)||input.products.length!==plan.products.length||new Set(input.products.map(p=>Number(p.productId))).size!==plan.products.length))throw new Error('Include every product in this location exactly once.');
+    for(const p of plan.products){
+      const supplied=input.products?.find(r=>Number(r.productId)===p.productId);
+      const destinations=supplied?.destinations||p.suggested;
+      if(!Array.isArray(destinations)||!destinations.length||Math.abs(destinations.reduce((n,d)=>n+workQuantity(d.quantity,true),0)-p.quantity)>0.000001)throw new Error('Choose destinations for the entire quantity of '+p.name+'. If space is short, check items per cell or choose custom locations.');
+      const pick=create(actor,{direction:'pick',productId:p.productId,quantity:p.quantity,plan_cell_id:source,protectUnstarted:true,note:'Move all stock out of this location before reassigning its LED. Complete the linked put tasks afterwards.'});
+      picks.push(pick.taskId);
+      for(const d of destinations){
+        if(Number(d.cellId)===source)throw new Error('Choose another location as the destination.');
+        const put=create(actor,{direction:'put',productId:p.productId,quantity:workQuantity(d.quantity,true),protectUnstarted:true,recovery:{mode:'location',cellId:Number(d.cellId)},note:'Location move: finish all linked pick tasks before starting this put.'});
+        puts.push(put.taskId);
+      }
+    }
+    const at=now();
+    for(const id of puts)db.prepare('INSERT INTO app_metadata(key,value,updated_at) VALUES(?,?,?)').run('led_move_dependency:'+id,JSON.stringify(picks),at);
+    db.prepare('INSERT INTO app_metadata(key,value,updated_at) VALUES(?,?,?)').run('led_move_source:'+source,JSON.stringify({picks,puts}),at);
+    event('location_move_reserved',actor,null,{sourceCellId:source,picks,puts});
+    return {status:'reserved',picks,puts,message:'Move tasks created in My work. Complete all picks, then the puts. Return here to save the LED mapping.'};
   }
   // Reopening creates new instructions; finalized movements and their late-report
   // boundaries remain attached to the original task.
@@ -1386,5 +1476,5 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   const planningRecovery=createPlanningRecovery({db,workQuantity,event});
   function planningOptions(actor,input){return {...identity(),actorId:actor.id,...planningRecovery.options(actorNow(actor,'work.view'),input)};}
   const history=createWorkHistory({db,actorNow,task,identity});
-  return { ...history, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, reconcileCountReservations, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock, planningOptions, dispose:()=>stocktakeDisplayQueue.dispose() };
+  return { ...history, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, reconcileCountReservations, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock, planningOptions, locationMovePlan, reserveLocationMove, discardLocationMove, dispose:()=>stocktakeDisplayQueue.dispose() };
 }

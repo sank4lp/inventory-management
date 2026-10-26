@@ -2853,21 +2853,6 @@ function firmwareStageLabel(stage) {
   return labels[stage] || "Running";
 }
 
-function renderFirmwareModules(target, modules = []) {
-  if (!target) {
-    return;
-  }
-
-  target.replaceChildren();
-  for (const moduleNumber of modules) {
-    const chip = document.createElement("span");
-    chip.className = "module-chip";
-    chip.textContent = `Module ${moduleNumber}`;
-    target.appendChild(chip);
-  }
-  target.hidden = modules.length === 0;
-}
-
 function normalizeFirmwarePorts(ports = []) {
   return ports.map((port) => {
     if (typeof port === "string") {
@@ -2883,20 +2868,6 @@ function normalizeFirmwarePorts(ports = []) {
 
 function firmwarePortIdentity(port) {
   return port.deviceIdentity || port.path;
-}
-
-function firmwareControllerName(port) {
-  if (port?.flashRecordAmbiguous) {
-    return "";
-  }
-  return port?.flashRecord?.controllerName || port?.flashRecord?.deviceName || "";
-}
-
-function firmwareTtyPath(port) {
-  if (port.ttyPath) {
-    return port.ttyPath;
-  }
-  return (port.aliases || []).find((alias) => /\/dev\/(?:tty|cu)[A-Za-z0-9._-]+$/.test(alias)) || "";
 }
 
 function appendFirmwarePortMeta(parent, label, value) {
@@ -2952,7 +2923,7 @@ function syncFirmwareSubmitState(panel) {
   const modules = panel.querySelector('input[name="module_count"]');
   const submitButton = panel.querySelector("[data-firmware-flash-form] button[type='submit']");
   const replacement = panel.querySelector('[data-firmware-replacement]');
-  const option = replacement?.selectedOptions?.[0];
+  const option = replacement?.selectedOptions?.[0] || replacement;
   const replacing = Boolean(replacement?.value);
   const confirmation = panel.querySelector('input[name="replacement_confirmed"]');
   const help = panel.querySelector('[data-firmware-replacement-help]');
@@ -2960,11 +2931,17 @@ function syncFirmwareSubmitState(panel) {
   if(controller)controller.readOnly=replacing;
   if(modules){modules.readOnly=replacing;modules.min=replacing?'0':'1';}
   if(replacing && option){controller.value=option.dataset.name||'';modules.value=option.dataset.count||'0';}
-  if(confirmation)confirmation.required=replacing;
+  const step=currentFirmwareWizardStep(panel);
+  const busy=panel.dataset.firmwareNavigating==='true'||panel.dataset.firmwareJobRunning==='true';
+  if(confirmation)confirmation.required=replacing && step===3;
+  const back=panel.querySelector('[data-firmware-back]'),next=panel.querySelector('[data-firmware-forward]');
+  if(back)back.disabled=busy;
+  if(next){next.hidden=step===3;next.disabled=busy;}
+  if(submitButton)submitButton.hidden=step!==3;
   if (submitButton && input && identity && controller && modules) {
-    submitButton.textContent=replacing?'Flash and restore controller':'Flash Controller';
+    submitButton.textContent=panel.dataset.firmwareJobRunning==='true'?'Updating…':replacing?'Update firmware':'Flash controller';
     submitButton.disabled =
-      !input.value.trim() || !identity.value.trim() || !controller.value.trim() || !modules.value.trim() ||
+      busy || !input.value.trim() || !identity.value.trim() || !controller.value.trim() || !modules.value.trim() ||
       replacing && (option?.dataset.ready!=='1' || !confirmation?.checked);
   }
 }
@@ -3009,6 +2986,39 @@ function setFirmwareWizardStep(panel, nextStep) {
       indicator.removeAttribute("aria-current");
     }
   });
+  const review=[['name','controller_name'],['count','module_count'],['port','port']];
+  for(const [key,field] of review){const target=panel.querySelector(`[data-firmware-review-${key}]`);if(target)target.textContent=panel.querySelector(`[name="${field}"]`)?.value||'—';}
+  syncFirmwareSubmitState(panel);
+  const heading=steps[safeStep]?.querySelector('h3');if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});}
+
+}
+
+async function advanceFirmwareWizard(panel) {
+  if (panel.dataset.firmwareNavigating==='true' || panel.dataset.firmwareJobRunning==='true') return;
+  panel.dataset.firmwareNavigating='true';
+  const feedback=panel.querySelector('[data-firmware-flow-status]');
+  if(feedback){feedback.hidden=true;feedback.textContent='';}
+  syncFirmwareSubmitState(panel);
+  try {
+    const step=currentFirmwareWizardStep(panel);
+    if(step===0){
+      await refreshFirmwarePorts(panel,{captureBaseline:true,mode:'baseline'});
+      clearFirmwareSelection(panel);
+      setFirmwareWizardStep(panel,1);
+    }else if(step===1){
+      await refreshFirmwarePorts(panel,{mode:'detect'});
+      if(selectedFirmwarePort(panel))setFirmwareWizardStep(panel,2);
+      else setFirmwareDetectStatus(panel,'No ESP32 detected yet. Check the USB data cable, then choose Next again.');
+    }else if(step===2){
+      for(const name of ['controller_name','module_count','port']){
+        const field=panel.querySelector(`[name="${name}"]`);
+        if(!field.reportValidity())return;
+      }
+      if(!selectedFirmwarePort(panel))throw new Error('Select the ESP32 from Added serial device or Other serial devices.');
+      setFirmwareWizardStep(panel,3);
+    }
+  }catch(error){if(feedback){feedback.textContent=error.message;feedback.hidden=false;}}
+  finally{panel.dataset.firmwareNavigating='false';syncFirmwareSubmitState(panel);}
 }
 
 function setFirmwareDetectStatus(panel, message, tone = "missing") {
@@ -3020,26 +3030,6 @@ function setFirmwareDetectStatus(panel, message, tone = "missing") {
   status.hidden = !message;
   status.classList.toggle("firmware-port-status-ok", tone === "ok");
   status.classList.toggle("firmware-port-status-missing", tone !== "ok");
-}
-
-function advanceFirmwareWizardAfterDetection(panel) {
-  const status = panel.querySelector("[data-firmware-port-status]");
-  if (selectedFirmwarePort(panel)) {
-    setFirmwareDetectStatus(panel, "");
-    setFirmwareWizardStep(panel, 2);
-    return;
-  }
-
-  setFirmwareDetectStatus(
-    panel,
-    "No new ESP32 was detected. Click Back, disconnect the controller, then repeat the setup flow.",
-  );
-  if (status) {
-    status.textContent =
-      "No new ESP32 was selected. Go Back, disconnect the controller, then run the setup flow again.";
-    status.classList.add("firmware-port-status-missing");
-    status.classList.remove("firmware-port-status-ok");
-  }
 }
 
 function renderFirmwarePortList(panel, ports, selectedPort) {
@@ -3070,43 +3060,13 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
     button.dataset.firmwarePortChoice = "true";
     button.dataset.portPath = port.path;
     button.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
-    button.dataset.controllerName = firmwareControllerName(port);
     button.dataset.controllerAmbiguous = ambiguous ? "true" : "false";
 
-    const label = document.createElement("strong");
-    label.textContent = port.newlyConnected
-      ? "Added serial device"
-      : ambiguous
-        ? "Shared USB adapter identity"
-        : port.flashRecord?.deviceName || port.deviceName || "ESP32 controller";
-    const badge = document.createElement("span");
-    const flashed = port.flashStatus === "configured";
-    badge.className = `badge ${flashed ? "badge-flashed" : "badge-new"}`;
-    badge.textContent = ambiguous ? "choose target" : flashed ? "flashed" : port.badge || "new";
-    const summary = document.createElement("span");
-    summary.className = "firmware-device-summary";
-    if (ambiguous) {
-      const names = (port.flashRecords || [])
-        .map((record) => record.controllerName || record.deviceName)
-        .filter(Boolean)
-        .join(", ");
-      summary.textContent = `This USB-UART identity is shared by ${names || "multiple controllers"}. Choose the exact Controller name above before flashing.`;
-    } else if (flashed && port.flashRecord) {
-      const flashedBy = port.flashRecord.flashedBy?.name || port.flashRecord.flashedBy?.username || "unknown user";
-      const configuredAt = port.flashRecord.configuredAt
-        ? new Date(port.flashRecord.configuredAt).toLocaleString()
-        : "unknown time";
-      summary.textContent = `Already flashed · id ${port.flashRecord.controllerAddress || "unknown"} · ${port.flashRecord.moduleCount} LED module(s) · ${configuredAt} · by ${flashedBy}`;
-    } else {
-      summary.textContent = port.newlyConnected
-        ? "New serial device detected after refresh. Select it only if this is the ESP32."
-        : "ESP32 candidate. Flash this controller before mapping cells.";
-    }
-
-    button.append(label, badge);
-    appendFirmwarePortMeta(button, "Flash path", port.path);
-    appendFirmwarePortMeta(button, "TTY alias", firmwareTtyPath(port));
-    button.append(summary);
+    button.setAttribute('aria-pressed',String(port.path===selectedPort));
+    const label=document.createElement('strong');label.textContent=port.deviceName||'ESP32';
+    const summary=document.createElement('span');
+    summary.textContent=panel.dataset.firmwareMode==='edit'?'Selected for this controller’s update.':port.flashRecord?'Already registered. Use Edit in Controller Health to update it.':'Select this device to continue.';
+    button.append(label);appendFirmwarePortMeta(button,'Serial port',port.path);button.append(summary);
     target.appendChild(button);
   }
 }
@@ -3121,7 +3081,7 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
   const primary = new Set(primaryPorts.map((port) => firmwarePortIdentity(port)));
   const otherPorts = ports.filter((port) => !primary.has(firmwarePortIdentity(port)));
   target.replaceChildren();
-  details.hidden = otherPorts.length === 0;
+  details.hidden = false;
 
   for (const port of otherPorts) {
     const ambiguous = port.flashRecordAmbiguous || (port.flashRecords || []).length > 1;
@@ -3131,20 +3091,18 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
     item.dataset.firmwarePortChoice = "true";
     item.dataset.portPath = port.path;
     item.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
-    item.dataset.controllerName = firmwareControllerName(port);
     item.dataset.controllerAmbiguous = ambiguous ? "true" : "false";
     const name = document.createElement("strong");
     name.textContent = port.deviceName || port.label || "Serial device";
     const reason = document.createElement("span");
     reason.textContent =
       ambiguous
-        ? "Shared USB adapter identity. Select only as an upload port, then choose the exact controller name before flashing."
+        ? "Select only if this is the ESP32 connected for this setup."
         : port.flashStatus === "configured"
-        ? "Previously configured ESP32. Select to reflash."
+        ? "Previously connected ESP32."
         : "Existing serial device. Select only if this is the ESP32 you want to flash.";
     item.append(name);
-    appendFirmwarePortMeta(item, "Flash path", port.path);
-    appendFirmwarePortMeta(item, "TTY alias", firmwareTtyPath(port));
+    appendFirmwarePortMeta(item, "Serial port", port.path);
     item.append(reason);
     target.appendChild(item);
   }
@@ -3211,7 +3169,7 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
     if (mode === "baseline") {
       status.textContent = `Baseline saved with ${ports.length} serial device${ports.length === 1 ? "" : "s"}. Now plug in the ESP32 and click Next.`;
     } else if (newCount > 0) {
-      status.textContent = `New serial device connected. If this is the ESP32, select it and flash it.`;
+      status.textContent = `ESP32 detected. Check the selected serial port.`;
     } else if (ambiguousCount > 0) {
       status.textContent = `${ambiguousCount} serial port${ambiguousCount === 1 ? "" : "s"} match multiple configured controllers. Choose the exact Controller name before flashing.`;
     } else if (flashedCount > 0) {
@@ -3276,6 +3234,7 @@ async function refreshFirmwarePorts(panel, settings = {}) {
     if (settings.mode === "detect") {
       setFirmwareDetectStatus(panel, error.message);
     }
+    throw error;
   } finally {
     for (const button of buttons) {
       button.disabled = false;
@@ -3290,7 +3249,6 @@ function updateFirmwarePanel(panel, job) {
   const stage = panel.querySelector("[data-firmware-stage]");
   const percent = panel.querySelector("[data-firmware-percent]");
   const log = panel.querySelector("[data-firmware-log]");
-  const modules = panel.querySelector("[data-firmware-modules]");
   const hint = panel.querySelector("[data-firmware-hint]");
 
   if (progressWrap) {
@@ -3315,9 +3273,8 @@ function updateFirmwarePanel(panel, job) {
     hint.textContent = message || "";
     hint.hidden = !message;
   }
-  if (job.status === "completed") {
-    renderFirmwareModules(modules, job.assignedModules || []);
-  }
+  panel.dataset.firmwareJobRunning=String(job.status==='running');
+  syncFirmwareSubmitState(panel);
 }
 
 function showFirmwareError(panel, message) {
@@ -3347,9 +3304,7 @@ async function pollFirmwareJob(panel, jobId, submitButton) {
     setTimeout(() => {
       pollFirmwareJob(panel, jobId, submitButton).catch((error) => {
         showFirmwareError(panel, error.message);
-        if (submitButton) {
-          submitButton.disabled = false;
-        }
+        syncFirmwareSubmitState(panel);
       });
     }, 900);
     return;
@@ -3390,51 +3345,22 @@ function wireFirmwareFlash() {
         try {
           const response=await fetch('/api/firmware/controller-backup',{method:'POST',headers:{'X-Requested-With':'fetch'},body:new URLSearchParams(new FormData(form))});
           const payload=await response.json();if(!response.ok)throw new Error(payload.error||payload.message||'Controller backup failed.');
-          const option=panel.querySelector('[data-firmware-replacement]')?.selectedOptions?.[0];
+          const replacement=panel.querySelector('[data-firmware-replacement]');
+          const option=replacement?.selectedOptions?.[0] || replacement;
           if(option && option.value===String(payload.profile.controllerId)){option.dataset.ready='1';option.dataset.count=String(payload.profile.physicalCount);}
           status.textContent=payload.message;syncFirmwareSubmitState(panel);
         }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
       });
       panel.addEventListener("click", (event) => {
-        const baselineButton = event.target.closest("[data-firmware-scan-baseline]");
-        if (baselineButton) {
-          refreshFirmwarePorts(panel, { captureBaseline: true, mode: "baseline" })
-            .then(() => {
-              clearFirmwareSelection(panel);
-              syncFirmwareSubmitState(panel);
-              if (baselineButton.dataset.firmwareNextOnSuccess !== undefined) {
-                setFirmwareWizardStep(panel, 1);
-              }
-            })
-            .catch(() => {});
+        if(event.target.closest('[data-firmware-forward]')){advanceFirmwareWizard(panel);return;}
+        if(event.target.closest('[data-firmware-back]')){
+          if(panel.dataset.firmwareJobRunning==='true'||panel.dataset.firmwareNavigating==='true')return;
+          const step=currentFirmwareWizardStep(panel);
+          if(step===0)window.location.hash='controller-health';else setFirmwareWizardStep(panel,step-1);
           return;
         }
-
-        const refreshButton = event.target.closest("[data-firmware-refresh-ports]");
-        if (refreshButton) {
-          refreshFirmwarePorts(panel, { mode: "detect" })
-            .then(() => {
-              if (refreshButton.dataset.firmwareNextOnSuccess !== undefined) {
-                advanceFirmwareWizardAfterDetection(panel);
-              }
-            })
-            .catch(() => {});
-          return;
-        }
-
-        const previousButton = event.target.closest("[data-firmware-prev]");
-        if (previousButton) {
-          setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel) - 1);
-          return;
-        }
-
-        const nextButton = event.target.closest("[data-firmware-next]");
-        if (nextButton) {
-          if (currentFirmwareWizardStep(panel) === 2 && !selectedFirmwarePort(panel)) {
-            advanceFirmwareWizardAfterDetection(panel);
-            return;
-          }
-          setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel) + 1);
+        if(event.target.closest('[data-firmware-refresh-ports]')){
+          refreshFirmwarePorts(panel,{mode:'detect'}).catch(()=>{});
           return;
         }
 
@@ -3453,6 +3379,7 @@ function wireFirmwareFlash() {
         }
         panel.querySelectorAll("[data-firmware-port-choice]").forEach((choice) => {
           choice.classList.toggle("firmware-port-choice-active", choice === portChoice);
+          choice.setAttribute("aria-pressed",String(choice===portChoice));
         });
         syncFirmwareSubmitState(panel);
       });
@@ -3484,9 +3411,9 @@ function wireFirmwareFlash() {
         return;
       }
 
-      if (submitButton) {
-        submitButton.disabled = true;
-      }
+      if(currentFirmwareWizardStep(panel)!==3){advanceFirmwareWizard(panel);return;}
+      if(panel.dataset.firmwareJobRunning==='true')return;
+      if(!form.reportValidity())return;
       updateFirmwarePanel(panel, {
         status: "running",
         stage: "queued",
@@ -3511,9 +3438,7 @@ function wireFirmwareFlash() {
         await pollFirmwareJob(panel, payload.job.id, submitButton);
       } catch (error) {
         showFirmwareError(panel, error.message);
-        if (submitButton) {
-          submitButton.disabled = false;
-        }
+        syncFirmwareSubmitState(panel);
       }
     });
   }
@@ -4143,19 +4068,31 @@ function wireConfigurationWorkspace() {
     "cell-management": ["cell-management"],
     "cell-mapping": ["cell-mapping"],
   };
-  const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link]"));
+  const positionFirmwareNavigation = () => {
+    const slot=sectionHost?.querySelector('.firmware-navigation-slot');
+    const navigation=slot?.querySelector('.firmware-navigation');
+    if(!navigation)return;
+    const floating=window.matchMedia('(max-width:700px)').matches && slot.isConnected && slot.getClientRects().length>0 && slot.getBoundingClientRect().top<10;
+    navigation.classList.toggle('firmware-navigation-floating',Boolean(floating));
+  };
+  onPage(window,'scroll',positionFirmwareNavigation,{passive:true,capture:true});
+  onPage(window,'resize',positionFirmwareNavigation);
+  const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link],[data-controller-edit]"));
   let sectionRequestId = 0;
   const activeFromHash = () => window.location.hash.replace(/^#/, "");
+  const flowForKey = key => /^controller-edit-\d+$/.test(key)?'controller-setup':key;
+  const linkKey = link => link.dataset.configSectionLink || `controller-edit-${link.dataset.controllerEdit}`;
   const hasDirtyMapping = () =>
     document.querySelector("[data-cell-mapping-form]")?.dataset.mappingDirty === "true";
   const sectionLoadingHtml = (message = "Loading configuration flow...") =>
-    `<div class="configuration-flow-loading">${message}</div>`;
+    `<div class="configuration-flow-loading"><a class="ghost-button" href="#controller-health">← Back</a><p role="status">${message}</p></div>`;
 
   const bindLoadedSection = (section) => {
     if (!section) {
       return;
     }
     wireFirmwareFlash();
+    positionFirmwareNavigation();
     wireLedCommandForms();
     wireCellMappingForm();
     wireCellDeleteForms();
@@ -4163,14 +4100,15 @@ function wireConfigurationWorkspace() {
   };
 
   const loadSection = async (activeKey) => {
-    if (!sectionHost || !sectionGroups[activeKey]) {
+    const sectionKey=flowForKey(activeKey);
+    if (!sectionHost || !sectionGroups[sectionKey]) {
       return;
     }
     if (
       sectionHost.dataset.activeSection === activeKey &&
-      sectionHost.querySelector(`[data-config-section="${activeKey}"]`)
+      sectionHost.querySelector(`[data-config-section="${sectionKey}"]`)
     ) {
-      bindLoadedSection(sectionHost.querySelector(`[data-config-section="${activeKey}"]`));
+      bindLoadedSection(sectionHost.querySelector(`[data-config-section="${sectionKey}"]`));
       return;
     }
 
@@ -4179,7 +4117,7 @@ function wireConfigurationWorkspace() {
     sectionHost.innerHTML = sectionLoadingHtml();
 
     try {
-      const response = await fetch(`/devices/sections/${encodeURIComponent(activeKey)}`, {
+      const response = await fetch(`/devices/sections/${encodeURIComponent(sectionKey)}${activeKey.startsWith('controller-edit-')?'?controller_id='+activeKey.slice(16):''}`, {
         headers: {
           "X-Requested-With": "fetch",
         },
@@ -4192,7 +4130,7 @@ function wireConfigurationWorkspace() {
         return;
       }
       sectionHost.innerHTML = html;
-      const section = sectionHost.querySelector(`[data-config-section="${activeKey}"]`);
+      const section = sectionHost.querySelector(`[data-config-section="${sectionKey}"]`);
       if (section) {
         section.hidden = false;
       }
@@ -4216,7 +4154,7 @@ function wireConfigurationWorkspace() {
 
   const render = () => {
     const activeKey = activeFromHash();
-    const visibleIds = new Set(sectionGroups[activeKey] || []);
+    const visibleIds = new Set(sectionGroups[flowForKey(activeKey)] || []);
     const flowIsActive = visibleIds.size > 0;
 
     if (sectionHost) {
@@ -4228,8 +4166,7 @@ function wireConfigurationWorkspace() {
     document.body.classList.remove("modal-open");
 
     sectionLinks.forEach((link) => {
-      const linkKey = link.dataset.configSectionLink || "";
-      const active = linkKey === activeKey;
+      const active = linkKey(link) === activeKey;
       link.classList.toggle("operation-tile-active", active);
       link.setAttribute("aria-expanded", active ? "true" : "false");
       if (active) {
@@ -4242,7 +4179,7 @@ function wireConfigurationWorkspace() {
     if (flowIsActive) {
       loadSection(activeKey).catch(() => {});
       requestAnimationFrame(() => {
-        const activeSection = sectionHost?.querySelector(`[data-config-section="${activeKey}"]`);
+        const activeSection = sectionHost?.querySelector(`[data-config-section="${flowForKey(activeKey)}"]`);
         (activeSection || sectionHost)?.scrollIntoView({ block: "start" });
       });
     } else {
@@ -4258,7 +4195,7 @@ function wireConfigurationWorkspace() {
       }
 
       event.preventDefault();
-      const nextKey = link.dataset.configSectionLink;
+      const nextKey = linkKey(link);
       if (!nextKey) {
         return;
       }

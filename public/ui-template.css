@@ -261,3 +261,97 @@
  .ui-template .ui-location-setup .ui-location-field { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
  .ui-template .ui-location-field > :is(button,details,p),.ui-template .ui-location-field > label:has(textarea),.ui-template .ui-location-field > label:has([name=label]),.ui-template .ui-location-field > label:has([name=useInDirections]) { grid-column:1/-1; }
 }
+
+/* Controller setup shares the Settings surfaces and keeps only two navigation actions visible. */
+.ui-template .ui-hardware .controller-wizard { scroll-margin-top:16px; }
+.ui-template .ui-hardware .firmware-navigation { position:static; z-index:30; display:flex; justify-content:space-between; align-items:center; gap:12px; pointer-events:none; }
+.ui-template .ui-hardware .firmware-navigation-forward { display:flex; justify-content:flex-end; }
+.ui-template .ui-hardware .firmware-nav-button { pointer-events:auto; min-height:46px; min-width:108px; width:auto; padding:11px 18px; margin:0; border-radius:10px; font-size:15px; font-weight:700; box-shadow:0 3px 10px #173f3515; }
+.ui-template .ui-hardware .firmware-navigation .ghost-button { background:var(--ui-surface); border:1px solid var(--ui-border); color:var(--ui-ink); }
+.ui-template .ui-hardware .firmware-navigation .green-button { background:var(--ui-accent); color:white; border:1px solid var(--ui-accent); }
+.ui-template .ui-hardware .firmware-wizard { gap:20px; }
+.ui-template .ui-hardware .firmware-wizard-head { gap:6px; }
+.ui-template .ui-hardware .firmware-wizard-head p { max-width:65ch; color:var(--ui-muted); }
+.ui-template .ui-hardware .firmware-step { gap:18px; padding:20px; border:1px solid var(--ui-border); background:var(--ui-tint); border-radius:12px; }
+.ui-template .ui-hardware .firmware-step h3 { margin:0; }
+.ui-template .ui-hardware .firmware-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.ui-template .ui-hardware .firmware-grid > label:last-child { grid-column:1/-1; }
+.ui-template .ui-hardware .firmware-grid label { display:grid; gap:7px; color:var(--ui-ink); font-weight:650; }
+.ui-template .ui-hardware .firmware-grid input { width:100%; min-width:0; min-height:46px; background:white; border:1px solid var(--ui-border); border-radius:8px; padding:10px 12px; }
+.ui-template .ui-hardware .firmware-grid input[readonly] { background:#eaf0ec; color:var(--ui-muted); }
+.ui-template .ui-hardware .firmware-added-device { display:grid; gap:10px; }
+.ui-template .ui-hardware .firmware-port-status { padding:0; border:0; background:none; color:var(--ui-muted); font-weight:400; line-height:1.5; }
+.ui-template .ui-hardware .firmware-port-choice { text-align:left; display:grid; gap:7px; padding:14px 16px; border:1px solid var(--ui-border); border-radius:10px; background:var(--ui-surface); color:var(--ui-ink); }
+.ui-template .ui-hardware .firmware-port-choice-active { border-color:var(--ui-accent); box-shadow:0 0 0 2px #23675216; }
+.ui-template .ui-hardware .firmware-port-meta { display:flex; flex-wrap:wrap; gap:8px; color:var(--ui-muted); overflow-wrap:anywhere; }
+.ui-template .ui-hardware .firmware-other-devices { border-top:1px solid var(--ui-border); padding-top:14px; }
+.ui-template .ui-hardware .firmware-other-devices summary { cursor:pointer; color:var(--ui-ink); font-weight:650; }
+.ui-template .ui-hardware .firmware-other-devices[open] > button { margin-top:12px; }
+.ui-template .ui-hardware .firmware-other-device-list { margin-top:12px; }
+.ui-template .ui-hardware .firmware-review { display:grid; gap:12px; margin:0; }
+.ui-template .ui-hardware .firmware-review > div { display:grid; grid-template-columns:110px minmax(0,1fr); gap:12px; }
+.ui-template .ui-hardware .firmware-review dt { color:var(--ui-muted); }
+.ui-template .ui-hardware .firmware-review dd { margin:0; font-weight:650; overflow-wrap:anywhere; }
+.ui-template .ui-hardware .firmware-confirmation { display:flex; gap:10px; align-items:flex-start; margin-top:16px; }
+.ui-template .ui-hardware .firmware-confirmation input { flex:none; width:18px; height:18px; margin-top:2px; accent-color:var(--ui-accent); }
+.ui-template .ui-hardware .firmware-backup-help summary,.ui-template .ui-hardware .firmware-diagnostics summary { cursor:pointer; color:var(--ui-muted); }
+.ui-template .ui-hardware .firmware-backup-help[open] { display:grid; gap:10px; }
+.ui-template .ui-hardware .firmware-flow-status { color:#973b24; }
+.ui-template .ui-hardware .controller-edit-button { display:inline-flex; align-items:center; min-height:38px; margin:0; padding:8px 12px; font-weight:650; }
+@media screen and (max-width:700px) {
+ .ui-template .ui-hardware .controller-wizard { padding:14px; }
+ .ui-template .ui-hardware .firmware-wizard { padding-top:0; gap:16px; }
+ .ui-template .ui-hardware .firmware-nav-button { min-width:102px; min-height:46px; padding:10px 16px; max-width:calc(50vw - 20px); box-shadow:0 3px 14px #173f3529; }
+ .ui-template .ui-hardware .firmware-step { padding:16px; }
+ .ui-template .ui-hardware .firmware-grid { grid-template-columns:minmax(0,1fr); gap:14px; }
+ .ui-template .ui-hardware .firmware-review > div { grid-template-columns:90px minmax(0,1fr); }
+}
+.ui-template .ui-hardware .controller-wizard .wizard-step-copy > span { color:var(--ui-muted); }
+.ui-template .ui-hardware .controller-wizard .wizard-step-indicator-complete .wizard-step-node { background:var(--ui-accent); border-color:var(--ui-accent); }
+@media screen and (max-width:700px) {
+ .ui-template .ui-hardware .controller-wizard .wizard-steps { grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+ .ui-template .ui-hardware .controller-wizard .wizard-step-indicator { min-height:62px; }
+ .ui-template .ui-hardware .controller-wizard .wizard-step-node { width:30px; height:30px; }
+ .ui-template .ui-hardware .controller-wizard .wizard-step-copy strong { font-size:12px; }
+ .ui-template .ui-hardware .controller-wizard .wizard-step-copy > span { display:none; }
+}
+.ui-template .ui-hardware .firmware-port-choice > span:last-child { font-size:13px; font-weight:400; color:var(--ui-muted); }
+/* Device choices contain several lines and must not inherit the phone's fixed control height. */
+.ui-template .ui-hardware .controller-wizard .firmware-step :is(.firmware-port-choice,.firmware-other-device) { height:auto !important; min-height:84px !important; grid-template-columns:minmax(0,1fr); }
+.ui-template .ui-hardware .controller-wizard .firmware-navigation .firmware-nav-button { height:48px !important; min-height:48px !important; --ui-label-size:15px; }
+.ui-template .ui-hardware .controller-wizard .firmware-backup-help button { height:auto !important; }
+.ui-template .ui-hardware .firmware-navigation-slot { height:48px; min-width:0; }
+.ui-template .ui-hardware .controller-wizard .firmware-step .firmware-other-device { display:grid; background:var(--ui-surface); color:var(--ui-ink); border:1px solid var(--ui-border); }
+.ui-template .ui-hardware .firmware-other-device > span:last-child { font-weight:400; color:var(--ui-muted); font-size:13px; }
+@media screen and (max-width:700px) {
+ .ui-template .ui-hardware .firmware-navigation.firmware-navigation-floating { position:fixed; top:calc(env(safe-area-inset-top,0px) + 10px); left:12px; right:12px; z-index:90; }
+}
+
+/* Controller/location mapping uses the same green controls and panels as Settings. */
+.ui-template .led-mapper { overflow: visible; padding: 20px; }
+.ui-template .led-mapping-toolbar { position: sticky; top: 8px; z-index: 12; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; background: var(--ui-surface, #fff); }
+.ui-template .led-mapping-toolbar > div { display: flex; gap: 10px; }
+.ui-template .led-mapper > label { max-width: 420px; display: grid; gap: 6px; margin: 16px 0; }
+.ui-template .led-mapping-list { border: 1px solid #dfe7e2; border-radius: 12px; }
+.ui-template .led-mapping-row { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 20px; padding: 18px; align-items: start; border-bottom: 1px solid #e9eeeb; }
+.ui-template .led-mapping-row:last-child { border-bottom: 0; }
+.ui-template .led-mapping-row > strong { color: #17634b; padding-top: 12px; }
+.ui-template .led-mapping-row input, .ui-template .led-mapping-row select { width: 100%; min-height: 44px; }
+.ui-template .led-mapping-row small { display: block; margin-top: 6px; color: #65736b; }
+.ui-template .led-mapping-row [data-led-new-fields]:not([hidden]) { display: grid; gap: 12px; margin-top: 14px; }
+.ui-template .led-mapping-dialog form { display: grid; gap: 16px; }
+.ui-template .led-mapping-dialog label { display: grid; gap: 6px; }
+.ui-template .led-dialog-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.ui-template .led-move-destination { display: grid; grid-template-columns: minmax(0, 1fr) 95px 44px; gap: 10px; align-items: end; margin: 12px 0; }
+.ui-template .led-mapping-dialog fieldset { min-width: 0; padding: 16px; border: 1px solid #dfe7e2; border-radius: 10px; }
+@media (max-width: 700px) {
+  .ui-template .led-mapper { padding: 12px; }
+  .ui-template .led-mapping-toolbar { top: 0; gap: 8px; flex-wrap: wrap; }
+  .ui-template .led-mapping-toolbar > div { flex: 1; justify-content: flex-end; }
+  .ui-template .led-mapping-toolbar button { padding-left: 12px; padding-right: 12px; }
+  .ui-template .led-mapping-row { grid-template-columns: 62px minmax(0, 1fr); gap: 10px; padding: 14px 10px; }
+  .ui-template .led-move-destination { grid-template-columns: minmax(0, 1fr) 80px 38px; gap: 6px; }
+}
+@media (max-width: 700px) {
+  .ui-template .led-mapper .led-toolbar-floating { position: fixed; top: calc(var(--mobile-header-height, 60px) + env(safe-area-inset-top) + 4px); left: 12px; right: 12px; width: auto; padding: 8px 10px; z-index: 90; border: 1px solid #dfe7e2; border-radius: 12px; box-shadow: 0 3px 14px #163d2420; }
+}

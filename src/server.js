@@ -1887,7 +1887,7 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
-      const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1]);
+      const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1],{controllerId:url.searchParams.get('controller_id')});
       if (!sectionHtml) {
         sendText(response, "Unknown configuration section.", 404);
         return;
