@@ -1,3 +1,7 @@
+import {templatePage,uiConfirmation,uiFacts,uiTable,uiPanel,uiDisclosure} from "../ui.js";
+import {can} from "../../modules/access/catalog.js";
+import { randomUUID } from "node:crypto";
+import { describeLocation } from "../../modules/operations/location-contract.js";
 import {
   listCellCatalog,
   listCells,
@@ -33,87 +37,6 @@ function wizardCheckIcon() {
       <path d="M20 6L9 17l-5-5" />
     </svg>
   `;
-}
-
-function renderModuleChips(modules = []) {
-  return modules
-    .map((moduleNumber) => `<span class="module-chip">Module ${escapeHtml(moduleNumber)}</span>`)
-    .join("");
-}
-
-function renderFirmwareVerification(config) {
-  if (!config) {
-    return "";
-  }
-
-  const summary = config.mappingSummary
-    ? ` Preserved ${formatQuantity(config.mappingSummary.preserved)} mapping(s), added ${formatQuantity(
-        config.mappingSummary.created,
-      )} new module slot(s), and left ${formatQuantity(config.mappingSummary.detached)} cell(s) in manual mode.`
-    : "";
-  return `
-    <div class="firmware-verify">
-      Flash saved for ${escapeHtml(config.controllerName || config.deviceName || "this controller")}.
-      Use Ping on each LED module below, then update the cell dropdown if any physical module is assigned to the wrong cell.
-      ${escapeHtml(summary)}
-    </div>
-  `;
-}
-
-function renderPortOptions(ports = []) {
-  return ports
-    .map((port) => `<option value="${escapeHtml(port.path)}">${escapeHtml(port.label)}</option>`)
-    .join("");
-}
-
-function flashRecordSummary(port) {
-  if (port.flashRecordAmbiguous || port.flashRecords?.length > 1) {
-    const names = (port.flashRecords || [])
-      .map((record) => record.controllerName || record.deviceName)
-      .filter(Boolean)
-      .join(", ");
-    return `<span class="firmware-device-summary">Shared USB-UART identity${names ? ` for ${escapeHtml(names)}` : ""}. Choose the exact controller name before flashing.</span>`;
-  }
-
-  if (!port.flashRecord) {
-    return `<span class="firmware-device-summary">New ESP32 detected. Flash this controller before mapping cells.</span>`;
-  }
-
-  const flashedBy = port.flashRecord.flashedBy?.name || port.flashRecord.flashedBy?.username || "unknown user";
-  return `
-    <span class="firmware-device-summary">
-      Already flashed as ${escapeHtml(port.flashRecord.deviceName || port.deviceName || "ESP32 controller")}
-      · id ${escapeHtml(port.flashRecord.controllerAddress || port.flashRecord.controllerId || "unknown")}
-      · ${escapeHtml(port.flashRecord.moduleCount)} LED module(s)
-      · ${escapeHtml(formatDate(port.flashRecord.configuredAt))}
-      · by ${escapeHtml(flashedBy)}
-    </span>
-  `;
-}
-
-function renderPortChoices(ports = [], selectedPort = "") {
-  if (!ports.length) {
-    return `<p class="muted">No detected ESP32 target yet. Unplug the ESP32, scan without it, then plug it in and detect the added port.</p>`;
-  }
-
-  return ports
-    .map(
-      (port) => `
-        <button
-          type="button"
-          class="firmware-port-choice ${port.path === selectedPort ? "firmware-port-choice-active" : ""}"
-          data-firmware-port-choice
-          data-port-path="${escapeHtml(port.path)}"
-          data-device-identity="${escapeHtml(port.deviceIdentity || port.path)}"
-        >
-          <strong>${escapeHtml(port.flashRecord?.deviceName || port.deviceName || "ESP32 controller")}</strong>
-          <code>${escapeHtml(port.path)}</code>
-          ${statusBadge(port.flashRecordAmbiguous ? "shared" : port.flashStatus === "configured" ? "flashed" : "new")}
-          ${flashRecordSummary(port)}
-        </button>
-      `,
-    )
-    .join("");
 }
 
 function cellMappingOptionLabel(cell) {
@@ -198,6 +121,8 @@ function renderLocationCountButton(cell) {
       class="ghost-button count-button"
       data-show-location-count
       data-cell-id="${cell.id}"
+      data-activate-endpoint="/api/cells/${cell.id}/count"
+      data-clear-endpoint="/api/cells/${cell.id}/count/clear"
       data-show-label="Show Count"
       data-active-label="Showing Count"
       data-led-loading-label="Showing"
@@ -342,6 +267,7 @@ export function createLocationPages({ db }) {
           "Location Summary",
           `
             <p><strong>${escapeHtml(cell.logical_code)}</strong></p>
+            <p>${escapeHtml(describeLocation(db,cell.id).directions)}</p>
             <p>${
               cell.controller_code && cell.hardware_channel
                 ? `${escapeHtml(cell.controller_code)} · Channel ${escapeHtml(cell.hardware_channel)}`
@@ -366,266 +292,77 @@ export function createLocationPages({ db }) {
           "",
           `data-row-collapser data-row-limit="4" data-row-label="products"`,
         )}
+        ${can(user,'locations.manage')?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
+          <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="descriptionRevision" value="${describeLocation(db,cell.id).descriptionRevision}">
+          <label>Location name<input name="displayName" maxlength="160" value="${escapeHtml(cell.display_name||'')}"></label>
+          <label>Shed / shelf details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second shelf on the left"></label>
+          <p>The cell code, QR and stock history stay unchanged. </p><button>Save directions</button></form>`):''}
       `,
     });
   }
 
-  function renderControllerSetupSection(controllers) {
+  function renderControllerSetupSection(controllers, controllerId = null) {
     const runtime = getRuntimeContext();
     const firmwareOptions = runtime.firmwareService?.getFlashOptions();
-    const lastFirmwareConfig = firmwareOptions?.lastConfiguration || null;
-    const port = "";
-    const fqbn = lastFirmwareConfig?.fqbn || firmwareOptions?.defaultFqbn || "esp32:esp32:esp32";
-    const hasPorts = false;
-
-    if (!firmwareOptions) {
-      return `
-        <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
-          <p class="muted">Firmware flashing is not available in this runtime.</p>
-        </section>
-      `;
-    }
-
-    return `
-      <section id="controller-setup" class="app-panel" data-config-section="controller-setup">
-        <div class="firmware-panel" data-firmware-panel>
-          ${
-            firmwareOptions.arduinoCli.available
-              ? ""
-              : `<div class="firmware-port-status firmware-port-status-missing">Arduino CLI is missing.</div>`
-          }
-          <form class="stack-form firmware-wizard" data-firmware-flash-form data-firmware-wizard data-current-step="0">
-            <ol class="wizard-steps" aria-label="Controller setup progress">
-              <li class="wizard-step-indicator wizard-step-indicator-active" data-firmware-step-indicator="0" aria-current="step">
-                <span class="wizard-step-node" aria-hidden="true">
-                  <span class="wizard-step-number">1</span>
-                  ${wizardCheckIcon()}
-                </span>
-                <span class="wizard-step-copy">
-                  <strong>Disconnect</strong>
-                  <span>Save current ports</span>
-                </span>
-              </li>
-              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="1">
-                <span class="wizard-step-node" aria-hidden="true">
-                  <span class="wizard-step-number">2</span>
-                  ${wizardCheckIcon()}
-                </span>
-                <span class="wizard-step-copy">
-                  <strong>Attach</strong>
-                  <span>Find new ESP32</span>
-                </span>
-              </li>
-              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="2">
-                <span class="wizard-step-node" aria-hidden="true">
-                  <span class="wizard-step-number">3</span>
-                  ${wizardCheckIcon()}
-                </span>
-                <span class="wizard-step-copy">
-                  <strong>Configure</strong>
-                  <span>Name and modules</span>
-                </span>
-              </li>
-              <li class="wizard-step-indicator wizard-step-indicator-upcoming" data-firmware-step-indicator="3">
-                <span class="wizard-step-node" aria-hidden="true">
-                  <span class="wizard-step-number">4</span>
-                  ${wizardCheckIcon()}
-                </span>
-                <span class="wizard-step-copy">
-                  <strong>Flash</strong>
-                  <span>Upload firmware</span>
-                </span>
-              </li>
-            </ol>
-
-            <section class="firmware-step" data-firmware-step="0">
-              <div class="mini-actions">
-                <button type="button" class="blue-button" data-firmware-scan-baseline data-firmware-next-on-success>Next</button>
-              </div>
-            </section>
-
-            <section class="firmware-step" data-firmware-step="1" hidden>
-              <div class="mini-actions">
-                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
-                <button type="button" class="blue-button" data-firmware-refresh-ports data-firmware-next-on-success>Next</button>
-              </div>
-              <div class="firmware-port-status firmware-port-status-missing" data-firmware-detect-status hidden></div>
-            </section>
-
-            <section class="firmware-step" data-firmware-step="2" hidden>
-              <div class="firmware-grid">
-                <label>Controller Name
-                  <input
-                    name="controller_name"
-                    list="firmware-controller-names"
-                    placeholder="ESP32-Z1-A"
-                    required
-                  />
-                </label>
-                <label>LED Modules
-                  <input
-                    type="number"
-                    name="module_count"
-                    min="${firmwareOptions.moduleCount.min}"
-                    max="${firmwareOptions.moduleCount.max}"
-                    step="1"
-                    placeholder="4"
-                    required
-                  />
-                </label>
-                <label>Serial Port
-                  <div class="firmware-port-input-row">
-                    <input
-                      name="port"
-                      list="firmware-ports"
-                      value="${escapeHtml(port)}"
-                      placeholder="/dev/ttyUSB0"
-                      data-firmware-port-input
-                      required
-                    />
-                    <input type="hidden" name="device_identity" value="" data-firmware-device-identity />
-                  </div>
-                </label>
-                <label>Board FQBN
-                  <input name="fqbn" value="${escapeHtml(fqbn)}" required />
-                </label>
-              </div>
-              <datalist id="firmware-ports">
-                ${renderPortOptions([])}
-              </datalist>
-              <datalist id="firmware-controller-names">
-                ${controllers
-                  .map(
-                    (controller) =>
-                      `<option value="${escapeHtml(controller.controller_code)}">${escapeHtml(
-                        `${controller.controller_code} · replace/migrate existing mapping`,
-                      )}</option>`,
-                  )
-                  .join("")}
-              </datalist>
-              <div
-                class="firmware-port-status ${hasPorts ? "firmware-port-status-ok" : "firmware-port-status-missing"}"
-                data-firmware-port-status
-              >${escapeHtml(firmwareOptions.portStatus)}</div>
-              <div class="firmware-port-list" data-firmware-port-list>
-                ${renderPortChoices([], port)}
-              </div>
-              <details class="firmware-other-devices" data-firmware-other-devices>
-                <summary>Other Serial Devices / Manual Reflash</summary>
-                <div class="firmware-other-device-list" data-firmware-other-device-list></div>
-              </details>
-              <div class="mini-actions">
-                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
-                <button type="button" class="blue-button" data-firmware-next>Next</button>
-              </div>
-            </section>
-
-            <section class="firmware-step" data-firmware-step="3" hidden>
-              <div class="mini-actions">
-                <button type="button" class="ghost-button" data-firmware-prev>Back</button>
-                <button type="submit" class="blue-button" ${hasPorts ? "" : "disabled"}>Flash Controller</button>
-              </div>
-              <div class="firmware-progress" data-firmware-progress hidden>
-                <div class="firmware-progress-head">
-                  <strong data-firmware-stage>Queued</strong>
-                  <span data-firmware-percent>0%</span>
-                </div>
-                <progress data-firmware-progress-bar value="0" max="100"></progress>
-                <div class="firmware-hint" data-firmware-hint hidden></div>
-                <pre class="firmware-log" data-firmware-log></pre>
-              </div>
-            </section>
-          </form>
-          <div
-            class="module-assignment-strip"
-            data-firmware-modules
-            ${lastFirmwareConfig?.assignedModules?.length ? "" : "hidden"}
-          >${renderModuleChips(lastFirmwareConfig?.assignedModules || [])}</div>
-          ${renderFirmwareVerification(lastFirmwareConfig)}
-        </div>
-      </section>
-    `;
+    const editing = controllerId != null;
+    const selected = editing ? controllers.find(c => c.id === Number(controllerId)) : null;
+    if (editing && !selected) throw new Error('Controller is no longer available. Return to Hardware and refresh.');
+    if (!firmwareOptions) return `<section id="controller-setup" class="app-panel" data-config-section="controller-setup"><p class="muted">Firmware flashing is not available in this runtime.</p></section>`;
+    const saved = firmwareOptions.controllerFlashRecords?.find(c => c.controllerId === selected?.id);
+    const fqbn = firmwareOptions.defaultFqbn || 'esp32:esp32:esp32';
+    const name = selected?.controller_code || '';
+    const count = saved?.physicalModuleCount ?? selected?.module_count ?? '';
+    const ready = saved?.replacementReady === true;
+    const steps = [['Disconnect','Unplug the ESP32'],['Attach','Connect by USB'],['Configure','Check the details'],['Flash','Upload and verify']];
+    return `<section id="controller-setup" class="app-panel controller-wizard" data-config-section="controller-setup">
+      <div class="firmware-panel" data-firmware-panel data-firmware-mode="${editing?'edit':'add'}">
+        <form class="firmware-wizard" data-firmware-flash-form data-firmware-wizard data-current-step="0">
+          <div class="firmware-navigation-slot"><nav class="firmware-navigation" aria-label="Controller setup navigation">
+            <button type="button" class="ghost-button firmware-nav-button" data-firmware-back>← Back</button>
+            <div class="firmware-navigation-forward">
+              <button type="button" class="green-button firmware-nav-button" data-firmware-forward>Next →</button>
+              <button type="submit" class="green-button firmware-nav-button" data-firmware-submit hidden disabled>${editing?'Update firmware':'Flash controller'}</button>
+            </div>
+          </nav></div>
+          <header class="firmware-wizard-head"><h2>${editing?`Edit ${escapeHtml(name)}`:'Add a new controller'}</h2><p class="muted">${editing?'Update this ESP32 or connect a replacement. Your cells and LED mappings stay with this controller.':'Connect an ESP32 and choose how many LED modules it controls.'}</p></header>
+          ${firmwareOptions.arduinoCli.available?'':'<p class="firmware-port-status firmware-port-status-missing" role="alert">The firmware tools are not installed on this host.</p>'}
+          <ol class="wizard-steps" aria-label="Controller setup progress">${steps.map(([title,subtitle],i)=>`<li class="wizard-step-indicator ${i===0?'wizard-step-indicator-active':'wizard-step-indicator-upcoming'}" data-firmware-step-indicator="${i}" ${i===0?'aria-current="step"':''}><span class="wizard-step-node" aria-hidden="true"><span class="wizard-step-number">${i+1}</span>${wizardCheckIcon()}</span><span class="wizard-step-copy"><strong>${title}</strong><span>${subtitle}</span></span></li>`).join('')}</ol>
+          <input type="hidden" name="replacement_controller_id" value="${selected?.id||''}" data-firmware-replacement data-name="${escapeHtml(name)}" data-count="${count}" data-ready="${ready?'1':'0'}">
+          <input type="hidden" name="fqbn" value="${escapeHtml(fqbn)}">
+          <section class="firmware-step" data-firmware-step="0">
+            <h3>Disconnect the ESP32</h3><p>Unplug its USB cable from the Raspberry Pi, then choose Next.</p>
+            <p class="muted">Switch off external power before changing wires. Keep the ESP32 isolated from external power and LED/RS485 connections during flashing.</p>
+          </section>
+          <section class="firmware-step" data-firmware-step="1" hidden>
+            <h3>Connect the ESP32 via USB</h3><p>Connect ${editing?'this controller or its replacement':'the new controller'} to the Raspberry Pi using a USB data cable, then choose Next.</p>
+            <p class="firmware-port-status" role="status" data-firmware-detect-status hidden></p>
+          </section>
+          <section class="firmware-step" data-firmware-step="2" hidden>
+            <div class="firmware-grid">
+              <label>Controller name<input name="controller_name" placeholder="e.g. Shelf A" ${editing?`value="${escapeHtml(name)}" readonly`:''} required maxlength="80"></label>
+              <label>LED modules<input type="number" name="module_count" min="${editing?0:firmwareOptions.moduleCount.min}" max="${firmwareOptions.moduleCount.max}" step="1" placeholder="4" ${editing?`value="${count}" readonly`:''} required></label>
+              <label>Serial port<input name="port" list="firmware-ports" placeholder="Select the connected ESP32" data-firmware-port-input required><input type="hidden" name="device_identity" value="" data-firmware-device-identity></label>
+            </div>
+            <datalist id="firmware-ports"></datalist>
+            <section class="firmware-added-device" aria-label="Added serial device"><h3>Added serial device</h3><p class="firmware-port-status" role="status" data-firmware-port-status>Select the ESP32 detected in the previous step.</p><div class="firmware-port-list" data-firmware-port-list></div></section>
+            <details class="firmware-other-devices" data-firmware-other-devices><summary>Other serial devices / Manual refresh</summary><button type="button" class="ghost-button" data-firmware-refresh-ports>Refresh devices</button><div class="firmware-other-device-list" data-firmware-other-device-list></div></details>
+          </section>
+          <section class="firmware-step" data-firmware-step="3" hidden>
+            <h3>${editing?'Ready to update':'Ready to add your controller'}</h3>
+            <dl class="firmware-review"><div><dt>Controller</dt><dd data-firmware-review-name></dd></div><div><dt>LED modules</dt><dd data-firmware-review-count></dd></div><div><dt>Serial port</dt><dd data-firmware-review-port></dd></div></dl>
+            <p>${editing?'The saved LED setup will be restored and checked. Existing locations, inventory and tasks stay unchanged. Updating the same ESP32 keeps its saved LED count and order.':'The application will upload the firmware and save the controller setup.'}</p>
+            ${editing?`<div data-firmware-replacement-help><details class="firmware-backup-help" ${ready?'':'open'}><summary>${ready?'Save a setup backup':'Setup backup needed'}</summary><p>With the original ESP32 connected, save its LED setup before updating or replacing it.</p><button type="button" class="ghost-button" data-firmware-controller-backup>Save connected controller’s setup</button><p role="status" data-firmware-backup-status></p></details><label class="firmware-confirmation"><input type="checkbox" name="replacement_confirmed" value="1" required>The ESP32 is isolated for USB maintenance and the LED chain is unchanged.</label></div>`:''}
+            <p class="muted">Keep USB connected until verification finishes.</p>
+            <div class="firmware-progress" data-firmware-progress hidden><div class="firmware-progress-head"><strong data-firmware-stage>Queued</strong><span data-firmware-percent>0%</span></div><progress data-firmware-progress-bar value="0" max="100"></progress><p class="firmware-hint" role="status" data-firmware-hint hidden></p><details class="firmware-diagnostics"><summary>Upload details</summary><pre class="firmware-log" data-firmware-log></pre></details></div>
+          </section>
+          <p class="firmware-flow-status" role="status" data-firmware-flow-status hidden></p>
+        </form>
+      </div>
+    </section>`;
   }
 
   function renderCellManagementSection(cells) {
-    return `
-      <section id="cell-management" class="configuration-table-section app-panel" data-config-section="cell-management" data-row-collapser data-row-limit="4" data-row-label="cells">
-        <div class="panel-heading">
-          <div>
-            <h2>Manage Locations</h2>
-            <p class="muted">Add logical locations, rename location names, or remove empty locations.</p>
-          </div>
-        </div>
-        <form method="post" action="/devices/cells" class="inline-form">
-          <label>Location Name
-            <input
-              name="logical_code"
-              placeholder="Z1-R1-C01"
-              pattern="[A-Za-z0-9._:-]+"
-              required
-            />
-          </label>
-          <button type="submit" class="ghost-button">Add Location</button>
-        </form>
-        ${
-          cells.length
-            ? table(
-                ["Location Name", "Mapped Controller", "Mapped LED Module", "Stock", "Products", "Actions"],
-                cells.map((cell) => {
-                  const hasStock = cellHasStock(cell);
-                  const deleteTitle = hasStock
-                    ? `Move all stock out of ${cell.logical_code} before deleting it`
-                    : `Delete ${cell.logical_code}`;
-                  return [
-                    `
-                      <form method="post" action="/devices/cells/rename" class="inline-form">
-                        <input type="hidden" name="cell_id" value="${cell.id}" />
-                        <label class="sr-only" for="rename-cell-${cell.id}">Location Name</label>
-                        <input
-                          id="rename-cell-${cell.id}"
-                          class="compact-input"
-                          name="logical_code"
-                          value="${escapeHtml(cell.logical_code)}"
-                          pattern="[A-Za-z0-9._:-]+"
-                          required
-                        />
-                        <button type="submit" class="ghost-button">Rename</button>
-                      </form>
-                    `,
-                    cellIsMapped(cell) ? escapeHtml(cell.controller_code) : `<span class="muted">Unmapped</span>`,
-                    cellIsMapped(cell) ? escapeHtml(cell.hardware_channel) : `<span class="muted">Unmapped</span>`,
-                    escapeHtml(formatQuantity(cell.occupied_quantity)),
-                    cell.inventory_summary ? escapeHtml(cell.inventory_summary) : `<span class="muted">Empty</span>`,
-                    `
-                      <div class="mini-actions">
-                        ${renderLocationPingButton(cell)}
-                        ${renderLocationCountButton(cell)}
-                        <form
-                          method="post"
-                          action="/devices/cells/delete"
-                          class="inline-form"
-                          data-delete-cell-form
-                          data-cell-name="${escapeHtml(cell.logical_code)}"
-                          data-cell-has-stock="${hasStock ? "true" : "false"}"
-                        >
-                          <input type="hidden" name="cell_id" value="${cell.id}" />
-                          <button
-                            type="submit"
-                            class="icon-button danger-button"
-                            aria-label="Delete ${escapeHtml(cell.logical_code)}"
-                            title="${escapeHtml(deleteTitle)}"
-                            ${hasStock ? "disabled" : ""}
-                          >${trashIcon()}</button>
-                        </form>
-                      </div>
-                    `,
-                  ];
-                }),
-              )
-            : `<p class="muted">No active cells are configured.</p>`
-        }
-      </section>
-    `;
+    return `<section id="cell-management" class="app-panel" data-config-section="cell-management"><h2>Manage Locations</h2><a class="green-button" href="/locations/manage">Manage names, QR codes and LED modules</a></section>`;
   }
 
   function renderCellMappingSection(cells) {
@@ -758,8 +495,9 @@ export function createLocationPages({ db }) {
                     title="Locate ${escapeHtml(cell.controller_code || "controller")} LED module ${escapeHtml(cell.hardware_channel)}"
                   >Locate</button>
                   <button
-                    type="submit"
-                    form="cell-ping-${cell.id}"
+                    type="button"
+                    data-ping-cell
+                    data-cell-id="${cell.id}"
                     class="green-button ping-button"
                     data-led-command-submit
                     data-led-loading-label="Pinging"
@@ -813,13 +551,13 @@ export function createLocationPages({ db }) {
     `;
   }
 
-  function renderDeviceConfigSection(sectionKey) {
+  function renderDeviceConfigSection(sectionKey, {controllerId=null} = {}) {
     const controllers = listControllers(db);
     const cells = listCells(db);
 
     switch (sectionKey) {
       case "controller-setup":
-        return renderControllerSetupSection(controllers);
+        return renderControllerSetupSection(controllers,controllerId);
       case "cell-create":
         return renderCellManagementSection(cells);
       case "cell-management":
@@ -832,6 +570,7 @@ export function createLocationPages({ db }) {
   }
 
   function renderDevices(user, flash) {
+    if(!can(user,'hardware.flash')&&!can(user,'hardware.map')&&!can(user,'locations.manage')&&!can(user,'hardware.test')&&!can(user,'hardware.controllers'))return templatePage({title:'Hardware configuration and health',user,flash,content:`<div class="ui-settings-page"><nav class="ui-toolbar"><a href="/settings">← Settings</a></nav>${uiPanel('Controller Health',uiTable([{key:'controller',label:'Controller'},{key:'address',label:'RS485 address'},{key:'health',label:'Health'},{key:'date',label:'Last seen'},{key:'outputs',label:'Outputs'}],listControllers(db).map(c=>[escapeHtml(c.controller_code),escapeHtml(c.address),statusBadge(c.heartbeat_status),escapeHtml(formatDate(c.last_seen_at)),c.module_count]),{label:'Controller Health'}))}${uiDisclosure('Location mappings',uiTable([{key:'location',label:'Location'},{key:'controller',label:'Controller'},{key:'output',label:'Output'},{key:'mapping',label:'Mapping'}],listCells(db).map(c=>[escapeHtml(c.display_name||c.logical_code),escapeHtml(c.controller_code||c.controller_id||'Manual'),escapeHtml(c.hardware_channel||'—'),escapeHtml(c.mapping_status)]),{label:'Location mappings'}))}<details class="ui-help"><summary>About controller status</summary><p>Health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.</p></details></div>`});
     const controllers = listControllers(db);
     const cells = listCells(db);
     const mappedCells = cells.filter(cellIsMapped);
@@ -840,7 +579,7 @@ export function createLocationPages({ db }) {
       (controller) => String(controller.heartbeat_status || "").toLowerCase() === "online",
     ).length;
     const moduleTotal = controllers.reduce(
-      (sum, controller) => sum + Number(controller.module_count || controller.mapped_cells || 0),
+      (sum, controller) => sum + Number(controller.module_count || 0),
       0,
     );
 
@@ -849,7 +588,7 @@ export function createLocationPages({ db }) {
       `<code>${escapeHtml(controller.address || "")}</code>`,
       statusBadge(controller.heartbeat_status),
       escapeHtml(formatDate(controller.last_seen_at)),
-      escapeHtml(formatQuantity(controller.module_count || controller.mapped_cells)),
+      controller.module_count ? escapeHtml(formatQuantity(controller.module_count)) : '<span class="muted">Light count not configured</span>',
       escapeHtml(formatQuantity(controller.mapped_cells)),
       `
         <div class="mini-actions">
@@ -876,16 +615,19 @@ export function createLocationPages({ db }) {
             <button
               type="submit"
               class="green-button ping-button"
-              data-led-command-submit
+              data-ping-controller
+              data-controller-id="${controller.id}"
               data-led-loading-label="Pinging"
               data-led-loading-title="Pinging ${escapeHtml(controller.controller_code)} modules"
               title="Ping all LED modules on ${escapeHtml(controller.controller_code)}"
             >Ping</button>
           </form>
+          ${can(user,'hardware.map')&&can(user,'locations.manage')?`<a class="ghost-button" href="/locations/manage?view=leds&controller=${controller.id}">Map locations</a>`:''}
+          ${can(user,'hardware.flash')?`<a class="ghost-button controller-edit-button" href="#controller-edit-${controller.id}" data-controller-edit="${controller.id}" aria-label="Edit ${escapeHtml(controller.controller_code)}">Edit</a>`:''}
           <form
             method="post"
             action="/devices/controller-delete"
-            onsubmit="return confirm('Delete this controller? Its cells will stay active for manual pick/put until remapped.');"
+            ${uiConfirmation({title:'Delete controller',label:'Delete controller',danger:true,message:'Its cells stay available for manual Pick/Put until remapped.',facts:[['Controller',controller.controller_code],['RS485 address',String(controller.address||'—')],['LED modules',String(controller.module_count||0)]]})}
           >
             <input type="hidden" name="controller_id" value="${controller.id}" />
             <button
@@ -899,74 +641,48 @@ export function createLocationPages({ db }) {
       `,
     ]);
 
-    return page({
-      title: "Configuration Console",
+    return templatePage({
+      title: "Hardware",
       user,
       flash,
       content: `
-        <div class="app-console" data-config-workspace>
-          <section class="operation-grid" aria-label="Configuration actions" data-config-overview>
-            <a class="operation-tile" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
+        <div class="app-console ui-settings-page ui-hardware" data-config-workspace><nav class="ui-toolbar"><a href="/settings">← Settings</a><a href="/location-setup">Location setup</a></nav>
+          <section class="ui-settings-links" aria-label="Configuration actions" data-config-overview>
+            <a class="ui-button ui-button-secondary" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
               <span>
                 <strong>Add Controller</strong>
-                Flash a new ESP32 through a guided setup.
+
               </span>
-              <span class="operation-kbd">01</span>
+
             </a>
-            <a class="operation-tile" href="#cell-management" data-config-section-link="cell-management" aria-controls="cell-management">
+            <a class="ui-button ui-button-secondary" href="/locations/manage">
               <span>
                 <strong>Manage Locations</strong>
-                Add, rename, or remove active storage locations.
+
               </span>
-              <span class="operation-kbd">02</span>
+
             </a>
-            <a class="operation-tile" href="#cell-mapping" data-config-section-link="cell-mapping" aria-controls="cell-mapping">
-              <span>
-                <strong>Cell Mapping</strong>
-                Ping modules and assign them to storage locations.
-              </span>
-              <span class="operation-kbd">03</span>
-            </a>
+
           </section>
 
           <section id="configuration-status" class="app-panel" aria-labelledby="configuration-status-heading" data-config-overview>
             <div class="panel-heading">
               <div>
-                <h2 id="configuration-status-heading">System Status</h2>
-                <p class="muted">Controller health shows the latest saved check. Use refresh on a controller when you need a live RS485 check.</p>
+                <h2 id="configuration-status-heading">Hardware status</h2>
+                <details class="ui-help"><summary>About controller status</summary><p>Health shows the latest saved check. Use Refresh for a live RS485 check. Configured output counts come from controller setup; mapped locations do not establish the physical light count.</p></details>
               </div>
             </div>
-            <div class="status-strip">
-              <div class="status-metric">
-                <span class="muted">Controllers Online</span>
-                <strong>${escapeHtml(`${onlineControllers}/${controllers.length}`)}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">LED Modules</span>
-                <strong>${escapeHtml(formatQuantity(moduleTotal))}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">Mapped Cells</span>
-                <strong>${escapeHtml(formatQuantity(mappedCells.length))}</strong>
-              </div>
-              <div class="status-metric">
-                <span class="muted">Manual Cells</span>
-                <strong>${escapeHtml(formatQuantity(manualCells.length))}</strong>
-              </div>
-            </div>
+            ${uiFacts([['Controllers Online',escapeHtml(`${onlineControllers}/${controllers.length}`)],['Configured LED outputs',escapeHtml(formatQuantity(moduleTotal))],['Mapped Cells',escapeHtml(formatQuantity(mappedCells.length))],['Manual Cells',escapeHtml(formatQuantity(manualCells.length))]])}
           </section>
 
           <section id="controller-health" class="app-panel" data-config-overview>
             <div class="panel-heading">
               <div>
                 <h2>Controller Health</h2>
-                <p class="muted">Delete removes only the controller. Its cells stay active for manual pick and put until remapped.</p>
+                <details class="ui-help"><summary>About removing a controller</summary><p>Delete removes only the controller. Its cells stay active for manual pick and put until remapped.</p></details>
               </div>
             </div>
-            ${table(
-              ["Controller", "RS485 ID", "Health", "Last Seen", "LED Modules", "Cells", "Actions"],
-              controllerRows,
-            )}
+            ${uiTable([{key:'controller',label:'Controller'},{key:'address',label:'RS485 ID'},{key:'health',label:'Health'},{key:'date',label:'Last Seen'},{key:'outputs',label:'Configured outputs'},{key:'mapped',label:'Mapped locations'},{key:'action',label:'Actions'}],controllerRows,{label:'Controller Health'})}
           </section>
 
           <div class="configuration-section-host" data-config-section-host hidden>

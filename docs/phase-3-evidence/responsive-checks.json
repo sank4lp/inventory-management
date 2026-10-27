@@ -1,0 +1,212 @@
+[
+  {
+    "page": "/work",
+    "oldWorkTerms": false,
+    "pageWidth": 1440,
+    "title": "My work",
+    "width": 1440
+  },
+  {
+    "page": "/work/overview",
+    "oldWorkTerms": false,
+    "pageWidth": 1425,
+    "title": "Team work",
+    "width": 1440
+  },
+  {
+    "page": "/work/history",
+    "oldWorkTerms": false,
+    "pageWidth": 1425,
+    "title": "Task history",
+    "width": 1440
+  },
+  {
+    "page": "/settings/roles",
+    "oldWorkTerms": false,
+    "pageWidth": 1425,
+    "title": "Roles and Permissions",
+    "width": 1440
+  },
+  {
+    "page": "/settings",
+    "oldWorkTerms": false,
+    "pageWidth": 1440,
+    "title": "Settings",
+    "width": 1440
+  },
+  {
+    "page": "/pending-confirmations",
+    "oldWorkTerms": false,
+    "pageWidth": 1440,
+    "title": "Pending confirmations",
+    "width": 1440
+  },
+  {
+    "page": "/stocktaking",
+    "oldWorkTerms": false,
+    "pageWidth": 1440,
+    "title": "Stocktaking",
+    "width": 1440
+  },
+  {
+    "page": "/products",
+    "oldWorkTerms": false,
+    "pageWidth": 1425,
+    "title": "Products",
+    "width": 1440
+  },
+  {
+    "page": "/cells",
+    "oldWorkTerms": false,
+    "pageWidth": 1425,
+    "title": "Locations",
+    "width": 1440
+  },
+  {
+    "page": "/reports",
+    "oldWorkTerms": false,
+    "pageWidth": 1425,
+    "title": "Reports",
+    "width": 1440
+  },
+  {
+    "page": "/work",
+    "oldWorkTerms": false,
+    "pageWidth": 820,
+    "title": "My work",
+    "width": 820
+  },
+  {
+    "page": "/work/overview",
+    "oldWorkTerms": false,
+    "pageWidth": 805,
+    "title": "Team work",
+    "width": 820
+  },
+  {
+    "page": "/work/history",
+    "oldWorkTerms": false,
+    "pageWidth": 820,
+    "title": "Task history",
+    "width": 820
+  },
+  {
+    "page": "/settings/roles",
+    "oldWorkTerms": false,
+    "pageWidth": 805,
+    "title": "Roles and Permissions",
+    "width": 820
+  },
+  {
+    "page": "/settings",
+    "oldWorkTerms": false,
+    "pageWidth": 820,
+    "title": "Settings",
+    "width": 820
+  },
+  {
+    "page": "/pending-confirmations",
+    "oldWorkTerms": false,
+    "pageWidth": 820,
+    "title": "Pending confirmations",
+    "width": 820
+  },
+  {
+    "page": "/stocktaking",
+    "oldWorkTerms": false,
+    "pageWidth": 820,
+    "title": "Stocktaking",
+    "width": 820
+  },
+  {
+    "page": "/products",
+    "oldWorkTerms": false,
+    "pageWidth": 805,
+    "title": "Products",
+    "width": 820
+  },
+  {
+    "page": "/cells",
+    "oldWorkTerms": false,
+    "pageWidth": 805,
+    "title": "Locations",
+    "width": 820
+  },
+  {
+    "page": "/reports",
+    "oldWorkTerms": false,
+    "pageWidth": 805,
+    "title": "Reports",
+    "width": 820
+  },
+  {
+    "page": "/work",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "My work",
+    "width": 390
+  },
+  {
+    "page": "/work/overview",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Team work",
+    "width": 390
+  },
+  {
+    "page": "/work/history",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Task history",
+    "width": 390
+  },
+  {
+    "page": "/settings/roles",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Roles and Permissions",
+    "width": 390
+  },
+  {
+    "page": "/settings",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Settings",
+    "width": 390
+  },
+  {
+    "page": "/pending-confirmations",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Pending confirmations",
+    "width": 390
+  },
+  {
+    "page": "/stocktaking",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Stocktaking",
+    "width": 390
+  },
+  {
+    "page": "/products",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Products",
+    "width": 390
+  },
+  {
+    "page": "/cells",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Locations",
+    "width": 390
+  },
+  {
+    "page": "/reports",
+    "oldWorkTerms": false,
+    "pageWidth": 375,
+    "title": "Reports",
+    "width": 390
+  }
+]

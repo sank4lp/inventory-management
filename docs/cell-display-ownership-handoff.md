@@ -1,0 +1,32 @@
+# Per-cell operational light ownership
+
+Built on `3fb1bad` on `public-product-development`, preserving the earlier uncommitted closure table, checkbox attestation and draft-restoration changes. Nothing committed, pushed or merged here.
+
+## Behavior
+
+- Each cell has one operational display owner: a started Pick/Put allocation or an explicitly requested stocktake location. `work_guidance` holds the desired display and generation for both. Arrival, Resume and Refresh light cannot take another owner’s cell, including shared-locator cells. Assigned offers and passive page reads acquire no lights.
+- Planning sorts free eligible cells before occupied ones, then honors preferred locations and existing Put stock preferences. Reservations remain atomic. If dependable stock/capacity requires occupied cells, those lines wait while free lines proceed. At first Start, an untouched offer can replace its allocation plan with free cells; superseded rows and instruction snapshots remain in history. Started instructions are not replanned merely because another task arrives.
+- The capacity-8 / stock-60 example produces Pick 17 as 8+8+1 at the first three cells, then Pick 6 at the fourth. The corresponding Put allocation also avoids overlap.
+- Waiting status names the owner and Task # or Stocktake #. Work links a blocker only when the current account may view it. Waiting/blocked arrival and light controls are disabled on initial render and live updates; the badge says “Waiting for location” or “Needs attention.” A free line is the default when a task has both free and blocked locations.
+- Stocktake **Count this location** requests a yellow locator through a POST. Opening a location stays passive. Begin/identification must own that cell. Only requested count cells are claimed, never the whole run. A queued count gets guidance automatically after the earlier owner releases it, ahead of newer queued work. Observe, skip, decline, reassign, close and recount invalidate or release the claim. Older count evidence is still retained without clearing a newer owner.
+- Show quantities and other utility displays skip occupied cells and can use other free cells. Operational work preempts utilities. Generation and binding checks protect against stale utility expiry/stop and operational cleanup. A utility replacing a failed obsolete clear advances its generation so maintenance cannot erase the new display.
+
+## Safety and recovery
+
+Display occupancy is separate from stock accounting. Pending evidence on another task does not keep a ghost LED lock; held reservations and physical evidence remain. Condition reviews, discrepancies, missing dependable stock/capacity, changed units/mappings, permissions and device ownership retain their own checks and messages. Counts across outstanding instructions still produce unstable observations and cannot bypass stocktake accounting safeguards.
+
+Connectivity loss does not declare active physical work stopped. `work_inactivity_alerts` records a separate check-in alert, visible to the operator and permitted team viewers and updated without replacing drafts. The active display remains owned until finish, explicit stop/review handoff or verified resolution. Historical unstarted legacy recovery remains conservative.
+
+Additive tables: `stocktake_display_claims` and `work_inactivity_alerts`. No inventory schema or ledger semantics changed. Service-worker cache is v28. Stocktaking refreshes ownership text every ten seconds even while the counter is typing; saved count fields remain untouched. Waiting/blocked new-count QR scan and manual begin are disabled initially and updated live; already-performed count evidence remains saveable.
+
+## Verification
+
+Full suite: **358/358 passed**, `/private/tmp/cell-display-full-final.log`. A subsequent focused stocktaking/work UI run passed **63/63** after disabling count scan/manual begin while waiting, `/private/tmp/cell-display-ui-final.log`. New `test/cell-display-ownership.test.js` covers exact Pick/Put examples, same-cell/opposite-direction contention, partial free/blocked tasks, offer replanning, count/task contention both orders, utility preemption, stale cleanup, count lifecycle/late evidence, queue order, binding status, and preserved active ownership with inactivity alerts. Existing tests were updated where they intentionally asserted arrival preemption, concurrent shared-cell execution or global utility suppression. UI tests cover live count status, permission-scoped blocker links, free-line selection, inactivity wording and initial/live disabled controls.
+
+Coordinating review independently passed 12 scenario groups again on the current changes, `/private/tmp/cell-parallelism-independent-final.log`. Hardware tests use in-memory captured adapter writes, including actual RS485 command encoding; no physical UART, controller or warehouse stock was touched. `git diff --check` passes.
+
+## Preview and remaining checks
+
+The GET-only fixture includes `mode=waiting` and `mode=count-waiting&run=1&cell=1`, alongside all earlier closure previews. This chat’s escalated restart of `node scripts/searchable-select-browser-fixture.mjs` was rejected by automatic approval review because it treated delegated per-cell light work as outside the previously authorized closure-table scope. No workaround was attempted. The coordinating chat subsequently restarted that fixture under its direct user authorization and is performing desktop/phone visual QA on port 3221, including initial waiting controls and badge wording.
+
+The coordinating chat safely restarted the existing disposable simulator on port 3213 using the same temp dataset and `HARDWARE_ADAPTER=simulator`; the preview is current. No further user approval is needed. No production or hardware deployment is part of this delivery. Final coordinating visual verification passed on desktop and narrow-phone layouts. Work shows “Waiting for location,” Sam Patel and Task #41, with arrival and Refresh light disabled on first render. Stocktaking shows explicit wait instructions, with QR scan and manual begin disabled. Evidence: `docs/evidence/cell-display-ownership/stocktaking-waiting-desktop.png` and `work-waiting-desktop.png`. The narrow-phone layout was also verified; its capture was omitted because of surrounding browser framing artifacts. The coordinator also independently verified administrator inactivity visibility, unchanged owner generation/hardware writes, other-account scope and explicit review release/alert clearance. No remaining validation blocker.

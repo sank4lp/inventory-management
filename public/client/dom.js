@@ -1,8 +1,11 @@
+import {reserveButtonSize} from './stable-buttons.js';
+
 export function debounce(callback, delay) {
   let timeoutId = null;
+  const scope=globalThis.WarehousePageLifecycle?.current;
   return (...args) => {
     clearTimeout(timeoutId);
-    timeoutId = window.setTimeout(() => callback(...args), delay);
+    timeoutId = scope?scope.timeout(()=>callback(...args),delay):window.setTimeout(()=>callback(...args),delay);
   };
 }
 
@@ -81,6 +84,7 @@ export function setButtonLoading(button, loading, options = {}) {
       "Working";
     const title = options.title || button.dataset.loadingTitle || label;
 
+    reserveButtonSize(button,[label]);
     lockButtonSize(button);
     button.dataset.loadingActive = "true";
     button.dataset.loadingOriginalHtml = button.innerHTML;

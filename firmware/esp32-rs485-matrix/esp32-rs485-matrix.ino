@@ -10,7 +10,7 @@ constexpr int MODULE_WIDTH = 8;
 constexpr int MODULE_HEIGHT = 8;
 constexpr int LEDS_PER_MODULE = MODULE_WIDTH * MODULE_HEIGHT;
 constexpr int LED_COUNT = MODULE_COUNT * LEDS_PER_MODULE;
-constexpr int BRIGHTNESS = 20;
+constexpr int BRIGHTNESS = 255;  // NeoPixel maximum on its 0–255 scale.
 
 constexpr bool MATRIX_SERPENTINE = true;
 constexpr bool FLIP_X = false;

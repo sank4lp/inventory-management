@@ -4,6 +4,14 @@ import {
   findFormSubmitButton,
   setButtonLoading,
 } from "./client/dom.js";
+export async function mount() {
+const pageScope=globalThis.WarehousePageLifecycle?.current;
+const setTimeout=(...args)=>pageScope?pageScope.timeout(...args):globalThis.setTimeout(...args);
+const setInterval=(...args)=>pageScope?pageScope.interval(...args):globalThis.setInterval(...args);
+const requestAnimationFrame=(...args)=>pageScope?pageScope.frame(...args):globalThis.requestAnimationFrame(...args);
+const fetch=async(...args)=>{const response=await(pageScope?pageScope.fetch(...args):globalThis.fetch(...args));if(!response.ok&&response.clone){try{const error=await response.clone().json();if(error.code==='OUTSTANDING_WORK')await(await import('./client/setup-work-dialog.js')).showSetupWorkResponse(response,{scope:pageScope});}catch{}}return response;};
+const onPage=(target,...args)=>pageScope?pageScope.listen(target,...args):target.addEventListener(...args);
+
 
 const ACTION_SCROLL_KEY = "inventory-management:action-scroll";
 const COMBO_RECENCY_KEY_PREFIX = "inventory-management:combo-recency:";
@@ -65,10 +73,10 @@ function restoreActionScrollPosition() {
     });
   };
 
-  window.requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
     restore();
-    window.requestAnimationFrame(restore);
-    window.setTimeout(() => {
+    requestAnimationFrame(restore);
+    setTimeout(() => {
       restore();
       if (previousScrollRestoration !== null) {
         window.history.scrollRestoration = previousScrollRestoration;
@@ -80,7 +88,7 @@ function restoreActionScrollPosition() {
 function wireActionScrollRestore() {
   restoreActionScrollPosition();
 
-  document.addEventListener("submit", (event) => {
+  onPage(document,"submit", (event) => {
     if (event.defaultPrevented) {
       return;
     }
@@ -121,7 +129,7 @@ function wireControllerHealthForms() {
         return;
       }
 
-      window.setTimeout(() => {
+      setTimeout(() => {
         setButtonLoading(button, true, {
           label: "Checking",
           title: "Checking controller health",
@@ -150,7 +158,7 @@ function wireSystemHealthNotice() {
       const payload = await response.json();
       if (payload.degraded) {
         notice.textContent = `System warning: ${payload.message || "System is running with warnings."}`;
-        notice.hidden = false;
+        notice.hidden = true;
       } else {
         notice.textContent = "";
         notice.hidden = true;
@@ -160,7 +168,7 @@ function wireSystemHealthNotice() {
     }
   };
 
-  window.setInterval(refresh, SYSTEM_HEALTH_POLL_MS);
+  setInterval(refresh, SYSTEM_HEALTH_POLL_MS);
 }
 
 function wireLedCommandForms() {
@@ -195,7 +203,7 @@ function wireLedCommandForms() {
         return;
       }
 
-      window.setTimeout(() => {
+      setTimeout(() => {
         setButtonLoading(button, true, {
           label: button.dataset.ledLoadingLabel || form.dataset.ledLoadingLabel || "Sending",
           title: button.dataset.ledLoadingTitle || form.dataset.ledLoadingTitle || "Sending command",
@@ -243,33 +251,13 @@ async function submitLedCommandFormAsync(form, button) {
 
     setButtonLoading(button, false);
     button.textContent = "Sent";
-    window.setTimeout(restoreButton, 1000);
+    setTimeout(restoreButton, 1000);
   } catch (error) {
     setButtonLoading(button, false);
     button.textContent = "Failed";
     button.setAttribute("title", error.message || "Command failed.");
-    window.setTimeout(restoreButton, 1400);
+    setTimeout(restoreButton, 1400);
   }
-}
-
-function wireToasts() {
-  document.querySelectorAll("[data-toast]").forEach((toast) => {
-    if (toast.dataset.toastBound === "true") {
-      return;
-    }
-    toast.dataset.toastBound = "true";
-
-    const close = toast.querySelector("[data-toast-close]");
-    const dismiss = () => {
-      toast.hidden = true;
-      if (!toast.parentElement?.querySelector("[data-toast]:not([hidden])")) {
-        toast.parentElement?.remove();
-      }
-    };
-
-    close?.addEventListener("click", dismiss);
-    window.setTimeout(dismiss, 7000);
-  });
 }
 
 function wireCopyButtons() {
@@ -292,7 +280,7 @@ function wireCopyButtons() {
           status.textContent = "Registration key copied.";
           status.className = "copy-status flash flash-success";
         }
-        window.setTimeout(() => {
+        setTimeout(() => {
           button.classList.remove("copy-button-done");
           if (status) {
             status.textContent = "";
@@ -372,6 +360,15 @@ function wireLiveSearch() {
       updateLiveResults(form).catch(() => {});
     });
   }
+}
+
+function wireProductStockFilter() {
+  const form = document.querySelector("[data-product-stock-filter]");
+  const checkboxes = form?.querySelectorAll('input[name="outOfStock"], input[name="inStock"]') || [];
+  checkboxes.forEach(checkbox => checkbox.addEventListener("change", () => {
+    if (checkbox.checked) checkboxes.forEach(other => { if (other !== checkbox) other.checked = false; });
+    form.requestSubmit();
+  }));
 }
 
 function wireQuantityShortcuts() {
@@ -458,7 +455,7 @@ function wireCompletionRedirects() {
       redirect();
     });
 
-    window.setTimeout(redirect, seconds * 1000);
+    setTimeout(redirect, seconds * 1000);
 
     const render = (now) => {
       if (redirected) {
@@ -484,10 +481,10 @@ function wireCompletionRedirects() {
         return;
       }
 
-      window.requestAnimationFrame(render);
+      requestAnimationFrame(render);
     };
 
-    window.requestAnimationFrame(render);
+    requestAnimationFrame(render);
   });
 }
 
@@ -660,6 +657,11 @@ function wireNavState() {
     ? sidebar.querySelectorAll(".side-nav-link[href], .side-nav-direct[href]")
     : document.querySelectorAll(".nav-links a");
 
+  const workLinks = sidebar ? [...sidebar.querySelectorAll('[aria-label="Work pages"] a[href]')] : [];
+  const workPath = pathname.startsWith('/recommended-actions') ? '/recommended-actions'
+    : /^\/tasks\/\d+$/.test(pathname) || ['/pick','/put','/pending-confirmations'].includes(pathname) ? '/work' : pathname;
+  const selectedWork = workLinks.find(link => new URL(link.getAttribute('href'), window.location.href).pathname === workPath);
+
   for (const link of links) {
     const href = link.getAttribute("href");
     if (!href) {
@@ -680,7 +682,13 @@ function wireNavState() {
       isActive = isActive && hash === linkHash;
     }
 
+    // Work children are separate pages, not prefix matches of My Work.
+    if (workLinks.includes(link)) isActive = link === selectedWork;
+    else if (linkPath === '/work' && sidebar) isActive = Boolean(selectedWork);
+    else if (linkPath === '/settings' && pathname === '/work/timing') isActive = true;
     link.classList.toggle("nav-link-active", isActive);
+    if (isActive && !(linkPath === '/work' && !workLinks.includes(link))) link.setAttribute('aria-current','page');
+    else link.removeAttribute('aria-current');
   }
 
   sidebar?.querySelectorAll(".side-nav-group").forEach((group) => {
@@ -762,14 +770,14 @@ function wireDashboardSectionFilter() {
     current = parent;
   }
 
-  window.requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
     target.scrollIntoView({ block: "start" });
   });
 }
 
 function wireNavOverflow() {
   const nav = document.querySelector("[data-nav-links]");
-  if (!nav || nav.dataset.navOverflowBound === "true") {
+  if (!nav) {
     return;
   }
 
@@ -858,7 +866,7 @@ function wireNavOverflow() {
     if (layoutFrame !== null) {
       window.cancelAnimationFrame(layoutFrame);
     }
-    layoutFrame = window.requestAnimationFrame(layout);
+    layoutFrame = requestAnimationFrame(layout);
   };
 
   toggle.addEventListener("click", (event) => {
@@ -866,22 +874,23 @@ function wireNavOverflow() {
     setOpen(menu.hidden);
   });
 
-  document.addEventListener("click", (event) => {
+  onPage(document,"click", (event) => {
     if (!nav.contains(event.target)) {
       setOpen(false);
     }
   });
 
-  document.addEventListener("keydown", (event) => {
+  onPage(document,"keydown", (event) => {
     if (event.key === "Escape") {
       setOpen(false);
     }
   });
 
-  window.addEventListener("resize", scheduleLayout);
+  onPage(window,"resize", scheduleLayout);
   if ("ResizeObserver" in window) {
     const observer = new ResizeObserver(scheduleLayout);
     observer.observe(nav);
+    pageScope?.own(()=>observer.disconnect());
     observer.observe(nav.closest(".top-nav-shell") || nav);
   }
   document.fonts?.ready?.then(scheduleLayout).catch(() => {});
@@ -1187,7 +1196,7 @@ function wireReportsWorkspace() {
     if (!container || !hook) {
       return;
     }
-    window.requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
       const candidates = Array.from(container.querySelectorAll(`[${hook}]`));
       const target = value
         ? candidates.find((input) => normalizeUnitToken(input.value) === normalizeUnitToken(value))
@@ -1402,7 +1411,7 @@ function wireReportsWorkspace() {
     syncRangeControlHashes();
 
     if (scroll && activePanel) {
-      window.requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
         activePanel.scrollIntoView({ block: "start" });
       });
     }
@@ -1520,10 +1529,10 @@ function wireReportsWorkspace() {
     }
 
     document.body.classList.add("report-printing");
-    window.setTimeout(() => {
+    setTimeout(() => {
       document.body.classList.remove("report-printing");
     }, 60000);
-    window.requestAnimationFrame(() => window.print());
+    requestAnimationFrame(() => window.print());
   };
 
   reportButtons.forEach((button) => {
@@ -1550,7 +1559,7 @@ function wireReportsWorkspace() {
       setToolbarPopoverOpen(entry, entry.panel.hidden);
     });
   });
-  document.addEventListener("click", (event) => {
+  onPage(document,"click", (event) => {
     if (toolbarPopovers.some(({ control }) => control.contains(event.target))) {
       return;
     }
@@ -1733,7 +1742,7 @@ function wireReportsWorkspace() {
       closePrintMenu();
     }
   });
-  document.addEventListener("keydown", (event) => {
+  onPage(document,"keydown", (event) => {
     if (event.key !== "Escape") {
       return;
     }
@@ -1751,7 +1760,7 @@ function wireReportsWorkspace() {
       closeReport();
     }
   });
-  window.addEventListener("beforeprint", () => {
+  onPage(window,"beforeprint", () => {
     if (!activeReportKey && defaultReportKey) {
       activeReportKey = defaultReportKey;
     }
@@ -1759,7 +1768,7 @@ function wireReportsWorkspace() {
       document.body.classList.add("report-printing");
     }
   });
-  window.addEventListener("afterprint", () => {
+  onPage(window,"afterprint", () => {
     document.body.classList.remove("report-printing");
   });
   modal?.addEventListener("click", (event) => {
@@ -1789,8 +1798,8 @@ function wireReportsWorkspace() {
       closeReport({ clearHash: false, restore: false });
     }
   };
-  window.addEventListener("hashchange", syncReportFromLocation);
-  window.addEventListener("popstate", syncReportFromLocation);
+  onPage(window,"hashchange", syncReportFromLocation);
+  onPage(window,"popstate", syncReportFromLocation);
 
   if (reportKeys.has(reportKeyFromHash())) {
     openReport(reportKeyFromHash(), { focus: false });
@@ -2070,7 +2079,7 @@ function wireReportFormatEditors() {
       launchers.forEach((button) => button.setAttribute("aria-expanded", "true"));
       syncBodyModalState();
       if (focus) {
-        window.requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
           editor.querySelector("[data-report-format-close]")?.focus();
         });
       }
@@ -2327,7 +2336,7 @@ function wireComboBoxes(root = document) {
       applyComboRecencyOrder();
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
       closePanel();
-      window.requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
       });
@@ -2411,7 +2420,7 @@ function wireComboBoxes(root = document) {
     });
 
     input.addEventListener("blur", () => {
-      window.setTimeout(() => {
+      setTimeout(() => {
         syncSelectionFromInput();
         if (!combo.contains(document.activeElement)) {
           closePanel();
@@ -2424,7 +2433,8 @@ function wireComboBoxes(root = document) {
 
   if (document.body.dataset.comboDocumentBound !== "true") {
     document.body.dataset.comboDocumentBound = "true";
-    document.addEventListener("click", (event) => {
+    pageScope?.own(() => { delete document.body.dataset.comboDocumentBound; });
+    onPage(document,"click", (event) => {
       const combo = event.target.closest("[data-combo-box]");
       if (!combo) {
         closeAllCombos();
@@ -2522,7 +2532,9 @@ function wireAdjustmentForms() {
       addButton.disabled = !cellId;
       if (locateButton) {
         locateButton.disabled = !cellId;
-        setLocateButtonState(locateButton, Boolean(cellId && activeLocates.has(String(cellId))));
+        locateButton.dataset.cellId = cellId;
+        locateButton.dataset.showLabel = "Locate Cell";
+        setCatalogProductQuantityButtonState(locateButton, Boolean(cellId && activeCatalogProductQuantity?.key === `cell:${cellId}:locate`));
       }
       if (lightQuantityButton) {
         lightQuantityButton.disabled = !cellId || enteredQuantities().length === 0;
@@ -2594,7 +2606,7 @@ function wireAdjustmentForms() {
       if (event.target.closest("[data-adjustment-locate-cell], [data-adjustment-light-quantity]")) {
         return;
       }
-      window.requestAnimationFrame(refreshActionControls);
+      requestAnimationFrame(refreshActionControls);
     });
 
     form.querySelector('input[name="cell_id"]')?.addEventListener("change", async () => {
@@ -2654,56 +2666,6 @@ function wireAdjustmentForms() {
           refreshLineControls();
           refreshActionControls();
         }
-      }
-    });
-
-    locateButton?.addEventListener("click", async () => {
-      const cellId = selectedCellId();
-      if (!cellId || locateButton.disabled) {
-        setAdjustmentStatus("Choose a cell before locating it.", "warning");
-        return;
-      }
-
-      for (const [activeCellId, activeEntry] of Array.from(activeLocates.entries())) {
-        if (activeEntry.button === locateButton && activeCellId !== String(cellId)) {
-          await sendLocateCommand(activeCellId, false).catch(() => {});
-          clearLocateUi(activeCellId);
-        }
-      }
-
-      const activeEntry = activeLocates.get(String(cellId));
-      setButtonLoading(locateButton, true, {
-        label: activeEntry ? "Clearing" : "Sending",
-        title: activeEntry ? "Clearing locate command" : "Sending locate command",
-      });
-
-      try {
-        if (activeEntry) {
-          await sendLocateCommand(cellId, false);
-          setButtonLoading(locateButton, false);
-          clearLocateUi(cellId);
-          setAdjustmentStatus("Locate cleared.", "info");
-          return;
-        }
-
-        const payload = await sendLocateCommand(cellId, true);
-        setButtonLoading(locateButton, false);
-        setLocateButtonState(locateButton, true);
-        activeLocates.set(String(cellId), {
-          button: locateButton,
-          timeoutId: window.setTimeout(() => {
-            if (!activeLocates.has(String(cellId))) {
-              return;
-            }
-            sendLocateCommand(cellId, false).catch(() => {}).finally(() => clearLocateUi(cellId));
-          }, LOCATION_LOCATE_TIMEOUT_MS),
-        });
-        setAdjustmentStatus(`Locating ${payload.cell?.logicalCode || "selected cell"}.`, "success");
-      } catch (error) {
-        setButtonLoading(locateButton, false);
-        setAdjustmentStatus(error.message || "Locate command failed.", "error");
-      } finally {
-        refreshActionControls();
       }
     });
 
@@ -2884,25 +2846,11 @@ function firmwareStageLabel(stage) {
     compiling: "Compiling",
     uploading: "Uploading",
     configuring: "Configuring",
+    verifying: "Restoring and verifying setup",
     completed: "Completed",
     failed: "Failed",
   };
   return labels[stage] || "Running";
-}
-
-function renderFirmwareModules(target, modules = []) {
-  if (!target) {
-    return;
-  }
-
-  target.replaceChildren();
-  for (const moduleNumber of modules) {
-    const chip = document.createElement("span");
-    chip.className = "module-chip";
-    chip.textContent = `Module ${moduleNumber}`;
-    target.appendChild(chip);
-  }
-  target.hidden = modules.length === 0;
 }
 
 function normalizeFirmwarePorts(ports = []) {
@@ -2920,20 +2868,6 @@ function normalizeFirmwarePorts(ports = []) {
 
 function firmwarePortIdentity(port) {
   return port.deviceIdentity || port.path;
-}
-
-function firmwareControllerName(port) {
-  if (port?.flashRecordAmbiguous) {
-    return "";
-  }
-  return port?.flashRecord?.controllerName || port?.flashRecord?.deviceName || "";
-}
-
-function firmwareTtyPath(port) {
-  if (port.ttyPath) {
-    return port.ttyPath;
-  }
-  return (port.aliases || []).find((alias) => /\/dev\/(?:tty|cu)[A-Za-z0-9._-]+$/.test(alias)) || "";
 }
 
 function appendFirmwarePortMeta(parent, label, value) {
@@ -2988,9 +2922,27 @@ function syncFirmwareSubmitState(panel) {
   const controller = panel.querySelector('input[name="controller_name"]');
   const modules = panel.querySelector('input[name="module_count"]');
   const submitButton = panel.querySelector("[data-firmware-flash-form] button[type='submit']");
+  const replacement = panel.querySelector('[data-firmware-replacement]');
+  const option = replacement?.selectedOptions?.[0] || replacement;
+  const replacing = Boolean(replacement?.value);
+  const confirmation = panel.querySelector('input[name="replacement_confirmed"]');
+  const help = panel.querySelector('[data-firmware-replacement-help]');
+  if(help)help.hidden=!replacing;
+  if(controller)controller.readOnly=replacing;
+  if(modules){modules.readOnly=replacing;modules.min=replacing?'0':'1';}
+  if(replacing && option){controller.value=option.dataset.name||'';modules.value=option.dataset.count||'0';}
+  const step=currentFirmwareWizardStep(panel);
+  const busy=panel.dataset.firmwareNavigating==='true'||panel.dataset.firmwareJobRunning==='true';
+  if(confirmation)confirmation.required=replacing && step===3;
+  const back=panel.querySelector('[data-firmware-back]'),next=panel.querySelector('[data-firmware-forward]');
+  if(back)back.disabled=busy;
+  if(next){next.hidden=step===3;next.disabled=busy;}
+  if(submitButton)submitButton.hidden=step!==3;
   if (submitButton && input && identity && controller && modules) {
+    submitButton.textContent=panel.dataset.firmwareJobRunning==='true'?'Updating…':replacing?'Update firmware':'Flash controller';
     submitButton.disabled =
-      !input.value.trim() || !identity.value.trim() || !controller.value.trim() || !modules.value.trim();
+      busy || !input.value.trim() || !identity.value.trim() || !controller.value.trim() || !modules.value.trim() ||
+      replacing && (option?.dataset.ready!=='1' || !confirmation?.checked);
   }
 }
 
@@ -3034,6 +2986,39 @@ function setFirmwareWizardStep(panel, nextStep) {
       indicator.removeAttribute("aria-current");
     }
   });
+  const review=[['name','controller_name'],['count','module_count'],['port','port']];
+  for(const [key,field] of review){const target=panel.querySelector(`[data-firmware-review-${key}]`);if(target)target.textContent=panel.querySelector(`[name="${field}"]`)?.value||'—';}
+  syncFirmwareSubmitState(panel);
+  const heading=steps[safeStep]?.querySelector('h3');if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});}
+
+}
+
+async function advanceFirmwareWizard(panel) {
+  if (panel.dataset.firmwareNavigating==='true' || panel.dataset.firmwareJobRunning==='true') return;
+  panel.dataset.firmwareNavigating='true';
+  const feedback=panel.querySelector('[data-firmware-flow-status]');
+  if(feedback){feedback.hidden=true;feedback.textContent='';}
+  syncFirmwareSubmitState(panel);
+  try {
+    const step=currentFirmwareWizardStep(panel);
+    if(step===0){
+      await refreshFirmwarePorts(panel,{captureBaseline:true,mode:'baseline'});
+      clearFirmwareSelection(panel);
+      setFirmwareWizardStep(panel,1);
+    }else if(step===1){
+      await refreshFirmwarePorts(panel,{mode:'detect'});
+      if(selectedFirmwarePort(panel))setFirmwareWizardStep(panel,2);
+      else setFirmwareDetectStatus(panel,'No ESP32 detected yet. Check the USB data cable, then choose Next again.');
+    }else if(step===2){
+      for(const name of ['controller_name','module_count','port']){
+        const field=panel.querySelector(`[name="${name}"]`);
+        if(!field.reportValidity())return;
+      }
+      if(!selectedFirmwarePort(panel))throw new Error('Select the ESP32 from Added serial device or Other serial devices.');
+      setFirmwareWizardStep(panel,3);
+    }
+  }catch(error){if(feedback){feedback.textContent=error.message;feedback.hidden=false;}}
+  finally{panel.dataset.firmwareNavigating='false';syncFirmwareSubmitState(panel);}
 }
 
 function setFirmwareDetectStatus(panel, message, tone = "missing") {
@@ -3045,26 +3030,6 @@ function setFirmwareDetectStatus(panel, message, tone = "missing") {
   status.hidden = !message;
   status.classList.toggle("firmware-port-status-ok", tone === "ok");
   status.classList.toggle("firmware-port-status-missing", tone !== "ok");
-}
-
-function advanceFirmwareWizardAfterDetection(panel) {
-  const status = panel.querySelector("[data-firmware-port-status]");
-  if (selectedFirmwarePort(panel)) {
-    setFirmwareDetectStatus(panel, "");
-    setFirmwareWizardStep(panel, 2);
-    return;
-  }
-
-  setFirmwareDetectStatus(
-    panel,
-    "No new ESP32 was detected. Click Back, disconnect the controller, then repeat the setup flow.",
-  );
-  if (status) {
-    status.textContent =
-      "No new ESP32 was selected. Go Back, disconnect the controller, then run the setup flow again.";
-    status.classList.add("firmware-port-status-missing");
-    status.classList.remove("firmware-port-status-ok");
-  }
 }
 
 function renderFirmwarePortList(panel, ports, selectedPort) {
@@ -3095,43 +3060,13 @@ function renderFirmwarePortList(panel, ports, selectedPort) {
     button.dataset.firmwarePortChoice = "true";
     button.dataset.portPath = port.path;
     button.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
-    button.dataset.controllerName = firmwareControllerName(port);
     button.dataset.controllerAmbiguous = ambiguous ? "true" : "false";
 
-    const label = document.createElement("strong");
-    label.textContent = port.newlyConnected
-      ? "Added serial device"
-      : ambiguous
-        ? "Shared USB adapter identity"
-        : port.flashRecord?.deviceName || port.deviceName || "ESP32 controller";
-    const badge = document.createElement("span");
-    const flashed = port.flashStatus === "configured";
-    badge.className = `badge ${flashed ? "badge-flashed" : "badge-new"}`;
-    badge.textContent = ambiguous ? "choose target" : flashed ? "flashed" : port.badge || "new";
-    const summary = document.createElement("span");
-    summary.className = "firmware-device-summary";
-    if (ambiguous) {
-      const names = (port.flashRecords || [])
-        .map((record) => record.controllerName || record.deviceName)
-        .filter(Boolean)
-        .join(", ");
-      summary.textContent = `This USB-UART identity is shared by ${names || "multiple controllers"}. Choose the exact Controller name above before flashing.`;
-    } else if (flashed && port.flashRecord) {
-      const flashedBy = port.flashRecord.flashedBy?.name || port.flashRecord.flashedBy?.username || "unknown user";
-      const configuredAt = port.flashRecord.configuredAt
-        ? new Date(port.flashRecord.configuredAt).toLocaleString()
-        : "unknown time";
-      summary.textContent = `Already flashed · id ${port.flashRecord.controllerAddress || "unknown"} · ${port.flashRecord.moduleCount} LED module(s) · ${configuredAt} · by ${flashedBy}`;
-    } else {
-      summary.textContent = port.newlyConnected
-        ? "New serial device detected after refresh. Select it only if this is the ESP32."
-        : "ESP32 candidate. Flash this controller before mapping cells.";
-    }
-
-    button.append(label, badge);
-    appendFirmwarePortMeta(button, "Flash path", port.path);
-    appendFirmwarePortMeta(button, "TTY alias", firmwareTtyPath(port));
-    button.append(summary);
+    button.setAttribute('aria-pressed',String(port.path===selectedPort));
+    const label=document.createElement('strong');label.textContent=port.deviceName||'ESP32';
+    const summary=document.createElement('span');
+    summary.textContent=panel.dataset.firmwareMode==='edit'?'Selected for this controller’s update.':port.flashRecord?'Already registered. Use Edit in Controller Health to update it.':'Select this device to continue.';
+    button.append(label);appendFirmwarePortMeta(button,'Serial port',port.path);button.append(summary);
     target.appendChild(button);
   }
 }
@@ -3146,7 +3081,7 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
   const primary = new Set(primaryPorts.map((port) => firmwarePortIdentity(port)));
   const otherPorts = ports.filter((port) => !primary.has(firmwarePortIdentity(port)));
   target.replaceChildren();
-  details.hidden = otherPorts.length === 0;
+  details.hidden = false;
 
   for (const port of otherPorts) {
     const ambiguous = port.flashRecordAmbiguous || (port.flashRecords || []).length > 1;
@@ -3156,20 +3091,18 @@ function renderOtherFirmwareDevices(panel, ports, primaryPorts) {
     item.dataset.firmwarePortChoice = "true";
     item.dataset.portPath = port.path;
     item.dataset.deviceIdentity = firmwarePortIdentity(port) || "";
-    item.dataset.controllerName = firmwareControllerName(port);
     item.dataset.controllerAmbiguous = ambiguous ? "true" : "false";
     const name = document.createElement("strong");
     name.textContent = port.deviceName || port.label || "Serial device";
     const reason = document.createElement("span");
     reason.textContent =
       ambiguous
-        ? "Shared USB adapter identity. Select only as an upload port, then choose the exact controller name before flashing."
+        ? "Select only if this is the ESP32 connected for this setup."
         : port.flashStatus === "configured"
-        ? "Previously configured ESP32. Select to reflash."
+        ? "Previously connected ESP32."
         : "Existing serial device. Select only if this is the ESP32 you want to flash.";
     item.append(name);
-    appendFirmwarePortMeta(item, "Flash path", port.path);
-    appendFirmwarePortMeta(item, "TTY alias", firmwareTtyPath(port));
+    appendFirmwarePortMeta(item, "Serial port", port.path);
     item.append(reason);
     target.appendChild(item);
   }
@@ -3236,7 +3169,7 @@ function updateFirmwarePorts(panel, options, { captureBaseline = false, mode = "
     if (mode === "baseline") {
       status.textContent = `Baseline saved with ${ports.length} serial device${ports.length === 1 ? "" : "s"}. Now plug in the ESP32 and click Next.`;
     } else if (newCount > 0) {
-      status.textContent = `New serial device connected. If this is the ESP32, select it and flash it.`;
+      status.textContent = `ESP32 detected. Check the selected serial port.`;
     } else if (ambiguousCount > 0) {
       status.textContent = `${ambiguousCount} serial port${ambiguousCount === 1 ? "" : "s"} match multiple configured controllers. Choose the exact Controller name before flashing.`;
     } else if (flashedCount > 0) {
@@ -3301,11 +3234,12 @@ async function refreshFirmwarePorts(panel, settings = {}) {
     if (settings.mode === "detect") {
       setFirmwareDetectStatus(panel, error.message);
     }
+    throw error;
   } finally {
-    syncFirmwareSubmitState(panel);
     for (const button of buttons) {
       button.disabled = false;
     }
+    syncFirmwareSubmitState(panel);
   }
 }
 
@@ -3315,7 +3249,6 @@ function updateFirmwarePanel(panel, job) {
   const stage = panel.querySelector("[data-firmware-stage]");
   const percent = panel.querySelector("[data-firmware-percent]");
   const log = panel.querySelector("[data-firmware-log]");
-  const modules = panel.querySelector("[data-firmware-modules]");
   const hint = panel.querySelector("[data-firmware-hint]");
 
   if (progressWrap) {
@@ -3340,12 +3273,51 @@ function updateFirmwarePanel(panel, job) {
     hint.textContent = message || "";
     hint.hidden = !message;
   }
-  if (job.status === "completed") {
-    renderFirmwareModules(modules, job.assignedModules || []);
-  }
+  panel.dataset.firmwareJobRunning=String(job.status==='running');
+  syncFirmwareSubmitState(panel);
 }
 
-function showFirmwareError(panel, message) {
+const firmwareResultDialogs = new WeakMap();
+function showFirmwareResult(panel, job) {
+  if (!panel.isConnected || pageScope?.active === false) return;
+  const previous = firmwareResultDialogs.get(panel);
+  const key = `${job.id || 'request'}:${job.status}:${job.error || ''}`;
+  if (previous?.key === key) return;
+  previous?.dialog.remove();
+  const success = job.status === 'completed';
+  const simulated = success && job.stage === 'simulated';
+  const dialog = document.createElement('dialog');
+  dialog.className = 'task-edit-dialog firmware-result-dialog';
+  dialog.setAttribute('aria-labelledby', 'firmware-result-title');
+  dialog.setAttribute('aria-describedby', 'firmware-result-message');
+  const header = document.createElement('header');
+  header.className = 'review-task-header';
+  const title = document.createElement('h2');
+  title.id = 'firmware-result-title';
+  title.textContent = job.resultTitle || (simulated ? 'Simulation complete' : success ? 'Firmware updated successfully' : 'Firmware update failed');
+  header.append(title);
+  const message = document.createElement('p');
+  message.id = 'firmware-result-message';
+  message.textContent = simulated ? 'This was a simulation. No firmware was flashed.' : success ? (job.verificationHint || 'The firmware was uploaded and verified. You can now check the controller connection.') : (job.error || 'The firmware could not be updated.');
+  const next = document.createElement('p');
+  next.textContent = success ? '' : (job.recoveryHint || 'Keep the USB cable connected. Check the details on the update screen before trying again.');
+  next.hidden = !next.textContent;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = success ? 'Done' : 'Back to update';
+  onPage(button, 'click', () => dialog.close());
+  onPage(dialog, 'close', () => {
+    dialog.remove();
+    if (success && pageScope?.active !== false) window.location.reload();
+  });
+  dialog.append(header, message, next, button);
+  (document.querySelector('.ui-template') || document.body).append(dialog);
+  pageScope?.own(() => dialog.remove());
+  firmwareResultDialogs.set(panel, {key, dialog});
+  dialog.showModal();
+}
+
+function showFirmwareError(panel, message, {notify = true, resultTitle = 'Firmware update could not finish'} = {}) {
   updateFirmwarePanel(panel, {
     status: "failed",
     stage: "failed",
@@ -3353,6 +3325,7 @@ function showFirmwareError(panel, message) {
     error: message,
     logs: [{ line: `ERROR: ${message}` }],
   });
+  if (notify) showFirmwareResult(panel, {status: 'failed', error: message, resultTitle});
 }
 
 async function pollFirmwareJob(panel, jobId, submitButton) {
@@ -3369,12 +3342,10 @@ async function pollFirmwareJob(panel, jobId, submitButton) {
   updateFirmwarePanel(panel, payload.job);
 
   if (payload.job.status === "running") {
-    window.setTimeout(() => {
+    setTimeout(() => {
       pollFirmwareJob(panel, jobId, submitButton).catch((error) => {
-        showFirmwareError(panel, error.message);
-        if (submitButton) {
-          submitButton.disabled = false;
-        }
+        showFirmwareError(panel, error.message, {resultTitle: 'Could not check firmware update'});
+        syncFirmwareSubmitState(panel);
       });
     }, 900);
     return;
@@ -3384,11 +3355,7 @@ async function pollFirmwareJob(panel, jobId, submitButton) {
     submitButton.disabled = false;
   }
 
-  if (payload.job.status === "completed") {
-    window.setTimeout(() => {
-      window.location.reload();
-    }, 1200);
-  }
+  if (['completed', 'failed'].includes(payload.job.status)) showFirmwareResult(panel, payload.job);
 }
 
 function wireFirmwareFlash() {
@@ -3404,46 +3371,33 @@ function wireFirmwareFlash() {
     if (panel) {
       setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel));
 
+      panel.querySelector('[data-firmware-replacement]')?.addEventListener('change',()=>{
+        const confirmation=panel.querySelector('input[name="replacement_confirmed"]');if(confirmation)confirmation.checked=false;
+        syncFirmwareSubmitState(panel);
+      });
+      panel.querySelector('input[name="replacement_confirmed"]')?.addEventListener('change',()=>syncFirmwareSubmitState(panel));
+      panel.querySelector('[data-firmware-controller-backup]')?.addEventListener('click',async event=>{
+        const button=event.currentTarget,status=panel.querySelector('[data-firmware-backup-status]');
+        button.disabled=true;status.textContent='Reading the connected ESP32 and saving its setup…';
+        try {
+          const response=await fetch('/api/firmware/controller-backup',{method:'POST',headers:{'X-Requested-With':'fetch'},body:new URLSearchParams(new FormData(form))});
+          const payload=await response.json();if(!response.ok)throw new Error(payload.error||payload.message||'Controller backup failed.');
+          const replacement=panel.querySelector('[data-firmware-replacement]');
+          const option=replacement?.selectedOptions?.[0] || replacement;
+          if(option && option.value===String(payload.profile.controllerId)){option.dataset.ready='1';option.dataset.count=String(payload.profile.physicalCount);}
+          status.textContent=payload.message;syncFirmwareSubmitState(panel);
+        }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+      });
       panel.addEventListener("click", (event) => {
-        const baselineButton = event.target.closest("[data-firmware-scan-baseline]");
-        if (baselineButton) {
-          refreshFirmwarePorts(panel, { captureBaseline: true, mode: "baseline" })
-            .then(() => {
-              clearFirmwareSelection(panel);
-              syncFirmwareSubmitState(panel);
-              if (baselineButton.dataset.firmwareNextOnSuccess !== undefined) {
-                setFirmwareWizardStep(panel, 1);
-              }
-            })
-            .catch(() => {});
+        if(event.target.closest('[data-firmware-forward]')){advanceFirmwareWizard(panel);return;}
+        if(event.target.closest('[data-firmware-back]')){
+          if(panel.dataset.firmwareJobRunning==='true'||panel.dataset.firmwareNavigating==='true')return;
+          const step=currentFirmwareWizardStep(panel);
+          if(step===0)window.location.hash='controller-health';else setFirmwareWizardStep(panel,step-1);
           return;
         }
-
-        const refreshButton = event.target.closest("[data-firmware-refresh-ports]");
-        if (refreshButton) {
-          refreshFirmwarePorts(panel, { mode: "detect" })
-            .then(() => {
-              if (refreshButton.dataset.firmwareNextOnSuccess !== undefined) {
-                advanceFirmwareWizardAfterDetection(panel);
-              }
-            })
-            .catch(() => {});
-          return;
-        }
-
-        const previousButton = event.target.closest("[data-firmware-prev]");
-        if (previousButton) {
-          setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel) - 1);
-          return;
-        }
-
-        const nextButton = event.target.closest("[data-firmware-next]");
-        if (nextButton) {
-          if (currentFirmwareWizardStep(panel) === 2 && !selectedFirmwarePort(panel)) {
-            advanceFirmwareWizardAfterDetection(panel);
-            return;
-          }
-          setFirmwareWizardStep(panel, currentFirmwareWizardStep(panel) + 1);
+        if(event.target.closest('[data-firmware-refresh-ports]')){
+          refreshFirmwarePorts(panel,{mode:'detect'}).catch(()=>{});
           return;
         }
 
@@ -3462,6 +3416,7 @@ function wireFirmwareFlash() {
         }
         panel.querySelectorAll("[data-firmware-port-choice]").forEach((choice) => {
           choice.classList.toggle("firmware-port-choice-active", choice === portChoice);
+          choice.setAttribute("aria-pressed",String(choice===portChoice));
         });
         syncFirmwareSubmitState(panel);
       });
@@ -3493,9 +3448,10 @@ function wireFirmwareFlash() {
         return;
       }
 
-      if (submitButton) {
-        submitButton.disabled = true;
-      }
+      if(currentFirmwareWizardStep(panel)!==3){advanceFirmwareWizard(panel);return;}
+      if(panel.dataset.firmwareJobRunning==='true')return;
+      if(!form.reportValidity())return;
+      firmwareResultDialogs.delete(panel);
       updateFirmwarePanel(panel, {
         status: "running",
         stage: "queued",
@@ -3504,14 +3460,27 @@ function wireFirmwareFlash() {
       });
 
       try {
-        const response = await fetch("/api/firmware/flash", {
-          method: "POST",
-          headers: {
-            "X-Requested-With": "fetch",
-          },
-          body: new URLSearchParams(new FormData(form)),
+        // Capture the reviewed USB/controller selection; the dialog cannot change its target.
+        const body = new URLSearchParams(new FormData(form));
+        const send = () => (pageScope ? pageScope.fetch.bind(pageScope) : globalThis.fetch)("/api/firmware/flash", {
+          method: "POST", headers: {"X-Requested-With": "fetch"}, body,
         });
-        const payload = await response.json();
+        let response = await send();
+        let payload = await response.clone().json();
+        if (!response.ok && payload.code === 'OUTSTANDING_WORK') {
+          showFirmwareError(panel, payload.error, {notify: false});
+          syncFirmwareSubmitState(panel);
+          const replacement = Number(body.get('replacement_controller_id')) > 0;
+          const choice = await (await import('./client/setup-work-dialog.js')).showSetupWorkResponse(response, {
+            scope: pageScope,
+            preserveController: replacement ? {name: body.get('controller_name') || 'this controller'} : null,
+          });
+          if (choice !== 'preserve' || pageScope?.active === false || !form.isConnected) return;
+          body.set('keep_existing_work', '1');
+          updateFirmwarePanel(panel, {status: 'running', stage: 'queued', progress: 3, logs: [{line: 'Keeping existing work and starting controller update...'}]});
+          response = await send();
+          payload = await response.json();
+        }
         if (!response.ok) {
           throw new Error(payload.error || "Firmware job could not be started.");
         }
@@ -3520,95 +3489,14 @@ function wireFirmwareFlash() {
         await pollFirmwareJob(panel, payload.job.id, submitButton);
       } catch (error) {
         showFirmwareError(panel, error.message);
-        if (submitButton) {
-          submitButton.disabled = false;
-        }
+        syncFirmwareSubmitState(panel);
       }
     });
   }
 }
 
-const LOCATION_LOCATE_TIMEOUT_MS = 120000;
-const activeLocates = new Map();
 const activeCounts = new Map();
 let activeCatalogProductQuantity = null;
-
-function setLocateButtonState(button, active) {
-  if (!button) {
-    return;
-  }
-  button.classList.toggle("locate-button-active", active);
-  button.setAttribute("aria-pressed", active ? "true" : "false");
-  button.textContent = active ? "Locating" : "Locate";
-}
-
-async function sendLocateCommand(cellId, active) {
-  const body = new URLSearchParams();
-  body.set("active", active ? "1" : "0");
-
-  const response = await fetch(`/api/cells/${encodeURIComponent(cellId)}/locate`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "X-Requested-With": "fetch",
-    },
-    body,
-  });
-  const payload = await response.json();
-  if (!response.ok || payload.degraded) {
-    throw new Error(payload.error || payload.message || "Locate command failed.");
-  }
-  return payload;
-}
-
-function clearLocateUi(cellId) {
-  const activeLocate = activeLocates.get(String(cellId));
-  if (!activeLocate) {
-    return;
-  }
-  window.clearTimeout(activeLocate.timeoutId);
-  setLocateButtonState(activeLocate.button, false);
-  activeLocates.delete(String(cellId));
-}
-
-function clearAllLocateUi() {
-  for (const cellId of Array.from(activeLocates.keys())) {
-    clearLocateUi(cellId);
-  }
-}
-
-function activeLocateCellIds() {
-  return Array.from(activeLocates.keys());
-}
-
-function locateClearAllBody() {
-  const body = new URLSearchParams();
-  body.set("active", "0");
-  body.set("cell_ids", activeLocateCellIds().join(","));
-  return body;
-}
-
-function sendLocateClearAll({ beacon = true } = {}) {
-  const body = locateClearAllBody();
-  if (navigator.sendBeacon) {
-    const blob = new Blob([body.toString()], {
-      type: "application/x-www-form-urlencoded; charset=UTF-8",
-    });
-    if (beacon && navigator.sendBeacon("/api/cells/locate/clear-all", blob)) {
-      return Promise.resolve();
-    }
-  }
-
-  return fetch("/api/cells/locate/clear-all", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "X-Requested-With": "fetch",
-    },
-    body,
-    keepalive: true,
-  }).catch(() => {});
-}
 
 function formLedClearBody(form) {
   const body = new URLSearchParams(new FormData(form));
@@ -3671,12 +3559,19 @@ function sendProductFindLedClearEndpoint(endpoint, { beacon = true, body = new U
 }
 
 function catalogProductQuantityKey(button) {
+  if (button?.matches?.("[data-ping-controller]")) return button.dataset.controllerId ? `controller:${button.dataset.controllerId}:ping` : "";
+  if (button?.matches?.("[data-ping-cell]")) return button.dataset.cellId ? `cell:${button.dataset.cellId}:ping` : "";
+  if (button?.matches?.("[data-locate-cell], [data-adjustment-locate-cell]")) {
+    const cellId = button.dataset.cellId || button.closest("form")?.querySelector('input[name="cell_id"]')?.value;
+    return cellId ? `cell:${cellId}:locate` : "";
+  }
   const explicitKey = String(button?.dataset.quantityKey || "").trim();
   if (explicitKey) {
     return explicitKey;
   }
   const productId = String(button?.dataset.productId || "").trim();
-  return productId ? `product:${productId}` : "";
+  const cellId = String(button?.dataset.cellId || "").trim();
+  return cellId ? `cell:${cellId}${productId ? `:product:${productId}` : ""}` : productId ? `product:${productId}` : "";
 }
 
 function setCatalogProductQuantityButtonState(button, active) {
@@ -3686,16 +3581,18 @@ function setCatalogProductQuantityButtonState(button, active) {
   if (!("quantityOriginalTitle" in button.dataset)) {
     button.dataset.quantityOriginalTitle = button.getAttribute("title") || "";
   }
-  const label = active
-    ? button.dataset.activeLabel || "Showing Quantity"
-    : button.dataset.showLabel || "Show Quantity";
+  const pinging = button.matches?.("[data-ping-cell], [data-ping-controller]");
+  const label = pinging ? (active ? "Pinging" : "Ping") : active
+    ? button.dataset.activeLabel || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Locating" : "Showing Quantity")
+    : button.dataset.showLabel || (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Locate" : "Show Quantity");
   button.classList.toggle("count-button-active", active);
+  if (button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]")) button.classList.toggle("locate-button-active", active);
   button.setAttribute("aria-pressed", active ? "true" : "false");
   button.textContent = label;
   if (active) {
     button.setAttribute(
       "title",
-      button.dataset.activeTitle || "Showing this product's quantity on every mapped LED. Click to clear.",
+      button.dataset.activeTitle || (pinging ? "Green ripple ends after five seconds. Click to stop." : button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]") ? "Location light is on. Click to stop locating." : "Showing this product's quantity on every mapped LED. Click to clear."),
     );
   } else if (button.dataset.quantityOriginalTitle) {
     button.setAttribute("title", button.dataset.quantityOriginalTitle);
@@ -3703,7 +3600,7 @@ function setCatalogProductQuantityButtonState(button, active) {
 }
 
 function syncCatalogProductQuantityButtons() {
-  document.querySelectorAll("[data-show-product-quantity]").forEach((button) => {
+  document.querySelectorAll("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell], [data-ping-controller]").forEach((button) => {
     const active =
       activeCatalogProductQuantity &&
       activeCatalogProductQuantity.key === catalogProductQuantityKey(button);
@@ -3711,13 +3608,69 @@ function syncCatalogProductQuantityButtons() {
   });
 }
 
-async function activateCatalogProductQuantity(button) {
-  const endpoint = button.dataset.activateEndpoint;
+function confirmQuantityOverride(conflicts = [], locating = false, pinging = false, displayKind = "quantity") {
+  return new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "quantity-override-dialog";
+    dialog.setAttribute("aria-labelledby", "quantity-override-title");
+    dialog.innerHTML = `<h2 id="quantity-override-title">Show quantities?</h2><p>Are you sure you want to see quantities of selected products?</p><p data-conflict-detail></p><label><input type="checkbox" />Yes, I want to override the current PICK/PUT task</label><div class="modal-actions"><button type="button" class="ghost-button" data-cancel>Cancel</button><button type="button" class="blue-button" data-confirm disabled>Show quantities anyways</button></div>`;
+    if (locating) {
+      dialog.querySelector("h2").textContent = "Locate this cell?";
+      dialog.querySelector("p").textContent = "This temporarily replaces the PICK/PUT light at this location.";
+      dialog.querySelector("[data-confirm]").textContent = "Locate anyway";
+    }
+    if (pinging) {
+      dialog.querySelector("h2").textContent = "Ping this cell?";
+      dialog.querySelector("p").textContent = "This replaces the PICK/PUT light with a green ripple for five seconds.";
+      dialog.querySelector("[data-confirm]").textContent = "Ping anyway";
+    }
+    if (["cell_name", "module_number"].includes(displayKind)) {
+      const label = displayKind === "cell_name" ? "cell names" : "LED numbers";
+      dialog.querySelector("h2").textContent = `Show ${label}?`;
+      dialog.querySelector("p").textContent = "This temporarily replaces the PICK/PUT lights in this group.";
+      dialog.querySelector("[data-confirm]").textContent = `Show ${label} anyway`;
+    }
+    const taskIds = [...new Set(conflicts.map((entry) => Number(entry.taskId)).filter(Number.isInteger))];
+    dialog.querySelector("[data-conflict-detail]").textContent = `This temporarily replaces the lights for ${taskIds.length ? taskIds.slice(0, 5).map((id) => `Task #${id}`).join(", ") : "active PICK/PUT work"}${taskIds.length > 5 ? ` and ${taskIds.length - 5} more` : ""}. The task lights return when quantity display ends.`;
+    if (locating) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "Locate ends");
+    if (pinging) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "Ping ends");
+    if (["cell_name", "module_number"].includes(displayKind)) dialog.querySelector("[data-conflict-detail]").textContent = dialog.querySelector("[data-conflict-detail]").textContent.replace("quantity display ends", "this display ends");
+    const checkbox = dialog.querySelector('input[type="checkbox"]');
+    const confirm = dialog.querySelector("[data-confirm]");
+    checkbox.addEventListener("change", () => { confirm.disabled = !checkbox.checked; });
+    dialog.querySelector("[data-cancel]").addEventListener("click", () => dialog.close("cancel"));
+    confirm.addEventListener("click", () => dialog.close("confirm"));
+    dialog.addEventListener("close", () => { const accepted = dialog.returnValue === "confirm"; dialog.remove(); resolve(accepted); }, { once: true });
+    (document.querySelector('.ui-template') || document.body).append(dialog);
+    dialog.showModal();
+    pageScope?.own(() => { if (dialog.isConnected) dialog.close("cancel"); });
+  });
+}
+
+async function activateCatalogProductQuantity(button, { previewOnly = false, overrideWork = false } = {}) {
+  const pinging = button.matches?.("[data-ping-cell], [data-ping-controller]");
+  const locating = button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]");
+  const cellId = button.dataset.cellId || (locating ? button.closest("form")?.querySelector('input[name="cell_id"]')?.value : "");
+  const endpoint = button.dataset.activateEndpoint || (pinging && button.dataset.controllerId ? "/devices/controller-ping" : "") || ((locating || pinging) && cellId ? `/api/cells/${encodeURIComponent(cellId)}/${pinging ? "ping" : "locate"}` : "");
   if (!endpoint) {
     throw new Error("Quantity display endpoint is unavailable.");
   }
   const body = new URLSearchParams();
   body.set("return_to", `${window.location.pathname}${window.location.search}`);
+  body.set("requestId", crypto.randomUUID());
+  body.set("promptOnBusy", "1");
+  if (button.dataset.displayKind) body.set("displayKind", button.dataset.displayKind);
+  if (cellId) body.set("cellId", cellId);
+  if (button.dataset.warehouseId) body.set("warehouseId", button.dataset.warehouseId);
+  if (button.dataset.shelfId) body.set("shelfId", button.dataset.shelfId);
+  if (locating || pinging) { const kind=pinging?"ping":"locate";body.set("kind",kind);body.set("displayKind",kind);body.set("cellId",cellId); }
+  if (button.dataset.controllerId) body.set("controller_id", button.dataset.controllerId);
+  if (button.dataset.productId) body.set("product_id", button.dataset.productId);
+  if (previewOnly) body.set("previewOnly", "1");
+  if (overrideWork) {
+    body.set("overrideWork", "1");
+    body.set("confirmOverride", "1");
+  }
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -3734,14 +3687,36 @@ async function activateCatalogProductQuantity(button) {
   return payload;
 }
 
+async function clearCatalogProductQuantity(active) {
+  const body = new URLSearchParams({ displayId: active.displayId });
+  const response = await fetch(active.clearEndpoint, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "Could not restore the previous lights. Try again.");
+  return payload;
+}
+
 function wireCatalogProductQuantity() {
   if (document.documentElement.dataset.catalogProductQuantityBound === "true") {
     return;
   }
   document.documentElement.dataset.catalogProductQuantityBound = "true";
+  pageScope?.own(() => { delete document.documentElement.dataset.catalogProductQuantityBound; });
+  if (typeof MutationObserver === "function") {
+    const selector = "[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell], [data-ping-controller]";
+    const observer = new MutationObserver(records => {
+      if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector))))) syncCatalogProductQuantityButtons();
+    });
+    const content = document.querySelector(".page-body");
+    if (content) observer.observe(content, {childList:true, subtree:true});
+    pageScope?.own(() => observer.disconnect());
+  }
 
-  document.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-show-product-quantity]");
+  onPage(document,"click", async (event) => {
+    const button = event.target.closest("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell], [data-ping-controller]");
     if (!button || button.disabled) {
       return;
     }
@@ -3749,36 +3724,59 @@ function wireCatalogProductQuantity() {
     if (!quantityKey) {
       return;
     }
+    event.preventDefault();
+    event.stopImmediatePropagation?.();
+    const pinging = button.matches?.("[data-ping-cell], [data-ping-controller]");
+    const locating = button.matches?.("[data-locate-cell], [data-adjustment-locate-cell]");
     const togglingActive =
       activeCatalogProductQuantity &&
       activeCatalogProductQuantity.key === quantityKey;
     setButtonLoading(button, true, {
-      label: togglingActive ? "Clearing" : button.dataset.ledLoadingLabel || "Showing",
-      title: togglingActive ? "Clearing product quantities from the LEDs" : "Showing product quantities on the LEDs",
+      label: togglingActive ? "Clearing" : button.dataset.ledLoadingLabel || (locating ? "Locating" : pinging ? "Pinging" : "Showing"),
+      title: togglingActive ? "Clearing the light display" : locating ? "Lighting this location" : pinging ? "Pinging this location" : "Showing product quantities on the LEDs",
     });
 
     try {
-      if (activeCatalogProductQuantity) {
-        await sendProductFindLedClearEndpoint(activeCatalogProductQuantity.clearEndpoint, {
-          beacon: false,
-        });
+      if (togglingActive) {
+        await clearCatalogProductQuantity(activeCatalogProductQuantity);
         activeCatalogProductQuantity = null;
         setButtonLoading(button, false);
         syncCatalogProductQuantityButtons();
-        if (togglingActive) {
-          return;
-        }
-        setButtonLoading(button, true, {
-          label: button.dataset.ledLoadingLabel || "Showing",
-          title: "Showing product quantities on the LEDs",
-        });
+        return;
       }
-
-      const payload = await activateCatalogProductQuantity(button);
+      const preview = await activateCatalogProductQuantity(button, { previewOnly: true });
+      let overrideWork = false;
+      if (preview.state === "confirmation_required") {
+        overrideWork = await confirmQuantityOverride(preview.conflicts, locating, pinging, button.dataset.displayKind);
+        if (!overrideWork) return;
+      }
+      if (activeCatalogProductQuantity) {
+        await clearCatalogProductQuantity(activeCatalogProductQuantity);
+        activeCatalogProductQuantity = null;
+        syncCatalogProductQuantityButtons();
+      }
+      let payload = await activateCatalogProductQuantity(button, { overrideWork });
+      if (payload.state === "confirmation_required") {
+        overrideWork = await confirmQuantityOverride(payload.conflicts, locating, pinging, button.dataset.displayKind);
+        if (!overrideWork) return;
+        payload = await activateCatalogProductQuantity(button, { overrideWork: true });
+      }
+      if (!payload.displayId || !payload.targets?.some((target) => target.status === "sent")) throw new Error(payload.message || "No location could show this quantity.");
       activeCatalogProductQuantity = {
         key: quantityKey,
-        clearEndpoint: button.dataset.clearEndpoint,
+        clearEndpoint: button.dataset.clearEndpoint || "/api/displays/stop",
+        displayId: payload.displayId,
       };
+      const currentDisplay = activeCatalogProductQuantity;
+      const expiry = Date.parse(payload.expires_at);
+      if (Number.isFinite(expiry)) setTimeout(async () => {
+        if (activeCatalogProductQuantity !== currentDisplay) return;
+        try {
+          await clearCatalogProductQuantity(currentDisplay);
+          if (activeCatalogProductQuantity === currentDisplay) activeCatalogProductQuantity = null;
+          syncCatalogProductQuantityButtons();
+        } catch (error) { globalThis.WarehouseNotifications?.notify(error.message, {tone:"error"}); }
+      }, Math.max(0, expiry - Date.now()));
       setButtonLoading(button, false);
       syncCatalogProductQuantityButtons();
       if (payload.message) {
@@ -3789,21 +3787,23 @@ function wireCatalogProductQuantity() {
       button.textContent = "Failed";
       button.disabled = true;
       button.setAttribute("title", error.message || "Product quantity display failed.");
-      window.setTimeout(() => {
+      globalThis.WarehouseNotifications?.notify(error.message || "The light could not be switched on. Try again.", {tone:"error"});
+      setTimeout(() => {
         button.disabled = false;
         syncCatalogProductQuantityButtons();
       }, 1400);
     } finally {
       setButtonLoading(button, false);
     }
-  });
+  }, true);
 
-  window.addEventListener("pagehide", () => {
+  onPage(window,"pagehide", () => {
     if (!activeCatalogProductQuantity) {
       return;
     }
     sendProductFindLedClearEndpoint(activeCatalogProductQuantity.clearEndpoint, {
       beacon: true,
+      body: new URLSearchParams({ displayId: activeCatalogProductQuantity.displayId }),
     });
     activeCatalogProductQuantity = null;
   });
@@ -3825,7 +3825,7 @@ function wireProductFindLedCleanup() {
         return;
       }
       form.dataset.productFindLedSkipClear = "true";
-      window.setTimeout(() => {
+      setTimeout(() => {
         form.dataset.productFindLedSkipClear = "false";
       }, 5000);
     });
@@ -3835,7 +3835,7 @@ function wireProductFindLedCleanup() {
     return;
   }
   productFindLedClearWindowBound = true;
-  window.addEventListener("pagehide", () => {
+  onPage(window,"pagehide", () => {
     document.querySelectorAll("[data-product-find-led-clear-form]").forEach((form) => {
       if (form.dataset.productFindLedSkipClear === "true") {
         return;
@@ -3858,7 +3858,7 @@ function wireRecommendationLedCleanup() {
         return;
       }
       form.dataset.recommendationLedSkipClear = "true";
-      window.setTimeout(() => {
+      setTimeout(() => {
         form.dataset.recommendationLedSkipClear = "false";
       }, 5000);
     });
@@ -3868,105 +3868,13 @@ function wireRecommendationLedCleanup() {
     return;
   }
   recommendationLedClearWindowBound = true;
-  window.addEventListener("pagehide", () => {
+  onPage(window,"pagehide", () => {
     document.querySelectorAll("[data-recommendation-led-clear-form]").forEach((form) => {
       if (form.dataset.recommendationLedSkipClear === "true") {
         return;
       }
       sendRecommendationLedClear(form);
     });
-  });
-}
-
-function wireLocationLocate() {
-  const page = document.querySelector("[data-location-page], [data-config-workspace]");
-  if (!page || page.dataset.locateBound === "true") {
-    return;
-  }
-  page.dataset.locateBound = "true";
-
-  page.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-locate-cell]");
-    if (!button) {
-      return;
-    }
-
-    const cellId = button.dataset.cellId;
-    if (!cellId || button.disabled) {
-      return;
-    }
-
-    const activeEntry = activeLocates.get(String(cellId));
-    setButtonLoading(button, true, {
-      label: activeEntry ? "Clearing" : "Sending",
-      title: activeEntry ? "Clearing locate command" : "Sending locate command",
-    });
-
-    try {
-      if (activeEntry) {
-        await sendLocateCommand(cellId, false);
-        setButtonLoading(button, false);
-        clearLocateUi(cellId);
-        return;
-      }
-
-      if (activeCounts.has(String(cellId))) {
-        await sendLocationCountClearCommand(cellId, { beacon: false });
-        clearCountUi(cellId);
-      }
-
-      await sendLocateCommand(cellId, true);
-      setButtonLoading(button, false);
-      setLocateButtonState(button, true);
-      activeLocates.set(String(cellId), {
-        button,
-        timeoutId: window.setTimeout(() => {
-          if (!activeLocates.has(String(cellId))) {
-            return;
-          }
-          sendLocateCommand(cellId, false).catch(() => {}).finally(() => clearLocateUi(cellId));
-        }, LOCATION_LOCATE_TIMEOUT_MS),
-      });
-    } catch (error) {
-      setButtonLoading(button, false);
-      button.textContent = "Failed";
-      window.setTimeout(() => {
-        if (!activeLocates.has(String(cellId))) {
-          setLocateButtonState(button, false);
-        }
-      }, 1400);
-    } finally {
-      setButtonLoading(button, false);
-    }
-  });
-
-  document.addEventListener(
-    "click",
-    async (event) => {
-      const link = event.target.closest("a[href]");
-      if (!link || activeLocates.size === 0) {
-        return;
-      }
-      if (link.target || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-        return;
-      }
-
-      const nextUrl = new URL(link.href, window.location.href);
-      if (nextUrl.origin !== window.location.origin || nextUrl.pathname === window.location.pathname) {
-        return;
-      }
-
-      event.preventDefault();
-      await sendLocateClearAll({ beacon: false });
-      clearAllLocateUi();
-      window.location.href = nextUrl.href;
-    },
-    { capture: true },
-  );
-
-  window.addEventListener("pagehide", () => {
-    sendLocateClearAll();
-    clearAllLocateUi();
   });
 }
 
@@ -4097,9 +4005,11 @@ function wireLocationUtilityActions() {
     return;
   }
   bindingTarget.dataset.locationUtilityActionsBound = "true";
+  pageScope?.own(() => { delete bindingTarget.dataset.locationUtilityActionsBound; });
 
-  document.addEventListener("click", async (event) => {
-    const countButton = event.target.closest("[data-show-location-count]");
+  onPage(document,"click", async (event) => {
+    const legacyCountButton = event.target.closest("[data-show-location-count]");
+    const countButton = legacyCountButton?.dataset.activateEndpoint ? null : legacyCountButton;
     if (countButton) {
       const cellId = countButton.dataset.cellId;
       if (!cellId || countButton.disabled) {
@@ -4130,11 +4040,6 @@ function wireLocationUtilityActions() {
           });
         }
 
-        if (activeLocates.has(String(cellId))) {
-          await sendLocateCommand(cellId, false);
-          clearLocateUi(cellId);
-        }
-
         await sendLocationCountCommand(cellId, productId);
         setButtonLoading(countButton, false);
         setCountUi(cellId, productId);
@@ -4143,7 +4048,7 @@ function wireLocationUtilityActions() {
         countButton.textContent = "Failed";
         countButton.disabled = true;
         countButton.setAttribute("title", error.message || "Count display command failed.");
-        window.setTimeout(() => {
+        setTimeout(() => {
           countButton.disabled = false;
           const stillActive = activeCounts.get(String(cellId));
           setCountButtonState(countButton, Boolean(stillActive));
@@ -4154,7 +4059,7 @@ function wireLocationUtilityActions() {
       return;
     }
 
-    const pingButton = event.target.closest("[data-ping-cell]");
+    const pingButton = event.target.closest("[data-ping-cell], [data-ping-controller]");
     if (!pingButton || pingButton.disabled) {
       return;
     }
@@ -4182,17 +4087,17 @@ function wireLocationUtilityActions() {
       setButtonLoading(pingButton, false);
       pingButton.textContent = "Sent";
       pingButton.disabled = true;
-      window.setTimeout(restorePingButton, 1000);
+      setTimeout(restorePingButton, 1000);
     } catch (error) {
       setButtonLoading(pingButton, false);
       pingButton.textContent = "Failed";
       pingButton.disabled = true;
       pingButton.setAttribute("title", error.message || "Ping command failed.");
-      window.setTimeout(restorePingButton, 1400);
+      setTimeout(restorePingButton, 1400);
     }
   });
 
-  window.addEventListener("pagehide", () => {
+  onPage(window,"pagehide", () => {
     for (const cellId of Array.from(activeCounts.keys())) {
       sendLocationCountClearCommand(cellId, { beacon: true }).catch(() => {});
     }
@@ -4214,19 +4119,31 @@ function wireConfigurationWorkspace() {
     "cell-management": ["cell-management"],
     "cell-mapping": ["cell-mapping"],
   };
-  const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link]"));
+  const positionFirmwareNavigation = () => {
+    const slot=sectionHost?.querySelector('.firmware-navigation-slot');
+    const navigation=slot?.querySelector('.firmware-navigation');
+    if(!navigation)return;
+    const floating=window.matchMedia('(max-width:700px)').matches && slot.isConnected && slot.getClientRects().length>0 && slot.getBoundingClientRect().top<10;
+    navigation.classList.toggle('firmware-navigation-floating',Boolean(floating));
+  };
+  onPage(window,'scroll',positionFirmwareNavigation,{passive:true,capture:true});
+  onPage(window,'resize',positionFirmwareNavigation);
+  const sectionLinks = Array.from(workspace.querySelectorAll("[data-config-section-link],[data-controller-edit]"));
   let sectionRequestId = 0;
   const activeFromHash = () => window.location.hash.replace(/^#/, "");
+  const flowForKey = key => /^controller-edit-\d+$/.test(key)?'controller-setup':key;
+  const linkKey = link => link.dataset.configSectionLink || `controller-edit-${link.dataset.controllerEdit}`;
   const hasDirtyMapping = () =>
     document.querySelector("[data-cell-mapping-form]")?.dataset.mappingDirty === "true";
   const sectionLoadingHtml = (message = "Loading configuration flow...") =>
-    `<div class="configuration-flow-loading">${message}</div>`;
+    `<div class="configuration-flow-loading"><a class="ghost-button" href="#controller-health">← Back</a><p role="status">${message}</p></div>`;
 
   const bindLoadedSection = (section) => {
     if (!section) {
       return;
     }
     wireFirmwareFlash();
+    positionFirmwareNavigation();
     wireLedCommandForms();
     wireCellMappingForm();
     wireCellDeleteForms();
@@ -4234,14 +4151,15 @@ function wireConfigurationWorkspace() {
   };
 
   const loadSection = async (activeKey) => {
-    if (!sectionHost || !sectionGroups[activeKey]) {
+    const sectionKey=flowForKey(activeKey);
+    if (!sectionHost || !sectionGroups[sectionKey]) {
       return;
     }
     if (
       sectionHost.dataset.activeSection === activeKey &&
-      sectionHost.querySelector(`[data-config-section="${activeKey}"]`)
+      sectionHost.querySelector(`[data-config-section="${sectionKey}"]`)
     ) {
-      bindLoadedSection(sectionHost.querySelector(`[data-config-section="${activeKey}"]`));
+      bindLoadedSection(sectionHost.querySelector(`[data-config-section="${sectionKey}"]`));
       return;
     }
 
@@ -4250,7 +4168,7 @@ function wireConfigurationWorkspace() {
     sectionHost.innerHTML = sectionLoadingHtml();
 
     try {
-      const response = await fetch(`/devices/sections/${encodeURIComponent(activeKey)}`, {
+      const response = await fetch(`/devices/sections/${encodeURIComponent(sectionKey)}${activeKey.startsWith('controller-edit-')?'?controller_id='+activeKey.slice(16):''}`, {
         headers: {
           "X-Requested-With": "fetch",
         },
@@ -4263,7 +4181,7 @@ function wireConfigurationWorkspace() {
         return;
       }
       sectionHost.innerHTML = html;
-      const section = sectionHost.querySelector(`[data-config-section="${activeKey}"]`);
+      const section = sectionHost.querySelector(`[data-config-section="${sectionKey}"]`);
       if (section) {
         section.hidden = false;
       }
@@ -4287,7 +4205,7 @@ function wireConfigurationWorkspace() {
 
   const render = () => {
     const activeKey = activeFromHash();
-    const visibleIds = new Set(sectionGroups[activeKey] || []);
+    const visibleIds = new Set(sectionGroups[flowForKey(activeKey)] || []);
     const flowIsActive = visibleIds.size > 0;
 
     if (sectionHost) {
@@ -4299,8 +4217,7 @@ function wireConfigurationWorkspace() {
     document.body.classList.remove("modal-open");
 
     sectionLinks.forEach((link) => {
-      const linkKey = link.dataset.configSectionLink || "";
-      const active = linkKey === activeKey;
+      const active = linkKey(link) === activeKey;
       link.classList.toggle("operation-tile-active", active);
       link.setAttribute("aria-expanded", active ? "true" : "false");
       if (active) {
@@ -4312,8 +4229,8 @@ function wireConfigurationWorkspace() {
 
     if (flowIsActive) {
       loadSection(activeKey).catch(() => {});
-      window.requestAnimationFrame(() => {
-        const activeSection = sectionHost?.querySelector(`[data-config-section="${activeKey}"]`);
+      requestAnimationFrame(() => {
+        const activeSection = sectionHost?.querySelector(`[data-config-section="${flowForKey(activeKey)}"]`);
         (activeSection || sectionHost)?.scrollIntoView({ block: "start" });
       });
     } else {
@@ -4329,7 +4246,7 @@ function wireConfigurationWorkspace() {
       }
 
       event.preventDefault();
-      const nextKey = link.dataset.configSectionLink;
+      const nextKey = linkKey(link);
       if (!nextKey) {
         return;
       }
@@ -4342,8 +4259,8 @@ function wireConfigurationWorkspace() {
     });
   });
 
-  window.addEventListener("hashchange", render);
-  window.addEventListener("popstate", render);
+  onPage(window,"hashchange", render);
+  onPage(window,"popstate", render);
   render();
 }
 
@@ -4494,7 +4411,7 @@ function wireCellMappingForm() {
   const isPhysicalLedCommand = (target) =>
     Boolean(target?.closest?.("[data-locate-cell], [data-led-command-submit], [data-led-command-form]"));
 
-  document.addEventListener("inventory:mapping-request-navigation", (event) => {
+  onPage(document,"inventory:mapping-request-navigation", (event) => {
     if (!isDirty() || state.allowNavigation || state.submittingMapping) {
       return;
     }
@@ -4529,7 +4446,7 @@ function wireCellMappingForm() {
     state.submittingMapping = true;
   });
 
-  document.addEventListener(
+  onPage(document,
     "click",
     (event) => {
       if (!isDirty() || state.allowNavigation || state.submittingMapping) {
@@ -4562,7 +4479,7 @@ function wireCellMappingForm() {
     { capture: true },
   );
 
-  document.addEventListener(
+  onPage(document,
     "submit",
     (event) => {
       if (!isDirty() || state.allowNavigation || state.submittingMapping || event.target === form) {
@@ -4620,7 +4537,7 @@ function wireCellMappingForm() {
       } else {
         pending.form.submit();
       }
-      window.setTimeout(() => {
+      setTimeout(() => {
         state.allowNavigation = false;
       }, 500);
     }
@@ -4632,7 +4549,7 @@ function wireCellMappingForm() {
     document.querySelector("#cell-mapping")?.scrollIntoView({ block: "start" });
   });
 
-  window.addEventListener("beforeunload", (event) => {
+  onPage(window,"beforeunload", (event) => {
     if (!isDirty() || state.allowNavigation || state.submittingMapping) {
       return;
     }
@@ -4640,6 +4557,7 @@ function wireCellMappingForm() {
     event.returnValue = "";
   });
 
+  pageScope?.beforeLeave(()=>{if(isDirty()&&!state.allowNavigation&&!state.submittingMapping)throw new Error('Save or discard the location changes before leaving this page.');});
   refreshMappingState();
 }
 
@@ -4778,20 +4696,21 @@ function wireRowCollapsers(root = document) {
   });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function mountPage() {
   wireActionScrollRestore();
   wireSystemHealthNotice();
-  wireToasts();
   wireCopyButtons();
   wireNavState();
   wireDashboardSectionFilter();
-  window.addEventListener("hashchange", wireNavState);
-  window.addEventListener("hashchange", wireDashboardSectionFilter);
-  window.addEventListener("popstate", wireNavState);
-  window.addEventListener("popstate", wireDashboardSectionFilter);
+  onPage(window,"hashchange", wireNavState);
+  onPage(window,"hashchange", wireDashboardSectionFilter);
+  onPage(window,"popstate", wireNavState);
+  onPage(window,"warehouse:navigation-cancelled", wireNavState);
+  onPage(window,"popstate", wireDashboardSectionFilter);
   wireSidebarParentLinks();
   wireNavOverflow();
   wireLiveSearch();
+  wireProductStockFilter();
   wireQuantityShortcuts();
   wireCompletionRedirects();
   wireQuantityChangeConfirmations();
@@ -4803,7 +4722,6 @@ document.addEventListener("DOMContentLoaded", () => {
   wireAdjustmentForms();
   wirePutPlanForms();
   wireFirmwareFlash();
-  wireLocationLocate();
   wireLocationUtilityActions();
   wireCatalogProductQuantity();
   wireControllerHealthForms();
@@ -4814,4 +4732,8 @@ document.addEventListener("DOMContentLoaded", () => {
   wireCellMappingForm();
   wireCellDeleteForms();
   wireRowCollapsers();
-});
+}
+if(document.readyState==='loading')onPage(document,'DOMContentLoaded',mountPage);else mountPage();
+
+}
+if(typeof document!=='undefined'&&!globalThis.WarehouseNavigation?.mounting)await mount();

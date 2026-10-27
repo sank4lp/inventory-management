@@ -1,8 +1,15 @@
-import { spawn, spawnSync } from "node:child_process";
+import {createHostAdapter} from "../modules/hardware/host-adapter.js";
+import {currentActor} from "../modules/access/service.js";
+import { guardSetupChange, guardUtilityDisplays, hasOutstandingWork } from "../modules/operations/guards.js";
+import { spawnSync } from "node:child_process";
 import { accessSync, constants, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { openUsbControllerSession } from "./usb-controller-session.js";
+import { loadControllerProfile, saveControllerProfile, validateControllerConfiguration } from "./controller-profiles.js";
+import { encodeControllerConfiguration } from "./hardware-adapters/controller-configuration.js";
+import { withTransaction } from "../db.js";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import {
   DEFAULT_ESP32_FQBN,
@@ -199,12 +206,13 @@ function mergePortAlias(port, alias) {
   return port;
 }
 
-function readArduinoBoards(arduinoCliPath) {
+function readArduinoBoards(arduinoCliPath,env=process.env) {
   if (!executableExists(arduinoCliPath)) {
     return new Map();
   }
 
   const result = spawnSync(arduinoCliPath, ["board", "list", "--format", "json"], {
+    env,
     encoding: "utf8",
     timeout: 3000,
   });
@@ -274,13 +282,13 @@ function addPort(ports, seen, path, label = "", arduinoBoards = new Map()) {
   seen.canonical.set(canonical, port);
 }
 
-function listSerialPorts(arduinoCliPath) {
+function listSerialPorts(arduinoCliPath,env=process.env) {
   const ports = [];
   const seen = {
     paths: new Set(),
     canonical: new Map(),
   };
-  const arduinoBoards = readArduinoBoards(arduinoCliPath);
+  const arduinoBoards = readArduinoBoards(arduinoCliPath,env);
 
   try {
     for (const name of readdirSync("/dev/serial/by-id")) {
@@ -367,6 +375,7 @@ function publicJob(job) {
     stage: job.stage,
     progress: job.progress,
     moduleCount: job.moduleCount,
+    physicalModuleCount:job.replacementProfile?.physicalCount ?? job.moduleCount,
     assignedModules: job.assignedModules,
     port: job.port,
     controllerId: job.controllerId,
@@ -387,18 +396,61 @@ function publicJob(job) {
     logs: job.logs,
     recoveryHint: job.recoveryHint,
     verificationHint: job.verificationHint,
+    replacement: !!job.replacement,
+    configurationVerified: !!job.configurationVerified,
+    preservesTasks: !!job.preserveExistingWork,
     mappingSummary: job.mappingSummary,
   };
 }
 
-export function createFirmwareService({ db, config = {}, logger, backupService = null }) {
+export function createFirmwareService({ db, config = {}, logger, backupService = null, hostAdapter = null, serialSessionFactory = openUsbControllerSession, onMaintenanceReleased = null }) {
   const jobs = new Map();
+  const host=hostAdapter || createHostAdapter({config,discover:listSerialPorts});
   const arduinoCliPath = config.arduinoCliPath || process.env.ARDUINO_CLI_PATH || "arduino-cli";
   const defaultFqbn = config.esp32Fqbn || process.env.ESP32_FQBN || DEFAULT_ESP32_FQBN;
   const sketchPath = resolve(
     config.esp32SketchPath || process.env.ESP32_SKETCH_PATH || "firmware/esp32-simple-matrix",
   );
 
+  function recoverInterruptedMaintenance() {
+    const busy=db.prepare("SELECT value FROM app_metadata WHERE key='firmware_busy'").get();
+    const owner=parseMetadata(db.prepare("SELECT value FROM app_metadata WHERE key='firmware_busy_owner'").get()?.value);
+    if(!busy || owner?.id!==busy.value || !Number.isSafeInteger(owner.pid) || owner.pid<1)return;
+    try {process.kill(owner.pid,0);return;}catch(error){if(error.code!=='ESRCH')return;}
+    withTransaction(db,()=>{
+      db.prepare("DELETE FROM app_metadata WHERE key='firmware_busy' AND value=?").run(owner.id);
+      db.prepare("DELETE FROM app_metadata WHERE key='firmware_busy_owner'").run();
+    });
+    recordSystemEvent({eventType:'firmware_maintenance_interrupted',status:'warning',message:'Interrupted controller maintenance can be retried. Saved replacement profiles and pending recovery records were retained.',payload:{jobId:owner.id}});
+  }
+  function assertNoMaintenance() {
+    recoverInterruptedMaintenance();
+    if(db.prepare("SELECT 1 FROM app_metadata WHERE key='firmware_busy'").get())throw new Error('Controller maintenance is already in progress.');
+  }
+  function acquireMaintenance(id,{controllerId=null}={}) {
+    withTransaction(db,()=>{
+      if(db.prepare("SELECT 1 FROM app_metadata WHERE key='firmware_busy'").get())throw new Error('Controller maintenance is already in progress.');
+      db.prepare("INSERT INTO app_metadata(key,value,updated_at) VALUES('firmware_busy',?,?)").run(id,nowIso());
+      db.prepare("INSERT INTO app_metadata(key,value,updated_at) VALUES('firmware_busy_owner',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(JSON.stringify({id,pid:process.pid}),nowIso());
+      if(controllerId){
+        db.prepare('INSERT INTO app_metadata(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').run(`controller_firmware_hold:${controllerId}`,id,nowIso());
+        db.prepare('UPDATE work_guidance SET delivered=0 WHERE cell_id IN (SELECT id FROM cells WHERE controller_id=?)').run(controllerId);
+      }
+    });
+  }
+  function releaseMaintenance(id,controllerId=null) {
+    const released=withTransaction(db,()=>{
+      const removed=db.prepare("DELETE FROM app_metadata WHERE key='firmware_busy' AND value=?").run(id);
+      if(removed.changes)db.prepare("DELETE FROM app_metadata WHERE key='firmware_busy_owner'").run();
+      return !!removed.changes;
+    });
+    if(released&&controllerId&&onMaintenanceReleased){try{onMaintenanceReleased(controllerId);}catch(error){logger?.warn?.('firmware.guidance.deferred',{controllerId,error:error.message});}}
+  }
+  function sameBoard(controller,deviceIdentity){return !!controller?.device_identity&&controller.device_identity===deviceIdentity;}
+  function guardMaintenance(controller,deviceIdentity,preserveExistingWork=false){
+    // The saved layout is restored and verified before preserving work on the same logical controller.
+    if(controller&&(sameBoard(controller,deviceIdentity)||preserveExistingWork))guardUtilityDisplays(db);else guardSetupChange(db);
+  }
   function appendLog(job, text) {
     for (const line of String(text).split(/\r?\n/)) {
       if (!line.trim()) {
@@ -424,13 +476,66 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     ).run(eventType, status, message, payload ? JSON.stringify(payload) : null, nowIso());
   }
 
+  function replacementSignature(controllerId) {
+    const controller=db.prepare('SELECT id,controller_code,address,module_count,device_identity,configured_at,active FROM controllers WHERE id=?').get(controllerId);
+    const cells=db.prepare('SELECT id,hardware_channel,binding_revision,active FROM cells WHERE controller_id=? ORDER BY id').all(controllerId);
+    return JSON.stringify({controller,cells});
+  }
+  function assertReplacementUnchanged(job) {
+    if(job.replacement && replacementSignature(job.replacingControllerId)!==job.replacementSignature)throw new Error('Controller setup changed during replacement. Its mappings were preserved; refresh and retry with a current backup.');
+  }
+  function selectedUsbDevice(input) {
+    const port=assertSafePort(input.port),identity=String(input.device_identity || input.deviceIdentity || '').trim();
+    const detected=host.listDevices().find(entry=>entry.path===port || entry.canonicalPath===port);
+    if(!detected || !identity || detected.deviceIdentity!==identity)throw new Error('Selected ESP32 changed after detection. Refresh ports and select it again.');
+    const rs485Port=config.rs485SerialPort || process.env.RS485_SERIAL_PORT;
+    if(rs485Port && canonicalPath(port)===canonicalPath(rs485Port))throw new Error('Select the ESP32 USB port, not the RS485 adapter.');
+    return {port,device:detected};
+  }
+  async function readUsbConfiguration(session,address,options={}) {
+    const request=randomBytes(8).toString('hex');
+    const reply=await session.exchange(`to ${address} config-status ${request}`,r=>r.type==='controller-config' && r.address?.toUpperCase()===address.toUpperCase() && r.request===request);
+    return validateControllerConfiguration(reply,address,request,options);
+  }
+  async function verifyUploadedConfiguration(job) {
+    job.stage='verifying';job.progress=88;
+    const session=serialSessionFactory(job.port,host);
+    try {
+      let actual=await readUsbConfiguration(session,job.controllerAddress,{allowFault:job.replacement});
+      if(job.replacement) {
+        const desired=job.replacementProfile;
+        if(actual.fault || actual.physicalCount!==desired.physicalCount || JSON.stringify(actual.routing)!==JSON.stringify(desired.routing)) {
+          currentActor(db,job.flashedBy,'hardware.flash');
+          assertReplacementUnchanged(job);
+          const requestId=job.id.replaceAll('-','').slice(0,16);
+          const command=encodeControllerConfiguration({address:job.controllerAddress,requestId,expectedRevision:actual.revision,physicalCount:desired.physicalCount,routing:desired.routing});
+          // A missing ACK is uncertain: read back before deciding whether restoration failed.
+          try {await session.exchange(command,r=>r.type==='ack' && r.command==='configure' && r.address?.toUpperCase()===job.controllerAddress.toUpperCase() && r.request===requestId);}catch(error){appendLog(job,`Restore confirmation missing; checking the full configuration: ${error.message}`);}
+          actual=await readUsbConfiguration(session,job.controllerAddress);
+        }
+        if(actual.physicalCount!==desired.physicalCount || JSON.stringify(actual.routing)!==JSON.stringify(desired.routing))throw new Error('Replacement routing could not be verified. Existing cell mappings were preserved.');
+      } else if(actual.physicalCount!==job.moduleCount || actual.logicalCount!==job.moduleCount || actual.routing.some((n,i)=>n!==(i<job.moduleCount?i+1:0))) {
+        throw new Error('Controller contains a different saved configuration. Back it up and use Replace existing controller to preserve routing.');
+      }
+      job.verifiedConfiguration=actual;job.configurationVerified=true;
+    } finally {session.close();}
+  }
   function saveLastConfiguration(job) {
     const previousController = job.replacingControllerId
       ? db.prepare("SELECT id, controller_code, address FROM controllers WHERE id = ?").get(job.replacingControllerId)
       : db
           .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
           .get(job.controllerName);
-    const controller = configureControllerModules(db, {
+    assertReplacementUnchanged(job);
+    const controller = job.replacement ? withTransaction(db,()=>{
+      currentActor(db,job.flashedBy,'hardware.flash');
+      assertReplacementUnchanged(job);
+      const configuredAt=job.preserveExistingWork?db.prepare('SELECT configured_at FROM controllers WHERE id=?').get(job.replacingControllerId).configured_at:nowIso();
+      db.prepare("UPDATE controllers SET device_identity=?,firmware_version=?,configured_at=?,configured_by=?,heartbeat_status='offline' WHERE id=?").run(job.deviceIdentity,ESP32_FIRMWARE_PROTOCOL,configuredAt,job.flashedBy.id,job.replacingControllerId);
+      const controller=db.prepare('SELECT * FROM controllers WHERE id=?').get(job.replacingControllerId);
+      saveControllerProfile(db,controller,job.verifiedConfiguration);
+      return {...controller,mappingSummary:{preserved:db.prepare('SELECT COUNT(*) n FROM cells WHERE controller_id=? AND active=1').get(controller.id).n,created:0,detached:0}};
+    }) : configureControllerModules(db, {
       controllerCode: job.controllerName,
       controllerAddress: job.controllerAddress,
       deviceIdentity: job.deviceIdentity,
@@ -438,12 +543,13 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       configuredBy: job.flashedBy?.id || null,
       firmwareVersion: ESP32_FIRMWARE_PROTOCOL,
     });
+    if(!job.replacement)saveControllerProfile(db,controller,job.verifiedConfiguration);
     job.controllerId = controller.id;
     job.controllerName = controller.controller_code;
     job.controllerAddress = controller.address;
     job.deviceName = controller.controller_code;
     job.mappingSummary = controller.mappingSummary || null;
-    job.verificationHint =
+    job.verificationHint = job.preserveExistingWork ? "Firmware and the saved LED order verified. Existing tasks, locations and stock are unchanged. Reconnect the same LED/RS485 wiring; task lights resume when the controller reconnects." : job.replacement ? "Replacement firmware and routing verified over USB. Cell mappings are unchanged. Disconnect USB, reconnect the same LED/RS485 wiring, then Ping the controller to check the connection." :
       "Flash complete. Use Ping for each LED module in Cell mapping, then update the cell dropdown if a physical module is assigned to the wrong cell.";
     const payload = {
       jobId: job.id,
@@ -508,30 +614,11 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     }
   }
 
-  function runCommand(job, stage, progress, args) {
-    return new Promise((resolveCommand, rejectCommand) => {
-      job.stage = stage;
-      job.progress = progress;
-      job.currentCommand = commandLine(arduinoCliPath, args);
-      job.commands.push(job.currentCommand);
-      appendLog(job, `$ ${job.currentCommand}`);
-
-      const child = spawn(arduinoCliPath, args, {
-        cwd: process.cwd(),
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      child.stdout.on("data", (chunk) => appendLog(job, chunk.toString("utf8")));
-      child.stderr.on("data", (chunk) => appendLog(job, chunk.toString("utf8")));
-      child.on("error", rejectCommand);
-      child.on("close", (code) => {
-        if (code === 0) {
-          resolveCommand();
-          return;
-        }
-        rejectCommand(new Error(`${stage} command exited with code ${code}.`));
-      });
-    });
+  function runCommand(job,stage,progress,args) {
+    currentActor(db,job.flashedBy,'hardware.flash');
+    job.stage=stage;job.progress=progress;job.currentCommand=commandLine(host.command(),args);job.commands.push(job.currentCommand);
+    appendLog(job,`$ ${job.currentCommand}`);
+    return host.runFirmware(args,{onOutput:text=>appendLog(job,text)});
   }
 
   async function runFlashJob(job) {
@@ -551,6 +638,14 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         },
       });
 
+      assertReplacementUnchanged(job);
+      if(job.sameControllerUpdate&&!job.recoveringUpload&&!host.support().simulated&&Number(/^simple-matrix-v(\d+)-rs485-addressed$/.exec(job.previousProtocol||'')?.[1])>=14){
+        const session=serialSessionFactory(job.port,host);
+        try{
+          const actual=await readUsbConfiguration(session,job.controllerAddress),desired=job.replacementProfile;
+          if(actual.physicalCount!==desired.physicalCount||JSON.stringify(actual.routing)!==JSON.stringify(desired.routing))throw new Error('The connected controller LED count or order differs from its saved setup. Review the layout before updating firmware. Existing tasks are kept.');
+        }finally{session.close();}
+      }
       const buildDir = join(tmpdir(), `inventory-esp32-${job.id}`);
       mkdirSync(buildDir, { recursive: true });
       job.buildDir = buildDir;
@@ -562,13 +657,21 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         "--fqbn",
         job.fqbn,
         "--build-property",
-        `compiler.cpp.extra_flags=-DLED_MODULE_COUNT=${job.moduleCount} -DCONTROLLER_NAME="${cStringLiteral(job.controllerName)}" -DCONTROLLER_ADDRESS="${cStringLiteral(job.controllerAddress)}"`,
+        `compiler.cpp.extra_flags=-MMD -c -DLED_MODULE_COUNT=${job.replacement ? 0 : job.moduleCount} -DCONTROLLER_NAME="${cStringLiteral(job.controllerName)}" -DCONTROLLER_ADDRESS="${cStringLiteral(job.controllerAddress)}"`,
         "--output-dir",
         buildDir,
         job.sketchPath,
       ]);
 
+      assertReplacementUnchanged(job);
+      currentActor(db,job.flashedBy,'hardware.flash');
+      selectedUsbDevice({port:job.port,device_identity:job.deviceIdentity});
       job.progress = 58;
+      if(job.replacement&&!host.support().simulated){
+        const key=`controller_replacement_pending:${job.replacingControllerId}`,pending=parseMetadata(db.prepare('SELECT value FROM app_metadata WHERE key=?').get(key)?.value);
+        if(!pending||pending.jobId!==job.id)throw new Error('Controller maintenance receipt changed. Retry the update.');
+        db.prepare('UPDATE app_metadata SET value=?,updated_at=? WHERE key=?').run(JSON.stringify({...pending,uploadStarted:true}),nowIso(),key);
+      }
       await runCommand(job, "uploading", 62, [
         "upload",
         "--fqbn",
@@ -582,6 +685,10 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
 
       job.stage = "configuring";
       job.progress = 92;
+      if(host.support().simulated){job.status="completed";job.stage="simulated";job.progress=100;job.finishedAt=nowIso();job.currentCommand=null;appendLog(job,"Simulation completed. No firmware was compiled or flashed and no controller configuration was saved.");return;}
+      await verifyUploadedConfiguration(job);
+      currentActor(db,job.flashedBy,'hardware.flash');
+      guardMaintenance(job.replacement?db.prepare('SELECT * FROM controllers WHERE id=?').get(job.replacingControllerId):null,job.deviceIdentity,job.preserveExistingWork);
       saveLastConfiguration(job);
       recordSystemEvent({
         eventType: "firmware_flash_completed",
@@ -599,6 +706,13 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         },
       });
 
+      if(job.replacement){
+        withTransaction(db,()=>{
+          db.prepare('DELETE FROM app_metadata WHERE key=?').run(`controller_replacement_pending:${job.replacingControllerId}`);
+          db.prepare('DELETE FROM app_metadata WHERE key=? AND value=?').run(`controller_firmware_hold:${job.replacingControllerId}`,job.id);
+          db.prepare('INSERT INTO app_metadata(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').run(`controller_firmware_epoch:${job.replacingControllerId}`,job.id,nowIso());
+        });
+      }
       job.status = "completed";
       job.stage = "completed";
       job.progress = 100;
@@ -647,6 +761,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         error: eventMessage,
       });
     }
+    finally { releaseMaintenance(job.id,job.replacingControllerId); }
   }
 
   function getLastConfiguration() {
@@ -668,14 +783,18 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     return db
       .prepare(
         `
-          SELECT id, controller_code, address, device_identity, module_count, configured_at
+          SELECT id, controller_code, address, device_identity, module_count, configured_at, firmware_version
           FROM controllers
           WHERE active = 1
           ORDER BY controller_code
         `,
       )
       .all()
-      .map((controller) => publicControllerRecord(controller, flashedDevices));
+      .map((controller) => {
+        let profile=null,profileError=null;
+        try {profile=loadControllerProfile(db,controller);}catch(error){profileError=error.message;}
+        return {...publicControllerRecord(controller, flashedDevices),replacementReady:!!profile,physicalModuleCount:profile?.physicalCount ?? null,profileError};
+      });
   }
 
   function annotatePorts(ports, flashedDevices, controllerFlashRecords) {
@@ -697,9 +816,10 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
 
   return {
     getFlashOptions() {
+      recoverInterruptedMaintenance();
       const flashedDevices = getFlashedDevices();
       const controllerFlashRecords = listControllerFlashRecords(flashedDevices);
-      const ports = annotatePorts(listSerialPorts(arduinoCliPath), flashedDevices, controllerFlashRecords);
+      const ports = annotatePorts(host.listDevices(), flashedDevices, controllerFlashRecords);
       const lastConfiguration = getLastConfiguration();
       const lastPortAvailable = ports.some(
         (port) =>
@@ -716,9 +836,10 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       ).length;
       const ambiguousCount = esp32Ports.filter((port) => port.flashStatus === "ambiguous").length;
       return {
+        host:host.support(),
         arduinoCli: {
-          command: arduinoCliPath,
-          available: executableExists(arduinoCliPath),
+          command: host.command(),
+          available: config.firmwareSimulation===true||executableExists(host.command()),
         },
         defaultFqbn,
         sketchPath,
@@ -744,21 +865,57 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       };
     },
     getLastConfiguration,
+    async backupController(input={},actor=null) {
+      actor=currentActor(db,actor,'hardware.flash');guardUtilityDisplays(db);
+      if(host.support().simulated)throw new Error('Simulation cannot create a verified controller backup.');
+      assertNoMaintenance();
+      const controller=db.prepare('SELECT * FROM controllers WHERE id=? AND active=1').get(Number(input.replacement_controller_id));
+      if(!controller)throw new Error('Choose the existing controller whose connected board you are backing up.');
+      const selected=selectedUsbDevice(input),signature=replacementSignature(controller.id),lock=randomUUID();
+      guardMaintenance(controller,selected.device.deviceIdentity);
+      acquireMaintenance(lock);
+      let session;
+      try {
+        session=serialSessionFactory(selected.port,host);
+        const actual=await readUsbConfiguration(session,controller.address);
+        currentActor(db,actor,'hardware.flash');
+        if(replacementSignature(controller.id)!==signature)throw new Error('Controller setup changed during backup. Refresh and retry.');
+        if(hasOutstandingWork(db)&&sameBoard(controller,selected.device.deviceIdentity)){
+          const previous=loadControllerProfile(db,controller);
+          if(previous&&(actual.physicalCount!==previous.physicalCount||JSON.stringify(actual.routing)!==JSON.stringify(previous.routing)))throw new Error('The LED count or order changed. Resolve the layout separately before updating its backup; existing tasks are kept.');
+        }
+        const profile=saveControllerProfile(db,controller,actual);
+        recordSystemEvent({eventType:'controller_profile_saved',status:'info',message:`Replacement backup saved for ${controller.controller_code}.`,payload:{controllerId:controller.id,revision:actual.revision}});
+        backupService?.createCriticalBackup?.({source:`controller-profile-${controller.controller_code}`});
+        return {message:'Controller setup saved. You can now replace its ESP32 without remapping cells.',profile};
+      }finally{session?.close();releaseMaintenance(lock,controller.id);}
+    },
     startFlashJob(input = {}, actor = null) {
-      if (!executableExists(arduinoCliPath)) {
+      actor=currentActor(db,actor,"hardware.flash");
+      guardUtilityDisplays(db);
+      assertNoMaintenance();
+      if(config.firmwareToolchainRoot||process.env.FIRMWARE_TOOLCHAIN_ROOT)host.verifyToolchain();
+      if (!config.firmwareSimulation && !executableExists(host.command())) {
         throw new Error(
           `Arduino CLI was not found at "${arduinoCliPath}". Install arduino-cli or set ARDUINO_CLI_PATH.`,
         );
       }
 
-      const moduleCount = asPositiveInteger(input.module_count ?? input.moduleCount, "LED modules");
+      const replacementId=Number(input.replacement_controller_id || 0);
+      if(!Number.isSafeInteger(replacementId) || replacementId<0)throw new Error('Choose an existing controller to replace.');
+      const replacementController=replacementId?db.prepare('SELECT * FROM controllers WHERE id=? AND active=1').get(replacementId):null;
+      if(replacementId && !replacementController)throw new Error('Replacement controller no longer exists.');
+      if(replacementId && !['1','on',true].includes(input.replacement_confirmed))throw new Error('Confirm the old controller is disconnected and the LED chain is unchanged.');
+      const replacementProfile=replacementController?loadControllerProfile(db,replacementController):null;
+      if(replacementController && !replacementProfile)throw new Error('No verified controller backup is saved. Connect the original board by USB and save its setup before replacement.');
+      const moduleCount = replacementController ? replacementController.module_count : asPositiveInteger(input.module_count ?? input.moduleCount, "LED modules");
       const port = assertSafePort(input.port);
       const fqbn = assertSafeFqbn(input.fqbn || defaultFqbn);
       const deviceIdentity = String(input.device_identity || input.deviceIdentity || "").trim();
       if (!deviceIdentity) {
         throw new Error("Click Refresh ports and select the newly detected ESP32 before flashing.");
       }
-      const detectedPort = listSerialPorts(arduinoCliPath).find(
+      const detectedPort = host.listDevices().find(
         (entry) => entry.path === port || entry.canonicalPath === port,
       );
       if (!detectedPort) {
@@ -767,7 +924,11 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       if (detectedPort.deviceIdentity !== deviceIdentity) {
         throw new Error("Selected ESP32 changed after detection. Refresh ports and select it again.");
       }
-      const requestedControllerName = String(input.controller_name || input.controllerName || "").trim();
+      selectedUsbDevice(input);
+      const preserveExistingWork=!!replacementController&&(sameBoard(replacementController,deviceIdentity)||input.keep_existing_work==='1');
+      guardMaintenance(replacementController,deviceIdentity,preserveExistingWork);
+      if(replacementProfile&&input.module_count!=null&&Number(input.module_count)!==replacementProfile.physicalCount)throw new Error('An in-place firmware update must keep the saved LED count and order. Change the physical layout separately.');
+      const requestedControllerName = replacementController?.controller_code || String(input.controller_name || input.controllerName || "").trim();
       if (!requestedControllerName) {
         throw new Error("Controller name is required.");
       }
@@ -775,11 +936,15 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       const existingByName = db
         .prepare("SELECT id, controller_code, address FROM controllers WHERE controller_code = ?")
         .get(controllerName);
-      const existingController = existingByName || null;
+      const existingController = replacementController || existingByName || null;
+      if(existingController && !replacementController)throw new Error('This controller already exists. Choose Replace existing controller to preserve its identity and mappings.');
       const controllerAddress = normalizeControllerAddress(
-        input.controller_address || input.controllerAddress || generateControllerAddress(),
+        replacementController?.address || input.controller_address || input.controllerAddress || generateControllerAddress(),
       );
-      const assignedModules = Array.from({ length: moduleCount }, (_, index) => index + 1);
+      const addressOwner=db.prepare('SELECT id FROM controllers WHERE address=? AND active=1').get(controllerAddress);
+      if(addressOwner && addressOwner.id!==existingController?.id)throw new Error('That controller address is already in use.');
+      const assignedModules = replacementProfile ? replacementProfile.routing.flatMap((physical,index)=>physical?[index+1]:[]) : Array.from({ length: moduleCount }, (_, index) => index + 1);
+      const previousMaintenance=replacementController?parseMetadata(db.prepare('SELECT value FROM app_metadata WHERE key=?').get(`controller_replacement_pending:${replacementId}`)?.value):null;
       const job = {
         id: randomUUID(),
         status: "running",
@@ -793,6 +958,14 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         controllerAddress,
         previousControllerAddress: existingController?.address || null,
         replacingControllerId: existingController?.id || null,
+        replacement:!!replacementController,
+        sameControllerUpdate:sameBoard(replacementController,deviceIdentity),
+        preserveExistingWork,
+        previousProtocol:replacementController?.firmware_version,
+        recoveringUpload:previousMaintenance?.uploadStarted===true&&previousMaintenance.deviceIdentity===deviceIdentity&&previousMaintenance.controllerId===replacementId,
+        replacementProfile,
+        replacementSignature:replacementController?replacementSignature(replacementController.id):null,
+        configurationVerified:false,
         deviceIdentity: detectedPort.deviceIdentity,
         deviceName: controllerName,
         flashedBy: actor
@@ -815,6 +988,11 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         logs: [],
       };
 
+      if(job.replacement && !host.support().simulated) {
+        backupService?.createCriticalBackup?.({source:`before-controller-replacement-${job.controllerName}`});
+        db.prepare('INSERT INTO app_metadata(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at').run(`controller_replacement_pending:${replacementId}`,JSON.stringify({jobId:job.id,controllerId:replacementId,deviceIdentity:job.deviceIdentity,profile:replacementProfile,startedAt:job.startedAt}),nowIso());
+      }
+      acquireMaintenance(job.id,{controllerId:job.replacement&&!host.support().simulated?replacementId:null});
       jobs.set(job.id, job);
       runFlashJob(job);
       logger?.info("firmware.flash.started", {
