@@ -532,7 +532,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       if(!job.sharedUsbConfirmed)throw new Error('This USB serial is also used by an older controller. Confirm that you connected a different ESP32, then retry.');
     }
     job.stage='identifying';job.progress=5;appendLog(job,'Checking the ESP32 hardware identity before flashing.');
-    const chip=await host.readChipIdentity(job.port);
+    const chip=await host.readChipIdentity(job.port,{fqbn:job.fqbn});
     if(!/^[\da-f]{2}(?::[\da-f]{2}){5}$/.test(chip))throw new Error('Invalid ESP32 hardware identity. Nothing was flashed.');
     const owner=db.prepare("SELECT c.id,c.controller_code FROM controllers c JOIN app_metadata m ON m.key='controller_chip_identity:'||c.id WHERE c.active=1 AND m.value=?").get(chip);
     if(owner&&owner.id!==job.replacingControllerId)throw new Error(`This ESP32 is already registered as ${owner.controller_code}. Use Edit on that controller; its locations are kept.`);
@@ -586,7 +586,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     job.stage='checking-saved-setup';job.progress=94;persistJob(job);
     // readChipIdentity performs a hardware reset after reading ROM. Verify that
     // the same chip reloads the complete configuration from nonvolatile storage.
-    if(await host.readChipIdentity(job.port)!==job.chipIdentity)throw new Error('The ESP32 changed before final verification. Reconnect the selected controller and retry.');
+    if(await host.readChipIdentity(job.port,{fqbn:job.fqbn})!==job.chipIdentity)throw new Error('The ESP32 changed before final verification. Reconnect the selected controller and retry.');
     const session=serialSessionFactory(job.port,host);
     try{
       const actual=await readUsbConfiguration(session,job.controllerAddress),expected=job.verifiedConfiguration;
@@ -763,7 +763,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       assertReplacementUnchanged(job);
       currentActor(db,job.flashedBy,'hardware.flash');
       selectedUsbDevice({port:job.port,device_identity:job.deviceIdentity});
-      if(job.chipIdentity&&await host.readChipIdentity(job.port)!==job.chipIdentity)throw new Error('The connected ESP32 changed while compiling. Nothing was uploaded. Reconnect the selected controller and retry.');
+      if(job.chipIdentity&&await host.readChipIdentity(job.port,{fqbn:job.fqbn})!==job.chipIdentity)throw new Error('The connected ESP32 changed while compiling. Nothing was uploaded. Reconnect the selected controller and retry.');
       if(job.layoutChanged)resizedControllerProfile(db,db.prepare('SELECT * FROM controllers WHERE id=?').get(job.replacingControllerId),job.sourceProfile,job.replacementProfile.physicalCount);
       job.progress = 58;
       if(job.replacement&&!host.support().simulated){

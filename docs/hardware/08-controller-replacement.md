@@ -53,6 +53,14 @@ Regression tests use transport doubles and the actual firmware parser compiled n
 
 ## Controller maintenance safeguards
 
+### Git-based Pi service
+
+The older `inventory-management.service` installation uses its existing Arduino CLI and installed ESP32 core. It does not require the installable application's offline bundle. For ROM identity checks, the host asks that CLI for the selected board's tool properties and runs its `esptool` using the same service account and environment. Custom Arduino data/user directories remain supported; the app does not search another user's home directory, select an unrelated tool version or download tools at runtime.
+
+After updating the Git checkout, restart `inventory-management.service` to load this compatibility fix. If Arduino cannot expose its tool, check `ARDUINO_CLI_PATH` and the ESP32 core installed for that service account. For the installable application, an explicitly configured `FIRMWARE_TOOLCHAIN_ROOT` still requires the checked bundle; a missing, corrupt or incompatible bundle is never bypassed through legacy discovery.
+
+### Shared protections
+
 - One USB cable can serve each board in turn. The bridge serial/path is a connection label; ROM MAC is the board identity. Two CP2102 bridges reporting `0001` can be distinct controllers. A registered chip cannot be added under another controller, and explicit Update refuses a different known chip.
 - The final check reads the chip again, resets it, then verifies that the complete LED setup survived the reset. Upload exit status or a missing ACK alone never establishes success.
 - USB sessions wait for firmware boot, disable inherited hardware/software flow control, retry nonce-bound reads, assemble partial writes and fragmented JSON, and show firmware configuration errors immediately. Upload uses 115200 baud; compilation has a bounded ten-minute allowance on the Pi.

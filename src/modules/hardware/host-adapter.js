@@ -1,9 +1,9 @@
 import {spawn,spawnSync} from 'node:child_process';
-import {readFileSync,realpathSync} from 'node:fs';
-import {resolve,join,relative} from 'node:path';
+import {readFileSync,realpathSync,statSync} from 'node:fs';
+import {resolve,join,relative,isAbsolute} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
-import {ESP32_FIRMWARE_PROTOCOL,NEOPIXEL_LIBRARY_VERSION} from '../../services/firmware-constants.js';
+import {ESP32_FIRMWARE_PROTOCOL,NEOPIXEL_LIBRARY_VERSION,DEFAULT_ESP32_FQBN} from '../../services/firmware-constants.js';
 // A bundle is prepared before installation; running the app never installs packages.
 export function offlineBundle(root,{platform=process.platform,arch=process.arch}={}) {
   const base=realpathSync(root),manifest=JSON.parse(readFileSync(join(base,'toolchain.json'),'utf8'));
@@ -16,6 +16,24 @@ export function offlineBundle(root,{platform=process.platform,arch=process.arch}
   if(!manifest.files.some(f=>inside(f.path)===executable))throw new Error('Firmware executable is not covered by integrity checks.');
   for(const name of ['cliVersion','coreVersion','libraryVersion'])if(!manifest[name])throw new Error('Firmware tool versions must be pinned.');
   return {root:base,manifest,executable,env:{...process.env,ARDUINO_DIRECTORIES_DATA:inside(manifest.data),ARDUINO_DIRECTORIES_USER:inside(manifest.user),ARDUINO_BUILD_CACHE_PATH:join(tmpdir(),'lightguide-arduino-cache'),ARDUINO_UPDATER_ENABLE_NOTIFICATION:'false',ARDUINO_NETWORK_CLOUD_API_SKIP_BOARD_DETECTION_CALLS:'true'}};
+}
+
+// The Git/systemd installation already has an Arduino ESP32 core. Ask that
+// exact CLI (under the service account and its environment) which tool it uses;
+// do not guess a home directory, pick an arbitrary installed version, or fetch
+// packages. Packaged installations never use this fallback.
+export function installedEsptool({cli,fqbn=DEFAULT_ESP32_FQBN,env=process.env,runSync=spawnSync}) {
+  if(typeof fqbn!=='string'||!/^[A-Za-z0-9._-]+:[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$/.test(fqbn))throw new Error('Select a valid ESP32 board.');
+  const result=runSync(cli,['board','details','--fqbn',fqbn,'--format','json'],{env,encoding:'utf8',timeout:15000,maxBuffer:4*1024*1024});
+  const guidance='Check ARDUINO_CLI_PATH and the ESP32 core installed for the inventory-management service account.';
+  if(result.status!==0)throw new Error(`Could not read the installed Arduino ESP32 tools. ${guidance}`);
+  let details;try{details=JSON.parse(result.stdout);}catch{throw new Error(`Arduino returned invalid ESP32 tool details. ${guidance}`);}
+  const properties=new Map((Array.isArray(details.build_properties)?details.build_properties:[]).filter(line=>typeof line==='string'&&line.includes('=')).map(line=>{const split=line.indexOf('=');return [line.slice(0,split),line.slice(split+1)];}));
+  const directory=properties.get('tools.esptool_py.path')||properties.get('runtime.tools.esptool_py.path');
+  const name=properties.get('tools.esptool_py.cmd')||'esptool.py';
+  if(!directory||!isAbsolute(directory)||directory.includes('{')||!['esptool.py','esptool'].includes(name))throw new Error(`The selected Arduino ESP32 core did not provide a supported identification tool. ${guidance}`);
+  let tool;try{tool=realpathSync(join(directory,name));if(!statSync(tool).isFile())throw new Error('Not a file');}catch{throw new Error(`The installed ESP32 identification tool is missing or unreadable. ${guidance}`);}
+  return name.endsWith('.py')?{command:'python3',args:[tool]}:{command:tool,args:[]};
 }
 export function createHostAdapter({config={},platform=process.platform,arch=process.arch,discover=()=>[],spawnProcess=spawn,runSync=spawnSync}={}) {
   const simulated=config.firmwareSimulation===true;
@@ -42,12 +60,15 @@ export function createHostAdapter({config={},platform=process.platform,arch=proc
     command,
     listDevices(){if(simulated)return [{path:'simulator:esp32',canonicalPath:'simulator:esp32',deviceIdentity:'simulator:esp32',label:'Simulated ESP32',kind:'esp32',recommended:true}];return discover(command(),environment());},
     configureSerial(port){if(platform!=='linux')throw new Error('Physical serial configuration is supported on Linux; use the simulator on this host.');return runSync('stty',['-F',port,'115200','cs8','-cstopb','-parenb','-ixon','-ixoff','-crtscts','clocal','-hupcl','raw','-echo'],{timeout:5000});},
-    async readChipIdentity(port){
+    async readChipIdentity(port,{fqbn=config.esp32Fqbn||process.env.ESP32_FQBN||DEFAULT_ESP32_FQBN}={}){
       if(!/^\/dev\/[A-Za-z0-9_./:-]+$/.test(port)||port.includes('..'))throw new Error('Select a valid ESP32 USB port.');
-      const bundle=bundleNow();if(!bundle)throw new Error('The offline ESP32 tools are required to identify this controller.');
-      const file=bundle.manifest.files.find(f=>/^data\/packages\/esp32\/tools\/esptool_py\/[^/]+\/esptool\.py$/.test(f.path));
-      if(!file)throw new Error('The bundled ESP32 identification tool is missing.');
-      let output='';await execute('python3',[join(bundle.root,file.path),'--chip','esp32','--port',port,'--before','default_reset','--after','hard_reset','read_mac'],{timeoutMs:20000,onOutput:text=>{output+=text;}});
+      const bundle=bundleNow();let tool;
+      if(bundle){
+        const file=bundle.manifest.files.find(f=>/^data\/packages\/esp32\/tools\/esptool_py\/[^/]+\/esptool\.py$/.test(f.path));
+        if(!file)throw new Error('The bundled ESP32 identification tool is missing.');
+        tool={command:'python3',args:[join(bundle.root,file.path)]};
+      }else tool=installedEsptool({cli:command(),fqbn,env:environment(),runSync});
+      let output='';await execute(tool.command,[...tool.args,'--chip','esp32','--port',port,'--before','default_reset','--after','hard_reset','read_mac'],{timeoutMs:20000,onOutput:text=>{output+=text;}});
       const macs=[...output.matchAll(/\bMAC:\s*([\da-f]{2}(?::[\da-f]{2}){5})\b/gi)].map(match=>match[1].toLowerCase());
       if(!macs.length||new Set(macs).size!==1)throw new Error('The ESP32 hardware identity could not be verified. Check its USB cable and retry.');
       return macs[0];
