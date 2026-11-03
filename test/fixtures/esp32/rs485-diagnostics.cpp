@@ -11,6 +11,12 @@ void usbStatus() {
 int main(int argc,char **argv) {
   RS485.failBegin=argc>1 && strcmp(argv[1],"--failed-uart")==0;
   setup();
+  if(argc>1 && strcmp(argv[1],"--quantized-baud")==0) {
+    // Match ESP32's integer/fractional divider at a 1 MHz source clock.
+    const uint32_t scaledClock=1000000UL*16;
+    RS485.reportedBaud=scaledClock/(scaledClock/115200);
+    usbStatus();printf("%s",Serial.output.c_str());return 0;
+  }
   if(RS485.failBegin) {
     assert(RS485.output.empty());assert(rs485TxBytes==0);
     usbStatus();

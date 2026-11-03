@@ -1004,7 +1004,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         const profile=saveControllerProfile(db,controller,actual);
         recordSystemEvent({eventType:'controller_profile_saved',status:'info',message:`Replacement backup saved for ${controller.controller_code}.`,payload:{controllerId:controller.id,revision:actual.revision}});
         backupService?.createCriticalBackup?.({source:`controller-profile-${controller.controller_code}`});
-        const busMessage=diagnostics?` RS485 port ready at ${diagnostics.baud} baud. RX GPIO${diagnostics.rxPin}, TX GPIO${diagnostics.txPin}, direction GPIO${diagnostics.directionPin}. Received ${diagnostics.rxBytes} bytes / ${diagnostics.rxLines} lines; ${diagnostics.pingRequests} ping requests; submitted ${diagnostics.txBytes} bytes for transmission. This does not verify the A/B connection.`:' This firmware does not report RS485 diagnostics. USB setup is verified; the A/B connection is not.';
+        const busMessage=diagnostics?` RS485 port ready: target 115200 baud, reported ${diagnostics.baud}. RX GPIO${diagnostics.rxPin}, TX GPIO${diagnostics.txPin}, direction GPIO${diagnostics.directionPin}. Received ${diagnostics.rxBytes} bytes / ${diagnostics.rxLines} lines; ${diagnostics.pingRequests} ping requests; submitted ${diagnostics.txBytes} bytes for transmission. This does not verify the A/B connection.`:' This firmware does not report RS485 diagnostics. USB setup is verified; the A/B connection is not.';
         return {message:'Controller setup saved. You can now replace its ESP32 without remapping cells.'+busMessage,profile,diagnostics};
       }finally{session?.close();releaseMaintenance(lock,controller.id);}
     },

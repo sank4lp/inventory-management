@@ -67,6 +67,29 @@ test('USB setup backup exposes UART diagnostics without claiming the A/B path wa
  assert.deepEqual(result.diagnostics,healthyBus);assert.match(result.message,/RX GPIO16, TX GPIO17, direction GPIO4/);assert.match(result.message,/Received 12 bytes/);assert.match(result.message,/does not verify the A\/B connection/);
  assert.equal(f.snapshot(),before);assert.equal(f.commands.length,0);assert.equal(result.profile.rs485,undefined);
 });
+test('hardware-rounded 115200 baud passes readback and update verification without changing warehouse mappings',async t=>{
+ const f=fixture(t,{sameBoard:true}),before=f.snapshot();f.setBusDiagnostics({...healthyBus,baud:115942});
+ const read=await f.service.backupController(f.input,f.admin);
+ assert.match(read.message,/target 115200 baud, reported 115942/);assert.equal(f.commands.length,0);
+ const job=await f.finish(f.start());assert.equal(job.status,'completed',JSON.stringify(job));assert.equal(f.snapshot(),before);
+ f.setBusDiagnostics({...healthyBus,baud:9600});
+ const failed=await f.finish(f.start());assert.equal(failed.status,'failed');assert.match(failed.error,/reports 9600 baud/);assert.equal(f.snapshot(),before);
+});
+for(const fresh of [false,true])test(`zero-module configuration fault at 115942 baud recovers through ${fresh?'fresh setup':'saved controller routing'}`,async t=>{
+ const f=fixture(t),before=JSON.parse(f.snapshot()),saved=loadControllerProfile(f.db,f.controller);
+ f.setActual({physicalCount:0,logicalCount:0,routing:Array(64).fill(0),revision:0,fault:true});
+ f.setBusDiagnostics({...healthyBus,baud:115942,rxBytes:0,rxLines:0,txBytes:261,pingRequests:0});
+ await assert.rejects(()=>f.service.backupController(f.input,f.admin),/could not load its saved LED setup/);
+ assert.deepEqual(loadControllerProfile(f.db,f.controller),saved,'failed readback cannot overwrite the saved routing with zero modules');
+ const job=await f.finish(fresh?f.service.startFlashJob(freshInput(f),f.admin):f.start());
+ assert.equal(job.status,'completed',JSON.stringify(job));assert.ok(f.usb.some(command=>command.includes(' configure ')));
+ const controller=f.db.prepare('SELECT * FROM controllers WHERE id=?').get(job.controllerId),profile=loadControllerProfile(f.db,controller);
+ assert.equal(profile.fault,false);assert.equal(profile.physicalCount,fresh?4:saved.physicalCount);
+ assert.deepEqual(profile.routing,fresh?Array.from({length:64},(_,i)=>i<4?i+1:0):saved.routing);
+ const after=JSON.parse(f.snapshot());assert.deepEqual(after.stock,before.stock);assert.deepEqual(after.ledger,before.ledger);
+ for(const cell of before.cells)assert.deepEqual(after.cells.find(row=>row.id===cell.id),cell);
+ if(!fresh)assert.deepEqual(after.cells,before.cells);
+});
 test('a readable LED setup with a failed UART cannot produce a successful flash or replace its host profile',async t=>{
  const f=fixture(t,{sameBoard:true}),before=f.snapshot(),profile=loadControllerProfile(f.db,f.controller);
  f.setBusDiagnostics({...healthyBus,ready:false,baud:0,rxBytes:0,rxLines:0,txBytes:0,pingRequests:0});

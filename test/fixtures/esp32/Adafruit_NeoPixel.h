@@ -23,12 +23,13 @@ struct HardwareSerial {
   std::string output, input;
   size_t cursor=0, rxBuffer=0;
   int uart=0, baud=0, rx=-1, tx=-1;
+  uint32_t reportedBaud=0;
   bool running=true, failBegin=false;
   HardwareSerial(int number=0):uart(number) {}
   size_t setRxBufferSize(size_t length) { rxBuffer=length; return length; }
   void begin(int speed,int=0,int rxPin=-1,int txPin=-1) { baud=speed; rx=rxPin; tx=txPin; running=!failBegin; }
   explicit operator bool() const { return running; }
-  uint32_t baudRate() { return running?baud:0; }
+  uint32_t baudRate() { return running?(reportedBaud?reportedBaud:baud):0; }
   size_t print(const char *s) { serialEvents.push_back("write:"+std::to_string(uart)); if(!running)return 0; output+=s; return strlen(s); }
   void flush() { serialEvents.push_back("flush:"+std::to_string(uart)); }
   int available() { return running?input.size()-cursor:0; }

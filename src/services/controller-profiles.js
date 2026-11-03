@@ -5,9 +5,15 @@ import {groupChecksum} from './hardware-adapters/group-protocol.js';
 export function controllerBusDiagnostics(reply) {
   const status=reply?.rs485;
   if(status===undefined)return null; // Existing firmware has no UART diagnostics.
-  if(!status || status.version!==1 || typeof status.ready!=='boolean' ||
-    !['baud','rxPin','txPin','directionPin','rxBytes','rxLines','txBytes','pingRequests'].every(key=>Number.isInteger(status[key])&&status[key]>=0&&status[key]<=0xffffffff) ||
-    status.rxPin>39 || status.txPin>39 || status.directionPin>39 || status.ready&&status.baud!==115200 || !status.ready&&status.baud!==0)throw new Error('The ESP32 returned invalid RS485 diagnostics. Read its setup again before updating it.');
+  const invalid=field=>new Error(`The ESP32 returned invalid RS485 diagnostics (${field}: ${(JSON.stringify(status?.[field])??'missing').slice(0,60)}). Keep USB connected and read its setup again.`);
+  if(!status || typeof status!=='object' || Array.isArray(status))throw invalid('rs485');
+  if(status.version!==1)throw invalid('version');
+  if(typeof status.ready!=='boolean')throw invalid('ready');
+  for(const key of ['baud','rxPin','txPin','directionPin','rxBytes','rxLines','txBytes','pingRequests']) {
+    if(!Number.isInteger(status[key]) || status[key]<0 || status[key]>0xffffffff)throw invalid(key);
+  }
+  for(const key of ['rxPin','txPin','directionPin'])if(status[key]>39)throw invalid(key);
+  if(!status.ready && status.baud!==0)throw invalid('baud');
   return {...status};
 }
 
@@ -23,6 +29,11 @@ export function validateControllerConfiguration(reply, address, request = null, 
   if (reply.checksum !== groupChecksum(payload)) throw new Error('Controller configuration checksum does not match.');
   const bus=controllerBusDiagnostics(reply);
   if(bus && !bus.ready && !allowBusFault)throw new Error('The ESP32 LED setup is readable over USB, but its RS485 serial port did not start. Check the selected ESP32 board and firmware tools before flashing again.');
+  // baudRate() reads the hardware divider, not the exact requested number.
+  // For example, ESP32's 1 MHz REF_TICK can report 115942 for 115200.
+  // Allow at most 1% divider error; genuinely wrong or failed readback remains
+  // a separate actionable error, never a malformed configuration response.
+  if(bus?.ready && Math.abs(bus.baud-115200)>115200*0.01 && !allowBusFault)throw new Error(`The ESP32 RS485 port reports ${bus.baud} baud; expected about 115200 (within 1%). Keep USB connected and check the firmware serial configuration.`);
   if (reply.fault && !allowFault) throw new Error('The ESP32 could not load its saved LED setup. For a reused board, choose Set up as fresh controller to replace its old setup, or restore its previous controller setup to keep the LED mapping.');
   return {physicalCount:reply.physicalModules,logicalCount,routing,revision:reply.revision,fault:reply.fault};
 }
