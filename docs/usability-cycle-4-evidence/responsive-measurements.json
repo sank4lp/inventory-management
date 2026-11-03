@@ -1,0 +1,4655 @@
+{
+  "pages": [
+    {
+      "path": "/pick",
+      "bodyWidth": 305,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "productSearch",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Choose a productCanteen · ARMY-CANT-008 (pieces)Combat ",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "quantity",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Choose automaticallyZ1-R1-C01Z1-R1-C02Z1-R1-C03Z1-R1-C0",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Find pick locations",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 48,
+          "label": "Download saved updates",
+          "overflow": false,
+          "width": 179.328125
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 58.390625,
+          "label": "Clear local data (only after updates are received)",
+          "overflow": false,
+          "width": 273
+        }
+      ],
+      "rootWidth": 305,
+      "title": "Pick · LytGuide IMS",
+      "width": 320
+    },
+    {
+      "path": "/pick",
+      "bodyWidth": 375,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "productSearch",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Choose a productCanteen · ARMY-CANT-008 (pieces)Combat ",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "quantity",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Choose automaticallyZ1-R1-C01Z1-R1-C02Z1-R1-C03Z1-R1-C0",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Find pick locations",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 48,
+          "label": "Download saved updates",
+          "overflow": false,
+          "width": 179.328125
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 48,
+          "label": "Clear local data (only after updates are received)",
+          "overflow": false,
+          "width": 333.421875
+        }
+      ],
+      "rootWidth": 375,
+      "title": "Pick · LytGuide IMS",
+      "width": 390
+    },
+    {
+      "path": "/pick",
+      "bodyWidth": 805,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "productSearch",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Choose a productCanteen · ARMY-CANT-008 (pieces)Combat ",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "quantity",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Choose automaticallyZ1-R1-C01Z1-R1-C02Z1-R1-C03Z1-R1-C0",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Find pick locations",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 48,
+          "label": "Download saved updates",
+          "overflow": false,
+          "width": 179.328125
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 48,
+          "label": "Clear local data (only after updates are received)",
+          "overflow": false,
+          "width": 333.421875
+        }
+      ],
+      "rootWidth": 805,
+      "title": "Pick · LytGuide IMS",
+      "width": 820
+    },
+    {
+      "path": "/pick",
+      "bodyWidth": 1425,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "productSearch",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Choose a productCanteen · ARMY-CANT-008 (pieces)Combat ",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "quantity",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Choose automaticallyZ1-R1-C01Z1-R1-C02Z1-R1-C03Z1-R1-C0",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Find pick locations",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 44,
+          "label": "Download saved updates",
+          "overflow": false,
+          "width": 179.328125
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 44,
+          "label": "Clear local data (only after updates are received)",
+          "overflow": false,
+          "width": 333.421875
+        }
+      ],
+      "rootWidth": 1425,
+      "title": "Pick · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/pick",
+      "bodyWidth": 1905,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "productSearch",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Choose a productCanteen · ARMY-CANT-008 (pieces)Combat ",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "quantity",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Choose automaticallyZ1-R1-C01Z1-R1-C02Z1-R1-C03Z1-R1-C0",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Find pick locations",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 44,
+          "label": "Download saved updates",
+          "overflow": false,
+          "width": 179.328125
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 44,
+          "label": "Clear local data (only after updates are received)",
+          "overflow": false,
+          "width": 333.421875
+        }
+      ],
+      "rootWidth": 1905,
+      "title": "Pick · LytGuide IMS",
+      "width": 1920
+    },
+    {
+      "path": "/pick",
+      "bodyWidth": 2545,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "productSearch",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Choose a productCanteen · ARMY-CANT-008 (pieces)Combat ",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "quantity",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Choose automaticallyZ1-R1-C01Z1-R1-C02Z1-R1-C03Z1-R1-C0",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Find pick locations",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 44,
+          "label": "Download saved updates",
+          "overflow": false,
+          "width": 179.328125
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 44,
+          "label": "Clear local data (only after updates are received)",
+          "overflow": false,
+          "width": 333.421875
+        }
+      ],
+      "rootWidth": 2545,
+      "title": "Pick · LytGuide IMS",
+      "width": 2560
+    },
+    {
+      "path": "/pick",
+      "bodyWidth": 3825,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "productSearch",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Choose a productCanteen · ARMY-CANT-008 (pieces)Combat ",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "quantity",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Choose automaticallyZ1-R1-C01Z1-R1-C02Z1-R1-C03Z1-R1-C0",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Find pick locations",
+          "overflow": false,
+          "width": 630
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 44,
+          "label": "Download saved updates",
+          "overflow": false,
+          "width": 179.328125
+        },
+        {
+          "background": "rgba(0, 0, 0, 0)",
+          "font": "13px",
+          "height": 44,
+          "label": "Clear local data (only after updates are received)",
+          "overflow": false,
+          "width": 333.421875
+        }
+      ],
+      "rootWidth": 3825,
+      "title": "Pick · LytGuide IMS",
+      "width": 3840
+    },
+    {
+      "path": "/stocktaking?run=1",
+      "bodyWidth": 305,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Refresh status",
+          "overflow": false,
+          "width": 128.65625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 78.78125,
+          "label": "Download saved count evidence",
+          "overflow": false,
+          "width": 139.046875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "reason",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "note",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Return remaining work",
+          "overflow": false,
+          "width": 184.4921875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "items",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Sam Patel · secondSam Patel · thirdSystem Admin · admin",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Assign selected locations",
+          "overflow": false,
+          "width": 203.984375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 50,
+          "label": "dueDate",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "reason",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Change deadline",
+          "overflow": false,
+          "width": 143.3359375
+        }
+      ],
+      "rootWidth": 305,
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 320
+    },
+    {
+      "path": "/stocktaking?run=1",
+      "bodyWidth": 375,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Refresh status",
+          "overflow": false,
+          "width": 128.65625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 78.78125,
+          "label": "Download saved count evidence",
+          "overflow": false,
+          "width": 139.046875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "reason",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "note",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Return remaining work",
+          "overflow": false,
+          "width": 184.4921875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "items",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Sam Patel · secondSam Patel · thirdSystem Admin · admin",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Assign selected locations",
+          "overflow": false,
+          "width": 203.984375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 50,
+          "label": "dueDate",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "reason",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Change deadline",
+          "overflow": false,
+          "width": 143.3359375
+        }
+      ],
+      "rootWidth": 375,
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 390
+    },
+    {
+      "path": "/stocktaking?run=1",
+      "bodyWidth": 805,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Refresh status",
+          "overflow": false,
+          "width": 128.65625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 78.78125,
+          "label": "Download saved count evidence",
+          "overflow": false,
+          "width": 139.046875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "reason",
+          "overflow": false,
+          "width": 723
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "note",
+          "overflow": false,
+          "width": 723
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Return remaining work",
+          "overflow": false,
+          "width": 184.4921875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "items",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "Sam Patel · secondSam Patel · thirdSystem Admin · admin",
+          "overflow": false,
+          "width": 723
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Assign selected locations",
+          "overflow": false,
+          "width": 203.984375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 50,
+          "label": "dueDate",
+          "overflow": false,
+          "width": 723
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "reason",
+          "overflow": false,
+          "width": 723
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Change deadline",
+          "overflow": false,
+          "width": 143.3359375
+        }
+      ],
+      "rootWidth": 805,
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 820
+    },
+    {
+      "path": "/stocktaking?run=1",
+      "bodyWidth": 1425,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Refresh status",
+          "overflow": false,
+          "width": 128.65625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 78.78125,
+          "label": "Download saved count evidence",
+          "overflow": false,
+          "width": 139.046875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "reason",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "note",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Return remaining work",
+          "overflow": false,
+          "width": 184.4921875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "items",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Sam Patel · secondSam Patel · thirdSystem Admin · admin",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Assign selected locations",
+          "overflow": false,
+          "width": 203.984375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 46,
+          "label": "dueDate",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "reason",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Change deadline",
+          "overflow": false,
+          "width": 143.3359375
+        }
+      ],
+      "rootWidth": 1425,
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/stocktaking?run=1",
+      "bodyWidth": 1905,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Refresh status",
+          "overflow": false,
+          "width": 128.65625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 78.78125,
+          "label": "Download saved count evidence",
+          "overflow": false,
+          "width": 139.046875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "reason",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "note",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Return remaining work",
+          "overflow": false,
+          "width": 184.4921875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "items",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Sam Patel · secondSam Patel · thirdSystem Admin · admin",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Assign selected locations",
+          "overflow": false,
+          "width": 203.984375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 46,
+          "label": "dueDate",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "reason",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Change deadline",
+          "overflow": false,
+          "width": 143.3359375
+        }
+      ],
+      "rootWidth": 1905,
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 1920
+    },
+    {
+      "path": "/stocktaking?run=1",
+      "bodyWidth": 2545,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Refresh status",
+          "overflow": false,
+          "width": 128.65625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 78.78125,
+          "label": "Download saved count evidence",
+          "overflow": false,
+          "width": 139.046875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "reason",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "note",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Return remaining work",
+          "overflow": false,
+          "width": 184.4921875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "items",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Sam Patel · secondSam Patel · thirdSystem Admin · admin",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Assign selected locations",
+          "overflow": false,
+          "width": 203.984375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 46,
+          "label": "dueDate",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "reason",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Change deadline",
+          "overflow": false,
+          "width": 143.3359375
+        }
+      ],
+      "rootWidth": 2545,
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 2560
+    },
+    {
+      "path": "/stocktaking?run=1",
+      "bodyWidth": 3825,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Refresh status",
+          "overflow": false,
+          "width": 128.65625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 78.78125,
+          "label": "Download saved count evidence",
+          "overflow": false,
+          "width": 139.046875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "reason",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "note",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Return remaining work",
+          "overflow": false,
+          "width": 184.4921875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "items",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "Sam Patel · secondSam Patel · thirdSystem Admin · admin",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Assign selected locations",
+          "overflow": false,
+          "width": 203.984375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 46,
+          "label": "dueDate",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "reason",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Change deadline",
+          "overflow": false,
+          "width": 143.3359375
+        }
+      ],
+      "rootWidth": 3825,
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 3840
+    },
+    {
+      "path": "/location-setup",
+      "bodyWidth": 305,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "displayName",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "travelInstructions",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Create manual location",
+          "overflow": false,
+          "width": 186.828125
+        }
+      ],
+      "rootWidth": 305,
+      "title": "Location setup · LytGuide IMS",
+      "width": 320
+    },
+    {
+      "path": "/location-setup",
+      "bodyWidth": 375,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "displayName",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "travelInstructions",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Create manual location",
+          "overflow": false,
+          "width": 186.828125
+        }
+      ],
+      "rootWidth": 375,
+      "title": "Location setup · LytGuide IMS",
+      "width": 390
+    },
+    {
+      "path": "/location-setup",
+      "bodyWidth": 820,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "displayName",
+          "overflow": false,
+          "width": 738
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "travelInstructions",
+          "overflow": false,
+          "width": 738
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Create manual location",
+          "overflow": false,
+          "width": 186.828125
+        }
+      ],
+      "rootWidth": 820,
+      "title": "Location setup · LytGuide IMS",
+      "width": 820
+    },
+    {
+      "path": "/location-setup",
+      "bodyWidth": 1440,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "displayName",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "travelInstructions",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Create manual location",
+          "overflow": false,
+          "width": 186.828125
+        }
+      ],
+      "rootWidth": 1440,
+      "title": "Location setup · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/location-setup",
+      "bodyWidth": 1920,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "displayName",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "travelInstructions",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Create manual location",
+          "overflow": false,
+          "width": 186.828125
+        }
+      ],
+      "rootWidth": 1920,
+      "title": "Location setup · LytGuide IMS",
+      "width": 1920
+    },
+    {
+      "path": "/location-setup",
+      "bodyWidth": 2560,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "displayName",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "travelInstructions",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Create manual location",
+          "overflow": false,
+          "width": 186.828125
+        }
+      ],
+      "rootWidth": 2560,
+      "title": "Location setup · LytGuide IMS",
+      "width": 2560
+    },
+    {
+      "path": "/location-setup",
+      "bodyWidth": 3840,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "displayName",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "travelInstructions",
+          "overflow": false,
+          "width": 768
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Create manual location",
+          "overflow": false,
+          "width": 186.828125
+        }
+      ],
+      "rootWidth": 3840,
+      "title": "Location setup · LytGuide IMS",
+      "width": 3840
+    },
+    {
+      "path": "/products",
+      "bodyWidth": 305,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 59.1875,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 100.5
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 59.1875,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 100.5
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 59.1875,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 100.5
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 59.1875,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 100.5
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "q",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Search",
+          "overflow": false,
+          "width": 76.2265625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 61.1875,
+          "label": "Show all quantities — entire warehouse",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        }
+      ],
+      "rootWidth": 305,
+      "title": "Products · LytGuide IMS",
+      "width": 320
+    },
+    {
+      "path": "/products",
+      "bodyWidth": 375,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 135.5
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 135.5
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 135.5
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 135.5
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "q",
+          "overflow": false,
+          "width": 222.7734375
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Search",
+          "overflow": false,
+          "width": 76.2265625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show all quantities — entire warehouse",
+          "overflow": false,
+          "width": 302.6171875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        }
+      ],
+      "rootWidth": 375,
+      "title": "Products · LytGuide IMS",
+      "width": 390
+    },
+    {
+      "path": "/products",
+      "bodyWidth": 805,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 146.25
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 146.25
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 146.25
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 146.25
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "q",
+          "overflow": false,
+          "width": 644.7734375
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Search",
+          "overflow": false,
+          "width": 76.2265625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show all quantities — entire warehouse",
+          "overflow": false,
+          "width": 302.6171875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        }
+      ],
+      "rootWidth": 805,
+      "title": "Products · LytGuide IMS",
+      "width": 820
+    },
+    {
+      "path": "/products",
+      "bodyWidth": 1425,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 225.25
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 225.25
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 225.25
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 225.25
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "q",
+          "overflow": false,
+          "width": 646.15625
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Search",
+          "overflow": false,
+          "width": 76.2265625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show all quantities — entire warehouse",
+          "overflow": false,
+          "width": 302.6171875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 147
+        }
+      ],
+      "rootWidth": 1425,
+      "title": "Products · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/products",
+      "bodyWidth": 1905,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "q",
+          "overflow": false,
+          "width": 1029.15625
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Search",
+          "overflow": false,
+          "width": 76.2265625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show all quantities — entire warehouse",
+          "overflow": false,
+          "width": 302.6171875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 172.796875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 172.796875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 172.796875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 172.796875
+        }
+      ],
+      "rootWidth": 1905,
+      "title": "Products · LytGuide IMS",
+      "width": 1920
+    },
+    {
+      "path": "/products",
+      "bodyWidth": 2545,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "q",
+          "overflow": false,
+          "width": 1029.15625
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Search",
+          "overflow": false,
+          "width": 76.2265625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show all quantities — entire warehouse",
+          "overflow": false,
+          "width": 302.6171875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 175
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 175
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 175
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 175
+        }
+      ],
+      "rootWidth": 2545,
+      "title": "Products · LytGuide IMS",
+      "width": 2560
+    },
+    {
+      "path": "/products",
+      "bodyWidth": 3825,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print this list",
+          "overflow": false,
+          "width": 321
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "q",
+          "overflow": false,
+          "width": 1029.15625
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Search",
+          "overflow": false,
+          "width": 76.2265625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show all quantities — entire warehouse",
+          "overflow": false,
+          "width": 302.6171875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 175
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 175
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 175
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Show Quantity",
+          "overflow": false,
+          "width": 175
+        }
+      ],
+      "rootWidth": 3825,
+      "title": "Products · LytGuide IMS",
+      "width": 3840
+    },
+    {
+      "path": "/settings/roles",
+      "bodyWidth": 305,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "name",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.view",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.team",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.pick",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.put",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.execute",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.stop",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.correct",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.report",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.assign",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.deadline",
+          "overflow": false,
+          "width": 18
+        }
+      ],
+      "rootWidth": 305,
+      "title": "Roles and Permissions · LytGuide IMS",
+      "width": 320
+    },
+    {
+      "path": "/settings/roles",
+      "bodyWidth": 375,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "name",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.view",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.team",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.pick",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.put",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.execute",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.stop",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.correct",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.report",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.assign",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "cap_work.deadline",
+          "overflow": false,
+          "width": 18
+        }
+      ],
+      "rootWidth": 375,
+      "title": "Roles and Permissions · LytGuide IMS",
+      "width": 390
+    },
+    {
+      "path": "/settings/roles",
+      "bodyWidth": 805,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 18
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "name",
+          "overflow": false,
+          "width": 723
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.view",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.team",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.pick",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.put",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.execute",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.stop",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.correct",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.report",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.assign",
+          "overflow": false,
+          "width": 18
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.deadline",
+          "overflow": false,
+          "width": 18
+        }
+      ],
+      "rootWidth": 805,
+      "title": "Roles and Permissions · LytGuide IMS",
+      "width": 820
+    },
+    {
+      "path": "/settings/roles",
+      "bodyWidth": 1425,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "name",
+          "overflow": false,
+          "width": 1039
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.view",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.team",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.pick",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.put",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.execute",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.stop",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.correct",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.report",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.assign",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.deadline",
+          "overflow": false,
+          "width": 20
+        }
+      ],
+      "rootWidth": 1425,
+      "title": "Roles and Permissions · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/settings/roles",
+      "bodyWidth": 1905,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "name",
+          "overflow": false,
+          "width": 1422
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.view",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.team",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.pick",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.put",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.execute",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.stop",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.correct",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.report",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.assign",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.deadline",
+          "overflow": false,
+          "width": 20
+        }
+      ],
+      "rootWidth": 1905,
+      "title": "Roles and Permissions · LytGuide IMS",
+      "width": 1920
+    },
+    {
+      "path": "/settings/roles",
+      "bodyWidth": 2545,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "name",
+          "overflow": false,
+          "width": 1422
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.view",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.team",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.pick",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.put",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.execute",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.stop",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.correct",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.report",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.assign",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.deadline",
+          "overflow": false,
+          "width": 20
+        }
+      ],
+      "rootWidth": 2545,
+      "title": "Roles and Permissions · LytGuide IMS",
+      "width": 2560
+    },
+    {
+      "path": "/settings/roles",
+      "bodyWidth": 3825,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "grid",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "name",
+          "overflow": false,
+          "width": 1422
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.view",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.team",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.pick",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.put",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.execute",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.stop",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.correct",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.report",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.assign",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "cap_work.deadline",
+          "overflow": false,
+          "width": 20
+        }
+      ],
+      "rootWidth": 3825,
+      "title": "Roles and Permissions · LytGuide IMS",
+      "width": 3840
+    },
+    {
+      "path": "/reports#stock-snapshot",
+      "bodyWidth": 305,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Format Reports",
+          "overflow": false,
+          "width": 235
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "search",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 55.59375,
+          "label": "Visuals",
+          "overflow": false,
+          "width": 75.6640625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Filters",
+          "overflow": false,
+          "width": 75.6640625
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Choose Report To Print",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print Current",
+          "overflow": false,
+          "width": 243
+        }
+      ],
+      "rootWidth": 305,
+      "title": "Reports · LytGuide IMS",
+      "width": 320
+    },
+    {
+      "path": "/reports#stock-snapshot",
+      "bodyWidth": 375,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Format Reports",
+          "overflow": false,
+          "width": 305
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "search",
+          "overflow": false,
+          "width": 313
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Visuals",
+          "overflow": false,
+          "width": 99
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Filters",
+          "overflow": false,
+          "width": 99
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Choose Report To Print",
+          "overflow": false,
+          "width": 313
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print Current",
+          "overflow": false,
+          "width": 313
+        }
+      ],
+      "rootWidth": 375,
+      "title": "Reports · LytGuide IMS",
+      "width": 390
+    },
+    {
+      "path": "/reports#stock-snapshot",
+      "bodyWidth": 805,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Format Reports",
+          "overflow": false,
+          "width": 135.3203125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "search",
+          "overflow": false,
+          "width": 743
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Visuals",
+          "overflow": false,
+          "width": 80.09375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Filters",
+          "overflow": false,
+          "width": 73.453125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 48,
+          "label": "Choose Report To Print",
+          "overflow": false,
+          "width": 191.2578125
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Print Current",
+          "overflow": false,
+          "width": 121.828125
+        }
+      ],
+      "rootWidth": 805,
+      "title": "Reports · LytGuide IMS",
+      "width": 820
+    },
+    {
+      "path": "/reports#stock-snapshot",
+      "bodyWidth": 1425,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Format Reports",
+          "overflow": false,
+          "width": 135.3203125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "search",
+          "overflow": false,
+          "width": 247
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Visuals",
+          "overflow": false,
+          "width": 80.09375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Filters",
+          "overflow": false,
+          "width": 73.453125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Choose Report To Print",
+          "overflow": false,
+          "width": 191.2578125
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print Current",
+          "overflow": false,
+          "width": 121.828125
+        }
+      ],
+      "rootWidth": 1425,
+      "title": "Reports · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/reports#stock-snapshot",
+      "bodyWidth": 1905,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Format Reports",
+          "overflow": false,
+          "width": 135.3203125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "search",
+          "overflow": false,
+          "width": 247
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Visuals",
+          "overflow": false,
+          "width": 80.09375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Filters",
+          "overflow": false,
+          "width": 73.453125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Choose Report To Print",
+          "overflow": false,
+          "width": 191.2578125
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print Current",
+          "overflow": false,
+          "width": 121.828125
+        }
+      ],
+      "rootWidth": 1905,
+      "title": "Reports · LytGuide IMS",
+      "width": 1920
+    },
+    {
+      "path": "/reports#stock-snapshot",
+      "bodyWidth": 2545,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Format Reports",
+          "overflow": false,
+          "width": 135.3203125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "search",
+          "overflow": false,
+          "width": 247
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Visuals",
+          "overflow": false,
+          "width": 80.09375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Filters",
+          "overflow": false,
+          "width": 73.453125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Choose Report To Print",
+          "overflow": false,
+          "width": 191.2578125
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print Current",
+          "overflow": false,
+          "width": 121.828125
+        }
+      ],
+      "rootWidth": 2545,
+      "title": "Reports · LytGuide IMS",
+      "width": 2560
+    },
+    {
+      "path": "/reports#stock-snapshot",
+      "bodyWidth": 3825,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Format Reports",
+          "overflow": false,
+          "width": 135.3203125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "search",
+          "overflow": false,
+          "width": 247
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Visuals",
+          "overflow": false,
+          "width": 80.09375
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Filters",
+          "overflow": false,
+          "width": 73.453125
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Choose Report To Print",
+          "overflow": false,
+          "width": 191.2578125
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Print Current",
+          "overflow": false,
+          "width": 121.828125
+        }
+      ],
+      "rootWidth": 3825,
+      "title": "Reports · LytGuide IMS",
+      "width": 3840
+    },
+    {
+      "path": "/quantities?cellId=1&productId=1",
+      "bodyWidth": 320,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Start quantity display",
+          "overflow": false,
+          "width": 176.9296875
+        }
+      ],
+      "rootWidth": 320,
+      "title": "Locations · Quantity display · LytGuide IMS",
+      "width": 320
+    },
+    {
+      "path": "/quantities?cellId=1&productId=1",
+      "bodyWidth": 390,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Start quantity display",
+          "overflow": false,
+          "width": 176.9296875
+        }
+      ],
+      "rootWidth": 390,
+      "title": "Locations · Quantity display · LytGuide IMS",
+      "width": 390
+    },
+    {
+      "path": "/quantities?cellId=1&productId=1",
+      "bodyWidth": 820,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Start quantity display",
+          "overflow": false,
+          "width": 176.9296875
+        }
+      ],
+      "rootWidth": 820,
+      "title": "Locations · Quantity display · LytGuide IMS",
+      "width": 820
+    },
+    {
+      "path": "/quantities?cellId=1&productId=1",
+      "bodyWidth": 1440,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Start quantity display",
+          "overflow": false,
+          "width": 176.9296875
+        }
+      ],
+      "rootWidth": 1440,
+      "title": "Locations · Quantity display · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/quantities?cellId=1&productId=1",
+      "bodyWidth": 1920,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Start quantity display",
+          "overflow": false,
+          "width": 176.9296875
+        }
+      ],
+      "rootWidth": 1920,
+      "title": "Locations · Quantity display · LytGuide IMS",
+      "width": 1920
+    },
+    {
+      "path": "/quantities?cellId=1&productId=1",
+      "bodyWidth": 2560,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Start quantity display",
+          "overflow": false,
+          "width": 176.9296875
+        }
+      ],
+      "rootWidth": 2560,
+      "title": "Locations · Quantity display · LytGuide IMS",
+      "width": 2560
+    },
+    {
+      "path": "/quantities?cellId=1&productId=1",
+      "bodyWidth": 3840,
+      "checkboxes": [],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Start quantity display",
+          "overflow": false,
+          "width": 176.9296875
+        }
+      ],
+      "rootWidth": 3840,
+      "title": "Locations · Quantity display · LytGuide IMS",
+      "width": 3840
+    },
+    {
+      "path": "/location-setup?view=fields",
+      "bodyWidth": 305,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "label",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "TextNumberChoice list",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "displayOrder",
+          "overflow": false,
+          "width": 239
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "required",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "enabled",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "useInDirections",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Save field",
+          "overflow": false,
+          "width": 95.1796875
+        }
+      ],
+      "rootWidth": 305,
+      "title": "Location setup · LytGuide IMS",
+      "width": 320
+    },
+    {
+      "path": "/location-setup?view=fields",
+      "bodyWidth": 375,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "label",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "TextNumberChoice list",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "displayOrder",
+          "overflow": false,
+          "width": 309
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "required",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "enabled",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 20,
+          "label": "useInDirections",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Save field",
+          "overflow": false,
+          "width": 95.1796875
+        }
+      ],
+      "rootWidth": 375,
+      "title": "Location setup · LytGuide IMS",
+      "width": 390
+    },
+    {
+      "path": "/location-setup?view=fields",
+      "bodyWidth": 805,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Menu",
+          "overflow": false,
+          "width": 63.71875
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "label",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "TextNumberChoice list",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 48,
+          "label": "displayOrder",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "required",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "enabled",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "useInDirections",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 48,
+          "label": "Save field",
+          "overflow": false,
+          "width": 95.1796875
+        }
+      ],
+      "rootWidth": 805,
+      "title": "Location setup · LytGuide IMS",
+      "width": 820
+    },
+    {
+      "path": "/location-setup?view=fields",
+      "bodyWidth": 1425,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "label",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "TextNumberChoice list",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "displayOrder",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "required",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "enabled",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "useInDirections",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Save field",
+          "overflow": false,
+          "width": 95.1796875
+        }
+      ],
+      "rootWidth": 1425,
+      "title": "Location setup · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/location-setup?view=fields",
+      "bodyWidth": 1905,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "label",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "TextNumberChoice list",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "displayOrder",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "required",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "enabled",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "useInDirections",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Save field",
+          "overflow": false,
+          "width": 95.1796875
+        }
+      ],
+      "rootWidth": 1905,
+      "title": "Location setup · LytGuide IMS",
+      "width": 1920
+    },
+    {
+      "path": "/location-setup?view=fields",
+      "bodyWidth": 2545,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "label",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "TextNumberChoice list",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "displayOrder",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "required",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "enabled",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "useInDirections",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Save field",
+          "overflow": false,
+          "width": 95.1796875
+        }
+      ],
+      "rootWidth": 2545,
+      "title": "Location setup · LytGuide IMS",
+      "width": 2560
+    },
+    {
+      "path": "/location-setup?view=fields",
+      "bodyWidth": 3825,
+      "checkboxes": [
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        },
+        {
+          "direction": "row",
+          "display": "flex",
+          "width": 20
+        }
+      ],
+      "controls": [
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 44,
+          "label": "Sign out",
+          "overflow": false,
+          "width": 243
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "label",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "TextNumberChoice list",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "16px",
+          "height": 44,
+          "label": "displayOrder",
+          "overflow": false,
+          "width": 718
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "required",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "enabled",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(255, 255, 255)",
+          "font": "14px",
+          "height": 20,
+          "label": "useInDirections",
+          "overflow": false,
+          "width": 20
+        },
+        {
+          "background": "rgb(28, 101, 83)",
+          "font": "14px",
+          "height": 44,
+          "label": "Save field",
+          "overflow": false,
+          "width": 95.1796875
+        }
+      ],
+      "rootWidth": 3825,
+      "title": "Location setup · LytGuide IMS",
+      "width": 3840
+    }
+  ],
+  "reportFormat": [
+    {
+      "bodyWidth": 320,
+      "modal": 273,
+      "radio": [
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        }
+      ],
+      "width": 320
+    },
+    {
+      "bodyWidth": 390,
+      "modal": 343,
+      "radio": [
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        }
+      ],
+      "width": 390
+    },
+    {
+      "bodyWidth": 820,
+      "modal": 773,
+      "radio": [
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        }
+      ],
+      "width": 820
+    },
+    {
+      "bodyWidth": 1440,
+      "modal": 1408,
+      "radio": [
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        }
+      ],
+      "width": 1440
+    },
+    {
+      "bodyWidth": 1920,
+      "modal": 1480,
+      "radio": [
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        }
+      ],
+      "width": 1920
+    },
+    {
+      "bodyWidth": 2560,
+      "modal": 1480,
+      "radio": [
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        }
+      ],
+      "width": 2560
+    },
+    {
+      "bodyWidth": 3840,
+      "modal": 1480,
+      "radio": [
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        },
+        {
+          "height": 20,
+          "width": 20
+        }
+      ],
+      "width": 3840
+    }
+  ],
+  "rolesTouch": {
+    "centerHitsLink": true,
+    "display": "inline-flex",
+    "linkHeight": 56,
+    "linkWidth": 309,
+    "width": 390
+  },
+  "productTouch": {
+    "width": 390,
+    "linkWidth": 94.140625,
+    "linkHeight": 56,
+    "display": "inline-flex",
+    "centerHitsLink": true
+  },
+  "pointerNavigation": [
+    "/products/1",
+    "/settings/roles"
+  ],
+  "keyboardNavigation": [
+    "/products/1",
+    "/settings/roles"
+  ]
+}

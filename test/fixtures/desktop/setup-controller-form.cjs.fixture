@@ -1,0 +1,21 @@
+const {app}=require('electron');const {mkdtempSync}=require('node:fs');const {join}=require('node:path');const {tmpdir}=require('node:os');const assert=require('node:assert/strict');
+const root='/opt/lytguide-test/current/desktop',{createDesktop}=require(join(root,'resources/app/main.cjs')),rejected=process.env.LYTGUIDE_EXPECT_FORM_REJECTION==='1';
+app.setPath('userData',mkdtempSync(join(tmpdir(),'lytguide-controller-form-')));app.enableSandbox();app.disableHardwareAcceleration();app.on('window-all-closed',()=>{});
+const deadline=setTimeout(()=>app.exit(2),90000);
+(async()=>{
+ await app.whenReady();const desktop=createDesktop({authorizeSetup:async()=>process.env.LYTGUIDE_SETUP_TEST_URL,assetRoot:join(root,'resources/lytguide-assets')});await desktop.showSetup();const win=[...desktop.windows][0],base='http://localhost:3311';
+ const js=expression=>win.webContents.executeJavaScript(expression),wait=async expression=>{for(let i=0;i<300;i++){if(await js(expression))return;await new Promise(r=>setTimeout(r,100));}throw Error('Missing UI state: '+expression);};
+ await wait(`Boolean(document.querySelector('[data-choose]'))`);await win.loadURL(base+'/devices');
+ await wait(`Boolean(document.querySelector('[data-controller-health-form]'))`);
+ assert.equal(await js("fetch('/devices').then(r=>r.headers.get('referrer-policy'))"),rejected?'no-referrer':'same-origin');
+ const controllerId=await js(`document.querySelector('[data-controller-health-form] [name=controller_id]').value`);
+ await js(`(document.querySelector('[data-controller-health-form]').requestSubmit(),true)`);
+ if(rejected)await wait(`document.body.textContent.includes('Open this action from the Setup window')`);
+ else await wait(`Boolean(document.querySelector('[data-controller-health-form]'))&&new URLSearchParams(location.search).get('flash')?.includes('responded')`);
+ const fetched=await js(`fetch('/devices/controller-test',{method:'POST',body:new URLSearchParams({controller_id:${JSON.stringify(controllerId)}})}).then(r=>r.status)`);assert.equal(fetched,200);
+ const cookies=await win.webContents.session.cookies.get({url:base}),cookie='lytguide_setup='+cookies.find(row=>row.name==='lytguide_setup').value;
+ for(const origin of [null,'null','https://untrusted.example']){
+  const response=await fetch(base+'/devices/controller-test',{method:'POST',headers:{Cookie:cookie,...(origin===null?{}:{Origin:origin}),'Content-Type':'application/x-www-form-urlencoded'},body:'controller_id='+controllerId,redirect:'manual'});assert.equal(response.status,403);
+ }
+ console.log(rejected?'REPRODUCED in installed app: normal controller form blocked; fetch works':'PASS installed native controller health form and redirect, background fetch, and rejection of missing/null/foreign origins');clearTimeout(deadline);app.exit(0);
+})().catch(error=>{console.error(error);clearTimeout(deadline);app.exit(1);});

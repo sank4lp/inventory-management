@@ -1,3 +1,4 @@
+import {currentActor} from "../modules/access/service.js";
 import {
   createCell,
   deleteCell,
@@ -34,21 +35,27 @@ export function createLocationService({ db }) {
       return listControllers(db);
     },
     updateControllerHealth(input) {
+      currentActor(db,input.actor,"hardware.test");
       return updateControllerHealth(db, input);
     },
     deleteController(input) {
+      currentActor(db,input.actor,"hardware.controllers");
       return deleteController(db, input);
     },
     deleteCell(input) {
+      currentActor(db,input.actor,"locations.manage");
       return deleteCell(db, input);
     },
     createCell(input) {
+      currentActor(db,input.actor,"locations.manage");
       return createCell(db, input);
     },
     renameCell(input) {
+      currentActor(db,input.actor,"locations.manage");
       return renameCell(db, input);
     },
     updateCellMapping(input) {
+      currentActor(db,input.actor,"hardware.map");
       return updateCellMapping(db, input);
     },
   };

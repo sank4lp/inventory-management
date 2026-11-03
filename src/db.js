@@ -1,10 +1,13 @@
+import { migrateAccess } from "./modules/access/service.js";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { migrateOperations } from "./modules/operations/schema.js";
+import { migrateStocktaking } from "./modules/stocktaking/schema.js";
+import {migrateLocationHierarchy} from './modules/locations/hierarchy.js';
+import {migratePhaseTwo} from './modules/stocktaking/phase-two-schema.js';
 
-const DATA_DIR = join(process.cwd(), "data");
-const DB_PATH = join(DATA_DIR, "inventory.db");
-export const APP_SCHEMA_VERSION = "5";
+export const APP_SCHEMA_VERSION = "10";
 
 const CORE_PRODUCT_FIELD_DEFINITIONS = [
   {
@@ -315,7 +318,7 @@ function seedWarehouse(db) {
     }
   }
 
-  const admin = db.prepare("SELECT id FROM users WHERE username = ?").get("admin");
+  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id LIMIT 1").get();
   const controllerRows = db.prepare("SELECT * FROM controllers").all();
 
   for (let row = 1; row <= 3; row += 1) {
@@ -1093,7 +1096,7 @@ function initializeSchema(db) {
 }
 
 export function withTransaction(db, callback) {
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
     const result = callback();
     db.exec("COMMIT");
@@ -1105,6 +1108,7 @@ export function withTransaction(db, callback) {
 }
 
 export function createDatabase(authHelpers) {
+  const DB_PATH = join(process.cwd(), "data", "inventory.db");
   ensureDirectory(dirname(DB_PATH));
   const db = new DatabaseSync(DB_PATH);
   db.exec(`
@@ -1113,7 +1117,6 @@ export function createDatabase(authHelpers) {
     PRAGMA busy_timeout = 5000;
   `);
   initializeSchema(db);
-  db.prepare("UPDATE inventory_balances SET reserved_quantity = 0 WHERE reserved_quantity != 0").run();
   db.prepare(
     `
       DELETE FROM submission_tokens
@@ -1124,12 +1127,18 @@ export function createDatabase(authHelpers) {
   if (authHelpers.allowDevAuthSeeds !== false) {
     seedRegistrationKeys(db);
   }
-  seedWarehouse(db);
-  seedProducts(db);
+  if(authHelpers.allowWarehouseSeeds!==false)seedWarehouse(db);
+  else if(!db.prepare('SELECT id FROM zones LIMIT 1').get())db.prepare('INSERT INTO zones(code,name,sort_order) VALUES(?,?,?)').run('Z1','Main Zone',1);
+  if(authHelpers.allowCatalogSeeds!==false)seedProducts(db);
   if (authHelpers.allowDemoInventorySeed === false) {
     cleanupLegacyDemoInventory(db);
   } else {
     seedInventory(db);
   }
+  migrateOperations(db);
+  migrateStocktaking(db);
+  migratePhaseTwo(db);
+  migrateLocationHierarchy(db);
+  migrateAccess(db);
   return db;
 }

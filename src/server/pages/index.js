@@ -7,7 +7,7 @@ import { createProductPages } from "./products.js";
 import { createProductFieldPages } from "./product-fields.js";
 import { createProfilePages } from "./profile.js";
 import { createReportsPages } from "./reports.js";
-import { page } from "./shared.js";
+import { card, page } from "./shared.js";
 import { createTaskPages } from "./tasks.js";
 
 export function createPageRenderer({
@@ -30,6 +30,19 @@ export function createPageRenderer({
   const adminPages = createAdminPages({ db, backupService, productFieldService });
   const backupPages = createBackupPages({ backupService });
 
+  function renderRecommendedActionsError(user) {
+    return page({
+      title: "Recommended Actions",
+      currentPath: "/recommended-actions",
+      user,
+      content: card(
+        "Actions could not load",
+        `<p>Try again. If this continues, contact your administrator.</p>
+         <div class="page-actions page-actions-left"><a class="action-cta-button" href="/recommended-actions">Try again</a></div>`,
+      ),
+    });
+  }
+
   function renderNotFound(user) {
     return page({
       title: "Not Found",
@@ -50,6 +63,7 @@ export function createPageRenderer({
     ...taskPages,
     renderLogin,
     renderNotFound,
+    renderRecommendedActionsError,
     renderRegister,
   };
 }

@@ -221,6 +221,8 @@ export function createSimulatorAdapter({ config = {}, logger }) {
       const payload = {
         ts: stamp(),
         type: "cell-test",
+        pattern: "outward-ripple",
+        timeoutMs: 5000,
         controllerId: cell.controller_id,
         cell: cell.logical_code,
         hardwareChannel: cell.hardware_channel,
@@ -238,7 +240,7 @@ export function createSimulatorAdapter({ config = {}, logger }) {
         },
       ]);
     },
-    showCellQuantity(cell, quantity, color = "yellow") {
+    showCellQuantity(cell, quantity, color = "yellow", options = {}) {
       const brightness = brightnessPayload();
       const payload = {
         ts: stamp(),
@@ -248,6 +250,7 @@ export function createSimulatorAdapter({ config = {}, logger }) {
         hardwareChannel: cell.hardware_channel,
         quantity: String(quantity),
         color,
+        scrollOnce:options.scrollOnce===true,scrollSpeedMs:options.scrollSpeedMs||120,
         ...brightness,
         ...(hasModuleTarget(cell) ? {} : { reason: "cell-not-mapped-to-controller" }),
       };
@@ -328,13 +331,14 @@ export function createSimulatorAdapter({ config = {}, logger }) {
       const payload = {
         ts: stamp(),
         type: "cell-locate",
+        pattern: "inward-ripple",
         controllerId: cell.controller_id,
         cell: cell.logical_code,
         hardwareChannel: cell.hardware_channel,
         color: "red",
         active,
         ...brightness,
-        timeoutMs: 120000,
+        timeoutMs: 300000,
       };
       emit(payload);
       return wrap([

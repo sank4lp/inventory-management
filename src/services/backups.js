@@ -817,6 +817,7 @@ export function createBackupService({
   }
 
   function restoreBackup(filename) {
+    if(getDb().prepare("SELECT 1 FROM operation_receipts UNION ALL SELECT 1 FROM tasks WHERE workflow_version=2 UNION ALL SELECT 1 FROM work_reports LIMIT 1").get()) throw new Error("Live restore is disabled after multi-operator work begins. Preserve the current database and pending device queues; use the supervised offline recovery procedure.");
     const selectedBackup = getBackupByFilename(filename);
     validateDatabaseFile(selectedBackup.path);
 

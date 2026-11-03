@@ -1,2 +1,11 @@
 data/
 coverage/
+node_modules/
+.DS_Store
+._*
+/tmp/
+/output/*.tar.gz
+/output/release-cache/
+/output/pi-test/
+__pycache__/
+*.lytbackup

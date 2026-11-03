@@ -4,6 +4,8 @@
 
 This document describes the software architecture that matches the current phase-1 implementation direction.
 
+For implemented local behavior, see [Local-first operations](../LOCAL-FIRST-OPERATIONS.md). For the unimplemented shared cloud portal, secure Pi relay, company isolation and network-switching requirements, see the [Pi/cloud deployment plan](03-pi-cloud-deployment-plan.md). This local architecture outline does not establish cloud readiness or tenant isolation.
+
 ## Recommended architecture style
 
 For phase 1, use a **local-first modular monolith**.

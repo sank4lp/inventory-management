@@ -1,0 +1,23 @@
+{
+  "database": "Disposable lytguide-preview-nMJMOX fixture; readonly verification",
+  "transactions": {
+    "count": 1
+  },
+  "task": {
+    "id": 3,
+    "status": "completed",
+    "summary": "Pick 1 pairs of SKU-SHOE-001"
+  },
+  "entries": [
+    {
+      "status": "posted",
+      "quantity": 1,
+      "reason": null
+    },
+    {
+      "status": "duplicate",
+      "quantity": 1,
+      "reason": "Completed movement received for supervisor verification. No new instructions were activated."
+    }
+  ]
+}

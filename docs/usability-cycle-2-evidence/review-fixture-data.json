@@ -1,0 +1,92 @@
+{
+  "site": "read-only-render-fixture",
+  "user": {
+    "id": 1,
+    "name": "Reviewer",
+    "role": "admin"
+  },
+  "generatedAt": "2026-09-28T10:00:00Z",
+  "products": [],
+  "cells": [],
+  "tasks": [],
+  "operators": [],
+  "performers": [
+    {
+      "id": 2,
+      "name": "Sam",
+      "username": "sam",
+      "status": "active"
+    }
+  ],
+  "discrepancies": [],
+  "postedReports": [
+    {
+      "id": "saved-entry",
+      "product_id": 1,
+      "cell_id": 1,
+      "direction": "pick",
+      "product_name": "Boots",
+      "logical_code": "A1",
+      "quantity": 2,
+      "unit": "pairs",
+      "created_at": "2026-09-27T09:00:00Z",
+      "performer_name": "Sam"
+    }
+  ],
+  "reviewTotal": 2,
+  "pending": [
+    {
+      "id": "unknown",
+      "case_revision": 1,
+      "product_id": 1,
+      "cell_id": 1,
+      "product_name": "Boots",
+      "logical_code": "A1",
+      "direction": "pick",
+      "quantity": 2,
+      "quantity_known": 0,
+      "unit": "pairs",
+      "reporter_name": "Alex",
+      "operator_name": "Unknown",
+      "performer_id": null,
+      "created_at": "2026-09-28T09:00:00Z",
+      "reason": "Actual quantity unknown",
+      "payload": "{}"
+    },
+    {
+      "id": "overlap",
+      "case_revision": 1,
+      "product_id": 1,
+      "cell_id": 1,
+      "product_name": "Boots",
+      "logical_code": "A1",
+      "direction": "pick",
+      "quantity": 2,
+      "quantity_known": 1,
+      "unit": "pairs",
+      "reporter_name": "Alex",
+      "operator_name": "Sam",
+      "performer_id": 2,
+      "created_at": "2026-09-28T09:00:00Z",
+      "reason": "Compare earlier count",
+      "payload": "{}",
+      "countOverlap": true,
+      "countEvidence": {
+        "id": "count",
+        "title": "Shelf count",
+        "logical_code": "A1",
+        "counter_name": "Sam",
+        "counted_at": null,
+        "received_at": "2026-09-28T08:00:00Z",
+        "lines": [
+          {
+            "productId": 1,
+            "recorded": 10,
+            "actual": 8,
+            "unit": "pairs"
+          }
+        ]
+      }
+    }
+  ]
+}

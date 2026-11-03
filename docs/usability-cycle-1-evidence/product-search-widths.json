@@ -1,0 +1,35 @@
+[
+  {
+    "options": [
+      "Choose a product",
+      "Canteen · ARMY-CANT-008 (pieces)",
+      "Combat Boots · SKU-SHOE-001 (pairs)"
+    ],
+    "overflow": false,
+    "product": "Combat Boots · SKU-SHOE-001 (pairs)",
+    "unit": "Selected: Combat Boots. Quantity unit: pairs. 1 matching products. Your selection stays until you change it.",
+    "width": 390
+  },
+  {
+    "options": [
+      "Choose a product",
+      "Canteen · ARMY-CANT-008 (pieces)",
+      "Combat Boots · SKU-SHOE-001 (pairs)"
+    ],
+    "overflow": false,
+    "product": "Combat Boots · SKU-SHOE-001 (pairs)",
+    "unit": "Selected: Combat Boots. Quantity unit: pairs. 1 matching products. Your selection stays until you change it.",
+    "width": 820
+  },
+  {
+    "options": [
+      "Choose a product",
+      "Canteen · ARMY-CANT-008 (pieces)",
+      "Combat Boots · SKU-SHOE-001 (pairs)"
+    ],
+    "overflow": false,
+    "product": "Combat Boots · SKU-SHOE-001 (pairs)",
+    "unit": "Selected: Combat Boots. Quantity unit: pairs. 1 matching products. Your selection stays until you change it.",
+    "width": 1440
+  }
+]

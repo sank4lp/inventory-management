@@ -1,0 +1,764 @@
+{
+  "admin": [
+    {
+      "path": "/work/overview",
+      "bodyWidth": 1425,
+      "headings": [
+        "Team work"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nTeam work\nStocktaking pending — start\nMy work\nTeam work\nNeeds review · 0\nHistory\nWork tools\nConnected to warehouse\nUpdated 23:54\nAssign task\nActive · 2\nNeeds assignment · 0\nOverdue · 0\nHistory\nFilters · Active\n2 matching · Page 1 of 1 · Up to 100 rows\nTASK / PRODUCT\tREMAINING\tSTATUS / DUE\tPROGRESS\tPEOPLE\tASSIGNED\tACTIONS\nCOMBAT BOOTS\nPICK · SKU-SHOE-001 · TASK #2\nOPEN TASK\n\t1 pairs\n1 requested\n\tNot started\nDue 29/09/2026, 00:11:28\n\t0 recorded\n0 locations recorded\n\tAssigned to Sam Patel · third\nPerformed by Not recorded\nEntered by Not recorded\n\t28/09/2026, 22:11:28\nAssigned by System Admin\n\tDetails\nReassign remaining work\nChange deadline\n\nCOMBAT BOOTS\nPICK · SKU-SHOE-001 · TASK #1\nOPEN TASK\n\t4 pairs\n4 requested\n\tNot started\nDue 29/09/2026, 00:05:42\n\t0 recorded\n0 locations recorded\n\tAssigned to Sam Patel · second\nPerformed by Not recorded\nEntered by Not recorded\n\t28/09/2026, 22:13:21\nAssigned by System Admin\n\tDetails\nReassign remaining work\nChange deadline\n2 matching · Page 1 of 1 · Up to 100 rows\n\nTiming settings\n\nWorkloads by person\nSaved updates & device help",
+      "title": "Team work · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/tasks/3",
+      "bodyWidth": 1425,
+      "headings": [
+        "Task #3",
+        "Combat Boots",
+        "Z1-R1-C02"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nTask #3\nStocktaking pending — start\nMy work\nTeam work\nNeeds review · 0\nHistory\nWork tools\nConnected to warehouse\nUpdated 23:54\n← My work\nCombat Boots\n\nCompleted\n\nBack to My work\n\nRecorded 1 · Remaining requested 0 pairs\n\nRecorded / closed locations\nPICK\nRecorded\nZ1-R1-C02\n\nZ1-R1-C02\n\nCombat Boots\nSKU-SHOE-001\n\n1\npairs\nactual recorded\n\nPerformed by System Admin · Entered by System Admin\n\nCorrect earlier quantity\nTask details and assignment history\nSaved updates & device help",
+      "title": "Task #3 · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/work/history",
+      "bodyWidth": 1425,
+      "headings": [
+        "Task history",
+        "Task history"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nTask history\nStocktaking pending — start\nMy work\nTeam work\nNeeds review · 0\nHistory\nWork tools\nConnected to warehouse\nUpdated 23:54\nTask history\n\nAll personal history · Completed and cancelled\n\nStock movements are separate records.\n\n3 matching · Page 1 of 1 · Up to 100 rows\nTASK / PRODUCT\tREMAINING\tSTATUS / DUE\tPROGRESS\tPEOPLE\tASSIGNED\tACTIONS\nCOMBAT BOOTS\nPICK · SKU-SHOE-001 · TASK #2\nOPEN TASK\n\t1 pairs\n1 requested\n\tNot started\nDue 29/09/2026, 00:11:28\n\t0 recorded\n0 locations recorded\n\tAssigned to Sam Patel · third\nPerformed by Not recorded\nEntered by Not recorded\n\t28/09/2026, 22:11:28\nAssigned by System Admin\n\tDetails\nReassign remaining work\nChange deadline\n\nCOMBAT BOOTS\nPICK · SKU-SHOE-001 · TASK #1\nOPEN TASK\n\t4 pairs\n4 requested\n\tNot started\nDue 29/09/2026, 00:05:42\n\t0 recorded\n0 locations recorded\n\tAssigned to Sam Patel · second\nPerformed by Not recorded\nEntered by Not recorded\n\t28/09/2026, 22:13:21\nAssigned by System Admin\n\tDetails\nReassign remaining work\nChange deadline\n\nCOMBAT BOOTS\nPICK · SKU-SHOE-001 · TASK #3\nVIEW RESULT\n\t0 pairs\n1 requested\n\tCompleted\nDue 29/09/2026, 00:40:15\n\t1 recorded\n1 locations recorded\n\tAssigned to System Admin · admin\nPerformed by System Admin\nEntered by System Admin\n\t28/09/2026, 22:40:15\nAssigned by System Admin\n\tDetails\n3 matching · Page 1 of 1 · Up to 100 rows\nSaved updates & device help",
+      "title": "Task history · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/pending-confirmations",
+      "bodyWidth": 1440,
+      "headings": [
+        "Needs review"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nNeeds review\nStocktaking pending — start\nMy work\nTeam work\nNeeds review · 0\nHistory\nWork tools\nConnected to warehouse\nUpdated 23:54\n\nCheck what physically moved before changing stock.\n\n0 matching cases out of 0 overall.\n\nFilter people / grouping\n0 matching · Page 1 of 1 · Up to 100 rows\n\nNo work needs review.\n\n0 matching · Page 1 of 1 · Up to 100 rows\nSaved updates & device help",
+      "title": "Needs review · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/record-movement",
+      "bodyWidth": 1425,
+      "headings": [
+        "Record completed movement",
+        "Record work already done"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nRecord completed movement\nStocktaking pending — start\nMy work\nTeam work\nNeeds review · 0\nHistory\nWork tools\nConnected to warehouse\nUpdated 23:54\nRecord work already done\n\nEnter what physically moved. A supervisor will check it; this does not start new work.\n\nMovement\nPicked / removed\nPut / returned\nCount observation\nFind product by name or code\nProduct\nChoose a product\n5.56 Ammo Crate · ARMY-AMMO-023 (crates)\n9mm Ammo Case · ARMY-AMMO-024 (cases)\nBallistic Helmet · ARMY-HELM-004 (pieces)\nBandage Roll · ARMY-BAND-015 (rolls)\nBinocular Case · ARMY-BINO-019 (cases)\nCamouflage Net Pack · ARMY-NET-012 (packs)\nCanteen · ARMY-CANT-008 (pieces)\nCombat Boots · SKU-SHOE-001 (pairs)\nCompass · ARMY-COMP-018 (pieces)\nEntrenching Tool · ARMY-TOOL-014 (pieces)\nField Notebook · ARMY-NOTE-022 (books)\nField Supply Crate · SKU-BOX-003 (crates)\nField Uniform Shirt · SKU-TEE-002 (pieces)\nFirst Aid Pouch · ARMY-MED-006 (kits)\nMRE Pack · ARMY-RAT-007 (packs)\nRadio Battery · ARMY-BATT-009 (packs)\nRain Cover · ARMY-COVER-021 (pieces)\nRain Poncho · ARMY-PON-011 (pieces)\nRope Bundle · ARMY-ROPE-013 (bundles)\nSignal Flare Kit · ARMY-FLAR-016 (kits)\nSleeping Mat · ARMY-SLEEP-025 (pieces)\nTactical Flashlight · ARMY-LAMP-010 (pieces)\nTactical Gloves · ARMY-GLOV-005 (pairs)\nWater Purification Tablet Tin · ARMY-PURE-017 (tins)\nWeapon Cleaning Kit · ARMY-CLEAN-020 (kits)\n\nChoose a product to see its quantity unit.\n\nLocation\nChoose a location\nZ1-R1-C01\nZ1-R1-C02\nZ1-R1-C03\nZ1-R1-C04\nZ1-R1-C05\nZ1-R1-C06\nZ1-R1-C07\nZ1-R1-C08\nZ1-R1-C09\nZ1-R1-C10\nZ1-R1-C11\nZ1-R1-C12\nZ1-R1-C13\nZ1-R1-C14\nZ1-R1-C15\nZ1-R1-C16\nZ1-R1-C17\nZ1-R1-C18\nZ1-R1-C19\nZ1-R1-C20\nZ1-R1-C21\nZ1-R1-C22\nZ1-R1-C23\nZ1-R1-C24\nZ1-R1-C25\nZ1-R1-C26\nZ1-R1-C27\nZ1-R2-C01\nZ1-R2-C02\nZ1-R2-C03\nZ1-R2-C04\nZ1-R2-C05\nZ1-R2-C06\nZ1-R2-C07\nZ1-R2-C08\nZ1-R2-C09\nZ1-R2-C10\nZ1-R2-C11\nZ1-R2-C12\nZ1-R2-C13\nZ1-R2-C14\nZ1-R2-C15\nZ1-R2-C16\nZ1-R2-C17\nZ1-R2-C18\nZ1-R2-C19\nZ1-R2-C20\nZ1-R2-C21\nZ1-R2-C22\nZ1-R2-C23\nZ1-R2-C24\nZ1-R2-C25\nZ1-R2-C26\nZ1-R2-C27\nZ1-R3-C01\nZ1-R3-C02\nZ1-R3-C03\nZ1-R3-C04\nZ1-R3-C05\nZ1-R3-C06\nZ1-R3-C07\nZ1-R3-C08\nZ1-R3-C09\nZ1-R3-C10\nZ1-R3-C11\nZ1-R3-C12\nZ1-R3-C13\nZ1-R3-C14\nZ1-R3-C15\nZ1-R3-C16\nZ1-R3-C17\nZ1-R3-C18\nZ1-R3-C19\nZ1-R3-C20\nZ1-R3-C21\nZ1-R3-C22\nZ1-R3-C23\nZ1-R3-C24\nZ1-R3-C25\nZ1-R3-C26\nZ1-R3-C27\nActual quantity\nWhat happened?\nVerified performer\nUnknown / unverified\nSam Patel · second\nSam Patel · third\nSystem Admin · admin\nWarehouse Operator · operator\n\nWho physically moved the stock. The person who entered this and verifying supervisor remain recorded separately.\n\nEarlier work or paper records (optional)\n\nA count observation records what you saw; it does not replace the stock balance.\n\nSave completed movement\nSaved updates & device help",
+      "title": "Record completed movement · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/work/timing",
+      "bodyWidth": 1425,
+      "headings": [
+        "Work timing",
+        "Work timing",
+        "Missing updates during work"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nWork timing\nStocktaking pending — start\nMy work\nTeam work\nNeeds review · 0\nHistory\nWork tools\nConnected to warehouse\nUpdated 23:54\n← Team work\nWork timing\n\nWarehouse timezone: Asia/Calcutta. Deadlines use elapsed time, including nights.\n\nUnfinished assignment warning\nEnabled for new tasks\nDisabled for new tasks\nHighlight unfinished tasks after\nTime unit\nMinutes\nHours\n\nSaving changes new assignments only; existing deadlines stay unchanged. An overdue warning never cancels work or releases stock.\n\nMissing updates during work\nCheck started work after (minutes)\n\nIf started work has no update for this long, a supervisor must check what moved. Untouched new assignments do not need a quantity review just because they are old.\n\nSave timing rules\nSaved updates & device help",
+      "title": "Work timing · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/stocktaking",
+      "bodyWidth": 1440,
+      "headings": [
+        "Stocktaking",
+        "Current stocktakes",
+        "Simulator count usability check",
+        "Count schedule"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nStocktaking\n\nConnected to warehouse\n\nSaved count help\nCurrent stocktakes\nSimulator count usability check\n\nStocktaking pending\n\n0 of 1 locations counted · 0 awaiting review\n\nChoose a location to count\nCount schedule\n\nNo recurring schedule configured\n\nChange schedule\nStart an on-demand stocktake\nPrevious stocktakes and submitted counts (0)",
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/reports/stocktake-differences",
+      "bodyWidth": 1440,
+      "headings": [
+        "Stocktaking",
+        "Stocktake differences",
+        "Simulator count usability check"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nStocktaking\n\nConnected to warehouse\n\nSaved count help\nStocktake differences\n\nChoose a stocktake to review coverage, observations and correction history.\n\nSimulator count usability check\n\n2026-09-28 · Stocktaking pending\n\nOpen results and differences",
+      "title": "Stocktaking · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/cells",
+      "bodyWidth": 1425,
+      "headings": [
+        "Locations",
+        "Z1-R1-C01",
+        "Z1-R1-C02",
+        "Z1-R1-C03",
+        "Z1-R1-C04",
+        "Z1-R1-C05",
+        "Z1-R1-C06",
+        "Z1-R1-C07",
+        "Z1-R1-C08",
+        "Z1-R1-C09",
+        "Z1-R1-C10",
+        "Z1-R1-C11",
+        "Z1-R1-C12",
+        "Z1-R1-C13",
+        "Z1-R1-C14",
+        "Z1-R1-C15",
+        "Z1-R1-C16",
+        "Z1-R1-C17",
+        "Z1-R1-C18",
+        "Z1-R1-C19",
+        "Z1-R1-C20",
+        "Z1-R1-C21",
+        "Z1-R1-C22",
+        "Z1-R1-C23",
+        "Z1-R1-C24",
+        "Z1-R1-C25",
+        "Z1-R1-C26",
+        "Z1-R1-C27",
+        "Z1-R2-C01",
+        "Z1-R2-C02",
+        "Z1-R2-C03",
+        "Z1-R2-C04",
+        "Z1-R2-C05",
+        "Z1-R2-C06",
+        "Z1-R2-C07",
+        "Z1-R2-C08",
+        "Z1-R2-C09",
+        "Z1-R2-C10",
+        "Z1-R2-C11",
+        "Z1-R2-C12",
+        "Z1-R2-C13",
+        "Z1-R2-C14",
+        "Z1-R2-C15",
+        "Z1-R2-C16",
+        "Z1-R2-C17",
+        "Z1-R2-C18",
+        "Z1-R2-C19",
+        "Z1-R2-C20",
+        "Z1-R2-C21",
+        "Z1-R2-C22",
+        "Z1-R2-C23",
+        "Z1-R2-C24",
+        "Z1-R2-C25",
+        "Z1-R2-C26",
+        "Z1-R2-C27",
+        "Z1-R3-C01",
+        "Z1-R3-C02",
+        "Z1-R3-C03",
+        "Z1-R3-C04",
+        "Z1-R3-C05",
+        "Z1-R3-C06",
+        "Z1-R3-C07",
+        "Z1-R3-C08",
+        "Z1-R3-C09",
+        "Z1-R3-C10",
+        "Z1-R3-C11",
+        "Z1-R3-C12",
+        "Z1-R3-C13",
+        "Z1-R3-C14",
+        "Z1-R3-C15",
+        "Z1-R3-C16",
+        "Z1-R3-C17",
+        "Z1-R3-C18",
+        "Z1-R3-C19",
+        "Z1-R3-C20",
+        "Z1-R3-C21",
+        "Z1-R3-C22",
+        "Z1-R3-C23",
+        "Z1-R3-C24",
+        "Z1-R3-C25",
+        "Z1-R3-C26",
+        "Z1-R3-C27"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nLocations\nStocktaking pending — start\nShow all quantities — entire warehouse\nManage locations\nSet up locations by scanning\nAll locations · 81\nWith stock · 33\nEmpty · 48\nMapped · 81\nManual · 0\nSearch name, code, fields or contents\nSearch locations\nScan location QR\nEnter QR text manually\n\n81 locations shown · Print labels for these 81 locations · Space suggestions\n\nZ1-R1-C01\n\nZ1-R1-C01 · Z1-R1-C01\n\nCombat Boots · On shelf 3 pairs · Reserved 3 · Available to pick 0\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C02\n\nZ1-R1-C02 · Z1-R1-C02\n\nCombat Boots · On shelf 2 pairs · Reserved 2 · Available to pick 0\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C03\n\nZ1-R1-C03 · Z1-R1-C03\n\nCombat Boots · On shelf 2 pairs · Reserved 0 · Available to pick 2\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C04\n\nZ1-R1-C04 · Z1-R1-C04\n\nField Uniform Shirt · On shelf 6 pieces · Reserved 0 · Available to pick 6\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C05\n\nZ1-R1-C05 · Z1-R1-C05\n\nField Uniform Shirt · On shelf 4 pieces · Reserved 0 · Available to pick 4\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C06\n\nZ1-R1-C06 · Z1-R1-C06\n\n5.56 Ammo Crate · On shelf 5 crates · Reserved 0 · Available to pick 5\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C07\n\nZ1-R1-C07 · Z1-R1-C07\n\n9mm Ammo Case · On shelf 6 cases · Reserved 0 · Available to pick 6\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C08\n\nZ1-R1-C08 · Z1-R1-C08\n\nBallistic Helmet · On shelf 4 pieces · Reserved 0 · Available to pick 4\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C09\n\nZ1-R1-C09 · Z1-R1-C09\n\nTactical Gloves · On shelf 7 pairs · Reserved 0 · Available to pick 7\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C10\n\nZ1-R1-C10 · Z1-R1-C10\n\nFirst Aid Pouch · On shelf 8 kits · Reserved 0 · Available to pick 8\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C11\n\nZ1-R1-C11 · Z1-R1-C11\n\nMRE Pack · On shelf 10 packs · Reserved 0 · Available to pick 10\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C12\n\nZ1-R1-C12 · Z1-R1-C12\n\nCanteen · On shelf 9 pieces · Reserved 0 · Available to pick 9\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C13\n\nZ1-R1-C13 · Z1-R1-C13\n\nRadio Battery · On shelf 11 packs · Reserved 0 · Available to pick 11\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C14\n\nZ1-R1-C14 · Z1-R1-C14\n\nTactical Flashlight · On shelf 6 pieces · Reserved 0 · Available to pick 6\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C15\n\nZ1-R1-C15 · Z1-R1-C15\n\nRain Poncho · On shelf 5 pieces · Reserved 0 · Available to pick 5\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C16\n\nZ1-R1-C16 · Z1-R1-C16\n\nCamouflage Net Pack · On shelf 2 packs · Reserved 0 · Available to pick 2\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C17\n\nZ1-R1-C17 · Z1-R1-C17\n\nRope Bundle · On shelf 7 bundles · Reserved 0 · Available to pick 7\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C18\n\nZ1-R1-C18 · Z1-R1-C18\n\nEntrenching Tool · On shelf 3 pieces · Reserved 0 · Available to pick 3\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C19\n\nZ1-R1-C19 · Z1-R1-C19\n\nBandage Roll · On shelf 12 rolls · Reserved 0 · Available to pick 12\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C20\n\nZ1-R1-C20 · Z1-R1-C20\n\nSignal Flare Kit · On shelf 4 kits · Reserved 0 · Available to pick 4\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C21\n\nZ1-R1-C21 · Z1-R1-C21\n\nWater Purification Tablet Tin · On shelf 10 tins · Reserved 0 · Available to pick 10\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C22\n\nZ1-R1-C22 · Z1-R1-C22\n\nCompass · On shelf 6 pieces · Reserved 0 · Available to pick 6\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C23\n\nZ1-R1-C23 · Z1-R1-C23\n\nBinocular Case · On shelf 3 cases · Reserved 0 · Available to pick 3\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C24\n\nZ1-R1-C24 · Z1-R1-C24\n\nWeapon Cleaning Kit · On shelf 5 kits · Reserved 0 · Available to pick 5\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C25\n\nZ1-R1-C25 · Z1-R1-C25\n\nRain Cover · On shelf 8 pieces · Reserved 0 · Available to pick 8\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C26\n\nZ1-R1-C26 · Z1-R1-C26\n\nField Notebook · On shelf 9 books · Reserved 0 · Available to pick 9\n\nLocate\nPick\nPut\nCheck stock\nZ1-R1-C27\n\nZ1-R1-C27 · Z1-R1-C27\n\nField Supply Crate · On shelf 8 crates · Reserved 0 · Available to pick 8\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C01\n\nZ1-R2-C01 · Z1-R2-C01\n\nSleeping Mat · On shelf 4 pieces · Reserved 0 · Available to pick 4\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C02\n\nZ1-R2-C02 · Z1-R2-C02\n\nMRE Pack · On shelf 9 packs · Reserved 0 · Available to pick 9\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C03\n\nZ1-R2-C03 · Z1-R2-C03\n\nCanteen · On shelf 7 pieces · Reserved 0 · Available to pick 7\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C04\n\nZ1-R2-C04 · Z1-R2-C04\n\nFirst Aid Pouch · On shelf 5 kits · Reserved 0 · Available to pick 5\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C05\n\nZ1-R2-C05 · Z1-R2-C05\n\nTactical Gloves · On shelf 6 pairs · Reserved 0 · Available to pick 6\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C06\n\nZ1-R2-C06 · Z1-R2-C06\n\nWeapon Cleaning Kit · On shelf 4 kits · Reserved 0 · Available to pick 4\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C07\n\nZ1-R2-C07 · Z1-R2-C07\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C08\n\nZ1-R2-C08 · Z1-R2-C08\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C09\n\nZ1-R2-C09 · Z1-R2-C09\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C10\n\nZ1-R2-C10 · Z1-R2-C10\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C11\n\nZ1-R2-C11 · Z1-R2-C11\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C12\n\nZ1-R2-C12 · Z1-R2-C12\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C13\n\nZ1-R2-C13 · Z1-R2-C13\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C14\n\nZ1-R2-C14 · Z1-R2-C14\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C15\n\nZ1-R2-C15 · Z1-R2-C15\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C16\n\nZ1-R2-C16 · Z1-R2-C16\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C17\n\nZ1-R2-C17 · Z1-R2-C17\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C18\n\nZ1-R2-C18 · Z1-R2-C18\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C19\n\nZ1-R2-C19 · Z1-R2-C19\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C20\n\nZ1-R2-C20 · Z1-R2-C20\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C21\n\nZ1-R2-C21 · Z1-R2-C21\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C22\n\nZ1-R2-C22 · Z1-R2-C22\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C23\n\nZ1-R2-C23 · Z1-R2-C23\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C24\n\nZ1-R2-C24 · Z1-R2-C24\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C25\n\nZ1-R2-C25 · Z1-R2-C25\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C26\n\nZ1-R2-C26 · Z1-R2-C26\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R2-C27\n\nZ1-R2-C27 · Z1-R2-C27\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C01\n\nZ1-R3-C01 · Z1-R3-C01\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C02\n\nZ1-R3-C02 · Z1-R3-C02\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C03\n\nZ1-R3-C03 · Z1-R3-C03\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C04\n\nZ1-R3-C04 · Z1-R3-C04\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C05\n\nZ1-R3-C05 · Z1-R3-C05\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C06\n\nZ1-R3-C06 · Z1-R3-C06\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C07\n\nZ1-R3-C07 · Z1-R3-C07\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C08\n\nZ1-R3-C08 · Z1-R3-C08\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C09\n\nZ1-R3-C09 · Z1-R3-C09\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C10\n\nZ1-R3-C10 · Z1-R3-C10\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C11\n\nZ1-R3-C11 · Z1-R3-C11\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C12\n\nZ1-R3-C12 · Z1-R3-C12\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C13\n\nZ1-R3-C13 · Z1-R3-C13\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C14\n\nZ1-R3-C14 · Z1-R3-C14\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C15\n\nZ1-R3-C15 · Z1-R3-C15\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C16\n\nZ1-R3-C16 · Z1-R3-C16\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C17\n\nZ1-R3-C17 · Z1-R3-C17\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C18\n\nZ1-R3-C18 · Z1-R3-C18\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C19\n\nZ1-R3-C19 · Z1-R3-C19\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C20\n\nZ1-R3-C20 · Z1-R3-C20\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C21\n\nZ1-R3-C21 · Z1-R3-C21\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C22\n\nZ1-R3-C22 · Z1-R3-C22\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C23\n\nZ1-R3-C23 · Z1-R3-C23\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C24\n\nZ1-R3-C24 · Z1-R3-C24\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C25\n\nZ1-R3-C25 · Z1-R3-C25\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C26\n\nZ1-R3-C26 · Z1-R3-C26\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock\nZ1-R3-C27\n\nZ1-R3-C27 · Z1-R3-C27\n\nNo recorded stock.\n\nLocate\nPick\nPut\nCheck stock",
+      "title": "Locations · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/cells/1",
+      "bodyWidth": 1440,
+      "headings": [
+        "Z1-R1-C01",
+        "Z1-R1-C01",
+        "Contents"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nZ1-R1-C01\nStocktaking pending — start\n← Locations\nZ1-R1-C01\n\nZ1-R1-C01 · Z1-R1-C01\n\nLocate\nPick\nPut\nCheck stock\n\nShow all quantities in this location\n\nMore · test light and technical details\nContents\n\nCombat Boots · On shelf 3 pairs · Reserved 3 · Available to pick 0\n\nCombat Boots: Pick · Put · Show this quantity on LED\n\nLocation settings",
+      "title": "Z1-R1-C01 · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/recommended-actions",
+      "bodyWidth": 1425,
+      "headings": [
+        "Recommended Actions",
+        "Recommended Cleanup"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nRecommended Actions\nStocktaking pending — start\n0\nlocations can be freed by the current recommendations.\nRecommended Cleanup\nISSUE\tLOCATION\tPRODUCT\tSUGGESTED NEXT STEP\tSPACE CREATED\tACTION\nSKU-TEE-002 exceeds ideal capacity in Z1-R1-C04\tZ1-R1-C04\tSKU-TEE-002\tMove the excess SKU-TEE-002 quantity out of Z1-R1-C04.\tNo locations freed\tReview\nARMY-AMMO-023 exceeds ideal capacity in Z1-R1-C06\tZ1-R1-C06\tARMY-AMMO-023\tMove the excess ARMY-AMMO-023 quantity out of Z1-R1-C06.\tNo locations freed\tReview\nARMY-AMMO-024 exceeds ideal capacity in Z1-R1-C07\tZ1-R1-C07\tARMY-AMMO-024\tMove the excess ARMY-AMMO-024 quantity out of Z1-R1-C07.\tNo locations freed\tReview\nARMY-GLOV-005 exceeds ideal capacity in Z1-R1-C09\tZ1-R1-C09\tARMY-GLOV-005\tMove the excess ARMY-GLOV-005 quantity out of Z1-R1-C09.\tNo locations freed\tReview\nARMY-MED-006 exceeds ideal capacity in Z1-R1-C10\tZ1-R1-C10\tARMY-MED-006\tMove the excess ARMY-MED-006 quantity out of Z1-R1-C10.\tNo locations freed\tReview\nARMY-RAT-007 exceeds ideal capacity in Z1-R1-C11\tZ1-R1-C11\tARMY-RAT-007\tMove the excess ARMY-RAT-007 quantity out of Z1-R1-C11.\tNo locations freed\tReview\nARMY-CANT-008 exceeds ideal capacity in Z1-R1-C12\tZ1-R1-C12\tARMY-CANT-008\tMove the excess ARMY-CANT-008 quantity out of Z1-R1-C12.\tNo locations freed\tReview\nARMY-BATT-009 exceeds ideal capacity in Z1-R1-C13\tZ1-R1-C13\tARMY-BATT-009\tMove the excess ARMY-BATT-009 quantity out of Z1-R1-C13.\tNo locations freed\tReview",
+      "title": "Recommended Actions · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/devices",
+      "bodyWidth": 1440,
+      "headings": [
+        "Configuration Console",
+        "System Status",
+        "Controller Health"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nConfiguration Console\nStocktaking pending — start\nAdd Controller\nFlash a new ESP32 through a guided setup.\n01\nManage Locations\nAdd, rename, or remove active storage locations.\n02\nCell Mapping\nPing modules and assign them to storage locations.\n03\nSystem Status\n\nController health shows the latest saved check. Configured output counts come from controller setup; mapped locations do not establish the physical light count. Use refresh on a controller when you need a live RS485 check.\n\nControllers Online\n3/3\nConfigured LED outputs\n0\nMapped Cells\n81\nManual Cells\n0\nController Health\n\nDelete removes only the controller. Its cells stay active for manual pick and put until remapped.\n\nCONTROLLER\tRS485 ID\tHEALTH\tLAST SEEN\tCONFIGURED OUTPUTS\tMAPPED LOCATIONS\tACTIONS\nCTRL-Z1-B1\t1\tonline\t28 Sept 2026, 11:54 pm\tLight count not configured\t27\t\nPing\n\nCTRL-Z1-B2\t2\tonline\t28 Sept 2026, 11:54 pm\tLight count not configured\t27\t\nPing\n\nCTRL-Z1-B3\t3\tonline\t28 Sept 2026, 11:54 pm\tLight count not configured\t27\t\nPing",
+      "title": "Configuration Console · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/backups",
+      "bodyWidth": 1425,
+      "headings": [
+        "Backups",
+        "Create Backup Now",
+        "Automatic Schedule",
+        "Restore Notes",
+        "Retention And Compaction",
+        "Available Backups"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nBackups\nStocktaking pending — start\nALL BACKUPS\n0\nAUTOMATIC\n0\nCOMPACTED\n0\nCRITICAL\n0\nMANUAL\n0\nCreate Backup Now\nCreate Backup Now\n\nThe system keeps SQLite in crash-safe WAL mode and checks whether a new automatic snapshot is due.\n\nThe latest 48 automatic snapshots are kept during the active day. Older days are compacted to one backup per day and retained for 30 day(s).\n\nDatabase File\n\n/private/var/folders/7j/tj6x994918vdsby3cnhkfz440000gn/T/lytguide-preview-nMJMOX/data/inventory.db\nBackup Folder\n\n/private/var/folders/7j/tj6x994918vdsby3cnhkfz440000gn/T/lytguide-preview-nMJMOX/data/backups\nAutomatic Cadence\nDaily\nLatest Snapshot\nNo backups yet\nBackup Storage\n0 B\nFree Disk\n184.4 GB\nAutomatic Schedule\nAutomatic Backup\nEvery 8 hours\nEvery 12 hours\nDaily\nWeekly\nBi Weekly\nMonthly\nStart Time\nSave Schedule\nDaily\nStarts at 00:00\nNext check 28 Sept 2026, 12:00 am\nRestore Notes\n\nRestoring will replace the live database with the selected snapshot. A fresh manual restore point is created first so you can undo the restore if needed.\n\nThis protects against bad data changes and software mistakes, but it does not protect you if the Raspberry Pi storage itself is physically destroyed. For that, you still need an off-device copy.\n\nRetention And Compaction\n\nWhen a new day starts, previous-day backups are compacted to the latest backup from that day. The compacted file is renamed so it is clear that extra same-day backups were removed.\n\nThe system also compacts whenever it finds multiple backups for older dates, and removes backups older than the retention window. It will not reduce retention days automatically.\n\nRetention Days\nSave Retention\n30 Day(s)\nCurrent backups use 0 B\nDaily estimate 0 B\nActive day limit 48\nLast Compaction\nNot recorded yet\nCompacted Days\nNo previous days compacted yet\nRemoved Backups\n0\nRetention Deletes\n0\nAvailable Backups\n\nNo backups have been created yet.",
+      "title": "Backups · LytGuide IMS",
+      "width": 1440
+    },
+    {
+      "path": "/profile",
+      "bodyWidth": 1425,
+      "headings": [
+        "Profile",
+        "System Admin",
+        "Account Details",
+        "Recent Activity",
+        "Recent Tasks"
+      ],
+      "phase": false,
+      "text": "Work\nProducts\nLocations\nStocktaking\n1\nReports\nSettings\nSystem Admin · Account\nProfile\nStocktaking pending — start\nS\n\nSIGNED IN AS\n\nSystem Admin\n\nadmin · Admin active\n\nTASKS CREATED\n3\nTASKS COMPLETED\n1\nINVENTORY TRANSACTIONS\n1\nLAST ACTIVE\n28 Sept 2026, 11:54 pm\nAccount Details\nName\nSystem Admin\nUsername\nadmin\nRole\nAdmin\nStatus\nactive\nDate Joined\n28 Sept 2026, 9:34 pm\nLast Active\n28 Sept 2026, 11:54 pm\nRecent Activity\nLast Task Activity\n28 Sept 2026, 10:40 pm\nLast Inventory Transaction\n28 Sept 2026, 10:40 pm\nRecent Tasks\nTASK\tUSER\tPRODUCT\tTYPE\tSTATUS\tACTIVITY\tRELATIONSHIP\n#3\tSystem Admin\tCombat Boots\nSKU-SHOE-001\tpick\tcompleted\t28 Sept 2026, 10:40 pm\tCreated + Interacted\n#1\tSystem Admin\tCombat Boots\nSKU-SHOE-001\tpick\tpending_review\t28 Sept 2026, 10:13 pm\tCreated\n#2\tSystem Admin\tCombat Boots\nSKU-SHOE-001\tpick\tpending_review\t28 Sept 2026, 10:11 pm\tCreated",
+      "title": "Profile · LytGuide IMS",
+      "width": 1440
+    }
+  ],
+  "operator": [
+    {
+      "path": "/pick",
+      "headings": [
+        "Pick",
+        "What are you picking?"
+      ],
+      "links": [
+        {
+          "href": "/work",
+          "text": ""
+        },
+        {
+          "href": "/work",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Work"
+        },
+        {
+          "href": "/products",
+          "text": "\n    \n      \n      \n      \n      \n    \n    \n  Products"
+        },
+        {
+          "href": "/cells",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Locations"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Stocktaking0"
+        },
+        {
+          "href": "/reports",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Reports"
+        },
+        {
+          "href": "/settings",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Settings"
+        },
+        {
+          "href": "/profile",
+          "text": "Profile"
+        },
+        {
+          "href": "/work?device_help=1#device-help",
+          "text": "Saved updates & device help"
+        },
+        {
+          "href": "/work",
+          "text": "My work"
+        },
+        {
+          "href": "/work/history",
+          "text": "History"
+        },
+        {
+          "href": "/record-movement",
+          "text": "Record completed movement"
+        },
+        {
+          "href": "/movement-history",
+          "text": "Movement history"
+        },
+        {
+          "href": "/",
+          "text": "Warehouse overview"
+        },
+        {
+          "href": "/recommended-actions",
+          "text": "Space suggestions"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "Stocktaking"
+        },
+        {
+          "href": "/labels",
+          "text": "Location labels"
+        },
+        {
+          "href": "/record-movement?direction=pick",
+          "text": "Record a completed movement for verification"
+        }
+      ],
+      "text": "Menu\nPick\nMy work\nHistory\nWork tools\nConnected to warehouse\nUpdated 23:56\nNEW PICK\nWhat are you picking?\n\nChoose a product and quantity. We’ll find the locations for you.\n\n1 · Plan\n2 · Go to location\n3 · Confirm actual\nFind product by name or code\nProduct\nChoose a product\n5.56 Ammo Crate · ARMY-AMMO-023 (crates)\n9mm Ammo Case · ARMY-AMMO-024 (cases)\nBallistic Helmet · ARMY-HELM-004 (pieces)\nBandage Roll · ARMY-BAND-015 (rolls)\nBinocular Case · ARMY-BINO-019 (cases)\nCamouflage Net Pack · ARMY-NET-012 (packs)\nCanteen · ARMY-CANT-008 (pieces)\nCombat Boots · SKU-SHOE-001 (pairs)\nCompass · ARMY-COMP-018 (pieces)\nEntrenching Tool · ARMY-TOOL-014 (pieces)\nField Notebook · ARMY-NOTE-022 (books)\nField Supply Crate · SKU-BOX-003 (crates)\nField Uniform Shirt · SKU-TEE-002 (pieces)\nFirst Aid Pouch · ARMY-MED-006 (kits)\nMRE Pack · ARMY-RAT-007 (packs)\nRadio Battery · ARMY-BATT-009 (packs)\nRain Cover · ARMY-COVER-021 (pieces)\nRain Poncho · ARMY-PON-011 (pieces)\nRope Bundle · ARMY-ROPE-013 (bundles)\nSignal Flare Kit · ARMY-FLAR-016 (kits)\nSleeping Mat · ARMY-SLEEP-025 (pieces)\nTactical Flashlight · ARMY-LAMP-010 (pieces)\nTactical Gloves · ARMY-GLOV-005 (pairs)\nWater Purification Tablet Tin · ARMY-PURE-017 (tins)\nWeapon Cleaning Kit · ARMY-CLEAN-020 (kits)\n\nChoose a product to see its quantity unit.\n\nQuantity to pick\nChoose a preferred location (optional)\n\nThis reserves stock for your task. You’ll confirm the actual at each location.\n\nFind pick locations\nAlready moved the stock?\nSaved updates & device help",
+      "title": "Pick · LytGuide IMS"
+    },
+    {
+      "path": "/work/history",
+      "headings": [
+        "Task history",
+        "Task history"
+      ],
+      "links": [
+        {
+          "href": "/work",
+          "text": ""
+        },
+        {
+          "href": "/work",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Work"
+        },
+        {
+          "href": "/products",
+          "text": "\n    \n      \n      \n      \n      \n    \n    \n  Products"
+        },
+        {
+          "href": "/cells",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Locations"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Stocktaking0"
+        },
+        {
+          "href": "/reports",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Reports"
+        },
+        {
+          "href": "/settings",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Settings"
+        },
+        {
+          "href": "/profile",
+          "text": "Profile"
+        },
+        {
+          "href": "/work?device_help=1#device-help",
+          "text": "Saved updates & device help"
+        },
+        {
+          "href": "/work",
+          "text": "My work"
+        },
+        {
+          "href": "/work/history",
+          "text": "History"
+        },
+        {
+          "href": "/record-movement",
+          "text": "Record completed movement"
+        },
+        {
+          "href": "/movement-history",
+          "text": "Movement history"
+        },
+        {
+          "href": "/",
+          "text": "Warehouse overview"
+        },
+        {
+          "href": "/recommended-actions",
+          "text": "Space suggestions"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "Stocktaking"
+        },
+        {
+          "href": "/labels",
+          "text": "Location labels"
+        },
+        {
+          "href": "/work/history",
+          "text": "All personal history"
+        },
+        {
+          "href": "/work/history?state=closed",
+          "text": "Completed and cancelled"
+        },
+        {
+          "href": "/movement-history",
+          "text": "Stock movements"
+        },
+        {
+          "href": "/tasks/1",
+          "text": "Combat Boots"
+        },
+        {
+          "href": "/tasks/1",
+          "text": "Open task"
+        },
+        {
+          "href": "/tasks/1",
+          "text": "Details"
+        }
+      ],
+      "text": "Menu\nTask history\nMy work\nHistory\nWork tools\nConnected to warehouse\nUpdated 23:56\nTask history\n\nAll personal history · Completed and cancelled\n\nStock movements are separate records.\n\n1 matching · Page 1 of 1 · Up to 100 rows\nTASK / PRODUCT\tREMAINING\tSTATUS / DUE\tPROGRESS\tPEOPLE\tASSIGNED\tACTIONS\nCOMBAT BOOTS\nPICK · SKU-SHOE-001 · TASK #1\nOPEN TASK\n\t4 pairs\n4 requested\n\tNot started\nDue 29/09/2026, 00:05:42\n\t0 recorded\n0 locations recorded\n\tAssigned to Sam Patel · second\nPerformed by Not recorded\nEntered by Not recorded\n\t28/09/2026, 22:13:21\nAssigned by System Admin\n\tDetails\n1 matching · Page 1 of 1 · Up to 100 rows\nSaved updates & device help",
+      "title": "Task history · LytGuide IMS"
+    },
+    {
+      "path": "/stocktaking",
+      "headings": [
+        "Stocktaking",
+        "Current stocktakes",
+        "Count schedule"
+      ],
+      "links": [
+        {
+          "href": "/work",
+          "text": ""
+        },
+        {
+          "href": "/work",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Work"
+        },
+        {
+          "href": "/products",
+          "text": "\n    \n      \n      \n      \n      \n    \n    \n  Products"
+        },
+        {
+          "href": "/cells",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Locations"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Stocktaking0"
+        },
+        {
+          "href": "/reports",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Reports"
+        },
+        {
+          "href": "/settings",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Settings"
+        },
+        {
+          "href": "/profile",
+          "text": "Profile"
+        },
+        {
+          "href": "/work?device_help=1#device-help",
+          "text": "Saved updates & device help"
+        }
+      ],
+      "text": "Menu\nStocktaking\n\nConnected to warehouse\n\nSaved count help\nCurrent stocktakes\n\nNo outstanding stocktake assigned to you.\n\nCount schedule\n\nNo recurring schedule configured\n\nStart an on-demand stocktake\nPrevious stocktakes and submitted counts (0)",
+      "title": "Stocktaking · LytGuide IMS"
+    },
+    {
+      "path": "/settings",
+      "headings": [
+        "Settings",
+        "Hardware"
+      ],
+      "links": [
+        {
+          "href": "/work",
+          "text": ""
+        },
+        {
+          "href": "/work",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Work"
+        },
+        {
+          "href": "/products",
+          "text": "\n    \n      \n      \n      \n      \n    \n    \n  Products"
+        },
+        {
+          "href": "/cells",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Locations"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Stocktaking0"
+        },
+        {
+          "href": "/reports",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Reports"
+        },
+        {
+          "href": "/settings",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Settings"
+        },
+        {
+          "href": "/profile",
+          "text": "Profile"
+        },
+        {
+          "href": "/work?device_help=1#device-help",
+          "text": "Saved updates & device help"
+        },
+        {
+          "href": "/devices",
+          "text": "Hardware"
+        }
+      ],
+      "text": "Menu\nSettings\nHardware",
+      "title": "Settings · LytGuide IMS"
+    },
+    {
+      "path": "/devices",
+      "headings": [
+        "Hardware configuration and health",
+        "Location mappings"
+      ],
+      "links": [
+        {
+          "href": "/work",
+          "text": ""
+        },
+        {
+          "href": "/work",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Work"
+        },
+        {
+          "href": "/products",
+          "text": "\n    \n      \n      \n      \n      \n    \n    \n  Products"
+        },
+        {
+          "href": "/cells",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Locations"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Stocktaking0"
+        },
+        {
+          "href": "/reports",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Reports"
+        },
+        {
+          "href": "/settings",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Settings"
+        },
+        {
+          "href": "/profile",
+          "text": "Profile"
+        },
+        {
+          "href": "/work?device_help=1#device-help",
+          "text": "Saved updates & device help"
+        },
+        {
+          "href": "/settings",
+          "text": "← Settings"
+        }
+      ],
+      "text": "Menu\nHardware configuration and health\n\n← Settings\n\nController health reflects the last received status. Viewing configuration does not test lights, change mappings or flash firmware.\n\nCONTROLLER\tRS485 ADDRESS\tHEALTH\tLAST SEEN\tOUTPUTS\nCTRL-Z1-B1\t1\tonline\t28 Sept 2026, 11:56 pm\t0\nCTRL-Z1-B2\t2\tonline\t28 Sept 2026, 11:56 pm\t0\nCTRL-Z1-B3\t3\tonline\t28 Sept 2026, 11:56 pm\t0\nLocation mappings\nLOCATION\tCONTROLLER\tOUTPUT\tMAPPING\nZ1-R1-C01\tCTRL-Z1-B1\t1\tmapped\nZ1-R1-C02\tCTRL-Z1-B1\t2\tmapped\nZ1-R1-C03\tCTRL-Z1-B1\t3\tmapped\nZ1-R1-C04\tCTRL-Z1-B1\t4\tmapped\nZ1-R1-C05\tCTRL-Z1-B1\t5\tmapped\nZ1-R1-C06\tCTRL-Z1-B1\t6\tmapped\nZ1-R1-C07\tCTRL-Z1-B1\t7\tmapped\nZ1-R1-C08\tCTRL-Z1-B1\t8\tmapped\nZ1-R1-C09\tCTRL-Z1-B1\t9\tmapped\nZ1-R2-C01\tCTRL-Z1-B1\t10\tmapped\nZ1-R2-C02\tCTRL-Z1-B1\t11\tmapped\nZ1-R2-C03\tCTRL-Z1-B1\t12\tmapped\nZ1-R2-C04\tCTRL-Z1-B1\t13\tmapped\nZ1-R2-C05\tCTRL-Z1-B1\t14\tmapped\nZ1-R2-C06\tCTRL-Z1-B1\t15\tmapped\nZ1-R2-C07\tCTRL-Z1-B1\t16\tmapped\nZ1-R2-C08\tCTRL-Z1-B1\t17\tmapped\nZ1-R2-C09\tCTRL-Z1-B1\t18\tmapped\nZ1-R3-C01\tCTRL-Z1-B1\t19\tmapped\nZ1-R3-C02\tCTRL-Z1-B1\t20\tmapped\nZ1-R3-C03\tCTRL-Z1-B1\t21\tmapped\nZ1-R3-C04\tCTRL-Z1-B1\t22\tmapped\nZ1-R3-C05\tCTRL-Z1-B1\t23\tmapped\nZ1-R3-C06\tCTRL-Z1-B1\t24\tmapped\nZ1-R3-C07\tCTRL-Z1-B1\t25\tmapped\nZ1-R3-C08\tCTRL-Z1-B1\t26\tmapped\nZ1-R3-C09\tCTRL-Z1-B1\t27\tmapped\nZ1-R1-C10\tCTRL-Z1-B2\t1\tmapped\nZ1-R1-C11\tCTRL-Z1-B2\t2\tmapped\nZ1-R1-C12\tCTRL-Z1-B2\t3\tmapped\nZ1-R1-C13\tCTRL-Z1-B2\t4\tmapped\nZ1-R1-C14\tCTRL-Z1-B2\t5\tmapped\nZ1-R1-C15\tCTRL-Z1-B2\t6\tmapped\nZ1-R1-C16\tCTRL-Z1-B2\t7\tmapped\nZ1-R1-C17\tCTRL-Z1-B2\t8\tmapped\nZ1-R1-C18\tCTRL-Z1-B2\t9\tmapped\nZ1-R2-C10\tCTRL-Z1-B2\t10\tmapped\nZ1-R2-C11\tCTRL-Z1-B2\t11\tmapped\nZ1-R2-C12\tCTRL-Z1-B2\t12\tmapped\nZ1-R2-C13\tCTRL-Z1-B2\t13\tmapped\nZ1-R2-C14\tCTRL-Z1-B2\t14\tmapped\nZ1-R2-C15\tCTRL-Z1-B2\t15\tmapped\nZ1-R2-C16\tCTRL-Z1-B2\t16\tmapped\nZ1-R2-C17\tCTRL-Z1-B2\t17\tmapped\nZ1-R2-C18\tCTRL-Z1-B2\t18\tmapped\nZ1-R3-C10\tCTRL-Z1-B2\t19\tmapped\nZ1-R3-C11\tCTRL-Z1-B2\t20\tmapped\nZ1-R3-C12\tCTRL-Z1-B2\t21\tmapped\nZ1-R3-C13\tCTRL-Z1-B2\t22\tmapped\nZ1-R3-C14\tCTRL-Z1-B2\t23\tmapped\nZ1-R3-C15\tCTRL-Z1-B2\t24\tmapped\nZ1-R3-C16\tCTRL-Z1-B2\t25\tmapped\nZ1-R3-C17\tCTRL-Z1-B2\t26\tmapped\nZ1-R3-C18\tCTRL-Z1-B2\t27\tmapped\nZ1-R1-C19\tCTRL-Z1-B3\t1\tmapped\nZ1-R1-C20\tCTRL-Z1-B3\t2\tmapped\nZ1-R1-C21\tCTRL-Z1-B3\t3\tmapped\nZ1-R1-C22\tCTRL-Z1-B3\t4\tmapped\nZ1-R1-C23\tCTRL-Z1-B3\t5\tmapped\nZ1-R1-C24\tCTRL-Z1-B3\t6\tmapped\nZ1-R1-C25\tCTRL-Z1-B3\t7\tmapped\nZ1-R1-C26\tCTRL-Z1-B3\t8\tmapped\nZ1-R1-C27\tCTRL-Z1-B3\t9\tmapped\nZ1-R2-C19\tCTRL-Z1-B3\t10\tmapped\nZ1-R2-C20\tCTRL-Z1-B3\t11\tmapped\nZ1-R2-C21\tCTRL-Z1-B3\t12\tmapped\nZ1-R2-C22\tCTRL-Z1-B3\t13\tmapped\nZ1-R2-C23\tCTRL-Z1-B3\t14\tmapped\nZ1-R2-C24\tCTRL-Z1-B3\t15\tmapped\nZ1-R2-C25\tCTRL-Z1-B3\t16\tmapped\nZ1-R2-C26\tCTRL-Z1-B3\t17\tmapped\nZ1-R2-C27\tCTRL-Z1-B3\t18\tmapped\nZ1-R3-C19\tCTRL-Z1-B3\t19\tmapped\nZ1-R3-C20\tCTRL-Z1-B3\t20\tmapped\nZ1-R3-C21\tCTRL-Z1-B3\t21\tmapped\nZ1-R3-C22\tCTRL-Z1-B3\t22\tmapped\nZ1-R3-C23\tCTRL-Z1-B3\t23\tmapped\nZ1-R3-C24\tCTRL-Z1-B3\t24\tmapped\nZ1-R3-C25\tCTRL-Z1-B3\t25\tmapped\nZ1-R3-C26\tCTRL-Z1-B3\t26\tmapped\nZ1-R3-C27\tCTRL-Z1-B3\t27\tmapped",
+      "title": "Hardware configuration and health · LytGuide IMS"
+    },
+    {
+      "path": "/quantities?productId=1",
+      "headings": [
+        "Locations · Quantity display",
+        "Z1-R1-C01",
+        "Z1-R1-C02",
+        "Z1-R1-C03"
+      ],
+      "links": [
+        {
+          "href": "/work",
+          "text": ""
+        },
+        {
+          "href": "/work",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Work"
+        },
+        {
+          "href": "/products",
+          "text": "\n    \n      \n      \n      \n      \n    \n    \n  Products"
+        },
+        {
+          "href": "/cells",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Locations"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Stocktaking0"
+        },
+        {
+          "href": "/reports",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Reports"
+        },
+        {
+          "href": "/settings",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Settings"
+        },
+        {
+          "href": "/profile",
+          "text": "Profile"
+        },
+        {
+          "href": "/work?device_help=1#device-help",
+          "text": "Saved updates & device help"
+        },
+        {
+          "href": "/cells/1",
+          "text": "Z1-R1-C01"
+        },
+        {
+          "href": "/quantities?cellId=1&productId=1",
+          "text": "Select this product at this location"
+        },
+        {
+          "href": "/cells/2",
+          "text": "Z1-R1-C02"
+        },
+        {
+          "href": "/quantities?cellId=2&productId=1",
+          "text": "Select this product at this location"
+        },
+        {
+          "href": "/cells/3",
+          "text": "Z1-R1-C03"
+        },
+        {
+          "href": "/quantities?cellId=3&productId=1",
+          "text": "Select this product at this location"
+        }
+      ],
+      "text": "Menu\nLocations · Quantity display\n\nSelected product across its locations\n\nStart quantity display\n\nExact quantities remain on screen. Mixed-product cells need product selection; decimals and values over 999 use locator guidance instead of an inaccurate number.\n\nZ1-R1-C01\n\nController last reported online\n\nCombat Boots\n\nOn shelf 3 · Reserved 3 · Available to pick 0 pairs\n\nSelect this product at this location\nZ1-R1-C02\n\nController last reported online\n\nCombat Boots\n\nOn shelf 2 · Reserved 2 · Available to pick 0 pairs\n\nSelect this product at this location\nZ1-R1-C03\n\nController last reported online\n\nCombat Boots\n\nOn shelf 2 · Reserved 0 · Available to pick 2 pairs\n\nSelect this product at this location",
+      "title": "Locations · Quantity display · LytGuide IMS"
+    },
+    {
+      "path": "/reports#stock-snapshot",
+      "headings": [
+        "Reports",
+        "Report Library",
+        "Choose A Report",
+        "Choose A Report To Print"
+      ],
+      "links": [
+        {
+          "href": "/work",
+          "text": ""
+        },
+        {
+          "href": "/work",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Work"
+        },
+        {
+          "href": "/products",
+          "text": "\n    \n      \n      \n      \n      \n    \n    \n  Products"
+        },
+        {
+          "href": "/cells",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Locations"
+        },
+        {
+          "href": "/stocktaking",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Stocktaking0"
+        },
+        {
+          "href": "/reports",
+          "text": "\n    \n      \n      \n      \n      \n      \n      \n    \n    \n  Reports"
+        },
+        {
+          "href": "/settings",
+          "text": "\n    \n      \n      \n      \n    \n    \n  Settings"
+        },
+        {
+          "href": "/profile",
+          "text": "Profile"
+        },
+        {
+          "href": "/work?device_help=1#device-help",
+          "text": "Saved updates & device help"
+        },
+        {
+          "href": "#stock-snapshot",
+          "text": "\n      \n        Stock Snapshot\n        What stock is recorded on shelf?\n      \n      \n        25\n        Products With Stock\n      \n    "
+        },
+        {
+          "href": "#replenishment-watch",
+          "text": "\n      \n        Replenishment Watch\n        Which products are out of stock or down to one normal location batch?\n      \n      \n        13\n        Products To Review\n      \n    "
+        },
+        {
+          "href": "#slow-moving-stock",
+          "text": "\n      \n        Slow-Moving Stock\n        Which stocked products were not picked in the selected timeframe?\n      \n      \n        24\n        Products Without Picks\n      \n    "
+        },
+        {
+          "href": "#product-movement",
+          "text": "\n      \n        Product Movement & Demand\n        Which products were picked most in the selected timeframe?\n      \n      \n        Combat Boots\n        Most Used (Picked)\n      \n    "
+        },
+        {
+          "href": "#movement",
+          "text": "\n      \n        Stock Change Over Time\n        Did inventory increase or decrease during the selected timeframe?\n      \n      \n        1\n        Periods With Movement\n      \n    "
+        },
+        {
+          "href": "#team-activity",
+          "text": "\n      \n        Team Throughput\n        What pick and put-away work did each team member complete?\n      \n      \n        1\n        Completed Tasks\n      \n    "
+        },
+        {
+          "href": "#issues",
+          "text": "\n      \n        Exception Hotspots\n        Where did completed warehouse work fall short of plan?\n      \n      \n        0\n        Affected Tasks\n      \n    "
+        },
+        {
+          "href": "#adjustments",
+          "text": "\n      \n        Adjustment Audit\n        Who manually changed stock, when, and why?\n      \n      \n        0\n        Count Changes\n      \n    "
+        },
+        {
+          "href": "/reports/stocktake-differences",
+          "text": "Stocktake differences · count evidence and coverage"
+        },
+        {
+          "href": "/quantities",
+          "text": "View on-shelf, reserved and available-to-pick quantities"
+        }
+      ],
+      "text": "Menu\nReports\n\nWAREHOUSE INTELLIGENCE\n\nReport Library\n\nChoose the warehouse question you want answered.\n\nCURATED QUESTIONS\n\nChoose A Report\n9\nSearch reports\nStock Snapshot\nWhat stock is recorded on shelf?\n25\nProducts With Stock\nReplenishment Watch\nWhich products are out of stock or down to one normal location batch?\n13\nProducts To Review\nSlow-Moving Stock\nWhich stocked products were not picked in the selected timeframe?\n24\nProducts Without Picks\nProduct Movement & Demand\nWhich products were picked most in the selected timeframe?\nCombat Boots\nMost Used (Picked)\nStock Change Over Time\nDid inventory increase or decrease during the selected timeframe?\n1\nPeriods With Movement\nTeam Throughput\nWhat pick and put-away work did each team member complete?\n1\nCompleted Tasks\nException Hotspots\nWhere did completed warehouse work fall short of plan?\n0\nAffected Tasks\nAdjustment Audit\nWho manually changed stock, when, and why?\n0\nCount Changes\nStocktake differences · count evidence and coverage\nVIEWING\nStock Snapshot\nVisuals\nFilters\nChoose Report To Print\nPrint Current\n\nStock Snapshot report loaded.\n\nLytGuide IMS\n\nINVENTORY REPORT\n\nStock Snapshot\n\nWhat stock is recorded on shelf?\n\nSELECTED RANGE\nCurrent Snapshot\nGENERATED\n28 Sept 2026, 11:56 pm\nGENERATED BY\nWarehouse Operator (operator)\nREPORTING UNIT\nLytGuide IMS\nMEASURE\tVALUE\tDESCRIPTION\nSTOCK GROUPS\t25\tGrouped by name\nUNITS OF MEASURE\tbooks, bundles, cases, crates, kits, packs, pairs, pieces, rolls, tins\t10 units selected\nLARGEST GROUP\tSeparated by unit\tCompare each selected unit\nON HAND\tSeparated by unit\tTotals are not combined\nOn-hand Stock By Name · books\n\nCurrent stock is ranked within books; quantities from different units are never combined.\n\nField Notebook\n9 books\nOn-hand Stock By Name · bundles\n\nCurrent stock is ranked within bundles; quantities from different units are never combined.\n\nRope Bundle\n7 bundles\nOn-hand Stock By Name · cases\n\nCurrent stock is ranked within cases; quantities from different units are never combined.\n\n9mm Ammo Case\n6 cases\nBinocular Case\n3 cases\nOn-hand Stock By Name · crates\n\nCurrent stock is ranked within crates; quantities from different units are never combined.\n\nField Supply Crate\n8 crates\n5.56 Ammo Crate\n5 crates\nOn-hand Stock By Name · kits\n\nCurrent stock is ranked within kits; quantities from different units are never combined.\n\nFirst Aid Pouch\n13 kits\nWeapon Cleaning Kit\n9 kits\nSignal Flare Kit\n4 kits\nOn-hand Stock By Name · packs\n\nCurrent stock is ranked within packs; quantities from different units are never combined.\n\nMRE Pack\n19 packs\nRadio Battery\n11 packs\nCamouflage Net Pack\n2 packs\nOn-hand Stock By Name · pairs\n\nCurrent stock is ranked within pairs; quantities from different units are never combined.\n\nTactical Gloves\n13 pairs\nCombat Boots\n7 pairs\nOn-hand Stock By Name · pieces\n\nCurrent stock is ranked within pieces; quantities from different units are never combined.\n\nCanteen\n16 pieces\nField Uniform Shirt\n10 pieces\nRain Cover\n8 pieces\nCompass\n6 pieces\nTactical Flashlight\n6 pieces\nRain Poncho\n5 pieces\nBallistic Helmet\n4 pieces\nSleeping Mat\n4 pieces\nEntrenching Tool\n3 pieces\nOn-hand Stock By Name · rolls\n\nCurrent stock is ranked within rolls; quantities from different units are never combined.\n\nBandage Roll\n12 rolls\nOn-hand Stock By Name · tins\n\nCurrent stock is ranked within tins; quantities from different units are never combined.\n\nWater Purificati...\n10 tins\n\n* Each visual compares stock only within its shown unit. Quantities from different units are never combined.\n\nCurrent Stock Detail\nNAME\tPRODUCTS\tON SHELF (RECORDED)\tUNIT OF MEASURE\nField Notebook\t1\t9\tbooks\nRope Bundle\t1\t7\tbundles\n9mm Ammo Case\t1\t6\tcases\nBinocular Case\t1\t3\tcases\nField Supply Crate\t1\t8\tcrates\n5.56 Ammo Crate\t1\t5\tcrates\nFirst Aid Pouch\t1\t13\tkits\nWeapon Cleaning Kit\t1\t9\tkits\nSignal Flare Kit\t1\t4\tkits\nMRE Pack\t1\t19\tpacks\nRadio Battery\t1\t11\tpacks\nCamouflage Net Pack\t1\t2\tpacks\nTactical Gloves\t1\t13\tpairs\nCombat Boots\t1\t7\tpairs\nCanteen\t1\t16\tpieces\nField Uniform Shirt\t1\t10\tpieces\nRain Cover\t1\t8\tpieces\nCompass\t1\t6\tpieces\nTactical Flashlight\t1\t6\tpieces\nRain Poncho\t1\t5\tpieces\nBallistic Helmet\t1\t4\tpieces\nSleeping Mat\t1\t4\tpieces\nEntrenching Tool\t1\t3\tpieces\nBandage Roll\t1\t12\trolls\nWater Purification Tablet Tin\t1\t10\ttins\nCalculation note\nStock composition shows recorded on-shelf stock, including reserved goods; it is not the quantity available to pick. Percentages use the complete total for each compatible unit, including the “Other” slice.\n\nView on-shelf, reserved and available-to-pick quantities",
+      "title": "Reports · LytGuide IMS"
+    }
+  ]
+}
