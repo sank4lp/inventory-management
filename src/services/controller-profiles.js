@@ -2,7 +2,16 @@ import {createHash} from 'node:crypto';
 import {encodeControllerConfiguration} from './hardware-adapters/controller-configuration.js';
 import {groupChecksum} from './hardware-adapters/group-protocol.js';
 
-export function validateControllerConfiguration(reply, address, request = null, {allowFault=false} = {}) {
+export function controllerBusDiagnostics(reply) {
+  const status=reply?.rs485;
+  if(status===undefined)return null; // Existing firmware has no UART diagnostics.
+  if(!status || status.version!==1 || typeof status.ready!=='boolean' ||
+    !['baud','rxPin','txPin','directionPin','rxBytes','rxLines','txBytes','pingRequests'].every(key=>Number.isInteger(status[key])&&status[key]>=0&&status[key]<=0xffffffff) ||
+    status.rxPin>39 || status.txPin>39 || status.directionPin>39 || status.ready&&status.baud!==115200 || !status.ready&&status.baud!==0)throw new Error('The ESP32 returned invalid RS485 diagnostics. Read its setup again before updating it.');
+  return {...status};
+}
+
+export function validateControllerConfiguration(reply, address, request = null, {allowFault=false,allowBusFault=false} = {}) {
   if (!reply || reply.type !== 'controller-config' || reply.address?.toUpperCase() !== address.toUpperCase() || typeof reply.fault !== 'boolean' || request && reply.request !== request) throw new Error('The ESP32 configuration reply did not match this controller. Check the selected USB device and try again.');
   if (!Number.isInteger(reply.revision) || reply.revision < 0 || reply.revision > 0xffffffff || !/^[a-f0-9]{128}$/.test(reply.routing)) throw new Error('Invalid controller configuration response.');
   const routing=reply.routing.match(/../g).map(n=>parseInt(n,16));
@@ -12,6 +21,8 @@ export function validateControllerConfiguration(reply, address, request = null, 
   const rev=reply.revision.toString(16).padStart(8,'0');
   const payload=`${address.toUpperCase()} config-status ${reply.request || '-'} ${rev} ${reply.physicalModules} ${reply.routing} ${reply.fault?1:0}`;
   if (reply.checksum !== groupChecksum(payload)) throw new Error('Controller configuration checksum does not match.');
+  const bus=controllerBusDiagnostics(reply);
+  if(bus && !bus.ready && !allowBusFault)throw new Error('The ESP32 LED setup is readable over USB, but its RS485 serial port did not start. Check the selected ESP32 board and firmware tools before flashing again.');
   if (reply.fault && !allowFault) throw new Error('The ESP32 could not load its saved LED setup. For a reused board, choose Set up as fresh controller to replace its old setup, or restore its previous controller setup to keep the LED mapping.');
   return {physicalCount:reply.physicalModules,logicalCount,routing,revision:reply.revision,fault:reply.fault};
 }

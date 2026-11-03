@@ -6,7 +6,7 @@ import { accessSync, constants, mkdirSync, readdirSync, realpathSync } from "nod
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { openUsbControllerSession } from "./usb-controller-session.js";
-import { loadControllerProfile, saveControllerProfile, validateControllerConfiguration } from "./controller-profiles.js";
+import { controllerBusDiagnostics, loadControllerProfile, saveControllerProfile, validateControllerConfiguration } from "./controller-profiles.js";
 import { encodeControllerConfiguration } from "./hardware-adapters/controller-configuration.js";
 import {resizedControllerProfile,applyControllerLayout} from './controller-layout.js';
 import {firmwareFailure} from './firmware-errors.js';
@@ -514,7 +514,9 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
   async function readUsbConfiguration(session,address,options={}) {
     const request=randomBytes(8).toString('hex');
     const reply=await session.exchange(`to ${address} config-status ${request}`,r=>r.type==='controller-config' && r.address?.toUpperCase()===address.toUpperCase() && r.request===request,options.exchange);
-    return validateControllerConfiguration(reply,address,request,options);
+    const configuration=validateControllerConfiguration(reply,address,request,options);
+    options.onReply?.(reply);
+    return configuration;
   }
   const savedChipIdentity=id=>db.prepare('SELECT value FROM app_metadata WHERE key=?').get(`controller_chip_identity:${id}`)?.value;
   async function identifyUsbController(job){
@@ -525,7 +527,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     // address over USB before accepting an explicitly confirmed different board.
     for(const controller of collisions.filter(c=>!savedChipIdentity(c.id))){
       const session=serialSessionFactory(job.port,host);let matched=false;
-      try{await readUsbConfiguration(session,controller.address,{allowFault:true,exchange:{attempts:2,timeoutMs:700}});matched=true;}
+      try{await readUsbConfiguration(session,controller.address,{allowFault:true,allowBusFault:true,exchange:{attempts:2,timeoutMs:700}});matched=true;}
       catch(error){if(!/USB confirmation timed out/.test(error.message))throw error;}
       finally{session.close();}
       if(matched)throw new Error(`This ESP32 is already registered as ${controller.controller_code}. Use Edit on that controller; its locations are kept.`);
@@ -730,7 +732,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         const session=serialSessionFactory(job.port,host);
         try{
           let actual;
-          try{actual=await readUsbConfiguration(session,job.controllerAddress,{allowFault:true});}
+          try{actual=await readUsbConfiguration(session,job.controllerAddress,{allowFault:true,allowBusFault:true});}
           catch(error){
             // The ROM can be healthy while the old application is damaged or
             // no longer starts. A verified host profile and ROM identity allow
@@ -991,7 +993,8 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       let session;
       try {
         session=serialSessionFactory(selected.port,host);
-        const actual=await readUsbConfiguration(session,controller.address);
+        let diagnostics=null;
+        const actual=await readUsbConfiguration(session,controller.address,{onReply:reply=>{diagnostics=controllerBusDiagnostics(reply);}});
         currentActor(db,actor,'hardware.flash');
         if(replacementSignature(controller.id)!==signature)throw new Error('Controller setup changed during backup. Refresh and retry.');
         if(hasOutstandingWork(db)&&sameBoard(controller,selected.device.deviceIdentity)){
@@ -1001,7 +1004,8 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         const profile=saveControllerProfile(db,controller,actual);
         recordSystemEvent({eventType:'controller_profile_saved',status:'info',message:`Replacement backup saved for ${controller.controller_code}.`,payload:{controllerId:controller.id,revision:actual.revision}});
         backupService?.createCriticalBackup?.({source:`controller-profile-${controller.controller_code}`});
-        return {message:'Controller setup saved. You can now replace its ESP32 without remapping cells.',profile};
+        const busMessage=diagnostics?` RS485 port ready at ${diagnostics.baud} baud. RX GPIO${diagnostics.rxPin}, TX GPIO${diagnostics.txPin}, direction GPIO${diagnostics.directionPin}. Received ${diagnostics.rxBytes} bytes / ${diagnostics.rxLines} lines; ${diagnostics.pingRequests} ping requests; submitted ${diagnostics.txBytes} bytes for transmission. This does not verify the A/B connection.`:' This firmware does not report RS485 diagnostics. USB setup is verified; the A/B connection is not.';
+        return {message:'Controller setup saved. You can now replace its ESP32 without remapping cells.'+busMessage,profile,diagnostics};
       }finally{session?.close();releaseMaintenance(lock,controller.id);}
     },
     startFlashJob(input = {}, actor = null) {

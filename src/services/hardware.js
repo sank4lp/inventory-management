@@ -180,7 +180,9 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
       return {
         ok: false,
         degraded: true,
-        message: "Hardware command failed. Manual guidance mode is recommended.",
+        message: operationName==='controller_health'
+          ? `RS485 connection check failed: ${error.message}`
+          : "Hardware command failed. Manual guidance mode is recommended.",
         events: [],
       };
     }

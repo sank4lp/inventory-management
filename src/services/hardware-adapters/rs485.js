@@ -358,11 +358,14 @@ export function createRs485Adapter({ config = {}, logger }) {
     );
 
     if (!matchedReply) {
+      const usbOnly=replies.some(reply=>reply.type==='error'&&reply.message==='usb-maintenance-only');
       return {
         ok: false,
         degraded: true,
         status: "offline",
-        message: `No ping response from ${controller.controller_code}.`,
+        message: usbOnly
+          ? 'The selected port is an ESP32 USB connection. Select the Pi’s USB-RS485 adapter for warehouse communication.'
+          : `No RS485 reply from ${controller.controller_code||controllerAddress}${port?` on ${port}`:''}. Check the selected adapter, controller power and A/B wiring.`,
         events: [
           event({
             controllerId: controller.id,

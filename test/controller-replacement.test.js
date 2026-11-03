@@ -33,7 +33,7 @@ function fixture(t,{missing=false,failUpload=false,failRestore=false,lostAck=fal
  controller=db.prepare('SELECT * FROM controllers WHERE id=?').get(controller.id);
  const desired={physicalCount:3,logicalCount:4,routing,revision:7};
  if(!missing&&!profilelessLegacy)saveControllerProfile(db,controller,desired);
- const commands=[],usb=[],backups=[],resumes=[];let resumeHook=null,releaseCompile;const compileGate=holdCompile?new Promise(resolve=>releaseCompile=resolve):null;let restoreAttempts=0;
+ const commands=[],usb=[],backups=[],resumes=[];let resumeHook=null,releaseCompile,busDiagnostics=null;const compileGate=holdCompile?new Promise(resolve=>releaseCompile=resolve):null;let restoreAttempts=0;
  let actual=sameBoard?{...desired,fault:false}:{physicalCount:0,logicalCount:0,routing:Array(64).fill(0),revision:0,fault:false};
  const host={command:()=>process.execPath,support:()=>({simulated:false}),listDevices:()=>[{path:'/dev/test-esp32',deviceIdentity:sameBoard?'OLD-USB':'NEW-USB',recommended:true}],configureSerial:()=>({status:0}),
  async runFirmware(args){commands.push(args);if(args[0]==='compile'&&failCompile)throw new Error('Compiler missing fixture');if(args[0]==='compile'&&compileGate)await compileGate;if(args[0]==='upload'&&sameBoard)actual={physicalCount:0,logicalCount:0,routing:Array(64).fill(0),revision:0,fault:false};if(args[0]==='upload'&&failUpload)throw new Error('Upload failed.');return {simulated:false};}};
@@ -49,6 +49,7 @@ function fixture(t,{missing=false,failUpload=false,failRestore=false,lostAck=fal
    if(lostAck)throw new Error('ACK lost.');
    reply={type:'ack',command:'configure',address:tokens[1],request:tokens[3]};
   }
+  if(reply?.type==='controller-config'&&busDiagnostics)reply.rs485={...busDiagnostics};
   if(!accept(reply))throw new Error('Response did not match.');return reply;
  },close(){}})});
  t.after(()=>db.close());
@@ -56,8 +57,24 @@ function fixture(t,{missing=false,failUpload=false,failRestore=false,lostAck=fal
  const snapshot=()=>JSON.stringify({cells:db.prepare('SELECT * FROM cells ORDER BY id').all(),stock:db.prepare('SELECT * FROM inventory_balances ORDER BY cell_id,product_id').all(),ledger:db.prepare('SELECT * FROM transactions ORDER BY id').all()});
  const start=()=>service.startFlashJob(input,admin);
  async function finish(job){for(let i=0;i<200;i++){const current=service.getJob(job.id);if(current.status!=='running')return current;await wait(5);}throw new Error('Test job did not finish.');}
- return {db,service,admin,operator,controller,input,start,finish,commands,usb,backups,resumes,cell,product,releaseCompile,failNextIdentity(){identityFailure=true;},setResumeHook(fn){resumeHook=fn;},snapshot,setActual(value){actual=value;},setChipIdentity(value){chipIdentity=value;identityReads=0;}};
+ return {db,service,admin,operator,controller,input,start,finish,commands,usb,backups,resumes,cell,product,releaseCompile,failNextIdentity(){identityFailure=true;},setBusDiagnostics(value){busDiagnostics=value;},setResumeHook(fn){resumeHook=fn;},snapshot,setActual(value){actual=value;},setChipIdentity(value){chipIdentity=value;identityReads=0;}};
 }
+
+const healthyBus={version:1,ready:true,baud:115200,rxPin:16,txPin:17,directionPin:4,rxBytes:12,rxLines:2,txBytes:300,pingRequests:2};
+test('USB setup backup exposes UART diagnostics without claiming the A/B path was verified',async t=>{
+ const f=fixture(t,{sameBoard:true});f.setBusDiagnostics(healthyBus);const before=f.snapshot();
+ const result=await f.service.backupController(f.input,f.admin);
+ assert.deepEqual(result.diagnostics,healthyBus);assert.match(result.message,/RX GPIO16, TX GPIO17, direction GPIO4/);assert.match(result.message,/Received 12 bytes/);assert.match(result.message,/does not verify the A\/B connection/);
+ assert.equal(f.snapshot(),before);assert.equal(f.commands.length,0);assert.equal(result.profile.rs485,undefined);
+});
+test('a readable LED setup with a failed UART cannot produce a successful flash or replace its host profile',async t=>{
+ const f=fixture(t,{sameBoard:true}),before=f.snapshot(),profile=loadControllerProfile(f.db,f.controller);
+ f.setBusDiagnostics({...healthyBus,ready:false,baud:0,rxBytes:0,rxLines:0,txBytes:0,pingRequests:0});
+ await assert.rejects(()=>f.service.backupController(f.input,f.admin),/RS485 serial port did not start/);
+ const job=await f.finish(f.start());assert.equal(job.status,'failed');assert.match(job.error,/RS485 serial port did not start/);
+ assert.equal(f.snapshot(),before);assert.deepEqual(loadControllerProfile(f.db,f.controller),profile);
+ assert.ok(f.commands.some(args=>args[0]==='upload'),'a damaged old UART can still be reflashed, but failed new initialization is not accepted');
+});
 
 test('three different ESP32s sharing one USB serial can be added without overwriting any controller or locations',async t=>{
  const f=fixture(t,{chipIdentity:'00:11:22:33:44:01'}),before=f.snapshot(),ids=[];

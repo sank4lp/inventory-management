@@ -93,3 +93,22 @@ test('an over-budget serial drain cannot send a late probe',()=>{
  const writes=[];const adapter=createRs485Adapter({logger:{debug(){},warn(){}},config:{rs485WriteLine:line=>writes.push(line),rs485ReadWindow:()=>{Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60);return '';}}});
  try{assert.equal(adapter.checkControllerHealth({id:1,address:'RECOVER',controller_code:'Test'},{timeoutMs:40}).ok,false);assert.equal(writes.length,0);}finally{adapter.dispose();}
 });
+
+test('health checks distinguish selecting the ESP32 USB port from no reply on the RS485 bus',()=>{
+ for(const usbOnly of [false,true]){
+  const adapter=createRs485Adapter({logger:{debug(){},warn(){}},config:{rs485SerialPort:'/dev/serial/by-id/test-adapter',rs485WriteLine:()=>{},rs485ReadWindow:timeout=>timeout<=1?'':usbOnly?'"boot noise"\n'+JSON.stringify({type:'error',message:'usb-maintenance-only'})+'\n':''}});
+  try{
+   const result=adapter.checkControllerHealth({address:'CTRL-A',controller_code:'Shelf A'});
+   assert.equal(result.ok,false);assert.equal(result.status,'offline');
+   assert.match(result.message,usbOnly?/ESP32 USB connection.*USB-RS485 adapter/:/No RS485 reply.*Shelf A.*test-adapter.*A\/B wiring/);
+   assert.ok(result.events.some(event=>event.payload.port==='/dev/serial/by-id/test-adapter'));
+  }finally{adapter.dispose();}
+ }
+});
+test('adapter access failures retain their cause for controller health without changing other hardware errors',()=>{
+ const f=fixture();const hardware=createHardwareService({db:f.db,logger:{info(){},warn(){},error(){},debug(){}},config:{hardwareAdapter:'rs485',rs485WriteLine:()=>{throw new Error('RS485 adapter access denied');},rs485ReadWindow:()=>''}});
+ try{
+  const result=hardware.checkControllerHealth(f.controllers[0]);assert.equal(result.ok,false);assert.match(result.message,/RS485 connection check failed: RS485 adapter access denied/);
+  assert.ok(f.db.prepare("SELECT payload FROM device_events WHERE event_type='controller_health_failed'").all().some(row=>JSON.parse(row.payload).error==='RS485 adapter access denied'));
+ }finally{hardware.dispose();f.end();}
+});

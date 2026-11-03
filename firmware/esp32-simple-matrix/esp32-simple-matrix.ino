@@ -76,6 +76,10 @@ bool usbMaintenance = false;
 char usbLine[320];
 int usbLinePos = 0;
 bool usbLineOverflow = false;
+uint32_t rs485RxBytes = 0;
+uint32_t rs485RxLines = 0;
+uint32_t rs485TxBytes = 0;
+uint32_t rs485PingRequests = 0;
 
 bool mappedModule(int module) {
   return module >= 0 && module < MODULES && runtimeConfig.routing[module] > 0;
@@ -257,9 +261,12 @@ int pixelIndex(int module, int x, int y) {
 
 void send485(const char *msg) {
   if (usbMaintenance) { Serial.print(msg); Serial.flush(); return; }
+  // USB setup can work even when the separate bus UART failed to start.
+  // Keep the transceiver receiving and expose that failure in config-status.
+  if (!RS485) { digitalWrite(RS485_DE_RE, LOW); return; }
   digitalWrite(RS485_DE_RE, HIGH);
   delayMicroseconds(100);
-  RS485.print(msg);
+  rs485TxBytes += RS485.print(msg);
   RS485.flush();
   delayMicroseconds(100);
   digitalWrite(RS485_DE_RE, LOW);
@@ -1237,6 +1244,7 @@ void handleLine(char *cmdLine) {
   }
 
   if (strcmp(command, "ping") == 0) {
+    rs485PingRequests++;
     char msg[512];
     snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
     send485(msg);
@@ -1521,8 +1529,11 @@ void controllerConfigStatus(const char *request) {
   for (char *p = address; *p; p++) *p = toupper(*p);
   char payload[300];
   snprintf(payload, sizeof(payload), "%s config-status %s %08lx %d %s %d", address, request, (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount, map, configurationFault ? 1 : 0);
-  char reply[512];
-  snprintf(reply, sizeof(reply), "{\"type\":\"controller-config\",\"address\":\"%s\",\"request\":\"%s\",\"revision\":%lu,\"physicalModules\":%d,\"logicalModules\":%d,\"routing\":\"%s\",\"maxModules\":64,\"fault\":%s,\"checksum\":\"%08lx\"}\n", CONTROLLER_ADDRESS, request, (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount, MODULES, map, configurationFault ? "true" : "false", (unsigned long)groupCrc(payload));
+  char reply[768];
+  // These counters describe UART activity, not delivery through the external
+  // transceiver. USB requests never increment the bus counters.
+  bool busReady = (bool)RS485;
+  snprintf(reply, sizeof(reply), "{\"type\":\"controller-config\",\"address\":\"%s\",\"request\":\"%s\",\"revision\":%lu,\"physicalModules\":%d,\"logicalModules\":%d,\"routing\":\"%s\",\"maxModules\":64,\"fault\":%s,\"checksum\":\"%08lx\",\"rs485\":{\"version\":1,\"ready\":%s,\"baud\":%lu,\"rxPin\":%d,\"txPin\":%d,\"directionPin\":%d,\"rxBytes\":%lu,\"rxLines\":%lu,\"txBytes\":%lu,\"pingRequests\":%lu}}\n", CONTROLLER_ADDRESS, request, (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount, MODULES, map, configurationFault ? "true" : "false", (unsigned long)groupCrc(payload), busReady ? "true" : "false", busReady ? (unsigned long)RS485.baudRate() : 0UL, RS485_RX, RS485_TX, RS485_DE_RE, (unsigned long)rs485RxBytes, (unsigned long)rs485RxLines, (unsigned long)rs485TxBytes, (unsigned long)rs485PingRequests);
   send485(reply);
 }
 
@@ -1653,7 +1664,9 @@ void loop() {
   }
   while (RS485.available()) {
     char c = RS485.read();
+    rs485RxBytes++;
     if (c == '\n') {
+      rs485RxLines++;
       line[linePos] = 0;
       if (!lineOverflow) handleLine(line);
       linePos = 0;

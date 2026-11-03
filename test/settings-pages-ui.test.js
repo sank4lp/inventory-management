@@ -46,6 +46,15 @@ test('Settings tables preserve product field submissions, backup safeguards and 
   assert.match(backups.body,/data-row-collapser data-row-limit="5"/);assert.doesNotMatch(backups.body,/aria-label="Close Restore database"/);
   assert.match(backups.body,/action="\/backups\/schedule"/);assert.match(backups.body,/action="\/backups\/retention"/);assert.doesNotMatch(backups.body,/>Restore Notes</);
   assert.match((await call('GET','/settings/system')).body,/ui-disclosure.*Recent recovery actions/);
+  const originalHealth=state.systemService.refreshControllerHealth;
+  try{
+   const controller=db.prepare('SELECT id FROM controllers WHERE active=1 LIMIT 1').get();
+   for(const message of ['RS485 connection check failed: RS485_SERIAL_PORT is not configured.','Controller configuration needs recovery. Outputs are disabled until its routing is verified.']){
+    state.systemService.refreshControllerHealth=()=>({status:'unknown',message});
+    const checked=await call('POST','/devices/controller-test',{controller_id:String(controller.id)});
+    assert.equal(checked.statusCode,302);assert.equal(new URL(checked.headers.Location,'http://localhost').searchParams.get('flash'),message);
+   }
+  }finally{state.systemService.refreshControllerHealth=originalHealth;}
   const {createAccessService}=await import('../src/modules/access/service.js');const access=createAccessService({db});const operator=db.prepare("SELECT * FROM users WHERE role='operator'").get();
   const role=access.saveRole(admin,{name:'Settings reader',capabilities:['hardware.view','backups.view']});const reader=access.assign(admin,{userId:operator.id,roleId:role});
   const readOnly=await call('GET','/backups',{},reader);assert.equal(readOnly.statusCode,200);assert.doesNotMatch(readOnly.body,/action="\/backups\/(create|schedule|restore|retention)"/);

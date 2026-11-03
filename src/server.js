@@ -1981,7 +1981,7 @@ export const requestHandler = async (request, response) => {
           returnTo,
           healthStatus === "online"
             ? `${controller.controller_code} responded on RS485.`
-            : `No healthy response from ${controller.controller_code}. Check power, A/B wiring, RS485 id, and that the controller is flashed.`,
+            : result.message || `No healthy response from ${controller.controller_code}. Check power, A/B wiring, RS485 id, and that the controller is flashed.`,
           healthStatus === "online" ? "success" : "warning",
         ),
       );
