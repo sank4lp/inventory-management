@@ -318,7 +318,7 @@ function seedWarehouse(db) {
     }
   }
 
-  const admin = db.prepare("SELECT id FROM users WHERE username = ?").get("admin");
+  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id LIMIT 1").get();
   const controllerRows = db.prepare("SELECT * FROM controllers").all();
 
   for (let row = 1; row <= 3; row += 1) {
@@ -1127,8 +1127,9 @@ export function createDatabase(authHelpers) {
   if (authHelpers.allowDevAuthSeeds !== false) {
     seedRegistrationKeys(db);
   }
-  seedWarehouse(db);
-  seedProducts(db);
+  if(authHelpers.allowWarehouseSeeds!==false)seedWarehouse(db);
+  else if(!db.prepare('SELECT id FROM zones LIMIT 1').get())db.prepare('INSERT INTO zones(code,name,sort_order) VALUES(?,?,?)').run('Z1','Main Zone',1);
+  if(authHelpers.allowCatalogSeeds!==false)seedProducts(db);
   if (authHelpers.allowDemoInventorySeed === false) {
     cleanupLegacyDemoInventory(db);
   } else {

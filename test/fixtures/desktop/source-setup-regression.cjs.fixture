@@ -1,0 +1,105 @@
+const {app,BrowserWindow}=require('electron');
+const {mkdtempSync,readFileSync,writeFileSync,mkdirSync}=require('node:fs');
+const {join}=require('node:path');
+const {tmpdir}=require('node:os');
+const {pathToFileURL}=require('node:url');
+const {createServer}=require('node:http');
+const assert=require('node:assert/strict');
+const repo=require('node:path').resolve(__dirname,'../../..');
+const load=path=>import(pathToFileURL(join(repo,path)));
+app.setPath('userData',mkdtempSync(join(tmpdir(),'lytguide-setup-probe-')));
+app.disableHardwareAcceleration();
+app.whenReady().then(async()=>{
+ const {createDatabase}=await load('src/db.js'),{hashPassword}=await load('src/services/auth.js');
+ process.chdir(mkdtempSync(join(tmpdir(),'lytguide-probe-db-')));
+ const db=createDatabase({hashPassword,allowDemoInventorySeed:false});
+ const user=db.prepare("SELECT * FROM users WHERE role='admin'").get();
+ const {configureControllerModules}=await load('src/services/inventory.js');
+ const controller=configureControllerModules(db,{controllerCode:'PROBE-A',controllerAddress:'PROBE-A',moduleCount:4,configuredBy:user.id});
+ db.prepare("UPDATE controllers SET heartbeat_status='online' WHERE id=?").run(controller.id);
+ const {createHardwareService}=await load('src/services/hardware.js'),{createOperationsService}=await load('src/modules/operations/service.js'),{createDisplayCoordinator}=await load('src/services/display-coordinator.js'),{createLocationSetupService}=await load('src/modules/locations/service.js');
+ const logger={info(){},warn(){},error(){}};
+ const hardware=createHardwareService({db,config:{hardwareAdapter:'simulator'},logger}),work=createOperationsService({db,hardwareService:hardware,logger}),display=createDisplayCoordinator({db,hardwareService:hardware,operationsService:work}),setup=createLocationSetupService({db,operationsService:work,displayCoordinator:display});
+ const {locationSetupRoutes}=await load('src/modules/locations/routes.js'),{embedHtml}=await load('scripts/setup/server.mjs');
+ const requests=[];
+ const {createFirmwareService}=await load('src/services/firmware.js'),{groupChecksum}=await load('src/services/hardware-adapters/group-protocol.js'),{createLocationPages}=await load('src/server/pages/locations.js'),{setRuntimeContext}=await load('src/server/runtime-context.js');
+ let plugged=0,actual={physicalCount:0,logicalCount:0,routing:Array(64).fill(0),revision:0,fault:false};
+ const host={command:()=>process.execPath,support:()=>({simulated:false}),listDevices:()=>plugged?[{path:'/dev/test-esp32',deviceIdentity:'SAME-USB-SERIAL-0001',recommended:true,deviceName:'Synthetic ESP32'}]:[],readChipIdentity:async()=>'00:11:22:33:44:0'+plugged,runFirmware:async()=>({simulated:false})};
+ const firmware=createFirmwareService({db,logger,config:{esp32SketchPath:join(repo,'firmware/esp32-simple-matrix')},hostAdapter:host,serialSessionFactory:()=>({async exchange(command,accept){const tokens=command.split(' ');let reply;if(tokens[2]==='config-status'){const routing=actual.routing.map(n=>n.toString(16).padStart(2,'0')).join(''),request=tokens[3],address=tokens[1],payload=`${address} config-status ${request} ${actual.revision.toString(16).padStart(8,'0')} ${actual.physicalCount} ${routing} 0`;reply={type:'controller-config',address,request,revision:actual.revision,physicalModules:actual.physicalCount,logicalModules:actual.logicalCount,routing,fault:false,checksum:groupChecksum(payload)};}else{const routing=tokens[6].match(/../g).map(n=>parseInt(n,16));actual={physicalCount:Number(tokens[5]),logicalCount:routing.findLastIndex(n=>n>0)+1,routing,revision:actual.revision+1};reply={type:'ack',command:'configure',address:tokens[1],request:tokens[3]};}assert.ok(accept(reply));return reply;},close(){}})});
+ setRuntimeContext({firmwareService:firmware});const pages=createLocationPages({db});
+ const server=createServer(async(req,res)=>{try{
+  const url=new URL(req.url,'http://localhost');
+  if(req.method==='POST'){let chunks=[];for await(const c of req)chunks.push(c);const body=Buffer.concat(chunks).toString();req.parsedForm=req.headers['content-type']?.includes('application/json')?JSON.parse(body):Object.fromEntries(new URLSearchParams(body));requests.push({path:url.pathname,input:req.parsedForm});}
+  const end=res.end.bind(res);res.end=value=>end(typeof value==='string'&&value.startsWith('<!')?embedHtml(value.replace(/<script\b[^>]*src="[^\"]*"[^>]*><\/script>/g,tag=>tag.includes('location-setup.js')||tag.includes('/app.js')?tag:'')):value);
+  if(url.pathname==='/qa/plug'){plugged=Number(url.searchParams.get('board'));const saved=db.prepare("SELECT value FROM app_metadata WHERE key IN (SELECT 'controller_profile:'||id FROM controllers WHERE id IN (SELECT CAST(substr(key,length('controller_chip_identity:')+1) AS INTEGER) FROM app_metadata WHERE key LIKE 'controller_chip_identity:%' AND value=?))").get('00:11:22:33:44:0'+plugged);actual=saved?{...JSON.parse(saved.value),fault:false}:{physicalCount:0,logicalCount:0,routing:Array(64).fill(0),revision:0,fault:false};res.end('ok');return;}
+  if(url.pathname==='/devices'){res.setHeader('Content-Type','text/html');res.end(pages.renderDevices(user,null));return;}
+  if(url.pathname.startsWith('/devices/sections/')){res.setHeader('Content-Type','text/html');res.end(pages.renderDeviceConfigSection(url.pathname.split('/').at(-1),{controllerId:url.searchParams.get('controller_id')}));return;}
+  if(url.pathname==='/api/firmware/options'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(firmware.getFlashOptions()));return;}
+  if(url.pathname==='/api/firmware/flash'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({job:firmware.startFlashJob(req.parsedForm,user)}));return;}
+  if(url.pathname.startsWith('/api/firmware/jobs/')){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({job:firmware.getJob(url.pathname.split('/').at(-1))}));return;}
+  if(url.pathname==='/app.js'){res.setHeader('Content-Type','text/javascript');res.end(readFileSync(join(repo,'public/app.js')));return;}
+  if(await locationSetupRoutes(req,res,url,user,{locationSetupService:setup}))return;
+  if(url.pathname.startsWith('/client/')||url.pathname.endsWith('.css')){res.setHeader('Content-Type',url.pathname.endsWith('.css')?'text/css':'text/javascript');res.end(readFileSync(join(repo,'public',url.pathname)));return;}
+  res.writeHead(404);res.end();
+ }catch(error){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:error.message}));}});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;
+ const win=new BrowserWindow({show:false,width:1280,height:960,webPreferences:{contextIsolation:true,nodeIntegration:false}});
+ const js=code=>win.webContents.executeJavaScript(code);
+ win.webContents.on('console-message',(_e,level,message)=>console.log('renderer',level,message));
+ const wait=async code=>{for(let i=0;i<100;i++){if(await js(code))return;await new Promise(r=>setTimeout(r,100));}if(process.env.LYTGUIDE_QA_OUTPUT){writeFileSync(join(process.env.LYTGUIDE_QA_OUTPUT,'failure.png'),(await win.webContents.capturePage()).toPNG());console.log(await js('document.body.innerText'));}throw Error('Timeout: '+code);};
+ const click=async selector=>{await js(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`);await new Promise(r=>setTimeout(r,180));const box=await js(`(()=>{const b=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}})()`);win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...box});win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...box});};
+ await win.loadURL(`http://127.0.0.1:${port}/locations/manage?view=setup&qr=later`);
+ await wait('Boolean(document.querySelector("form[data-action=start]"))');
+ await js(`(()=>{const f=document.querySelector('form[data-action=start]');f.elements.controllerId.value='${controller.id}';f.elements.controllerId.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ await click('form[data-action=start] button');
+ await wait('Boolean(document.querySelector("form[data-action=bind]"))');
+assert.ok(await js(`Number(document.querySelector('form[data-action=bind]').elements.descriptionRevision.value)>0`));
+ await js(`(()=>{const f=document.querySelector('form[data-action=bind]');f.elements.displayName.value='Probe Cell';f.elements.physicalConfirmed.checked=true;})()`);
+ await click('form[data-action=bind] button:not([type=button])');
+ await new Promise(r=>setTimeout(r,1500));
+ assert.equal(await js(`document.querySelector('form[data-action=bind]').elements.channel.value`),'2');
+ assert.equal(db.prepare('SELECT display_name FROM cells WHERE controller_id=? AND hardware_channel=1').get(controller.id).display_name,'Probe Cell');
+ for(let n=2;n<=4;n++){
+  await js(`(()=>{const f=document.querySelector('form[data-action=bind]');f.elements.displayName.value='Probe Cell ${n}';f.elements.physicalConfirmed.checked=true;})()`);
+  await click('form[data-action=bind] button:not([type=button])');await wait(`document.querySelector('form[data-action=bind]').elements.channel.value==='${n===4?1:n+1}'`);
+ }
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM cells WHERE controller_id=? AND active=1 AND binding_verified_at IS NOT NULL').get(controller.id).n,4);
+ const session=setup.snapshot(user).sessions.find(s=>s.controller_id===controller.id);setup.command(user,'pause',{sessionId:session.id,generation:session.generation,requestId:require('node:crypto').randomUUID()});
+ await win.loadURL(`http://127.0.0.1:${port}/devices#controller-setup`);
+ for(let board=1;board<=2;board++){
+  await wait('Boolean(document.querySelector("[data-firmware-forward]"))');
+  await js(`fetch('/qa/plug?board=0')`);await click('[data-firmware-forward]');await wait('document.querySelector("[data-firmware-wizard]")?.dataset.currentStep==="1"');
+  await js(`fetch('/qa/plug?board=${board}')`);await click('[data-firmware-forward]');await wait('document.querySelector("[data-firmware-wizard]")?.dataset.currentStep==="2"');
+  await js(`(()=>{const form=document.querySelector('[data-firmware-flash-form]');for(const [name,value]of [['controller_name','UI-BOARD-${board}'],['module_count','4']]){form.elements[name].value=value;form.elements[name].dispatchEvent(new Event('input',{bubbles:true}));}})()`);
+  await click('[data-firmware-forward]');await wait('document.querySelector("[data-firmware-wizard]")?.dataset.currentStep==="3"');
+  await js(`(()=>{const checkbox=document.querySelector('[name=fresh_setup_confirmed]');checkbox.checked=true;checkbox.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await click('[data-firmware-submit]');await wait('Boolean(document.querySelector(".firmware-result-dialog[open]"))');
+  assert.match(await js(`document.querySelector('.firmware-result-dialog h2').textContent`),/successfully/);
+  if(board===1){const selector='.firmware-result-dialog button.secondary';assert.equal(await js(`document.querySelector('${selector}').textContent`),'Add another controller');await click(selector);await wait('!document.querySelector(".firmware-result-dialog")&&document.querySelector("[data-firmware-wizard]")?.dataset.currentStep==="0"');}
+ }
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM controllers WHERE controller_code LIKE 'UI-BOARD-%'").get().n,2);
+
+ const first=db.prepare("SELECT id FROM controllers WHERE controller_code='UI-BOARD-1'").get();
+ async function edit(board,action,count){
+  if(await js('Boolean(document.querySelector(".firmware-result-dialog[open]"))')){await click('.firmware-result-dialog button');await wait('!document.querySelector(".firmware-result-dialog")&&location.hash==="#controller-health"');}
+  await js(`fetch('/qa/plug?board=0')`);await win.loadURL(`http://127.0.0.1:${port}/devices#controller-edit-${first.id}`);
+  await wait(`Boolean(document.querySelector('[name=maintenance_action]'))`);
+  await click('[data-firmware-forward]');await wait('document.querySelector("[data-firmware-wizard]")?.dataset.currentStep==="1"');
+  await js(`fetch('/qa/plug?board=${board}')`);await click('[data-firmware-forward]');await wait('document.querySelector("[data-firmware-wizard]")?.dataset.currentStep==="2"');
+  assert.equal(await js(`document.querySelector('[name=module_count]').readOnly`),false);
+  await js(`(()=>{const f=document.querySelector('[data-firmware-flash-form]');f.elements.maintenance_action.value='${action}';f.elements.module_count.value='${count}';f.elements.module_count.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await click('[data-firmware-forward]');await wait('document.querySelector("[data-firmware-wizard]")?.dataset.currentStep==="3"');
+  await js(`(()=>{for(const name of ['replacement_confirmed','layout_change_confirmed']){const box=document.querySelector('[name='+name+']');box.checked=true;box.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
+  assert.equal(await js(`document.querySelector('[data-firmware-submit]').disabled`),false);
+  await new Promise(r=>setTimeout(r,250));const out=process.env.LYTGUIDE_QA_OUTPUT;if(out){mkdirSync(out,{recursive:true});writeFileSync(join(out,'controller-edit-'+action+'.png'),(await win.webContents.capturePage()).toPNG());}
+  await click('[data-firmware-submit]');await wait('Boolean(document.querySelector(".firmware-result-dialog[open]"))');
+  assert.match(await js(`document.querySelector('.firmware-result-dialog h2').textContent`),/successfully/);
+ }
+ await edit(1,'update',6);assert.equal(db.prepare('SELECT module_count FROM controllers WHERE id=?').get(first.id).module_count,6);
+ win.setContentSize(390,844);await edit(3,'replace',6);
+ assert.equal(db.prepare("SELECT value FROM app_metadata WHERE key=?").get('controller_chip_identity:'+first.id).value,'00:11:22:33:44:03');
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM controllers WHERE controller_code LIKE 'UI-BOARD-%'").get().n,2);
+ console.log('PASS native clicks: four fresh inactive LED locations save and advance; two ESP32 boards with the same USB serial flash sequentially through Add another controller; existing controller and locations retained; desktop LED-count update and phone-sized ESP32 replacement preserve logical controller identity.');
+ win.destroy();await new Promise(r=>server.close(r));work.dispose();hardware.dispose();db.close();app.exit(0);
+}).catch(e=>{console.error(e);app.exit(1)});
+setTimeout(()=>app.exit(2),90000);

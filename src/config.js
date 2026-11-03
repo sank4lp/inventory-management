@@ -98,6 +98,8 @@ export function resolveConfig(env = process.env) {
     bootstrapAdmin,
     allowDevAuthSeeds: nodeEnv !== "production",
     allowDemoInventorySeed,
+    allowWarehouseSeeds:env.WAREHOUSE_LAYOUT_SEED!=='0',
+    allowCatalogSeeds:env.CATALOG_DEFAULT_SEED!=='0',
   };
 }
 

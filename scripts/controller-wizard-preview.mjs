@@ -30,11 +30,16 @@ createServer((req,res)=>{
   if(url.pathname==='/desktop'){
    res.setHeader('Content-Type','text/html');res.end(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#eef3f0;overflow:hidden"><iframe title="Desktop controller preview at 1280 pixels" src="/devices#controller-edit-${controller.id}" width="1280" height="1080" style="border:0;transform:scale(.31);transform-origin:top left"></iframe></body></html>`);return;
   }
+  if(url.pathname==='/mobile'){
+   res.setHeader('Content-Type','text/html');res.end('<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#eef3f0"><iframe title="Controller preview at 390 pixels" src="/devices#controller-setup" width="390" height="844" style="border:0"></iframe></body></html>');return;
+  }
   if(url.pathname==='/devices'){
    scans=0;let html=pages.renderDevices(user,null).replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'');
-   html=html.replace('</body>',`<script type="module" src="/client/mobile-nav.js"></script><script type="module" src="/client/mobile-layout.js"></script><script type="module" src="/client/ui-template.js"></script><script type="module">${boot}</script></body>`);res.setHeader('Content-Type','text/html');res.end(html);return;
+   html=html.replace('</body>',`<script type="module" src="/client/mobile-nav.js"></script><script type="module" src="/client/mobile-layout.js"></script><script type="module" src="/client/ui-template.js"></script><script type="module" src="/app.js"></script></body>`);res.setHeader('Content-Type','text/html');res.end(html);return;
   }
-  if(url.pathname==='/devices/sections/controller-setup'){res.setHeader('Content-Type','text/html');res.end(pages.renderDeviceConfigSection('controller-setup',{controllerId:url.searchParams.get('controller_id')}));return;}
+  if(url.pathname==='/app.js'){res.setHeader('Content-Type','text/javascript');res.end(boot);return;}
+  const section=url.pathname.match(/^\/devices\/sections\/(controller-setup|controller-connect|controller-health)$/);
+  if(section){res.setHeader('Content-Type','text/html');res.end(pages.renderDeviceConfigSection(section[1],{controllerId:url.searchParams.get('controller_id')}));return;}
   if(url.pathname==='/api/firmware/options'){scans++;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({...options,ports:scans===1?[bridge]:[bridge,device],esp32Ports:scans===1?[]:[device]}));return;}
   const root=join(repo,'public'),path=resolve(root,url.pathname.slice(1));
   if(!path.startsWith(root+'/')){res.writeHead(404);res.end();return;}

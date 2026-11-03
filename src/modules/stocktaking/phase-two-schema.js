@@ -37,4 +37,7 @@ export function migratePhaseTwo(db) {
       )
     ) WHERE state='bound' AND scanned_at IS NULL;
   `);
+  const columns=new Set(db.prepare('PRAGMA table_info(location_setup_sessions)').all().map(row=>row.name));
+  if(!columns.has('show_numbers'))db.exec('ALTER TABLE location_setup_sessions ADD COLUMN show_numbers INTEGER NOT NULL DEFAULT 0');
+  if(!columns.has('display_mode'))db.exec("ALTER TABLE location_setup_sessions ADD COLUMN display_mode TEXT NOT NULL DEFAULT 'selected'");
 }

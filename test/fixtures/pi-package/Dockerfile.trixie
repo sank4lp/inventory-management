@@ -1,0 +1,10 @@
+# The cached, checksum-pinned Bookworm test base is upgraded using Debian's
+# signed Trixie repositories. No TLS verification or host trust is disabled.
+FROM lytguide-pi-package-check:bookworm
+RUN sed -i 's/bookworm/trixie/g' /etc/apt/sources.list.d/debian.sources \
+ && apt-get update -qq \
+ && DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y --no-install-recommends \
+ && apt-get install -y --no-install-recommends pkexec polkitd network-manager dpkg-dev \
+ && test "$(. /etc/os-release; echo "$VERSION_CODENAME")" = trixie \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /work

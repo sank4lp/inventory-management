@@ -1,3 +1,4 @@
+import {createLocationSetupService} from '../src/modules/locations/service.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
@@ -146,4 +147,16 @@ test('background stocktake updates queued together use one controller frame',asy
  for(let i=0;i<100&&!f.wire.writes.some(c=>c.includes(' display-frame '));i++)await new Promise(resolve=>setTimeout(resolve,5));
  const frames=f.wire.writes.filter(c=>c.includes(' display-frame '));assert.equal(frames.length,1);assert.equal(decode(frames[0]).length,4);
  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM work_guidance WHERE delivered=1').get().n,4);
+});
+
+test('setup sends one confirmed four-output frame and save advances its light without a browser follow-up',t=>{
+ const f=fixture(t),setup=createLocationSetupService({db:f.db,hardwareService:f.hardware,operationsService:f.work,displayCoordinator:f.display});
+ const run=(action,input={})=>setup.command(f.admin,action,{requestId:crypto.randomUUID(),...input});
+ f.wire.writes.length=0;run('start',{controllerId:f.controller.id});let session=setup.snapshot(f.admin).sessions[0];let frames=f.wire.writes.filter(line=>line.includes(' display-frame '));assert.equal(frames.length,1);assert.deepEqual(decode(frames[0]).map(entry=>entry.mode),[5,1,1,1]);
+ f.wire.writes.length=0;const result=run('bind',{sessionId:session.id,generation:session.generation,fieldSignature:setup.snapshot(f.admin).fieldSignature,displayName:'Setup first cell',qrLater:true,physicalConfirmed:true});assert.equal(result.lighting.ready,true);session=setup.snapshot(f.admin).sessions[0];assert.equal(session.output,2);frames=f.wire.writes.filter(line=>line.includes(' display-frame '));assert.equal(frames.length,2);assert.deepEqual(decode(frames.at(-1)).map(entry=>entry.mode),[1,5,1,1]);
+});
+test('unbound LEDs use only the declared controller setup receipt; failed acknowledgements cannot mark the next light ready',t=>{
+ const f=fixture(t,{wrong:true}),setup=createLocationSetupService({db:f.db,operationsService:f.work,displayCoordinator:f.display});
+ f.db.prepare('UPDATE cells SET controller_id=NULL,hardware_channel=NULL WHERE controller_id=?').run(f.controller.id);
+ const result=setup.command(f.admin,'start',{requestId:crypto.randomUUID(),controllerId:f.controller.id});assert.equal(result.lighting.ready,false);const session=setup.snapshot(f.admin).sessions[0];assert.equal(session.lightReady,false);assert.throws(()=>setup.command(f.admin,'bind',{requestId:crypto.randomUUID(),sessionId:session.id,generation:session.generation,displayName:'Unconfirmed',fieldSignature:setup.snapshot(f.admin).fieldSignature,qrLater:true,physicalConfirmed:true}),/Re-light|Select this LED/);assert.equal(f.db.prepare("SELECT COUNT(*) n FROM cells WHERE display_name='Unconfirmed'").get().n,0);
 });

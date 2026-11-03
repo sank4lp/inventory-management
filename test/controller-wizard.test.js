@@ -19,7 +19,10 @@ function fixture(t){
 }
 test('Add is exclusively new-controller setup with no replacement picker, board field or module chips',t=>{
  const f=fixture(t),html=f.pages.renderDeviceConfigSection('controller-setup');
- assert.match(html,/<h2>Add a new controller<\/h2>/);
+ assert.match(html,/<h2>Set up as fresh controller<\/h2>/);
+ assert.match(html,/name="controller_setup_mode" value="fresh"/);
+ assert.match(html,/name="fresh_setup_confirmed" value="1" required/);
+ assert.match(html,/saved LED setup.*replaced/);
  assert.match(html,/name="replacement_controller_id" value=""/);
  assert.doesNotMatch(html,/<select|Board FQBN|Replace \/ update|module-chip|data-firmware-modules|Module 1/);
  assert.match(html,/<input type="hidden" name="fqbn"/);
@@ -32,9 +35,12 @@ test('Edit is bound to the clicked controller and preserves its mapping without 
  assert.match(html,/<h2>Edit SHELF-A<\/h2>/);
  assert.match(html,new RegExp(`name="replacement_controller_id" value="${f.controller.id}"`));
  assert.match(html,/name="controller_name"[^>]*value="SHELF-A" readonly/);
- assert.match(html,/name="module_count"[^>]*value="4" readonly/);
- assert.doesNotMatch(html,/<select|data-firmware-modules|Board FQBN/);
- assert.match(html,/data-firmware-controller-backup/);
+ assert.match(html,/name="module_count"[^>]*value="4"[^>]*required/);
+ assert.match(html,/name="maintenance_action"/);assert.match(html,/Replace ESP32/);
+ assert.doesNotMatch(html,/data-firmware-modules|Board FQBN/);
+ assert.doesNotMatch(html,/name="fresh_setup_confirmed"|name="controller_setup_mode"/);
+ assert.match(html,/data-firmware-read-profile/);
+ assert.match(html,/data-firmware-start-hint/);
  assert.deepEqual(f.db.prepare('SELECT * FROM cells ORDER BY id').all(),before);
  assert.throws(()=>f.pages.renderDeviceConfigSection('controller-setup',{controllerId:999999}),/no longer available/);
 });

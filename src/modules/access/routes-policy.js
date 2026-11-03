@@ -10,7 +10,7 @@ export const ROUTE_POLICY = [
   ['GET',/^\/settings\/system$/,'system.view'],['POST',/^\/admin\/task-timeout$/,'work.timing'],
   ['GET',/^\/admin\/product-fields$/,'products.fields'],['POST',/^\/admin\/(product-fields(\/\d+)?|product-unit-conversions\/(preview|apply))$/,'products.fields'],
   ['GET',/^\/backups$/,'backups.view'],['POST',/^\/backups\/create$/,'backups.create'],['POST',/^\/backups\/restore$/,'backups.restore'],['POST',/^\/backups\/(schedule|retention)$/,'backups.configure'],
-  ['GET',/^\/devices(\/sections\/[a-z-]+)?$/,'hardware.view'],['POST',/^\/devices\/(controller-test|controller-ping|cell-test)$/,'hardware.test'],['POST',/^\/devices\/controller-delete$/,'hardware.controllers'],
+  ['GET',/^\/devices(\/sections\/[a-z-]+)?$/,'hardware.view'],['POST',/^\/devices\/(controller-test|controller-ping|cell-test)$/,'hardware.test'],['POST',/^\/devices\/controller-(?:delete|connect)$/,'hardware.controllers'],
   ['GET',/^\/api\/firmware\/options$/,'hardware.view'],['GET',/^\/api\/firmware\/jobs\/[A-Za-z0-9-]+$/,'hardware.flash'],['POST',/^\/api\/firmware\/(flash|controller-backup)$/,'hardware.flash'],
   ['POST',/^\/mapping(\/bulk)?$/,'hardware.map'],['POST',/^\/devices\/cells(\/(rename|delete))?$/,'locations.manage'],
   ['GET',/^\/location-setup(\/print)?$/,'locations.manage'],['GET',/^\/locations\/manage$/,'locations.manage'],
@@ -38,8 +38,8 @@ export function routeAllowed(user,method,path) {
   if(url.pathname==='/work'&&url.searchParams.has('device_help'))return !!user;
   if(url.pathname==='/products'&&url.searchParams.has('show_add'))return can(user,'products.add');
   if(url.pathname==='/reports'&&url.searchParams.has('format'))return can(user,'reports.format');
-  const section=url.pathname.match(/^\/devices\/sections\/(controller-setup|cell-create|cell-management|cell-mapping)$/);
-  if(section)return can(user,{'controller-setup':'hardware.flash','cell-create':'locations.manage','cell-management':'locations.manage','cell-mapping':'hardware.map'}[section[1]]);
+  const section=url.pathname.match(/^\/devices\/sections\/(controller-setup|controller-connect|cell-create|cell-management|cell-mapping)$/);
+  if(section)return can(user,{'controller-setup':'hardware.flash','controller-connect':'hardware.controllers','cell-create':'locations.manage','cell-management':'locations.manage','cell-mapping':'hardware.map'}[section[1]]);
   const c=routeCapability(method,url.pathname);
   return c==='public'||(!!user&&(c==='account'||c==='settings'&&SETTINGS.some(x=>can(user,x[2]))||can(user,c)));
 }
@@ -56,7 +56,7 @@ export function permittedMarkup(html,user) {
     const permission=Object.entries(attributePermissions).find(([attr])=>new RegExp('\\b'+attr+'(?:[\\s=>])').test(token))?.[1];
     if(permission&&!can(user,permission)){omitted=name;depth=1;return '';}
     const section=token.match(/data-config-section-link="([^"]+)"/);
-    if(section&&!can(user,{'controller-setup':'hardware.flash','cell-create':'locations.manage','cell-management':'locations.manage','cell-mapping':'hardware.map'}[section[1]])){omitted=name;depth=1;return '';}
+    if(section&&!can(user,{'controller-setup':'hardware.flash','controller-connect':'hardware.controllers','cell-create':'locations.manage','cell-management':'locations.manage','cell-mapping':'hardware.map'}[section[1]])){omitted=name;depth=1;return '';}
     if(name==='button')return token;
     const match=token.match(name==='a'?/\bhref\s*=\s*["']([^"']+)["']/i:/\baction\s*=\s*["']([^"']+)["']/i);
     if(!match||!match[1].startsWith('/')||match[1].startsWith('//'))return token;

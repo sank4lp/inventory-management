@@ -106,6 +106,8 @@ function buildAppState() {
     bootstrapAdmin: appConfig.bootstrapAdmin,
     allowDevAuthSeeds: appConfig.allowDevAuthSeeds,
     allowDemoInventorySeed: appConfig.allowDemoInventorySeed,
+    allowWarehouseSeeds:appConfig.allowWarehouseSeeds,
+    allowCatalogSeeds:appConfig.allowCatalogSeeds,
   });
   const hardwareService = createHardwareService({
     db,

@@ -122,11 +122,14 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
             const scope=request?JSON.parse(request.scope_json):{};
             const controller=scope.controllerTest?db.prepare('SELECT * FROM controllers WHERE id=? AND active=1').get(scope.controllerTest):null;
             const setup=scope.setupSession?db.prepare('SELECT * FROM location_setup_sessions WHERE id=? AND actor_id=?').get(scope.setupSession,context.displayActor):null;
-            // Only the selected output from an authenticated setup receipt may address an unbound light.
+            const setupController=setup?db.prepare('SELECT * FROM controllers WHERE id=?').get(setup.controller_id):null;
+            // Authenticated commissioning receipts may address their declared controller outputs, including unbound LEDs.
             unboundSetup=!!controller&&controller.id===target.controller_id&&ch<=controller.module_count&&scope.controllerRevision===JSON.stringify([controller.address,controller.module_count,controller.configured_at]);
             unboundSetup=unboundSetup||!!setup&&setup.controller_id===target.controller_id&&
               JSON.parse(request.targets_json).some(t=>t.channel===ch&&t.controllerId===target.controller_id)&&
-              (operationName==='cell_quantity_clear'||(setup.status==='active'&&setup.output===ch&&setup.generation===scope.setupGeneration));
+              (operationName==='cell_quantity_clear'||setup.status==='active'&&setup.generation===scope.setupGeneration&&
+                (setup.output===ch||scope.kind==='setup'&&scope.setupControllerSnapshot===setup.controller_snapshot&&setupController&&ch<=setupController.module_count&&scope.controllerRevision===JSON.stringify([setupController.address,setupController.module_count,setupController.configured_at])));
+
           }
           if(!Number.isInteger(ch)||ch<1||ch>255||(aliases!==1&&!unboundSetup))return {ok:false,degraded:true,message:"Physical mapping is ambiguous or invalid. Follow phone instructions manually and correct the mapping after work settles.",events:[]};
         }
@@ -185,6 +188,11 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
 
   return {
     adapterName: adapter.name,
+    inspectExistingController(address){
+      if(disposed||adapter.name!=='rs485'||!adapter.inspectExistingController)throw new Error('Select the RS485 adapter before reconnecting an existing controller.');
+      if(db.prepare("SELECT 1 FROM app_metadata WHERE key='firmware_busy'").get())throw new Error('Wait for controller maintenance to finish.');
+      return adapter.inspectExistingController(address);
+    },
     batchLedUpdates,
     dispose() { disposed=true; adapter.dispose?.(); },
     healthCheck() {

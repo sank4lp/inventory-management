@@ -7,10 +7,10 @@ export function createQrReassignment({db,label,event,clearOldLabel}) {
  const now=()=>new Date().toISOString();
  const cell=id=>{const c=db.prepare('SELECT * FROM cells WHERE id=? AND active=1').get(Number(id));if(!c)throw new Error('Location is no longer available. Reopen Manage Locations.');return c;};
  const name=c=>describeLocation(db,c.id).name;
- function guard(c){
+ function guard(c,{allowDisplayId}={}){
   if(!c)throw new Error('Location is no longer available. Reopen Manage Locations.');
   if(displayOwner(db,c.id)?.kind==='count')throw new Error('Finish or pause counting '+name(c)+' before changing its QR.');
-  guardSetupChange(db,{cellId:c.id});
+  guardSetupChange(db,{cellId:c.id,allowDisplayId});
  }
  function conflict(l,target){
   if(l.state!=='bound'||l.cell_id===target?.id)return;

@@ -7,6 +7,7 @@ import { withTransaction } from "../db.js";
 import { createInventoryBalanceRepository } from "../repositories/inventory-balance-repository.js";
 import { createProductRepository } from "../repositories/product-repository.js";
 import { createTaskRepository } from "../repositories/task-repository.js";
+import { cellHasReferences } from "../repositories/cell-reference-repository.js";
 import {
   assertSufficientBalance,
   normalizeItemsPerCell,
@@ -1940,7 +1941,7 @@ function detachCellsForManualOperation(db, cellIds) {
   let removed = 0;
 
   for (const cell of cells) {
-    if (Number(cell.active) === 1) {
+    if (Number(cell.active) === 1 || cellHasStock(db, cell.id) || cellHasReferences(db, cell.id)) {
       db.prepare(
         `
           UPDATE cells
@@ -1948,10 +1949,10 @@ function detachCellsForManualOperation(db, cellIds) {
             controller_id = NULL,
             hardware_channel = NULL,
             mapping_status = 'unmapped',
-            active = 1
+            active = ?
           WHERE id = ?
         `,
-      ).run(Number(cell.id));
+      ).run(Number(cell.active), Number(cell.id));
       detached += 1;
       continue;
     }
@@ -2196,6 +2197,7 @@ export function configureControllerModules(
     configuredBy = null,
     firmwareVersion = ESP32_FIRMWARE_PROTOCOL,
   },
+  afterConfigure = null,
 ) {
   guardSetupChange(db);
   const count = Number(moduleCount);
@@ -2394,10 +2396,9 @@ export function configureControllerModules(
 
     assertMappingIntegrity(db);
     const controller = db.prepare("SELECT * FROM controllers WHERE id = ?").get(controllerId);
-    return {
-      ...controller,
-      mappingSummary,
-    };
+    const result={...controller,mappingSummary};
+    afterConfigure?.(result);
+    return result;
   });
 }
 

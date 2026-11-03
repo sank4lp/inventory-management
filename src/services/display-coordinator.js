@@ -32,21 +32,42 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     if(restoreCells.length)operationsService.flushGuidance({restoreCells:[...new Set(restoreCells)]});
     return true;
   }
+  function setupDelivery(target,c,context,on=true){
+    if(target.setupDisplay==='number')return hardwareService.showCellQuantity(c,target.value,'yellow',context);
+    if(target.setupDisplay==='dark'||target.setupDisplay==='flash'&&!on)return hardwareService.showCellQuantity(c,0,'#000000',context);
+    if(target.setupDisplay==='ping')return hardwareService.sendCellTest(c,'green',context);
+    return hardwareService.setCellLocate(c,true,context);
+  }
   function expire(){
-    const now=clock();
+    const now=clock(),restores=[];
     for(const row of db.prepare("SELECT * FROM display_requests WHERE state IN ('active','expiring')").all()) {
-      if(row.expires_at<=now.toISOString()){clear(row);continue;}
-      const targets=JSON.parse(row.targets_json);
+      if(row.expires_at<=now.toISOString()){if(clear(row)&&JSON.parse(row.scope_json).restoreSetupScope)restores.push(row);continue;}
+      const targets=JSON.parse(row.targets_json),scope=JSON.parse(row.scope_json);
+      if(scope.kind==='setup'){
+        const current=db.prepare('SELECT * FROM location_setup_sessions WHERE id=? AND actor_id=?').get(scope.setupSession,row.actor_id);
+        if(!current||current.status!=='active'||current.generation!==scope.setupGeneration||current.controller_snapshot!==scope.setupControllerSnapshot){clear(row);continue;}
+      }
       if(targets.some(t=>t.status==='sent'&&t.cellId&&(workGeneration(t.cellId)!==t.workGeneration||cell(t.cellId)?.binding_revision!==t.bindingRevision))){clear(row);continue;}
       let changed=false;const deliveries=[];
       batch(()=>{for(const target of targets){
+        if(target.status==='sent'&&target.setupDisplay==='flash'){
+          const on=Math.floor((now.getTime()-Date.parse(row.created_at))/500)%2===0;
+          if(on!==target.flashOn){const c=target.cellId?cell(target.cellId):target.hardware;const result=setupDelivery(target,c,{source:'display_coordinator',displayId:row.id,displayActor:row.actor_id},on);deliveries.push({target,result,flashOn:on});}
+          continue;
+        }
         if(target.status!=='sent'||!target.sequence?.length||now.getTime()-Date.parse(target.lastShownAt||row.created_at)<mixedQuantityTiming(target.value).durationMs)continue;
         const c=cell(target.cellId),nextIndex=(Number(target.sequenceIndex||0)+1)%target.sequence.length,next=target.sequence[nextIndex];
         const result=hardwareService.showCellQuantity(c,next.value,next.color,{source:'display_coordinator',displayId:row.id,displayActor:row.actor_id,displayTiming:mixedQuantityTiming(next.value)});
         deliveries.push({target,result,next,nextIndex});
       }});
-      for(const {target,result,next,nextIndex} of deliveries){if(!result.ok||result.degraded)continue;target.sequenceIndex=nextIndex;target.value=next.value;target.color=next.color;target.lastShownAt=clock().toISOString();changed=true;}
+      for(const {target,result,next,nextIndex,flashOn} of deliveries){if(!result.ok||result.degraded){if(flashOn!==undefined){target.status='unreachable';target.deliveryUnconfirmed=Boolean(result.deliveryUnconfirmed);changed=true;}continue;}if(flashOn!==undefined)target.flashOn=flashOn;else{target.sequenceIndex=nextIndex;target.value=next.value;target.color=next.color;}target.lastShownAt=clock().toISOString();changed=true;}
       if(changed)db.prepare("UPDATE display_requests SET targets_json=? WHERE id=? AND state IN ('active','expiring')").run(JSON.stringify(targets),row.id);
+    }
+    for(const row of restores){
+      const scope=JSON.parse(row.scope_json),current=db.prepare('SELECT * FROM location_setup_sessions WHERE id=? AND actor_id=?').get(scope.setupSession,row.actor_id);
+      if(!current||current.status!=='active'||current.display_id!==row.id||current.generation!==scope.setupGeneration||current.controller_snapshot!==scope.setupControllerSnapshot)continue;
+      try{const result=start({id:row.actor_id},scope.restoreSetupScope,{skipExpire:true});db.prepare('UPDATE location_setup_sessions SET display_id=?,display_mode=? WHERE id=? AND generation=? AND display_id=?').run(result.id||null,scope.restoreSetupScope.setupMode,current.id,current.generation,row.id);}
+      catch{db.prepare("UPDATE location_setup_sessions SET display_id=NULL,display_mode='selected' WHERE id=? AND generation=? AND display_id=?").run(current.id,current.generation,row.id);}
     }
   }
   function view(actor,scope={}) {
@@ -64,7 +85,8 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       return {cell:c,occupiedFraction,products:products.map(p=>({...p,available:Math.max(0,p.on_hand-p.reserved_quantity)}))};}).filter(r=>scope.kind==='recommendation'||!scope.productId||r.products.length);
   }
   function start(actor,scope,input={}) {
-    const a=operationsService.actorNow(actor),id=String(input.requestId||randomUUID());expire();
+    const a=operationsService.actorNow(actor),id=String(input.requestId||randomUUID());if(!input.skipExpire)expire();
+    if(scope.kind==='setup'&&(!scope.setupSession||!scope.setupTargets?.length))throw new Error('A live location setup session is required.');
     const fingerprint=createHash('sha256').update(JSON.stringify(scope)).digest('hex');
     const old=db.prepare('SELECT * FROM display_requests WHERE id=?').get(id);if(old){if(old.actor_id!==a.id||old.fingerprint!==fingerprint)throw new Error('This display request belongs to different contents or an account.');return {...old,targets:JSON.parse(old.targets_json),message:'Existing display receipt retrieved; no old command was replayed.'};}
     assertCan(a,scope.kind==='module_number'?'hardware.test':scope.setupTarget||scope.setupTargets?(scope.controllerTest?'hardware.test':'locations.bind'):numberDisplayKinds.has(scope.kind)?'locations.quantity':'locations.locate');
@@ -85,6 +107,10 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
           else{sequence=products.map((p,index)=>({productId:p.product_id,sku:p.sku,value:displayValue(p),color:mixedColors[index%mixedColors.length]}));value=sequence[0].value;color=sequence[0].color;}
         }
       }
+      if(scope.kind==='setup'){
+        if(!['number','dark','flash','locate','ping'].includes(c.setupDisplay)||!Number.isInteger(c.setupNumber)||c.setupNumber<1||c.setupNumber>64)throw new Error('Invalid setup LED display.');
+        value=c.setupNumber;color=c.setupDisplay==='number'?'yellow':c.setupDisplay==='dark'?'#000000':c.setupDisplay==='ping'?'green':'red';
+      }
       const owner=c.id?displayOwner(db,c.id):null,overrodeWork=!!(scope.overrideWork&&overrideDisplayKinds.has(scope.kind)&&owner?.kind==='task'&&activeWork(c.id));
       if(c.id&&activeWork(c.id)&&!overrodeWork)status='busy';
       const utility=db.prepare("SELECT 1 FROM display_requests d,json_each(d.targets_json) t WHERE d.state IN ('active','expiring') AND (json_extract(t.value,'$.status')='sent' OR json_extract(t.value,'$.deliveryUnconfirmed')=1) AND json_extract(t.value,'$.controllerId')=? AND json_extract(t.value,'$.channel')=? AND json_extract(t.value,'$.workGeneration') IS ?").get(c.controller_id,c.hardware_channel,workGeneration(c.id||null));if(utility)status='busy';
@@ -101,9 +127,9 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       }
       if(scope.kind==='recommendation'){const instructions=scope.instructions.filter(i=>i.cellId===c.id),directions=new Set(instructions.map(i=>i.direction));if(directions.size===1){value=instructions.reduce((n,i)=>n+i.quantity,0);color=instructions[0].direction==='pick'?'green':'red';if(!Number.isInteger(value)||value>999){value='LOC';}}}
       if(status!=='busy'&&c.id)db.prepare("UPDATE work_guidance SET generation=?,delivered=1 WHERE cell_id=? AND json_extract(desired,'$.action')='clear' AND delivered=0").run(randomUUID(),c.id);
-      targets.push({color,bindingRevision:c.binding_revision??null,controllerSnapshot:JSON.stringify(db.prepare('SELECT address,module_count,configured_at FROM controllers WHERE id=?').get(c.controller_id||null)||null),cellId:c.id||null,controllerId:c.controller_id,channel:c.hardware_channel,hardware:scope.setupTarget||scope.setupTargets?c:null,workGeneration:workGeneration(c.id||null),status,value,overrodeWork,sequence,sequenceIndex:0,lastShownAt:clock().toISOString(),...(issue?{issue}:{})});
+      targets.push({color,bindingRevision:c.binding_revision??null,controllerSnapshot:JSON.stringify(db.prepare('SELECT address,module_count,configured_at FROM controllers WHERE id=?').get(c.controller_id||null)||null),cellId:c.id||null,controllerId:c.controller_id,channel:c.hardware_channel,hardware:scope.setupTarget||scope.setupTargets?c:null,workGeneration:workGeneration(c.id||null),status,value,overrodeWork,sequence,sequenceIndex:0,lastShownAt:clock().toISOString(),...(scope.kind==='setup'?{setupDisplay:c.setupDisplay,flashOn:c.setupDisplay==='flash'}:{}),...(issue?{issue}:{})});
     }
-    const created=clock().toISOString(),expires=new Date(clock().getTime()+(scope.kind==='locate'?300000:scope.kind==='ping'?5000:120000)).toISOString();
+    const created=clock().toISOString(),expires=new Date(clock().getTime()+(scope.kind==='ping'||scope.kind==='setup'&&scope.setupMode==='ping'?5000:scope.kind==='locate'||scope.kind==='setup'?300000:120000)).toISOString();
     db.prepare('INSERT INTO display_requests(id,actor_id,fingerprint,scope_json,targets_json,created_at,expires_at) VALUES(?,?,?,?,?,?,?)').run(id,a.id,fingerprint,JSON.stringify(scope),JSON.stringify(targets),created,expires);
     const groupedPingTargets = new Set();
     if (scope.kind === 'ping' && hardwareService.sendCellTests) {
@@ -130,10 +156,10 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       if(groupedPingTargets.has(target)||!['ready','selection','unsupported','uncertain'].includes(target.status)||scope.kind==='cell_name'&&target.status!=='ready')continue;
       const c=target.cellId?cell(target.cellId):target.hardware,numeric=target.status==='ready'&&target.value!=='LOC';
       const context={source:'display_coordinator',displayId:id,displayActor:a.id,...(target.sequence?.length?{displayTiming:mixedQuantityTiming(target.value)}:{})};
-      const result=scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);
+      const result=scope.kind==='setup'?setupDelivery(target,c,context):scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);
       deliveries.push({target,result,numeric});
     }});
-    for(const {target,result,numeric} of deliveries){target.status=result.ok&&!result.degraded?'sent':'unreachable';if(target.status==='sent')target.lastShownAt=clock().toISOString();target.deliveryUnconfirmed=!!result.deliveryUnconfirmed;target.numeric=numeric&&Number.isInteger(target.value)&&target.value<=999;}
+    for(const {target,result,numeric} of deliveries){target.status=result.ok&&!result.degraded?'sent':'unreachable';if(target.status==='sent')target.lastShownAt=clock().toISOString();target.deliveryUnconfirmed=!!result.deliveryUnconfirmed;target.numeric=numeric&&Number.isInteger(target.value)&&target.value<=999&&(scope.kind!=='setup'||target.setupDisplay==='number');}
     db.prepare('UPDATE display_requests SET targets_json=? WHERE id=?').run(JSON.stringify(targets),id);
     if (targets.some(t => t.deliveryUnconfirmed)) {
       const stopped=clear(db.prepare('SELECT * FROM display_requests WHERE id=?').get(id));

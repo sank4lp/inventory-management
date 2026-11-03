@@ -1,0 +1,62 @@
+// Real packaged Setup UI with synthetic warehouse data on a virtual display.
+const {app}=require('electron');const {mkdtempSync,writeFileSync}=require('node:fs');const {tmpdir}=require('node:os');const {join}=require('node:path');const assert=require('node:assert/strict');
+const controllerCode=process.env.LYTGUIDE_UI_CONTROLLER;assert.ok(controllerCode);const cellName='UI Cell '+controllerCode.slice(-8);
+const root='/opt/lytguide-test/current/desktop';const {createDesktop}=require(join(root,'resources/app/main.cjs'));
+app.setPath('userData',mkdtempSync(join(tmpdir(),'lytguide-location-ui-')));app.enableSandbox();app.disableHardwareAcceleration();app.on('window-all-closed',()=>{});
+const deadline=setTimeout(()=>{console.error('Location setup UI timed out');app.exit(1);},120000);
+(async()=>{
+ await app.whenReady();const desktop=createDesktop({authorizeSetup:async()=>process.env.LYTGUIDE_SETUP_TEST_URL,assetRoot:join(root,'resources/lytguide-assets')});await desktop.showSetup();const win=[...desktop.windows][0];assert.ok(win);
+ win.webContents.on('console-message',event=>{if(event.level==='error')console.error('Setup renderer:',event.message);});
+ const evaluate=expression=>win.webContents.executeJavaScript(expression).catch(error=>{throw Error('Native expression failed: '+expression+'\n'+error.message);});
+ const clickInFrame=async selector=>{
+  await evaluate(`document.querySelector('iframe').contentDocument.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`);
+  const point=await evaluate(`(()=>{const iframe=document.querySelector('iframe'),button=iframe.contentDocument.querySelector(${JSON.stringify(selector)}),f=iframe.getBoundingClientRect(),b=button.getBoundingClientRect();return {x:Math.round(f.left+b.left+b.width/2),y:Math.round(f.top+b.top+b.height/2)};})()`);
+  win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
+ };
+ const wait=async expression=>{for(let i=0;i<300;i++){if(await evaluate(expression))return;await new Promise(resolve=>setTimeout(resolve,100));}throw Error('Setup UI state did not appear: '+expression);};
+ const frame=expression=>`(()=>{const doc=document.querySelector('iframe')?.contentDocument;return doc&&(${expression});})()`;
+ const output=number=>frame(`Number(doc.querySelector('form[data-action=bind]')?.elements.channel.value)===${number}`);
+ await wait('Boolean(document.querySelector("[data-resume-locations]"))');await evaluate('document.querySelector("[data-resume-locations]").click()');
+ await wait(frame('Boolean(doc.querySelector("form[data-action=start]"))'));
+ await evaluate(`(async()=>{const snapshot=await fetch('/api/location-setup/snapshot').then(response=>response.json());for(const session of snapshot.sessions.filter(row=>row.display_id)){const response=await fetch('/api/location-setup/pause',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:session.id,generation:session.generation,requestId:crypto.randomUUID()})});if(!response.ok)throw Error(await response.text());}return true;})()`);
+ await evaluate(`(()=>{const iframe=document.querySelector('iframe'),form=iframe.contentDocument.querySelector('form[data-action=start]');const option=[...form.elements.controllerId.options].find(option=>option.textContent.includes('${controllerCode}'));if(!option)throw Error('Synthetic UI controller missing');form.elements.controllerId.value=option.value;form.elements.controllerId.dispatchEvent(new iframe.contentWindow.Event('change',{bubbles:true}));form.requestSubmit();})()`);
+ await wait(frame(`doc.querySelector('[data-session] h2')?.textContent.includes('${controllerCode}')`));await wait(output(1));assert.equal(await evaluate(frame("doc.querySelector('[data-session]').querySelectorAll('[data-select-led]').length")),4);
+ assert.match(await evaluate(frame("doc.querySelector('[data-session] h2').textContent")),/LED 1 of 4/);
+ assert.equal(await evaluate(frame("Boolean(doc.querySelector('[data-action=close]'))")),false);
+ assert.deepEqual(await evaluate(frame(`(()=>{const form=doc.querySelector('form[data-action=bind]');return {later:form.elements.qrLater.checked,qrDisabled:form.elements.label.disabled,required:form.elements.label.required};})()`)),{later:true,qrDisabled:true,required:false});
+ // A failed save stays at the same LED and is visible inside the Setup panel.
+ await evaluate(frame(`(()=>{const form=doc.querySelector('form[data-action=bind]');form.elements.displayName.value='';form.elements.physicalConfirmed.checked=true;form.dispatchEvent(new doc.defaultView.Event('submit',{bubbles:true,cancelable:true}));return true;})()`));
+ await wait(frame("doc.querySelector('.setup-feedback')?.textContent.includes('name')"));assert.equal(await evaluate(output(1)),true);
+ await evaluate(frame(`(()=>{const form=doc.querySelector('form[data-action=bind]');form.elements.qrLater.checked=false;form.elements.qrLater.dispatchEvent(new doc.defaultView.Event('change',{bubbles:true}));return true;})()`));
+ assert.equal(await evaluate(frame("doc.querySelector('form[data-action=bind]').elements.label.required")),true);
+ await evaluate(frame(`(()=>{const form=doc.querySelector('form[data-action=bind]');form.elements.qrLater.checked=true;form.elements.qrLater.dispatchEvent(new doc.defaultView.Event('change',{bubbles:true}));form.elements.displayName.value='${cellName}';form.elements.warehouseName.value='QA Warehouse';form.elements.travelInstructions.value='Shelf Nine';form.elements.physicalConfirmed.checked=false;return true;})()`));
+ await clickInFrame('form[data-action=bind] button:not([type=button])');
+ await wait(frame(`doc.querySelector('[data-setup-form-error]')?.textContent.includes('Confirm')`));assert.equal(await evaluate(output(1)),true);
+ await evaluate(frame(`(doc.querySelector('form[data-action=bind]').elements.physicalConfirmed.checked=true,true)`));
+ await clickInFrame('form[data-action=bind] button:not([type=button])');
+ await wait(output(2));assert.equal(await evaluate(frame("doc.querySelector('[data-select-led=\"1\"]').classList.contains('is-complete')")),true);
+ assert.equal(await evaluate(frame("doc.querySelector('form[data-action=bind]').elements.displayName.value")),'');
+ // Explicit tab selection preserves each cell's draft rather than copying another cell's details.
+ await evaluate(frame("(doc.querySelector('form[data-action=bind]').elements.displayName.value='Draft LED Two',doc.querySelector('[data-select-led=\"4\"]').click(),true)"));await wait(output(4));
+ assert.equal(await evaluate(frame("doc.querySelector('form[data-action=bind]').elements.displayName.value")),'');
+ await evaluate(frame("(doc.querySelector('[data-select-led=\"2\"]').click(),true)"));await wait(output(2));assert.equal(await evaluate(frame("doc.querySelector('form[data-action=bind]').elements.displayName.value")),'Draft LED Two');
+ await evaluate(frame("(doc.querySelector('[data-setup-others]').click(),true)"));await wait(frame("doc.querySelector('[data-setup-others]')?.checked&&!doc.querySelector('form[data-action=bind] button:not([type=button])').disabled"));
+ // Universal views are reversible and cannot accidentally verify the wrong physical output.
+ await evaluate(frame("(doc.querySelector('[data-mode=numbers]').click(),true)"));await wait(frame("doc.querySelector('[data-mode=numbers][aria-pressed=true]')&&doc.querySelector('form[data-action=bind] button:not([type=button])').disabled"));
+ await evaluate(frame("(doc.querySelector('[data-mode=all]').click(),true)"));await wait(frame("Boolean(doc.querySelector('[data-mode=all][aria-pressed=true]'))"));
+ await evaluate(frame("(doc.querySelector('[data-mode=ping]').click(),true)"));await wait(frame("doc.querySelector('[data-mode=ping]')?.textContent==='Pinging…'"));
+ await wait(frame("doc.querySelector('[data-mode=all][aria-pressed=true]')&&doc.querySelector('[data-mode=ping]')?.textContent==='Ping all LEDs'"));
+ await evaluate(frame("(doc.querySelector('[data-action=light]').click(),true)"));await wait(frame("!doc.querySelector('form[data-action=bind] button:not([type=button])').disabled"));
+ for(const [width,height,label]of [[1280,960,'desktop'],[390,844,'mobile']]){
+  win.unmaximize();win.setSize(width,height);await new Promise(resolve=>setTimeout(resolve,200));await evaluate('document.fonts.ready.then(()=>true)');
+  const dimensions=await evaluate(frame("({width:doc.defaultView.innerWidth,body:doc.documentElement.scrollWidth,tabs:doc.querySelector('.location-setup-tabs').scrollWidth,tabWidth:doc.querySelector('.location-setup-tabs').clientWidth})"));assert.ok(dimensions.body<=dimensions.width+1,JSON.stringify(dimensions));const tabs=await evaluate(frame("[...doc.querySelector('[data-session]').querySelectorAll('[data-select-led]')].map(button=>({height:button.clientHeight,content:button.scrollHeight,display:doc.defaultView.getComputedStyle(button).display}))"));assert.ok(tabs.every(tab=>tab.height>=98&&tab.content<=tab.height+1&&tab.display==='flex'),JSON.stringify(tabs));if(width===390)assert.ok(dimensions.tabs>dimensions.tabWidth,JSON.stringify(dimensions));
+  await evaluate(frame("(doc.querySelector('[data-session]').scrollIntoView({block:'start'}),true)"));writeFileSync('/tmp/lytguide-location-setup-'+label+'.png',(await win.webContents.capturePage()).toPNG());
+ }
+ await evaluate(frame("(doc.querySelector('[data-select-led=\"4\"]').click(),true)"));await wait(output(4));
+ const visible=await evaluate(frame("(()=>{const nav=doc.querySelector('.location-setup-tabs'),tab=nav.querySelector('[aria-current=true]'),n=nav.getBoundingClientRect(),t=tab.getBoundingClientRect();return {left:t.left>=n.left-1,right:t.right<=n.right+1,scroll:nav.scrollLeft};})()"));assert.ok(visible.left&&visible.right&&visible.scroll>0,JSON.stringify(visible));
+ const saved=await evaluate(`fetch('/api/location-setup/snapshot').then(response=>response.json()).then(snapshot=>snapshot.cells.find(cell=>cell.display_name==='${cellName}'))`);assert.ok(saved);assert.equal(saved.qrScannedAt,null);assert.ok(saved.binding_verified_at);assert.equal(saved.travel_instructions,'Shelf Nine');
+ await evaluate('document.querySelector("[data-continue=locations]").click()');await wait('document.querySelector("#location-incomplete-dialog").open');
+ await evaluate('document.querySelector("[data-cancel-location-continue]").click()');assert.equal(await evaluate('document.querySelector("#location-incomplete-dialog").open'),false);assert.equal(await evaluate('Boolean(document.querySelector("iframe"))'),true);
+ await evaluate('document.querySelector("[data-continue=locations]").click()');await wait('document.querySelector("#location-incomplete-dialog").open');await evaluate('document.querySelector("[data-confirm-location-continue]").click()');await wait('Boolean(document.querySelector("[data-continue=finish]"))');
+ clearTimeout(deadline);console.log('PASS actual Setup UI: four LED tabs, automatic advance, saved states and per-LED drafts, visible validation, optional QR, reversible display controls, ping restoration, selected LED mode, desktop/mobile layouts and unfinished Continue confirmation');app.exit(0);
+})().catch(error=>{console.error(error);clearTimeout(deadline);app.exit(1);});

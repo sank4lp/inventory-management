@@ -311,11 +311,12 @@ export function createLocationPages({ db }) {
     const saved = firmwareOptions.controllerFlashRecords?.find(c => c.controllerId === selected?.id);
     const fqbn = firmwareOptions.defaultFqbn || 'esp32:esp32:esp32';
     const name = selected?.controller_code || '';
-    const count = saved?.physicalModuleCount ?? selected?.module_count ?? '';
+    const count = saved?.pendingPhysicalCount ?? saved?.physicalModuleCount ?? selected?.module_count ?? '';
+    const originalCount=saved?.physicalModuleCount ?? selected?.module_count ?? '';
     const ready = saved?.replacementReady === true;
     const steps = [['Disconnect','Unplug the ESP32'],['Attach','Connect by USB'],['Configure','Check the details'],['Flash','Upload and verify']];
     return `<section id="controller-setup" class="app-panel controller-wizard" data-config-section="controller-setup">
-      <div class="firmware-panel" data-firmware-panel data-firmware-mode="${editing?'edit':'add'}">
+      <div class="firmware-panel" data-firmware-panel data-firmware-mode="${editing?'edit':'add'}" data-active-firmware-job="${firmwareOptions.activeJob?.id||''}">
         <form class="firmware-wizard" data-firmware-flash-form data-firmware-wizard data-current-step="0">
           <div class="firmware-navigation-slot"><nav class="firmware-navigation" aria-label="Controller setup navigation">
             <button type="button" class="ghost-button firmware-nav-button" data-firmware-back>← Back</button>
@@ -324,35 +325,41 @@ export function createLocationPages({ db }) {
               <button type="submit" class="green-button firmware-nav-button" data-firmware-submit hidden disabled>${editing?'Update firmware':'Flash controller'}</button>
             </div>
           </nav></div>
-          <header class="firmware-wizard-head"><h2>${editing?`Edit ${escapeHtml(name)}`:'Add a new controller'}</h2><p class="muted">${editing?'Update this ESP32 or connect a replacement. Your cells and LED mappings stay with this controller.':'Connect an ESP32 and choose how many LED modules it controls.'}</p></header>
+          <header class="firmware-wizard-head"><h2>${editing?`Edit ${escapeHtml(name)}`:'Set up as fresh controller'}</h2><p class="muted">${editing?'Update this ESP32 or connect a replacement. Your cells and LED mappings stay with this controller.':'Use a new or previously used ESP32. Choose its LED count, then confirm replacing its saved LED setup.'}</p></header>
           ${firmwareOptions.arduinoCli.available?'':'<p class="firmware-port-status firmware-port-status-missing" role="alert">The firmware tools are not installed on this host.</p>'}
           <ol class="wizard-steps" aria-label="Controller setup progress">${steps.map(([title,subtitle],i)=>`<li class="wizard-step-indicator ${i===0?'wizard-step-indicator-active':'wizard-step-indicator-upcoming'}" data-firmware-step-indicator="${i}" ${i===0?'aria-current="step"':''}><span class="wizard-step-node" aria-hidden="true"><span class="wizard-step-number">${i+1}</span>${wizardCheckIcon()}</span><span class="wizard-step-copy"><strong>${title}</strong><span>${subtitle}</span></span></li>`).join('')}</ol>
-          <input type="hidden" name="replacement_controller_id" value="${selected?.id||''}" data-firmware-replacement data-name="${escapeHtml(name)}" data-count="${count}" data-ready="${ready?'1':'0'}">
+          <input type="hidden" name="replacement_controller_id" value="${selected?.id||''}" data-firmware-replacement data-name="${escapeHtml(name)}" data-count="${originalCount}" data-ready="${ready?'1':'0'}">
           <input type="hidden" name="fqbn" value="${escapeHtml(fqbn)}">
+          ${editing?'':'<input type="hidden" name="controller_setup_mode" value="fresh">'}
           <section class="firmware-step" data-firmware-step="0">
             <h3>Disconnect the ESP32</h3><p>Unplug its USB cable from the Raspberry Pi, then choose Next.</p>
             <p class="muted">Switch off external power before changing wires. Keep the ESP32 isolated from external power and LED/RS485 connections during flashing.</p>
           </section>
           <section class="firmware-step" data-firmware-step="1" hidden>
-            <h3>Connect the ESP32 via USB</h3><p>Connect ${editing?'this controller or its replacement':'the new controller'} to the Raspberry Pi using a USB data cable, then choose Next.</p>
+            <h3>Connect the ESP32 via USB</h3><p>Connect ${editing?'this controller or its replacement':'the ESP32'} to the Raspberry Pi using a USB data cable, then choose Next.</p><p class="muted">Choose the ESP32 USB port, not the RS485 adapter.</p>
             <p class="firmware-port-status" role="status" data-firmware-detect-status hidden></p>
           </section>
           <section class="firmware-step" data-firmware-step="2" hidden>
             <div class="firmware-grid">
+              ${editing?'<label>Action<select name="maintenance_action"><option value="update">Update firmware / LED count</option><option value="replace">Replace ESP32</option></select></label>':''}
               <label>Controller name<input name="controller_name" placeholder="e.g. Shelf A" ${editing?`value="${escapeHtml(name)}" readonly`:''} required maxlength="80"></label>
-              <label>LED modules<input type="number" name="module_count" min="${editing?0:firmwareOptions.moduleCount.min}" max="${firmwareOptions.moduleCount.max}" step="1" placeholder="4" ${editing?`value="${count}" readonly`:''} required></label>
+              <label>LED modules<input type="number" name="module_count" min="${firmwareOptions.moduleCount.min}" max="${firmwareOptions.moduleCount.max}" step="1" placeholder="4" ${editing?`value="${count}"`:''} required></label>
               <label>Serial port<input name="port" list="firmware-ports" placeholder="Select the connected ESP32" data-firmware-port-input required><input type="hidden" name="device_identity" value="" data-firmware-device-identity></label>
             </div>
             <datalist id="firmware-ports"></datalist>
+            ${editing?'<button type="button" class="ghost-button" data-firmware-read-profile>Read saved setup from this ESP32</button><p class="muted" data-firmware-profile-status role="status"></p>':''}
+
             <section class="firmware-added-device" aria-label="Added serial device"><h3>Added serial device</h3><p class="firmware-port-status" role="status" data-firmware-port-status>Select the ESP32 detected in the previous step.</p><div class="firmware-port-list" data-firmware-port-list></div></section>
+            ${editing?'':'<label class="firmware-confirmation" data-shared-usb-confirmation hidden><input type="checkbox" name="shared_usb_confirmed" value="1">This is a different ESP32. The previously registered controller is disconnected from this USB cable.</label>'}
             <details class="firmware-other-devices" data-firmware-other-devices><summary>Other serial devices / Manual refresh</summary><button type="button" class="ghost-button" data-firmware-refresh-ports>Refresh devices</button><div class="firmware-other-device-list" data-firmware-other-device-list></div></details>
           </section>
           <section class="firmware-step" data-firmware-step="3" hidden>
             <h3>${editing?'Ready to update':'Ready to add your controller'}</h3>
             <dl class="firmware-review"><div><dt>Controller</dt><dd data-firmware-review-name></dd></div><div><dt>LED modules</dt><dd data-firmware-review-count></dd></div><div><dt>Serial port</dt><dd data-firmware-review-port></dd></div></dl>
-            <p>${editing?'The saved LED setup will be restored and checked. Existing locations, inventory and tasks stay unchanged. Updating the same ESP32 keeps its saved LED count and order.':'The application will upload the firmware and save the controller setup.'}</p>
-            ${editing?`<div data-firmware-replacement-help><details class="firmware-backup-help" ${ready?'':'open'}><summary>${ready?'Save a setup backup':'Setup backup needed'}</summary><p>With the original ESP32 connected, save its LED setup before updating or replacing it.</p><button type="button" class="ghost-button" data-firmware-controller-backup>Save connected controller’s setup</button><p role="status" data-firmware-backup-status></p></details><label class="firmware-confirmation"><input type="checkbox" name="replacement_confirmed" value="1" required>The ESP32 is isolated for USB maintenance and the LED chain is unchanged.</label></div>`:''}
-            <p class="muted">Keep USB connected until verification finishes.</p>
+            <p>${editing?'The LED setup will be read back and checked. Existing location names, QR codes and stock are kept. A changed LED count adds unused outputs or removes only unassigned outputs from the end of the chain.':'Firmware will be uploaded. The saved LED setup on this ESP32 will be replaced with sequential outputs using the LED count above. Warehouse products, users and other controllers stay unchanged.'}</p>
+            ${editing?`<div data-firmware-replacement-help>${ready?'':'<p role="alert">The saved LED setup is unavailable. Restore the controller setup before updating its firmware; existing locations and mappings are kept.</p>'}<label class="firmware-confirmation"><input type="checkbox" name="replacement_confirmed" value="1" required>The selected ESP32 is isolated for USB maintenance. The old board is off the RS485 bus, and existing LEDs stay in the same order.</label></div>`:'<label class="firmware-confirmation"><input type="checkbox" name="fresh_setup_confirmed" value="1" required>I want to replace this ESP32’s saved LED setup. It is disconnected from the old warehouse and isolated for USB flashing.</label>'}
+            ${editing?'<label class="firmware-confirmation" data-layout-change-confirmation hidden><input type="checkbox" name="layout_change_confirmed" value="1">I changed the LED count. Existing LEDs stay in the same order; added or removed LEDs are at the end of the chain.</label>':''}
+            <p class="muted" role="status" data-firmware-start-hint>Keep USB connected until verification finishes.</p>
             <div class="firmware-progress" data-firmware-progress hidden><div class="firmware-progress-head"><strong data-firmware-stage>Queued</strong><span data-firmware-percent>0%</span></div><progress data-firmware-progress-bar value="0" max="100"></progress><p class="firmware-hint" role="status" data-firmware-hint hidden></p><details class="firmware-diagnostics"><summary>Upload details</summary><pre class="firmware-log" data-firmware-log></pre></details></div>
           </section>
           <p class="firmware-flow-status" role="status" data-firmware-flow-status hidden></p>
@@ -551,11 +558,13 @@ export function createLocationPages({ db }) {
     `;
   }
 
-  function renderDeviceConfigSection(sectionKey, {controllerId=null} = {}) {
+  function renderDeviceConfigSection(sectionKey, {controllerId=null,controllerName='',controllerAddress=''} = {}) {
     const controllers = listControllers(db);
     const cells = listCells(db);
 
     switch (sectionKey) {
+      case 'controller-connect':
+        return `<section id="controller-connect" class="app-panel" data-config-section="controller-connect"><h2>Connect existing controller</h2><p class="muted">Keep its firmware and LED setup. Connect its RS485 wiring and select the adapter before continuing.</p><form method="post" action="/devices/controller-connect"><div class="firmware-grid"><label>Controller name<input name="controller_name" value="${escapeHtml(controllerName)}" required maxlength="80"></label><label>Saved RS485 address<input name="controller_address" value="${escapeHtml(controllerAddress)}" required maxlength="80"></label></div><p class="muted">Use the address from the previous warehouse setup or controller label. The app reads the firmware and LED configuration without uploading anything.</p><button type="submit" class="green-button">Check & connect</button></form></section>`;
       case "controller-setup":
         return renderControllerSetupSection(controllers,controllerId);
       case "cell-create":
@@ -648,6 +657,7 @@ export function createLocationPages({ db }) {
       content: `
         <div class="app-console ui-settings-page ui-hardware" data-config-workspace><nav class="ui-toolbar"><a href="/settings">← Settings</a><a href="/location-setup">Location setup</a></nav>
           <section class="ui-settings-links" aria-label="Configuration actions" data-config-overview>
+            <a class="ui-button ui-button-secondary" href="#controller-connect" data-config-section-link="controller-connect" aria-controls="controller-connect"><strong>Connect existing controller</strong></a>
             <a class="ui-button ui-button-secondary" href="#controller-setup" data-config-section-link="controller-setup" aria-controls="controller-setup">
               <span>
                 <strong>Add Controller</strong>

@@ -1,5 +1,6 @@
 import {createHostAdapter} from "../../modules/hardware/host-adapter.js";
 import {displayEntry,displayFrame} from "./display-frame.js";
+import {validateControllerConfiguration} from '../controller-profiles.js';
 import { groupChecksum, groupMask } from "./group-protocol.js";
 import { createHash, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -300,6 +301,30 @@ export function createRs485Adapter({ config = {}, logger }) {
 
   const groupCapabilities = new Map();
 
+  function inspectExistingController(address){
+    if(!/^[A-Za-z0-9._:-]{1,80}$/.test(address)||/^(all|broadcast)$/i.test(address))throw new Error('Enter the exact controller RS485 address.');
+    const health=checkControllerHealth({address,controller_code:''});
+    const reply=health.events?.find(event=>event.payload?.reply)?.payload.reply;
+    if(!health.ok||String(reply?.address||'').toUpperCase()!==address.toUpperCase())throw new Error('This controller did not respond. Check its power, RS485 address, adapter and A/B wiring.');
+    const version=/^simple-matrix-v(13|14|15)-rs485-addressed$/.exec(reply.protocol||'');
+    if(!version)throw new Error('Existing firmware compatibility could not be verified. No firmware was changed. Check the controller version before choosing an update.');
+    let configuration;
+    if(Number(version[1])===13){
+      if(!Number.isInteger(reply.modules)||reply.modules<1||reply.modules>64)throw new Error('The controller returned an invalid LED count.');
+      configuration={physicalCount:reply.modules,logicalCount:reply.modules,routing:Array.from({length:64},(_,i)=>i<reply.modules?i+1:0),revision:0,fault:false};
+    }else{
+      const request=randomBytes(8).toString('hex');let found;
+      for(let attempt=0;attempt<3&&!found;attempt++){
+        send(addressedCommand(address,`config-status ${request}`),{repeats:1,immediate:true});
+        const accepts=row=>row.type==='controller-config'&&row.address?.toUpperCase()===address.toUpperCase()&&row.request===request;
+        found=parseJsonLines(readSerialWindow(900,accepts)).find(accepts);
+      }
+      configuration=validateControllerConfiguration(found,address,request);
+    }
+    if(configuration.logicalCount<1||configuration.physicalCount<1)throw new Error('This controller has no configured LED outputs. No firmware was changed.');
+    return {address:address.toUpperCase(),firmwareVersion:reply.protocol,configuration};
+  }
+
   function checkControllerHealth(controller, {timeoutMs=2000}={}) {
     const deadlineAt=Date.now()+numberSetting(timeoutMs,2000,{min:1,max:2000});
     const readWithinBudget=(limit,accept)=>readSerialWindow(Math.min(limit,Math.max(0,deadlineAt-Date.now())),accept);
@@ -524,6 +549,7 @@ export function createRs485Adapter({ config = {}, logger }) {
 
   return {
     name: "rs485",
+    inspectExistingController,
     batch,
     dispose() {
       disposed=true;clearTimeout(heartbeatSyncTimer);clearInterval(heartbeatSyncTimer);

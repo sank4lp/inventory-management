@@ -1,4 +1,8 @@
 import {createMaintenanceCommands} from './modules/maintenance/service.js';
+import {setupBlocked,setupWaitingPage} from './modules/setup/gate.js';
+import {runtimeReadiness} from './modules/runtime/readiness.js';
+import {appConfig} from './config.js';
+import {connectExistingController} from './services/existing-controllers.js';
 import {can} from "./modules/access/catalog.js";
 import {effectiveUser} from "./modules/access/service.js";
 import {routeAllowed,routeCapability,permittedMarkup} from "./modules/access/routes-policy.js";
@@ -511,6 +515,12 @@ export const requestHandler = async (request, response) => {
     } catch (error) { sendJson(response, { error: error.message }, error.statusCode || 400); return; }
   }
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+  if(runtimeReadiness(request,response,url,{enabled:Boolean(process.env.LYTGUIDE_SETUP_PENDING_FILE),secret:appConfig.sessionSecret,getDb:()=>getAppState().db}))return;
+  if(url.pathname==='/setup-not-ready'&&request.method==='GET'){sendHtml(response,setupWaitingPage());return;}
+  if(setupBlocked(request.method,url.pathname)){
+    if(url.pathname.startsWith('/api/')||request.method!=='GET')sendJson(response,{error:'Warehouse setup is not finished. Complete Warehouse Setup on the Pi before starting work.'},503);
+    else sendRedirect(response,'/setup-not-ready');return;
+  }
   const {
     adminService,
     anomalyService,
@@ -1887,7 +1897,7 @@ export const requestHandler = async (request, response) => {
       if (!ensureAuth(response, user)) {
         return;
       }
-      const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1],{controllerId:url.searchParams.get('controller_id')});
+      const sectionHtml = pages.renderDeviceConfigSection(deviceSectionMatch[1],{controllerId:url.searchParams.get('controller_id'),controllerName:url.searchParams.get('name')||'',controllerAddress:url.searchParams.get('address')||''});
       if (!sectionHtml) {
         sendText(response, "Unknown configuration section.", 404);
         return;
@@ -1940,6 +1950,14 @@ export const requestHandler = async (request, response) => {
         return;
       }
       sendJson(response, { job });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/devices/controller-connect") {
+      if (!ensureAuth(response,user)) return;
+      const form=await parseForm(request);
+      const controller=connectExistingController({db,hardwareService},form,user);
+      sendRedirect(response,appendFlash('/devices#controller-health',`${controller.controller_code} connected. Existing firmware was kept.`,'success'));
       return;
     }
 
