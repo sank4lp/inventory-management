@@ -24,7 +24,7 @@ const dbPath=join(STATE_ROOT,'data/inventory.db');
 const current=join(INSTALL_ROOT,'current');
 const candidate=join(INSTALL_ROOT,'candidate');
 const rootCert=join(STATE_ROOT,'caddy/pki/authorities/local/root.crt');
-const managedFiles=[configPath,join(CONFIG_ROOT,'runtime.env'),join(CONFIG_ROOT,'Caddyfile'),join(CONFIG_ROOT,'desktop-url'),ENCRYPTION_PROFILE];
+const managedFiles=[configPath,join(CONFIG_ROOT,'runtime.env'),join(CONFIG_ROOT,'Caddyfile'),join(CONFIG_ROOT,'desktop-url'),join(CONFIG_ROOT,'device-access.json'),ENCRYPTION_PROFILE];
 function run(command,args=[],options={}) {
   try{return execFileSync(command,args,{encoding:'utf8',timeout:30000,stdio:['pipe','pipe','pipe'],...options});}
   catch(error){throw new Error(`${command} failed: ${String(error.stderr||error.message).trim()}`);}
@@ -145,7 +145,7 @@ async function setup(options){
     if(existingAdministrator)bootstrap(release,config,{action:'administrator',userId:Number(options.__administratorId),username,password:options.__adminPassword});
     if(!noStart){
       run('systemctl',['daemon-reload']);run('systemctl',['enable',APP_SERVICE]);run('systemctl',['restart',APP_SERVICE]);await waitForApp(config);
-      if(network){run('systemctl',['enable',WEB_SERVICE]);run('systemctl',['restart',WEB_SERVICE]);await waitForHttps(config);}
+      if(network){run('systemctl',['enable',WEB_SERVICE]);run('systemctl',['restart',WEB_SERVICE]);await waitForHttps(config);publishEnrollment(config,webOwner);}
       else if(webWasActive)run('systemctl',['disable',WEB_SERVICE]);
       run('systemctl',['enable',WATCHDOG_TIMER]);run('systemctl',['start',WATCHDOG_TIMER]);
     }
@@ -166,6 +166,7 @@ async function setup(options){
     if(!noStart&&!watchdogWasActive){repair(()=>run('systemctl',['stop',WATCHDOG_TIMER]));repair(()=>run('systemctl',['disable',WATCHDOG_TIMER]));}
     if(oldCurrent)repair(()=>pointCurrent(resolve(INSTALL_ROOT,oldCurrent)));
     for(const [path,file] of oldFiles){if(file)repair(()=>writeOwned(path,file.bytes,file.mode,path.endsWith('runtime.env')?{uid:0,gid:owner.gid}:path.endsWith('Caddyfile')?{uid:0,gid:webOwner.gid}:null));else if(existsSync(path))repair(()=>unlinkSync(path));}
+    if(before?.address)repair(()=>publishEnrollment(before,webOwner));
     if(backup)repair(()=>{for(const suffix of ['-wal','-shm'])if(existsSync(dbPath+suffix))unlinkSync(dbPath+suffix);copyFileSync(backup,dbPath);chmodSync(dbPath,0o600);chownSync(dbPath,owner.uid,owner.gid);});
     if(!noStart){if(appWasActive)repair(()=>run('systemctl',['restart',APP_SERVICE]));else repair(()=>run('systemctl',['disable',APP_SERVICE]));if(webWasActive)repair(()=>run('systemctl',['restart',WEB_SERVICE]));else repair(()=>run('systemctl',['disable',WEB_SERVICE]));}
     throw new Error(`Test setup failed; the previous test configuration was restored. ${error.message}${repairErrors.length?` Recovery needs attention: ${repairErrors.join('; ')}`:''}`);
@@ -237,7 +238,7 @@ async function restoreWarehouse(options){
     // this point prevents automatic startup and leaves a reversible journal.
     rmSync(RESTORE_MARKER);
     syncDirectory(STATE_ROOT);
-    if(!noStart){run('systemctl',['start',APP_SERVICE]);await waitForApp(next);if(next.address){run('systemctl',['start',WEB_SERVICE]);await waitForHttps(next);}}
+    if(!noStart){run('systemctl',['start',APP_SERVICE]);await waitForApp(next);if(next.address){run('systemctl',['start',WEB_SERVICE]);await waitForHttps(next);publishEnrollment(next,account(WEB_USER));}}
     activated=true;
     console.log(`Warehouse prepared from ${manifest.createdAt}. ${preparation.trim()}\n${resetMode==='fresh'?'Sign in with the new administrator.':'Sign in with the retained warehouse accounts.'} Hardware is in simulator mode. Verify stock and hardware connections before enabling real controllers.\nPrevious test data retained at ${saved}/data`);
     if(next.recoveryDirectory)try{console.log('New recovery copy: '+(await createRecoveryCopy(run,next)).path);}catch(error){console.error('Warehouse restored, but its new SD-card copy failed: '+error.message);}
@@ -247,6 +248,7 @@ async function restoreWarehouse(options){
         if(!noStart){run('systemctl',['stop',WEB_SERVICE]);run('systemctl',['stop',APP_SERVICE]);}
         if(!existsSync(RESTORE_MARKER))writeOwned(RESTORE_MARKER,JSON.stringify({folder:saved,certificateReplaced:existsSync(join(saved,'caddy')),oldConfig:managedFiles.filter(path=>existsSync(join(saved,path.split('/').pop()))).map(path=>path.split('/').pop())}));
         rollbackRestore();
+        publishEnrollment(config,account(WEB_USER));
         if(appWasActive)run('systemctl',['start',APP_SERVICE]);if(webWasActive)run('systemctl',['start',WEB_SERVICE]);
       }catch(repair){throw new Error(`Restore failed: ${error.message}. Recovery needs attention: ${repair.message}. Keep hardware off and run sudo lytguide-test restore-rollback.`);}
     }else if(!saved){if(appWasActive&&!active(APP_SERVICE))run('systemctl',['start',APP_SERVICE]);if(webWasActive&&!active(WEB_SERVICE))run('systemctl',['start',WEB_SERVICE]);}

@@ -2,7 +2,8 @@
 import {execFileSync} from 'node:child_process';
 import {existsSync,readFileSync,writeFileSync,mkdirSync,renameSync,unlinkSync,chmodSync,chownSync} from 'node:fs';
 import {networkInterfaces} from 'node:os';
-import {dirname} from 'node:path';
+import {dirname,join} from 'node:path';
+import {DEVICE_ACCESS_FILE,publishDeviceEnrollment} from '../src/services/device-enrollment.js';
 import {adaptLanConfig} from './lib/pi-lan-caddy.js';
 import {
   APP_SERVICE,LAN_SERVICE,LAN_CONFIG,LAN_UNIT,LAN_STORAGE,LAN_ROOT_CERT,
@@ -50,6 +51,7 @@ function preflight(options) {
   const listeners=run('ss',['-H','-ltnp',`sport = :${options.port}`]);
   const pid=status(LAN_SERVICE,'MainPID');
   checkPortOwner(listeners,pid&&pid!=='0'?pid:null);
+  if(options.enrollPort)checkPortOwner(run('ss',['-H','-ltnp',`sport = :${options.enrollPort}`]),pid&&pid!=='0'?pid:null);
   const config=renderLanConfig({...options,cidr:network.cidr});
   // Adapt the complete candidate before replacing any installed configuration.
   adaptLanConfig(config);
@@ -58,7 +60,9 @@ function preflight(options) {
 function install(options) {
   if(process.getuid()!==0)throw new Error('Install needs sudo on the Raspberry Pi.');
   const {network,config}=preflight(options);
-  const before={config:existing(LAN_CONFIG),unit:existing(LAN_UNIT),active:status(LAN_SERVICE,'ActiveState')==='active',enabled:run('systemctl',['is-enabled',LAN_SERVICE],{optional:true})==='enabled'};
+  const enrollmentFolder=join(LAN_STORAGE,'enrollment');
+  const enrollmentBefore=['index.html','root.cer'].map(name=>({path:join(enrollmentFolder,name),bytes:existsSync(join(enrollmentFolder,name))?readFileSync(join(enrollmentFolder,name)):null}));
+  const before={config:existing(LAN_CONFIG),unit:existing(LAN_UNIT),metadata:existing(DEVICE_ACCESS_FILE),active:status(LAN_SERVICE,'ActiveState')==='active',enabled:run('systemctl',['is-enabled',LAN_SERVICE],{optional:true})==='enabled'};
   const uid=Number(run('id',['-u','caddy'])),gid=Number(run('id',['-g','caddy']));
   mkdirSync(LAN_STORAGE,{recursive:true,mode:0o700});chmodSync(LAN_STORAGE,0o700);chownSync(LAN_STORAGE,uid,gid);
   try {
@@ -74,12 +78,14 @@ function install(options) {
       try{verify(options);lastError=null;break;}catch(error){lastError=error;run('sleep',['1']);}
     }
     if(lastError)throw lastError;
+    publishDeviceEnrollment({address:options.address,httpsPort:options.port,enrollPort:options.enrollPort,warehouseName:options.warehouseName||(()=>{try{return JSON.parse(before.metadata).warehouseName;}catch{return undefined;}})(),certificatePath:LAN_ROOT_CERT,folder:join(LAN_STORAGE,'enrollment'),metadataPath:DEVICE_ACCESS_FILE,owner:{uid,gid}});
   }catch(error){
     const recovery=[];
     const repair=(fn)=>{try{fn();}catch(e){recovery.push(e.message);}};
     repair(()=>run('systemctl',['stop',LAN_SERVICE]));
     if(!before.enabled)repair(()=>run('systemctl',['disable',LAN_SERVICE]));
-    for(const [path,contents] of [[LAN_CONFIG,before.config],[LAN_UNIT,before.unit]])repair(()=>{if(contents==null){if(existsSync(path))unlinkSync(path);}else writeAtomic(path,contents);});
+    for(const [path,contents] of [[LAN_CONFIG,before.config],[LAN_UNIT,before.unit],[DEVICE_ACCESS_FILE,before.metadata]])repair(()=>{if(contents==null){if(existsSync(path))unlinkSync(path);}else writeAtomic(path,contents);});
+    for(const {path,bytes} of enrollmentBefore)repair(()=>{if(bytes===null){if(existsSync(path))unlinkSync(path);}else{writeAtomic(path,bytes);chmodSync(path,0o600);chownSync(path,uid,gid);}});
     repair(()=>run('systemctl',['daemon-reload']));
     if(before.active)repair(()=>run('systemctl',['start',LAN_SERVICE]));
     throw new Error(`HTTPS setup failed; restored the previous HTTPS configuration. The inventory service/database were not changed. ${error.message}${recovery.length?` Recovery needs attention: ${recovery.join('; ')}`:''}`);
@@ -98,7 +104,7 @@ function certificate(options) {
 
 try {
   const options=parseLanArguments(process.argv.slice(2));
-  if(options.command==='help')console.log('On the Raspberry Pi:\n  sudo node scripts/pi-lan.mjs check --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs install --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs verify --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs certificate --address 192.168.1.140\nOptional: --port 8443, --app-port 3000\nSee docs/pi-local-network.md for phone certificate setup.');
+  if(options.command==='help')console.log('On the Raspberry Pi:\n  sudo node scripts/pi-lan.mjs check --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs install --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs verify --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs certificate --address 192.168.1.140\nOptional: --port 8443, --app-port 3000, --enroll-port 8444, --name "Main warehouse"\nSee docs/pi-local-network.md for phone certificate setup.');
   else {
     requirePi();
     if(options.command==='install')install(options);

@@ -326,5 +326,12 @@ export function createStocktakingService({db,operationsService,clock=()=>new Dat
     return {itemId:row.id,generation:row.generation,cellId:c.id,name:c.display_name||c.logical_code};
   }
   function heartbeat(actor,input){const a=actorNow(actor,'count');if(input.actorId!=null&&Number(input.actorId)!==a.id||input.site&&input.site!==identity().site||input.dataset&&input.dataset!==identity().dataset)throw new Error('Account or warehouse changed. Reopen Stocktaking.');return withTransaction(db,()=>presence.heartbeat(a,input));}
-  return {command,snapshot,tick,baseline,movements,resolve,heartbeat};
+  // The Excel service owns the transaction; creating a run does not start its
+  // lights or post any inventory. Retain the file's figures as audit evidence.
+  function stageExcelCount(actor,input){
+    const a=actorNow(actor,'manage'),result=createRun(a,input);
+    event(a,'excel_import',{importId:input.importId,comparisons:input.comparisons},result.runId);
+    return result;
+  }
+  return {command,snapshot,tick,baseline,movements,resolve,heartbeat,stageExcelCount};
 }

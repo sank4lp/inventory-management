@@ -65,7 +65,7 @@ def safe_name(name):
     return name in ('inventory.sqlite', 'pki/root.crt', 'pki/root.key', 'pki/intermediate.crt', 'pki/intermediate.key') or bool(re.fullmatch(r'archives/[A-Za-z0-9][A-Za-z0-9_.-]{0,220}\.json', name)) and '..' not in name
 
 
-def create(data, destination, version, hints=None, pki=None):
+def create(data, destination, version, hints=None, pki=None, excel_snapshot=None):
     data, destination = pathlib.Path(data), pathlib.Path(destination)
     if destination.exists() or destination.is_symlink():
         raise ValueError('That backup file already exists. Choose a new filename.')
@@ -132,6 +132,15 @@ def create(data, destination, version, hints=None, pki=None):
                 os.fsync(raw.fileno())
             os.rename(temporary, destination)
             sync_directory(destination.parent)
+            # Optional sidecar export reads the exact archived snapshot. Its
+            # failure must never invalidate the independently restorable archive.
+            if excel_snapshot:
+                try:
+                    with open(excel_snapshot, 'xb') as excel_source, snapshot.open('rb') as frozen:
+                        os.chmod(excel_snapshot, 0o600)
+                        shutil.copyfileobj(frozen, excel_source)
+                except Exception as error:
+                    manifest['excelSnapshotError'] = str(error)
             return manifest
     finally:
         temporary.unlink(missing_ok=True)
@@ -227,7 +236,7 @@ def main():
     request = json.load(sys.stdin)
     action = request['action']
     if action == 'create':
-        result = create(request['data'], request['destination'], request['version'], request.get('hints'), request.get('pki'))
+        result = create(request['data'], request['destination'], request['version'], request.get('hints'), request.get('pki'), request.get('excelSnapshot'))
     elif action == 'extract':
         result = extract(request['source'], request['destination'])
     elif action == 'publish':

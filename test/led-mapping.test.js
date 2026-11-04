@@ -7,6 +7,7 @@ import {randomUUID} from 'node:crypto';
 import {createDatabase} from '../src/db.js';
 import {hashPassword} from '../src/services/auth.js';
 import {configureControllerModules} from '../src/services/inventory.js';
+import {deleteCell} from '../src/services/inventory.js';
 import {saveControllerProfile} from '../src/services/controller-profiles.js';
 import {createOperationsService} from '../src/modules/operations/service.js';
 import {createLocationSetupService} from '../src/modules/locations/service.js';
@@ -116,4 +117,62 @@ test('generic setup discard cannot cancel put tasks while moved goods remain in 
  f.work.command(f.admin,'report',{requestId:randomUUID(),lineId:l.id,revision:f.work.line(l.id).revision,cellId:l.cell_id,unit:l.unit_of_measure,quantity:l.planned_quantity,deviceId:'test'});
  row=f.work.setupBlockers(f.admin,{}).tasks.find(t=>t.id===move.puts[0]);assert.equal(row.canDiscard,false);assert.match(row.reason,/put away/);
  assert.throws(()=>f.work.command(f.admin,'discardSetupTasks',{requestId:randomUUID(),confirmed:true,tasks:[{id:row.id,token:row.token}]}),/put away/);assert.ok(!f.work.task(f.admin,row.id).completed_at);f.db.close();
+});
+
+test('correcting a location to a free LED releases its old LED and preserves stock, QR and history',()=>{
+ const f=fixture(),id=f.save([{physical:1,name:'Correct cell'}]).cellIds[0];f.stock(id,7);
+ const before=f.db.prepare('SELECT label_id,label_revision,shelf_id FROM cells WHERE id=?').get(id),balances=f.db.prepare('SELECT * FROM inventory_balances').all();
+ const revision=f.map().revision;
+ f.save([{physical:2,name:'Correct cell',cellId:id}]);
+ assert.equal(f.map().leds[0].cellId,null);assert.equal(f.map().leds[1].cellId,id);
+ assert.deepEqual(f.db.prepare('SELECT label_id,label_revision,shelf_id FROM cells WHERE id=?').get(id),before);
+ assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),balances);
+ assert.throws(()=>f.command('saveLedMappings',{controllerId:f.c.id,revision,rows:[{physical:3,name:'Correct cell'}]}),/changed/);
+ const next=f.save([{physical:1,name:'Other cell'}]).cellIds[0];assert.notEqual(id,next);
+ assert.throws(()=>f.save([{physical:1,name:'Correct cell'}]),/Confirm whether/);
+ assert.equal(f.map().leds[0].cellId,next);assert.equal(f.map().leds[1].cellId,id);f.db.close();
+});
+
+test('removing a binding keeps the logical cell, frees the LED and replays safely',()=>{
+ const f=fixture(),id=f.save([{physical:1,name:'Remove wrong binding'}]).cellIds[0];f.stock(id,5);
+ assert.throws(()=>f.save([{physical:1,cellId:id}]),/Enter a location name/);assert.equal(f.map().leds[0].cellId,id);
+ const input={requestId:randomUUID(),controllerId:f.c.id,revision:f.map().revision,rows:[{physical:1,name:'',cellId:id}]};
+ f.service.command(f.admin,'saveLedMappings',input);
+ assert.equal(f.service.command(f.admin,'saveLedMappings',input).replayed,true);
+ const c=f.db.prepare('SELECT * FROM cells WHERE id=?').get(id);assert.equal(c.active,1);assert.equal(c.controller_id,null);assert.equal(c.hardware_channel,null);
+ assert.equal(f.db.prepare('SELECT available_quantity n FROM inventory_balances WHERE cell_id=?').get(id).n,5);
+ assert.equal(f.map().leds[0].cellId,null);f.save([{physical:1,name:'New owner'}]);
+ f.save([{physical:2,name:'Remove wrong binding',cellId:id}]);assert.equal(f.map().leds[1].cellId,id);f.db.close();
+});
+
+test('a deleted location and its inactive placeholder do not block assigning that LED again',()=>{
+ const f=fixture(),old=f.save([{physical:1,name:'Incorrect name'}]).cellIds[0];deleteCell(f.db,{cellId:old,deletedBy:f.admin.id});
+ const id=f.save([{physical:2,name:'Actual name'}]).cellIds[0];
+ f.save([{physical:1,name:'Actual name',cellId:id}]);
+ assert.equal(f.map().leds[0].cellId,id);assert.equal(f.map().leds[1].cellId,null);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM cells WHERE controller_id=? AND hardware_channel=?').get(f.c.id,f.map().leds[0].channel).n,1);f.db.close();
+});
+
+test('correcting across controllers retains the logical location and frees the old controller output',()=>{
+ const f=fixture(),id=f.save([{physical:1,name:'Cross controller'}]).cellIds[0];
+ const result=configureControllerModules(f.db,{controllerCode:'SECOND',controllerAddress:'SECOND',moduleCount:2,configuredBy:f.admin.id}),second=f.db.prepare('SELECT * FROM controllers WHERE id=?').get(result.id);
+ saveControllerProfile(f.db,second,{physicalCount:2,logicalCount:2,routing:Array.from({length:64},(_,i)=>i<2?i+1:0),revision:1});
+ const map=f.service.snapshot(f.admin).ledControllers.find(c=>c.id===second.id);
+ f.command('saveLedMappings',{controllerId:second.id,revision:map.revision,rows:[{physical:2,name:'Cross controller',cellId:id}]});
+ assert.equal(f.map().leds[0].cellId,null);assert.equal(f.db.prepare('SELECT controller_id FROM cells WHERE id=?').get(id).controller_id,second.id);f.db.close();
+});
+
+test('new sheds persist for LED and manual locations, reuse names and reject wrong-warehouse or invalid choices atomically',()=>{
+ const f=fixture(),warehouse=f.service.snapshot(f.admin).hierarchy.warehouses[0];
+ const id=f.save([{physical:1,name:'In new shed',warehouseId:warehouse.id,shelfId:'new',newShelfName:'Packing Shed'}]).cellIds[0];
+ const group=f.service.snapshot(f.admin).hierarchy.shelves.find(s=>s.name==='Packing Shed');assert.ok(group);assert.equal(group.warehouse_id,warehouse.id);
+ const next=f.command('manual',{displayName:'Next location',warehouseId:warehouse.id,shelfId:group.id}).cellId;
+ const third=f.command('manual',{displayName:'Third location',warehouseId:warehouse.id,shelfId:'new',newShelfName:'packing shed'}).cellId;
+ for(const cellId of [id,next,third])assert.equal(f.db.prepare('SELECT shelf_id FROM cells WHERE id=?').get(cellId).shelf_id,group.id);
+ assert.equal(f.db.prepare("SELECT COUNT(*) n FROM location_shelves WHERE name='Packing Shed' COLLATE NOCASE").get().n,1);
+ const east=Number(f.db.prepare("INSERT INTO location_warehouses(name) VALUES('East')").run().lastInsertRowid),before=f.map().revision;
+ assert.throws(()=>f.save([{physical:3,name:'Rejected',warehouseId:east,shelfId:group.id}]),/Choose a shed/);
+ assert.equal(f.map().revision,before);assert.equal(f.db.prepare("SELECT COUNT(*) n FROM cells WHERE display_name='Rejected'").get().n,0);
+ for(const values of [{warehouseId:99999,shelfId:group.id},{warehouseId:warehouse.id,shelfId:''},{warehouseId:warehouse.id,shelfId:'new',newShelfName:'  '}])assert.throws(()=>f.command('manual',{displayName:'Invalid',...values}),/warehouse|shed/);
+ assert.equal(f.db.prepare("SELECT COUNT(*) n FROM cells WHERE display_name='Invalid'").get().n,0);f.db.close();
 });

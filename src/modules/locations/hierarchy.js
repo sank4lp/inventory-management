@@ -3,6 +3,22 @@ import {createHash,randomUUID} from 'node:crypto';
 export const DEFAULT_WAREHOUSE='Default Warehouse';
 export const DEFAULT_SHELF='Unassigned shed/shelf';
 
+// Resolve the selector against saved groups inside the location-save transaction.
+// Legacy setup forms may continue to supply the names directly.
+export function locationGroupNames(db,input) {
+ if(input.shelfId==null&&input.newShelfName==null)return {warehouseName:input.warehouseName,travelInstructions:input.travelInstructions};
+ const warehouse=db.prepare('SELECT * FROM location_warehouses WHERE id=?').get(Number(input.warehouseId));
+ if(!warehouse)throw new Error('Choose a warehouse.');
+ if(input.shelfId==='new'){
+  const name=String(input.newShelfName||'').trim();
+  if(!name||name.length>1000||/[\u0000-\u001f\u007f]/.test(name))throw new Error('Enter a readable shed/shelf name, up to 1000 characters.');
+  return {warehouseName:warehouse.name,travelInstructions:name};
+ }
+ const shelf=db.prepare('SELECT * FROM location_shelves WHERE id=? AND warehouse_id=?').get(Number(input.shelfId),warehouse.id);
+ if(!shelf)throw new Error('Choose a shed/shelf in this warehouse, or add a new one.');
+ return {warehouseName:warehouse.name,travelInstructions:shelf.name};
+}
+
 export function migrateLocationHierarchy(db) {
  db.exec(`CREATE TABLE IF NOT EXISTS location_warehouses (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE

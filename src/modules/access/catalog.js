@@ -88,6 +88,7 @@ export function validateCapabilities(values) {
   return selected;
 }
 export const SETTINGS = [
+  ['/settings/connect-device','Connect a device','system.view'],
   ['/settings/people','People & access','people.view'],['/settings/roles','Roles and Permissions','access.manage'],
   ['/devices','Hardware','hardware.view'],['/location-setup','Location setup','locations.manage'],
   ['/admin/product-fields','Product fields & units','products.fields'],['/backups','Backups & recovery','backups.view'],

@@ -36,13 +36,20 @@ export function createLedMapping({db,newCell,validateValues,event,operationsServ
       const led=map.leds.find(l=>l.physical===Number(row.physical));
       if(!led?.channel||physicals.has(led.physical))throw Error('Choose each configured physical LED once.');
       physicals.add(led.physical);
-      const name=String(row.name||'').trim();
+      if(typeof row.name!=='string')throw Error('Enter a location name, or clear it to remove the mapping.');
+      const name=row.name.trim();
+      const old=led.cellId?cell(led.cellId):null;
+      if(!name){
+        if(row.cellId&&Number(row.cellId)!==old?.id)throw Error('Mapping changed. Reload the location before removing its LED.');
+        if(old&&displayOwner(db,old.id)?.kind==='count')throw Error('Finish or pause stocktaking at this location before changing its mapping.');
+        if(old&&db.prepare("SELECT 1 FROM location_qr_reassignments WHERE status='ready' AND (source_cell_id=? OR target_cell_id=?)").get(old.id,old.id))throw Error('Finish or cancel the pending QR reassignment for this location first.');
+        return {led,target:null};
+      }
       if(!name||name.length>160||/[\u0000-\u001f\u007f]/.test(name))throw Error('Enter a readable location name, up to 160 characters.');
       const matches=db.prepare('SELECT * FROM cells WHERE active=1 AND (display_name=? COLLATE NOCASE OR logical_code=? COLLATE NOCASE)').all(name,name);
       if(matches.length>1)throw Error('This name matches multiple locations. Rename them first.');
       let target=row.cellId?cell(row.cellId):matches[0];
       if(row.cellId&&(!target||![target.display_name,target.logical_code].some(n=>n?.toLowerCase()===name.toLowerCase())))throw Error('The selected location changed. Choose it again.');
-      const old=led.cellId?cell(led.cellId):null;
       for(const item of [old,target].filter(Boolean)){
         if(displayOwner(db,item.id)?.kind==='count')throw Error('Finish or pause stocktaking at this location before changing its mapping.');
         if(db.prepare("SELECT 1 FROM location_qr_reassignments WHERE status='ready' AND (source_cell_id=? OR target_cell_id=?)").get(item.id,item.id))throw Error('Finish or cancel the pending QR reassignment for this location first.');
@@ -72,20 +79,23 @@ export function createLedMapping({db,newCell,validateValues,event,operationsServ
           if(hasStock(old.id))throw Error('Move all products out using the move tasks before reassigning this LED.');
         }
       }
-      if(target?.controller_id&&(target.controller_id!==c.id||target.hardware_channel!==led.channel))throw Error(`${name} already has an LED. Remove that mapping first.`);
-      if(!target){assertCan(actor,'locations.manage');const attributes=validateValues(row.attributes||{});target=newCell(actor,name);saveLocationDescription(db,actor,{cellId:target.id,descriptionRevision:target.description_revision,displayName:name,attributes,travelInstructions:row.travelInstructions,warehouseName:row.warehouseName});db.prepare("INSERT OR IGNORE INTO location_labels(token,revision,cell_id,state,created_at,bound_at,bound_by) VALUES(?,?,?,'bound',datetime('now'),datetime('now'),?)").run(target.label_id,target.label_revision,target.id,actor.id);}
+      // Correcting a location's LED replaces its old binding in the same receipt
+      // transaction. The selected LED's current owner is checked above; a
+      // historical or different binding on this target is not a conflict.
+      if(!target){assertCan(actor,'locations.manage');const attributes=validateValues(row.attributes||{});target=newCell(actor,name);saveLocationDescription(db,actor,{...row,cellId:target.id,descriptionRevision:target.description_revision,displayName:name,attributes});db.prepare("INSERT OR IGNORE INTO location_labels(token,revision,cell_id,state,created_at,bound_at,bound_by) VALUES(?,?,?,'bound',datetime('now'),datetime('now'),?)").run(target.label_id,target.label_revision,target.id,actor.id);}
       if(targets.has(target.id))throw Error('Choose a different location for each LED.');
       targets.add(target.id);
       return {led,target};
     });
     for(const {led,target} of rows){
-      if(led.cellId===target.id)continue;
+      if(target&&led.cellId===target.id)continue;
       db.prepare("UPDATE cells SET controller_id=NULL,hardware_channel=NULL,mapping_status='unmapped' WHERE controller_id=? AND hardware_channel=?").run(c.id,led.channel);
+      if(!target){event(actor,'mapping_removed',{cellId:led.cellId,controllerId:c.id,output:led.channel,physical:led.physical});continue;}
       db.prepare("UPDATE cells SET controller_id=?,hardware_channel=?,mapping_status='mapped',last_mapped_at=datetime('now'),mapped_by=? WHERE id=?").run(c.id,led.channel,actor.id,target.id);
-      event(actor,'mapping_saved',{cellId:target.id,controllerId:c.id,output:led.channel,physical:led.physical});
+      event(actor,'mapping_saved',{cellId:target.id,controllerId:c.id,output:led.channel,physical:led.physical,previousControllerId:target.controller_id,previousOutput:target.hardware_channel});
     }
     if(db.prepare('SELECT 1 FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.hardware_channel IS NOT NULL GROUP BY ctrl.address,c.hardware_channel HAVING COUNT(*)>1 LIMIT 1').get())throw Error('Physical LED mapping is ambiguous. Check controller addresses before saving.');
-    return {status:'recorded',message:'Locations and LED mappings saved.',cellIds:rows.map(r=>r.target.id)};
+    return {status:'recorded',message:'Locations and LED mappings saved.',cellIds:rows.filter(r=>r.target).map(r=>r.target.id)};
   }
   function move(actor,input){
     assertCan(actor,'hardware.map');assertCan(actor,'work.pick');assertCan(actor,'work.put');

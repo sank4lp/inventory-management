@@ -676,6 +676,7 @@ export function createProductPages({ db, productFieldService = null }) {
         <section class="reports-workspace" data-reports-workspace>
           ${renderProductStatusReports(productStatusReports, generatedAt, reportFormat)}
           <section class="page-actions">
+            ${can(user,'count.manage')?'<a class="action-cta-button secondary-cta" href="/warehouse-excel">Import Excel</a><a class="action-cta-button secondary-cta" href="/warehouse-excel/template.xlsx" download="LytGuide-Warehouse-Sample.xlsx">Download sample Excel</a>':''}
             ${
               showAddProduct
                 ? `<a class="action-cta-button secondary-cta" href="/products">Close</a>`

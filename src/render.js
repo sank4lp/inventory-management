@@ -161,6 +161,9 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>${escapeHtml(title)} · LytGuide IMS</title>
     <link rel="icon" type="image/svg+xml" href="/brand/lytguide-icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="LytGuide" />
     <link rel="stylesheet" href="/theme.css" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/work.css" />

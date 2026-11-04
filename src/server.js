@@ -13,6 +13,8 @@ import {stocktakingRoutes} from './modules/stocktaking/routes.js';
 import {phaseTwoNavigation} from './modules/stocktaking/navigation.js';
 import {locationBrowseRoutes} from './modules/locations/browse.js';
 import {locationSetupRoutes} from './modules/locations/routes.js';
+import {deviceAccessRoutes} from './modules/device-access/routes.js';
+import {warehouseExcelRoutes} from './modules/excel/routes.js';
 import {displayRoutes} from './modules/stocktaking/display-routes.js';
 import { join } from "node:path";
 import { URL } from "node:url";
@@ -559,6 +561,8 @@ export const requestHandler = async (request, response) => {
       updateUserLastActive(db, user.id);
     }
     if(await accessRoutes(request,response,url,user,getAppState()))return;
+    if(await deviceAccessRoutes(request,response,url,user))return;
+    if(warehouseExcelRoutes(request,response,url,user,getAppState()))return;
     if(locationBrowseRoutes(request,response,url,user,getAppState()))return;
     if(await locationSetupRoutes(request,response,url,user,getAppState()))return;
     if(displayRoutes(request,response,url,user,getAppState()))return;
@@ -1608,6 +1612,13 @@ export const requestHandler = async (request, response) => {
       const returnTo = safeLocalPath(form.return_to, "/reports?format=1");
       sendRedirect(response, appendFlash(returnTo, nextFlash.message, nextFlash.tone));
       return;
+    }
+
+    if(request.method==='GET'&&url.pathname==='/backups/warehouse.xlsx') {
+      if(!ensureAuth(response,user))return;
+      const bytes=backupService.readExcel();
+      response.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="LytGuide-Warehouse.xlsx"','Cache-Control':'no-store','Content-Length':bytes.length});
+      response.end(bytes);return;
     }
 
     if (request.method === "GET" && url.pathname === "/backups") {

@@ -18,11 +18,12 @@ export function parseLanArguments(args) {
   const [command = 'help', ...rest] = args;
   if (!['help','check','install','verify','certificate'].includes(command)) throw new Error('Use check, install, verify or certificate.');
   const options = {command,address:'',port:443,appPort:3000};
-  const names = {'--address':'address','--port':'port','--app-port':'appPort'};
+  const names = {'--address':'address','--port':'port','--app-port':'appPort','--enroll-port':'enrollPort','--name':'warehouseName'};
   for (let i=0;i<rest.length;i+=2) {
     const name=names[rest[i]], value=rest[i+1];
-    if (!name || !value || value.startsWith('--')) throw new Error('Each option needs a value: --address, --port, --app-port.');
+    if (!name || !value || value.startsWith('--')) throw new Error('Each option needs a value: --address, --port, --app-port, --enroll-port, --name.');
     if (name==='address') options.address=value;
+    else if(name==='warehouseName'){if(!value.trim()||value.length>80||/[\r\n\0]/.test(value))throw new Error('Use a warehouse name of 1–80 characters.');options.warehouseName=value.trim();}
     else {
       if (!/^\d+$/.test(value) || Number(value)<1 || Number(value)>65535) throw new Error('Ports must be whole numbers from 1 to 65535.');
       options[name]=Number(value);
@@ -30,6 +31,7 @@ export function parseLanArguments(args) {
   }
   if (command!=='help' && !privateIPv4(options.address)) throw new Error('Supply the Pi’s private IPv4 address, for example --address 192.168.1.140.');
   if (options.port===options.appPort) throw new Error('HTTPS and the existing app must use different ports.');
+  if(options.enrollPort&&[options.port,options.appPort].includes(options.enrollPort))throw new Error('Certificate download needs a separate port.');
   return options;
 }
 
@@ -49,11 +51,12 @@ export function lanNetwork(address, interfaces) {
   return {interface:row.name,cidr:`${network}/${prefix}`};
 }
 
-export function renderLanConfig({address,port=443,appPort=3000,cidr,storage=LAN_STORAGE}) {
+export function renderLanConfig({address,port=443,appPort=3000,cidr,storage=LAN_STORAGE,enrollPort=null}) {
   if (!privateIPv4(address) || !/^\d+(?:\.\d+){3}\/\d{1,2}$/.test(cidr)) throw new Error('Invalid LAN address or subnet.');
   for (const value of [port,appPort]) if (!Number.isInteger(value)||value<1||value>65535) throw new Error('Invalid port.');
   if (port===appPort) throw new Error('HTTPS and the app must use different ports.');
   if (!/^\/[a-zA-Z0-9_./-]+$/.test(storage)) throw new Error('Invalid certificate storage directory.');
+  const enrollment=enrollPort?renderEnrollmentConfig({address,cidr,storage,enrollPort,port,appPort}):'';
   return `${MANAGED_MARKER}
 {
     admin off
@@ -78,7 +81,7 @@ https://${address}:${port} {
         respond "Connect to the warehouse Wi-Fi to open LightGuide." 403
     }
 }
-`;
+${enrollment}`;
 }
 
 export function renderLanUnit() {
@@ -126,4 +129,32 @@ export function checkPortOwner(listeners,pid) {
 
 export function phoneUrl({address,port}) {
   return `https://${address}${port===443?'':`:${port}`}`;
+}
+
+// This listener exposes only the public onboarding page and certificate.
+export function renderEnrollmentConfig({address,cidr,storage,enrollPort,port,appPort}) {
+  if(!privateIPv4(address)||!/^\d+(?:\.\d+){3}\/\d{1,2}$/.test(cidr)||!/^\/[a-zA-Z0-9_./-]+$/.test(storage)||!Number.isInteger(enrollPort)||enrollPort<1024||enrollPort>65535||[port,appPort].includes(enrollPort))throw new Error('Invalid certificate-download listener.');
+  return `
+# Public certificate download only. Sign-in always uses HTTPS.
+http://${address}:${enrollPort} {
+ bind ${address}
+ @warehouse {
+  remote_ip ${cidr} 127.0.0.1
+  path / /index.html /root.cer
+  method GET HEAD
+ }
+ handle @warehouse {
+  root * ${storage}/enrollment
+  header Cache-Control "no-store"
+  header X-Content-Type-Options "nosniff"
+  header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'"
+  @certificate path /root.cer
+  header @certificate Content-Type application/pkix-cert
+  file_server
+ }
+ handle {
+  respond "Connect to the warehouse Wi-Fi." 403
+ }
+}
+`;
 }

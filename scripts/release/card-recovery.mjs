@@ -6,6 +6,7 @@ import {dirname,join,resolve} from 'node:path';
 import {CONFIG_ROOT,INSTALL_ROOT,STATE_ROOT} from './pi-package.mjs';
 import {sealRecovery,openRecovery,validateRecoveryProfile} from './sealed-backup.mjs';
 import {checkAuthority} from './certificate-identity.mjs';
+import {refreshWarehouseExcel} from '../../src/services/warehouse-excel.js';
 
 export const RECOVERY_TIMER='lytguide-test-backup.timer';
 export const RESTORE_MARKER=join(STATE_ROOT,'restore-in-progress.json');
@@ -84,14 +85,16 @@ export async function createRecoveryCopy(run,config,{output=null,directoryVerifi
   const recovery=join(STATE_ROOT,'recovery');mkdirSync(recovery,{recursive:true,mode:0o700});
   const staged=join(recovery,`export-${randomUUID()}.lytbackup`);
   const sealed=staged+'.protected';
+  const excelSnapshot=staged+'.sqlite';
+  const excel=(directory,createdAt)=>{try{return refreshWarehouseExcel(excelSnapshot,directory,{createdAt});}catch(error){return {lastError:error.message};}};
   try {
     const profile=existsSync(ENCRYPTION_PROFILE)?validateRecoveryProfile(JSON.parse(readFileSync(ENCRYPTION_PROFILE,'utf8'))):null;
     const pki=join(STATE_ROOT,'caddy/pki/authorities/local'),includePki=Boolean(profile&&(config.address||existsSync(join(pki,'root.key'))));
     if(includePki)checkAuthority(pki);
-    const manifest=portable(run,{action:'create',data:join(STATE_ROOT,'data'),destination:staged,version,hints:{siteId:config.siteId,hardware:config.hardware,serialPort:config.serialPort,blankWarehouse:config.blankWarehouse===true,warehouseName:config.warehouseName||'',certificateIdentity:!!includePki},...(includePki?{pki}:{})},portableScript);
+    const manifest=portable(run,{action:'create',data:join(STATE_ROOT,'data'),destination:staged,version,excelSnapshot,hints:{siteId:config.siteId,hardware:config.hardware,serialPort:config.serialPort,blankWarehouse:config.blankWarehouse===true,warehouseName:config.warehouseName||'',certificateIdentity:!!includePki},...(includePki?{pki}:{})},portableScript);
     if(profile)await sealRecovery(staged,sealed,profile);
     const source=profile?sealed:staged;
-    if(output){const target=resolve(output);copyFileSync(source,target,constants.COPYFILE_EXCL);chmodSync(target,0o600);const fd=openSync(target,'r');try{fsyncSync(fd);}finally{closeSync(fd);}return {path:target,createdAt:manifest.createdAt,counts:manifest.counts,protected:!!profile};}
+    if(output){const target=resolve(output);copyFileSync(source,target,constants.COPYFILE_EXCL);chmodSync(target,0o600);const fd=openSync(target,'r');try{fsyncSync(fd);}finally{closeSync(fd);}return {path:target,createdAt:manifest.createdAt,counts:manifest.counts,protected:!!profile,excel:excel(dirname(target),manifest.createdAt)};}
     if(!config.recoveryDirectory)throw new Error('SD-card recovery has not been configured. Run setup on the Pi, or backup --output /path/file.lytbackup.');
     const directory=directoryVerified&&STANDARD_BACKUP_DIRECTORIES.includes(config.recoveryDirectory)?config.recoveryDirectory:recoveryVolume(config.recoveryDirectory);mkdirSync(directory,{recursive:true,mode:0o700});if(!realDirectory(directory))throw new Error('The backup directory is not a normal folder.');
     const copy=portable(run,{action:'publish',source,directory,retainAll,purpose},portableScript);
@@ -99,14 +102,14 @@ export async function createRecoveryCopy(run,config,{output=null,directoryVerifi
     // remains independently restorable if a power loss interrupts this index.
     atomicJson(join(directory,'recovery-info.json'),{...copy,createdAt:manifest.createdAt,packageVersion:version,protected:!!profile},0o600);
     writeFileSync(join(directory,'READ-ME.txt'),`LYTGUIDE RECOVERY\nCopy the newest LytGuide-*.lytbackup file to your Mac. Keep a second copy away from this SD card.\nOn the replacement Pi install the same or a newer package. Open Warehouse Setup, choose Replace Raspberry Pi and select the recovery file.\n${profile?'This copy is protected. Supply the recovery password chosen for this warehouse.':'This is a legacy unencrypted copy; new phone trust may be required.'}\nThe old Pi must stay off. Keep this file private: it contains warehouse and account data.\nCommand-line recovery is also available: sudo lytguide-test restore --file /home/admin/your-backup.lytbackup\n`, {mode:0o600});
-    const result={path:join(directory,copy.filename),createdAt:manifest.createdAt,counts:manifest.counts,protected:!!profile};
+    const result={path:join(directory,copy.filename),createdAt:manifest.createdAt,counts:manifest.counts,protected:!!profile,excel:excel(directory,manifest.createdAt)};
     atomicJson(statusPath,{...result,lastAttemptAt:new Date().toISOString(),lastError:null},0o644);
     return result;
   } catch(error) {
     let previous={};try{previous=JSON.parse(readFileSync(statusPath,'utf8'));}catch{}
     atomicJson(statusPath,{...previous,lastAttemptAt:new Date().toISOString(),lastError:error.message},0o644);
     throw error;
-  } finally {rmSync(staged,{force:true});rmSync(sealed,{force:true});}
+  } finally {rmSync(staged,{force:true});rmSync(sealed,{force:true});rmSync(excelSnapshot,{force:true});}
 }
 export async function unpackRecovery(run,source,destination,password){
   const decrypted=join(STATE_ROOT,'recovery',`unlocked-${randomUUID()}.tar.gz`);
@@ -122,7 +125,7 @@ export function ownTree(path,owner) {
   chownSync(path,owner.uid,owner.gid);chmodSync(path,lstatSync(path).isDirectory()?0o700:0o600);
   if(lstatSync(path).isDirectory())for(const child of readdirSync(path))ownTree(join(path,child),owner);
 }
-const files=['config.json','runtime.env','Caddyfile','desktop-url','recovery-encryption.json'];
+const files=['config.json','runtime.env','Caddyfile','desktop-url','device-access.json','recovery-encryption.json'];
 export function saveRestorePoint({certificateReplaced=false}={}) {
   const folder=join(STATE_ROOT,'recovery','pre-restore-'+randomUUID());mkdirSync(folder,{mode:0o700});
   const manifest={folder,certificateReplaced,oldConfig:files.filter(name=>existsSync(join(CONFIG_ROOT,name)))};
@@ -144,7 +147,7 @@ export function rollbackRestore() {
   if(manifest.certificateReplaced&&existsSync(join(manifest.folder,'caddy'))){rmSync(join(STATE_ROOT,'caddy'),{recursive:true,force:true});renameSync(join(manifest.folder,'caddy'),join(STATE_ROOT,'caddy'));}
   // Saved files were copied root-only. Restore service-readable ownership too.
   const appGroup=Number(execFileSync('id',['-g','lytguide-test'],{encoding:'utf8'})),webGroup=Number(execFileSync('id',['-g','lytguide-test-web'],{encoding:'utf8'}));
-  for(const name of files){const destination=join(CONFIG_ROOT,name);if(manifest.oldConfig.includes(name)){copyFileSync(join(manifest.folder,name),destination);chmodSync(destination,name==='desktop-url'?0o644:name==='config.json'?0o600:0o640);chownSync(destination,0,name==='runtime.env'?appGroup:name==='Caddyfile'?webGroup:0);}else rmSync(destination,{force:true});}
+  for(const name of files){const destination=join(CONFIG_ROOT,name);if(manifest.oldConfig.includes(name)){copyFileSync(join(manifest.folder,name),destination);chmodSync(destination,['desktop-url','device-access.json'].includes(name)?0o644:name==='config.json'?0o600:0o640);chownSync(destination,0,name==='runtime.env'?appGroup:name==='Caddyfile'?webGroup:0);}else rmSync(destination,{force:true});}
   rmSync(RESTORE_MARKER);
   syncDirectory(STATE_ROOT);
   return manifest.folder;

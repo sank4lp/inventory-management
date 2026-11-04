@@ -1,0 +1,43 @@
+#warehouse-excel .ui-actions{margin-bottom:1rem;flex-wrap:wrap}
+#warehouse-excel [data-excel-error]:empty,.excel-dialog [data-dialog-error]:empty{display:none}
+.ui-template #warehouse-excel [data-excel-result] .excel-table{min-width:0;table-layout:fixed}
+.ui-template #warehouse-excel [data-excel-result] .excel-table :is(th,td){white-space:normal;overflow-wrap:anywhere}
+.excel-dialog{width:min(1100px,calc(100vw - 24px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:18px;overflow:auto;box-sizing:border-box}
+dialog.excel-dialog:not([open]){display:none}
+.excel-dialog .review-task-header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.excel-dialog .review-task-header h2{flex:1;margin:0;min-width:0}
+.excel-dialog fieldset{border:0;padding:0;margin:0;min-width:0}
+.excel-dialog h3{margin:18px 0 8px}
+.excel-dialog .excel-field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;align-items:end}
+.excel-dialog label{display:flex;flex-direction:column;gap:4px;font-size:.9rem;min-width:0;margin:0}
+.excel-dialog input:not([type=checkbox]),.excel-dialog select{width:100%;min-width:0;box-sizing:border-box;min-height:40px}
+.excel-dialog input[type=checkbox]{width:18px;height:18px;min-height:0;flex:none;margin:0}
+.excel-dialog .excel-create-check,.excel-dialog td>label{flex-direction:row;align-items:center;gap:7px}
+.excel-dialog .excel-create-check,.excel-dialog .excel-location-groups{grid-column:1/-1}
+.excel-dialog .location-group-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}
+.ui-template.excel-dialog .excel-table{table-layout:auto;min-width:0}
+.ui-template.excel-dialog .excel-table th,.ui-template.excel-dialog .excel-table td{padding:9px 10px;vertical-align:top;white-space:normal}
+.excel-dialog :is(.excel-location-table,.excel-product-table) th:first-child{width:14%}
+.excel-dialog :is(.excel-location-table,.excel-product-table) th:nth-child(2){width:24%}
+.excel-dialog :is(.excel-location-table,.excel-product-table) th:nth-child(3){width:62%}
+.excel-dialog :is(.excel-location-table,.excel-product-table) td:first-child{min-width:100px}
+.excel-dialog :is(.excel-location-table,.excel-product-table) td:nth-child(2){min-width:190px}
+.excel-dialog [data-location-details],.excel-dialog [data-product-row] td:last-child{min-width:330px}
+.excel-dialog .excel-table small{display:block;margin-top:3px;color:var(--muted,#65756f)}
+.excel-dialog .excel-counter{margin:18px 0;grid-template-columns:minmax(160px,2fr) minmax(140px,1fr)}
+.excel-dialog .excel-counter small{grid-column:1/-1}
+.excel-dialog [data-dialog-error]{color:#a52c32;white-space:normal;overflow-wrap:anywhere}
+.excel-dialog [data-light-numbers]{min-width:165px}
+.excel-dialog .ui-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+@media(max-width:600px){.excel-dialog{padding:12px;width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.excel-dialog .review-task-header{gap:6px}.excel-dialog .review-task-header h2{font-size:1.1rem}.excel-dialog .excel-table th,.excel-dialog .excel-table td{padding:8px}.excel-dialog .excel-counter{grid-template-columns:minmax(150px,1fr) minmax(130px,1fr)}}
+@media(max-width:600px){
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table),.ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) :is(thead,tbody){display:block;width:100%;min-width:0}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) tr{display:grid;grid-template-columns:95px minmax(0,1fr)}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) :is(th,td){width:auto;min-width:0;position:static}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) th:nth-child(3){display:none}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) td:nth-child(3){grid-column:1/-1}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) td:nth-child(3):empty{display:none}
+  .excel-dialog .excel-field-grid,.excel-dialog .location-group-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .excel-dialog .excel-product-table td:nth-child(2) .excel-field-grid{grid-template-columns:minmax(0,1fr)}
+  .excel-dialog .excel-product-table td:first-child>label{white-space:nowrap}
+}

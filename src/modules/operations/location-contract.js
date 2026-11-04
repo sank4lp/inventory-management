@@ -1,3 +1,4 @@
+import {locationGroupNames} from '../locations/hierarchy.js';
 // One description model for Work and future location commissioning.
 export function describeLocation(db, cellId) {
   const cell = db.prepare('SELECT * FROM cells WHERE id=?').get(Number(cellId));
@@ -32,6 +33,7 @@ export function validLocationLabel(db, site, cell, value) {
 }
 
 export function saveLocationDescription(db, actor, input) {
+  input={...input,...locationGroupNames(db,input)};
   const cell=db.prepare('SELECT * FROM cells WHERE id=?').get(Number(input.cellId));
   if(!cell||cell.description_revision!==Number(input.descriptionRevision))throw new Error('Location details changed. Refresh before saving.');
   const name=String(input.displayName||'').trim(),travel=String(input.travelInstructions||'').trim();

@@ -1,0 +1,12 @@
+.device-enrollment-grid{display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);align-items:center;gap:20px}
+.device-enrollment-qr svg{display:block;width:100%;height:auto;max-width:220px;margin:auto;background:white}
+.device-enrollment-address{display:grid;gap:5px;font-weight:600;margin-bottom:12px}
+.device-enrollment-address input{width:100%;min-width:0;box-sizing:border-box}
+.device-enrollment-fingerprint{display:block;overflow-wrap:anywhere}
+@media(max-width:600px){.device-enrollment-grid{grid-template-columns:minmax(0,1fr);gap:10px}.device-enrollment-qr svg{max-width:190px}.device-enrollment-grid p{margin:8px 0}}
+.device-enrollment-url{overflow-wrap:anywhere}
+.device-enrollment-steps{padding-left:22px;margin:0 0 14px}
+.device-enrollment-steps li{margin:8px 0}
+.device-enrollment details:not(.ui-panel){margin-top:12px;padding-top:12px;border-top:1px solid var(--ui-border)}
+.device-enrollment summary{font-weight:600;cursor:pointer}
+.device-enrollment code{overflow-wrap:anywhere}

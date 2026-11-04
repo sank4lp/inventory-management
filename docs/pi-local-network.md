@@ -7,7 +7,7 @@ warehouse work or local certificate renewal afterward.
 
 The first setup uses the Pi's reserved IP address, so it does not depend on
 router DNS or internet DNS. Example for this site: `https://192.168.1.140`.
-A friendly local hostname can be added after the IP-based test is working.
+Each Pi on the same network needs a different reserved address and its own warehouse shortcut.
 
 ## Before running
 
@@ -77,7 +77,7 @@ cannot find it, first run `command -v node`, then use that returned absolute pat
 ```sh
 node_bin="$(command -v node)"
 "$node_bin" --version
-sudo "$node_bin" scripts/pi-lan.mjs install --address 192.168.1.140 && \
+sudo "$node_bin" scripts/pi-lan.mjs install --address 192.168.1.140 --enroll-port 8444 --name "Main warehouse" && \
   sudo "$node_bin" scripts/pi-lan.mjs certificate --address 192.168.1.140
 ```
 
@@ -103,6 +103,23 @@ When the IP changes, rerun setup with the new assigned address. Certificate
 authority storage is retained, so previously enrolled devices do not need a new
 root certificate. Update the bookmark and router reservation. Do not erase the
 certificate storage directory during routine updates.
+
+## Connect a new phone or tablet
+
+1. Open **Settings → Connect a device** on the Pi.
+2. Join the warehouse Wi-Fi on the phone and scan the QR with its camera.
+3. Download the certificate and follow the iPhone or Android instructions shown.
+4. Tap **Open LytGuide**, then add it to the phone’s Home Screen. Name the shortcut after this warehouse.
+
+For existing Git installations, run the updated setup command above once to enable
+this page. Pulling code and restarting the app alone does not change Caddy.
+The download page is `http://<Pi IP>:8444`; only its instructions and public
+certificate are exposed there. Sign-in and warehouse work stay on HTTPS.
+Use a different fourth wrapper argument / `--enroll-port` if that port is occupied.
+
+Several Pis on the same Wi-Fi cannot be selected by Wi-Fi alone. Install each Pi’s
+certificate once and save one shortcut per warehouse. Their addresses, logins,
+and browser storage remain separate. Reserve every Pi’s IP in the router.
 
 ## Share the public certificate through Git
 
@@ -202,8 +219,10 @@ just because a different address has no cached draft.
 
 ## What the setup changes
 
-- `/etc/inventory-management/lan.Caddyfile`: HTTPS only, bound to the chosen Pi
-  IPv4 address, accepting clients from its local subnet.
+- `/etc/inventory-management/lan.Caddyfile`: HTTPS plus the public certificate
+  download page, bound to the chosen Pi IPv4 address and limited to its local subnet.
+- `/etc/inventory-management/device-access.json`: readable setup addresses,
+  warehouse label and public certificate for the Settings screen; no private keys.
 - `/etc/systemd/system/inventory-management-lan.service`: dedicated web server,
   automatic startup and retry, limited to its own certificate storage.
 - `/var/lib/inventory-management-lan`: persistent local certificate authority,
