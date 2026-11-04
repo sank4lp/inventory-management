@@ -25,13 +25,14 @@ int main(int argc,char **argv) {
     printf("%s",Serial.output.c_str());return 0;
   }
   assert(RS485.uart==2 && RS485.baud==115200 && RS485.rx==16 && RS485.tx==17 && RS485.rxBuffer==10240);
-  assert(RS485.output.find("\"type\":\"boot\"")!=std::string::npos);
+  assert(RS485.output.empty());
+  assert(Serial.output.find("\"type\":\"boot\"")!=std::string::npos);
   RS485.output.clear();serialEvents.clear();
   auto bootBytes=rs485TxBytes;
-  RS485.input="pi";loop();assert(RS485.output.empty());assert(rs485RxBytes==2);
+  RS485.input="to ESP32-01 pi";loop();assert(RS485.output.empty());assert(rs485RxBytes==14);
   RS485.input+="ng\r\n";loop();
   assert(RS485.output.find("\"type\":\"pong\"")!=std::string::npos);
-  assert(rs485RxBytes==6 && rs485RxLines==1 && rs485PingRequests==1);
+  assert(rs485RxBytes==18 && rs485RxLines==1 && rs485PingRequests==1);
   assert(rs485TxBytes==bootBytes+RS485.output.size());
   assert((serialEvents==std::vector<std::string>{"gpio:4:1","write:2","flush:2","gpio:4:0"}));
   RS485.output.clear();

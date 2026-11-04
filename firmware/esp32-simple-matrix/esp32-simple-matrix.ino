@@ -73,6 +73,7 @@ bool configurationFault = false;
 Preferences controllerPreferences;
 bool preferencesReady = false;
 bool usbMaintenance = false;
+bool rs485ReplyAllowed = false;
 char usbLine[320];
 int usbLinePos = 0;
 bool usbLineOverflow = false;
@@ -261,6 +262,9 @@ int pixelIndex(int module, int x, int y) {
 
 void send485(const char *msg) {
   if (usbMaintenance) { Serial.print(msg); Serial.flush(); return; }
+  // Every receiver hears every reply on a shared bus. Only the controller
+  // explicitly addressed by the Pi may transmit; broadcasts stay silent.
+  if (!rs485ReplyAllowed) return;
   // USB setup can work even when the separate bus UART failed to start.
   // Keep the transceiver receiving and expose that failure in config-status.
   if (!RS485) { digitalWrite(RS485_DE_RE, LOW); return; }
@@ -1132,6 +1136,8 @@ void handleDisplayFrame(char *input) {
   if(usbMaintenance)return;
   char *tokens[7];int count=splitLine(input,tokens,7);
   if(count<2||!equalsIgnoreCase(tokens[1],CONTROLLER_ADDRESS))return;
+  if(strcmp(tokens[0],"to")!=0)return;
+  rs485ReplyAllowed=true;
   bool valid=count==6&&strcmp(tokens[0],"to")==0&&strcmp(tokens[2],"display-frame")==0&&
     strlen(tokens[3])==16&&strlen(tokens[5])==8&&!configurationFault;
   if(valid)for(const char *p=tokens[3];*p;p++)if(groupHex(*p)<0)valid=false;
@@ -1183,7 +1189,12 @@ void handleDisplayFrame(char *input) {
 void configureController(char **tokens, int count);
 void controllerConfigStatus(const char *request);
 
-void handleLine(char *cmdLine) {
+void dispatchLine(char *cmdLine) {
+  const char *first=cmdLine;
+  while(*first==' '||*first=='\t')first++;
+  // JSON is a controller response, never a command. Answering another
+  // controller's ACK/error would create an endless error-reply loop.
+  if(*first=='{'||*first=='[')return;
   char *firstSpace=strchr(cmdLine,' '),*secondSpace=firstSpace?strchr(firstSpace+1,' '):NULL;
   if(secondSpace&&strncmp(secondSpace+1,"display-frame ",14)==0){handleDisplayFrame(cmdLine);return;}
   if(strlen(cmdLine)>=320)return;
@@ -1213,6 +1224,7 @@ void handleLine(char *cmdLine) {
     if (!isControllerTarget(tokens[1])) {
       return;
     }
+    rs485ReplyAllowed = exactTarget;
     for (int i = 0; i < count - 2; i++) {
       tokens[i] = tokens[i + 2];
     }
@@ -1465,6 +1477,12 @@ void handleLine(char *cmdLine) {
   send485("{\"type\":\"error\",\"message\":\"unknown-command\"}\n");
 }
 
+void handleLine(char *cmdLine) {
+  rs485ReplyAllowed = false;
+  dispatchLine(cmdLine);
+  rs485ReplyAllowed = false;
+}
+
 uint32_t controllerConfigCrc(const void *data, size_t length) {
   const uint8_t *bytes = (const uint8_t *)data;
   uint32_t crc = 0xffffffff;
@@ -1645,7 +1663,9 @@ void setup() {
 
   char bootMsg[512];
   snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v15\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
-  send485(bootMsg);
+  // Multiple controllers can boot together. Report locally over USB instead
+  // of transmitting unsolicited messages over the shared RS485 bus.
+  Serial.print(bootMsg);
 }
 
 void loop() {

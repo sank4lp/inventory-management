@@ -21,6 +21,13 @@ test('controller errors are surfaced immediately; stale or absent acknowledgemen
  await assert.rejects(()=>lost.session.exchange('to CTRL config-status 0123456789abcdef',r=>r.request==='current',{attempts:2,timeoutMs:100}),/confirmation timed out/);assert.equal(lost.writes().split('\n').length-1,2);lost.session.close();
  const unplugged=fixture({disconnect:true});await assert.rejects(()=>unplugged.session.exchange('to CTRL config-status 0123456789abcdef',()=>true),/USB disconnected/);unplugged.session.close();
 });
+test('USB boot announcement cannot replace the requested configuration reply',async t=>{
+ const request='0123456789abcdef';
+ const f=fixture({reply:JSON.stringify({type:'boot',address:'CTRL'})+'\n'+JSON.stringify({type:'controller-config',address:'CTRL',request})+'\n'});
+ t.after(()=>f.session.close());
+ const reply=await f.session.exchange(`to CTRL config-status ${request}`,r=>r.type==='controller-config'&&r.address==='CTRL'&&r.request===request);
+ assert.equal(reply.type,'controller-config');assert.equal(reply.request,request);
+});
 test('USB maintenance refuses ordinary LED commands and invalid retry settings',async()=>{
  const f=fixture();for(const command of ['to CTRL off-all','to CTRL config-status x\n','to CTRL configure '+ 'x'.repeat(320)])await assert.rejects(()=>f.session.exchange(command,()=>true),/Invalid USB maintenance/);
  await assert.rejects(()=>f.session.exchange('to CTRL config-status x',()=>true,{attempts:0}),/timeout/);assert.equal(f.writes(),'');f.session.close();

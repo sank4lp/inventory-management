@@ -15,7 +15,7 @@ test('actual sketch reports UART startup failure, preserves GPIO4 transmit order
   execFileSync(compiler,['-std=c++17','-I',join(root,'test/fixtures/esp32'),join(root,'test/fixtures/esp32/rs485-diagnostics.cpp'),'-o',binary]);
   const good=JSON.parse(execFileSync(binary,[],{encoding:'utf8'}));
   assert.equal(validateControllerConfiguration(good,'ESP32-01','0123456789abcdef').physicalCount,4);
-  assert.deepEqual(controllerBusDiagnostics(good),{version:1,ready:true,baud:115200,rxPin:16,txPin:17,directionPin:4,rxBytes:37,rxLines:3,txBytes:good.rs485.txBytes,pingRequests:2});
+  assert.deepEqual(controllerBusDiagnostics(good),{version:1,ready:true,baud:115200,rxPin:16,txPin:17,directionPin:4,rxBytes:49,rxLines:3,txBytes:good.rs485.txBytes,pingRequests:2});
   assert.ok(good.rs485.txBytes>0);
   const quantized=JSON.parse(execFileSync(binary,['--quantized-baud'],{encoding:'utf8'}));
   assert.equal(quantized.rs485.baud,115942);

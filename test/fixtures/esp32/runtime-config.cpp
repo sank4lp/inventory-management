@@ -16,6 +16,7 @@ int main(int argc,char **argv) {
   auto initial=config("0000000000000001",0,20,twenty);
   if(argc>1 && strcmp(argv[1],"--usb-status")==0) {
     const auto busBefore=RS485.output;
+    Serial.output.clear(); // Discard the USB-only boot announcement before querying.
     usbMaintenance=true;
     command("to ESP32-01 config-status 0123456789abcdef");
     const auto reply=Serial.output;

@@ -27,6 +27,33 @@ DEFAULT_BRIGHTNESS_PERCENT = 100
 
 All commands are newline-terminated.
 
+### Shared-bus replies
+
+Use `to <controller-address> <command>` for any command that needs a reply,
+including health checks: `to ESP32-01 ping`. Only that controller replies.
+Legacy unaddressed/broadcast display commands still apply, but do not return
+acknowledgements. The broadcast heartbeat sync also stays silent.
+
+Controllers ignore JSON responses from other controllers. Previously, a peer's
+`pong` or ACK could trigger `unknown-command`, and the two controllers could
+then repeatedly answer each other's errors. This could work with one powered
+controller yet interfere with health checks and LED updates when two shared
+the bus. Boot announcements now use USB only, avoiding unsolicited RS485
+transmissions when several controllers power up together.
+
+The fix requires **updating firmware on every existing controller**, preserving
+its saved identity, LED count and routing. Pulling the application code or
+restarting the Pi service alone does not update ESP32 firmware. Use the existing
+controller's firmware-update flow, not fresh-controller setup. No database
+migration or cell remapping is needed.
+
+`test/rs485-multidrop.test.js` compiles two instances of the actual sketch with
+four and fifteen modules and forwards their replies to the other receiver. It
+covers alternating health queries, addressed errors, display acknowledgements,
+configuration reads, silent broadcasts and USB maintenance. Peripheral operations
+are simulated: this verifies protocol behaviour, not electrical signal quality,
+power capacity or the separate 22-module LED-driver issue.
+
 ### Display on a module
 
 ```text
