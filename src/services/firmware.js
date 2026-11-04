@@ -527,7 +527,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     // address over USB before accepting an explicitly confirmed different board.
     for(const controller of collisions.filter(c=>!savedChipIdentity(c.id))){
       const session=serialSessionFactory(job.port,host);let matched=false;
-      try{await readUsbConfiguration(session,controller.address,{allowFault:true,allowBusFault:true,exchange:{attempts:2,timeoutMs:700}});matched=true;}
+      try{await readUsbConfiguration(session,controller.address,{allowFault:true,allowBusFault:true,allowLedFault:true,exchange:{attempts:2,timeoutMs:700}});matched=true;}
       catch(error){if(!/USB confirmation timed out/.test(error.message))throw error;}
       finally{session.close();}
       if(matched)throw new Error(`This ESP32 is already registered as ${controller.controller_code}. Use Edit on that controller; its locations are kept.`);
@@ -732,7 +732,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         const session=serialSessionFactory(job.port,host);
         try{
           let actual;
-          try{actual=await readUsbConfiguration(session,job.controllerAddress,{allowFault:true,allowBusFault:true});}
+          try{actual=await readUsbConfiguration(session,job.controllerAddress,{allowFault:true,allowBusFault:true,allowLedFault:true});}
           catch(error){
             // The ROM can be healthy while the old application is damaged or
             // no longer starts. A verified host profile and ROM identity allow

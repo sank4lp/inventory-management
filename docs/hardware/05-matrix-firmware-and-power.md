@@ -27,6 +27,41 @@ DEFAULT_BRIGHTNESS_PERCENT = 100
 
 All commands are newline-terminated.
 
+### Long LED chains
+
+The current sketch uses a streaming ESP-IDF RMT byte encoder. NeoPixel still
+provides its compact GRB pixel buffer, but its ESP32 `show()` path is bypassed.
+That older path expands every bit into a four-byte symbol: 104,448 bytes for
+17 matrices, 110,592 for 18, and 135,168 for 22, even if only one pixel per
+matrix is on. Failure to allocate that contiguous buffer can silently leave
+the whole chain dark. The exact threshold depends on the running controller's
+available memory; 17 is not a fixed protocol or LED-count limit.
+
+The streaming transmitter uses one fixed 12,288-byte payload and a 128-symbol
+hardware buffer. It sends the entire chain continuously, then holds the data
+line low for 300 microseconds to latch it. Brightness, colours, GPIO18, matrix
+routing and RS485 addressing are unchanged. There are no separate per-matrix
+transmissions that could accidentally restart at the first physical matrix.
+
+Transmission has a length-aware timeout (at most 218 ms at 64 matrices).
+Allocation/transmission failures are reported separately from RS485 health;
+failed display frames are not acknowledged or remembered as successfully
+delivered. USB configuration verification also rejects failed LED output while
+permitting explicit recovery of the existing setup. No saved cell mapping or
+inventory data is cleared by this change.
+
+Software checks cover 17, 18, 22 and 64 matrices, full payload delivery, output
+failure/recovery, retained routing and the two-controller reply discipline.
+These are protocol/driver checks with emulated peripherals; they do not certify
+the LED power supply, physical signal quality or a particular attached chain.
+
+Validation on 2026-11-04: all 108 targeted LED, controller configuration,
+replacement, USB, reconnect and RS485 tests passed. The 22-matrix sketch also
+compiled for ESP32 core 3.0.7 / NeoPixel 1.12.4 (installer toolchain) and core
+3.3.8 / NeoPixel 1.15.4 (the reported browser toolchain versions). These build
+checks did not flash a controller; the corrected output still needs validation
+on the physical 22-matrix chain.
+
 ### Shared-bus replies
 
 Use `to <controller-address> <command>` for any command that needs a reply,

@@ -222,11 +222,14 @@ export function createRs485Adapter({ config = {}, logger }) {
         const entries=[...new Map(group.map(c=>[c.entry.channel,c.entry])).values()];
         const request=randomBytes(8).toString('hex'),frame=displayFrame(address,request,entries);
         const accepts=reply=>reply.type==='ack'&&reply.command==='display-frame'&&reply.request===request&&reply.checksum===frame.checksum&&String(reply.address).toUpperCase()===address;
+        const outputFailed=reply=>reply.type==='error'&&reply.message==='led-output-failed'&&String(reply.address).toUpperCase()===address;
         const timeout=250+Math.ceil(Buffer.byteLength(frame.command)*10*1000/115200);
         let confirmed=false;
         for(let attempt=0;attempt<3&&!confirmed;attempt++){
           rawSend(frame.command,{repeats:1,immediate:true});
-          confirmed=parseJsonLines(readSerialWindow(timeout,accepts)).some(accepts);
+          const replies=parseJsonLines(readSerialWindow(timeout,reply=>accepts(reply)||outputFailed(reply)));
+          if(replies.some(outputFailed))throw new Error('The controller received the command, but its LED output failed. Update its firmware while keeping its saved setup.');
+          confirmed=replies.some(accepts);
         }
         if(!confirmed)throw new Error('Controller did not acknowledge the LED display. Check its connection; the update will be retried safely.');
         lastReplyAt=performance.now();
@@ -386,6 +389,10 @@ export function createRs485Adapter({ config = {}, logger }) {
     if (matchedReply.configFault === true) {
       groupCapabilities.delete(String(controllerAddress).toUpperCase());
       return {ok:false,degraded:true,status:'unknown',message:'Controller configuration needs recovery. Outputs are disabled until its routing is verified.',events:[]};
+    }
+    if (matchedReply.ledReady === false) {
+      groupCapabilities.delete(String(controllerAddress).toUpperCase());
+      return {ok:false,degraded:true,status:'unknown',message:`${controller.controller_code} responds on RS485, but its LED output failed. Update its firmware while keeping its saved setup.`,events:[]};
     }
     groupCapabilities.set(String(controllerAddress).toUpperCase(), { supported: matchedReply.groupBlink === 1, displayFrame: matchedReply.displayFrame === 1, at: Date.now() });
     return {

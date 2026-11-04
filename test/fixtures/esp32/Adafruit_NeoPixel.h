@@ -38,6 +38,7 @@ struct HardwareSerial {
 inline HardwareSerial Serial;
 struct Adafruit_NeoPixel {
   inline static bool failAllocation = false;
+  inline static bool failShow = false;
   int shows = 0;
   std::vector<uint32_t> colors;
   Adafruit_NeoPixel(int n,int,int): colors(n) {}

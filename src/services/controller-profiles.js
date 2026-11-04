@@ -17,7 +17,7 @@ export function controllerBusDiagnostics(reply) {
   return {...status};
 }
 
-export function validateControllerConfiguration(reply, address, request = null, {allowFault=false,allowBusFault=false} = {}) {
+export function validateControllerConfiguration(reply, address, request = null, {allowFault=false,allowBusFault=false,allowLedFault=false} = {}) {
   if (!reply || reply.type !== 'controller-config' || reply.address?.toUpperCase() !== address.toUpperCase() || typeof reply.fault !== 'boolean' || request && reply.request !== request) throw new Error('The ESP32 configuration reply did not match this controller. Check the selected USB device and try again.');
   if (!Number.isInteger(reply.revision) || reply.revision < 0 || reply.revision > 0xffffffff || !/^[a-f0-9]{128}$/.test(reply.routing)) throw new Error('Invalid controller configuration response.');
   const routing=reply.routing.match(/../g).map(n=>parseInt(n,16));
@@ -34,6 +34,11 @@ export function validateControllerConfiguration(reply, address, request = null, 
   // Allow at most 1% divider error; genuinely wrong or failed readback remains
   // a separate actionable error, never a malformed configuration response.
   if(bus?.ready && Math.abs(bus.baud-115200)>115200*0.01 && !allowBusFault)throw new Error(`The ESP32 RS485 port reports ${bus.baud} baud; expected about 115200 (within 1%). Keep USB connected and check the firmware serial configuration.`);
+  if(reply.led!==undefined) {
+    const led=reply.led;
+    if(!led || led.version!==1 || led.driver!=='rmt-stream' || typeof led.ready!=='boolean' || !Number.isInteger(led.error) || led.error < -2147483648 || led.error > 2147483647 || led.ready&&led.error!==0)throw new Error('The ESP32 returned invalid LED output diagnostics. Read its setup again.');
+    if(!led.ready && !allowLedFault)throw new Error(`The ESP32 responds, but its LED output failed (code ${led.error}). Keep the controller setup and update its firmware; do not reset its locations.`);
+  }
   if (reply.fault && !allowFault) throw new Error('The ESP32 could not load its saved LED setup. For a reused board, choose Set up as fresh controller to replace its old setup, or restore its previous controller setup to keep the LED mapping.');
   return {physicalCount:reply.physicalModules,logicalCount,routing,revision:reply.revision,fault:reply.fault};
 }

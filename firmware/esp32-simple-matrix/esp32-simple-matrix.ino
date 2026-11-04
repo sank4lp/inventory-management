@@ -1,4 +1,5 @@
 #include <Adafruit_NeoPixel.h>
+#include "matrix-led-output.h"
 #include <Preferences.h>
 #include <stddef.h>
 #include <new>
@@ -90,8 +91,29 @@ int modulePixelBase(int module) {
 }
 
 HardwareSerial RS485(2);
-Adafruit_NeoPixel *pixelDriver = new Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+MatrixPixels *pixelDriver = new MatrixPixels(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 #define pixels (*pixelDriver)
+bool ledOutputFault = false;
+int ledOutputError = 0;
+
+bool refreshPixels() {
+#if defined(ARDUINO_ARCH_ESP32) || defined(LYTGUIDE_RMT_TEST)
+  bool ok = pixels.show();
+  ledOutputError = matrixLedOutput.error();
+#else
+  pixels.show();
+#ifdef LYTGUIDE_TEST_LED_FAILURE
+  bool ok = !LYTGUIDE_TEST_LED_FAILURE;
+#else
+  bool ok = true;
+#endif
+  ledOutputError = ok ? 0 : 1;
+#endif
+  ledOutputFault = !ok;
+  return ok;
+}
+
+void sendLedOutputError();
 
 struct ModuleState {
   int mode;
@@ -297,7 +319,14 @@ uint32_t scaleColor(uint32_t color, int brightnessPercent) {
   return pixels.Color(r, g, b);
 }
 
+void sendLedOutputError() {
+  char message[192];
+  snprintf(message,sizeof(message),"{\"type\":\"error\",\"message\":\"led-output-failed\",\"address\":\"%s\",\"error\":%d}\n",CONTROLLER_ADDRESS,ledOutputError);
+  send485(message);
+}
+
 void ack(const char *command, int module) {
+  if (ledOutputFault) { sendLedOutputError(); return; }
   char msg[80];
   snprintf(msg, sizeof(msg), "{\"type\":\"ack\",\"command\":\"%s\",\"module\":%d}\n", command, module + 1);
   send485(msg);
@@ -604,7 +633,7 @@ void showOrScroll(int module, const char *text, uint32_t color, int speedMs, int
 
   modules[module].scrollOffset = W;
   renderModule(module);
-  if (showNow) pixels.show();
+  if (showNow) refreshPixels();
 }
 
 void showTaskModule(int module, const char *text, uint32_t color, int brightness, bool showNow = true) {
@@ -635,7 +664,7 @@ void showTaskModule(int module, const char *text, uint32_t color, int brightness
   }
 
   renderModule(module);
-  if (showNow) pixels.show();
+  if (showNow) refreshPixels();
 }
 
 void setModuleIdle(int module) {
@@ -801,7 +830,7 @@ void setSinglePixel(int module, int row, int column, uint32_t color) {
     }
   }
 
-  pixels.show();
+  refreshPixels();
 }
 
 void fillModule(int module, uint32_t color, int brightness) {
@@ -822,7 +851,7 @@ void fillModule(int module, uint32_t color, int brightness) {
   for (int i = 0; i < LEDS_PER_MODULE; i++) {
     pixels.setPixelColor(modulePixelBase(module) + i, scaled);
   }
-  pixels.show();
+  refreshPixels();
 }
 
 void blinkModule(int module, uint32_t color, int brightness, unsigned long durationMs, bool showNow = true, unsigned long startedAt = 0) {
@@ -847,7 +876,7 @@ void blinkModule(int module, uint32_t color, int brightness, unsigned long durat
   modules[module].locateUntil = 0;
   modules[module].lastLocateStep = -1;
   renderRippleModule(module, 0, false);
-  if (showNow) pixels.show();
+  if (showNow) refreshPixels();
 }
 
 void locateModule(int module, uint32_t color, int brightness, unsigned long durationMs, bool showNow = true, unsigned long startedAt = 0) {
@@ -871,7 +900,7 @@ void locateModule(int module, uint32_t color, int brightness, unsigned long dura
   modules[module].testUntil = 0;
   modules[module].lastTestStep = -1;
   renderRippleModule(module, 0, true);
-  if (showNow) pixels.show();
+  if (showNow) refreshPixels();
 }
 
 void updateModuleTests() {
@@ -898,7 +927,7 @@ void updateModuleTests() {
   }
 
   if (changed) {
-    pixels.show();
+    refreshPixels();
   }
 }
 
@@ -926,7 +955,7 @@ void updateLocateTimeouts() {
   }
 
   if (changed) {
-    pixels.show();
+    refreshPixels();
   }
 }
 
@@ -962,7 +991,7 @@ void updateScrolls() {
   }
 
   if (changed) {
-    pixels.show();
+    refreshPixels();
   }
 }
 
@@ -995,7 +1024,7 @@ void updateHeartbeat() {
   }
 
   if (changed) {
-    pixels.show();
+    refreshPixels();
   }
 }
 
@@ -1014,7 +1043,7 @@ void syncHeartbeat(int column) {
       renderModule(module);
     }
   }
-  pixels.show();
+  refreshPixels();
 }
 
 int groupHex(char c) {
@@ -1093,11 +1122,12 @@ void blinkGroup(char **tokens, int count) {
       if (groupHex(tokens[2][module / 4]) & (1 << (module % 4)))
         blinkModule(module, colorFor("green"), brightness, duration, false, startedAt);
     }
-    pixels.show();
+    if (!refreshPixels()) { sendLedOutputError(); return; }
     strcpy(groupRequests[groupRequestSlot], tokens[1]);
     groupChecksums[groupRequestSlot] = checksum;
     groupRequestSlot = (groupRequestSlot + 1) % 8;
   }
+  if (ledOutputFault) { sendLedOutputError(); return; }
   char reply[240];
   snprintf(reply, sizeof(reply), "{\"type\":\"ack\",\"command\":\"blink-group\",\"request\":\"%s\",\"address\":\"%s\"}\n", tokens[1], CONTROLLER_ADDRESS);
   send485(reply);
@@ -1180,9 +1210,10 @@ void handleDisplayFrame(char *input) {
       else locateModule(module,e.color,e.brightness,e.duration,false,startedAt);
       if(e.mode<=2)modules[module].lastStepAt=startedAt;
     }
-    pixels.show();
+    if (!refreshPixels()) { sendLedOutputError(); return; }
     strcpy(frameRequests[frameRequestSlot],tokens[3]);frameChecksums[frameRequestSlot]=checksum;frameRequestSlot=(frameRequestSlot+1)%8;
   }
+  if (ledOutputFault) { sendLedOutputError(); return; }
   char reply[256];snprintf(reply,sizeof(reply),"{\"type\":\"ack\",\"command\":\"display-frame\",\"request\":\"%s\",\"address\":\"%s\",\"checksum\":\"%08lx\"}\n",tokens[3],CONTROLLER_ADDRESS,(unsigned long)checksum);send485(reply);
 }
 
@@ -1258,14 +1289,14 @@ void dispatchLine(char *cmdLine) {
   if (strcmp(command, "ping") == 0) {
     rs485PingRequests++;
     char msg[512];
-    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
+    snprintf(msg, sizeof(msg), "{\"type\":\"pong\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s,\"ledReady\":%s,\"ledError\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false", ledOutputFault ? "false" : "true", ledOutputError);
     send485(msg);
     return;
   }
 
   if (strcmp(command, "version") == 0 || strcmp(command, "status") == 0) {
     char msg[512];
-    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
+    snprintf(msg, sizeof(msg), "{\"type\":\"status\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s,\"ledReady\":%s,\"ledError\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false", ledOutputFault ? "false" : "true", ledOutputError);
     send485(msg);
     return;
   }
@@ -1286,7 +1317,7 @@ void dispatchLine(char *cmdLine) {
     for (int module = 0; module < MODULES; module++) {
       renderModule(module);
     }
-    pixels.show();
+    if (!refreshPixels()) { sendLedOutputError(); return; }
     send485("{\"type\":\"ack\",\"command\":\"layout\"}\n");
     return;
   }
@@ -1295,14 +1326,14 @@ void dispatchLine(char *cmdLine) {
     int module = 0;
     if (count >= 2 && parseModuleNumber(tokens[1], &module)) {
       setModuleIdle(module);
-      pixels.show();
+      refreshPixels();
       ack("idle", module);
       return;
     }
     for (int module = 0; module < MODULES; module++) {
       setModuleIdle(module);
     }
-    pixels.show();
+    if (!refreshPixels()) { sendLedOutputError(); return; }
     send485("{\"type\":\"ack\",\"command\":\"idle-all\"}\n");
     return;
   }
@@ -1311,14 +1342,14 @@ void dispatchLine(char *cmdLine) {
     int module = 0;
     if (count >= 2 && parseModuleNumber(tokens[1], &module)) {
       setModuleOff(module);
-      pixels.show();
+      refreshPixels();
       ack("off", module);
       return;
     }
     for (int module = 0; module < MODULES; module++) {
       setModuleOff(module);
     }
-    pixels.show();
+    if (!refreshPixels()) { sendLedOutputError(); return; }
     send485("{\"type\":\"ack\",\"command\":\"off-all\"}\n");
     return;
   }
@@ -1507,7 +1538,7 @@ bool validControllerRouting(const ControllerConfig &config) {
 }
 
 bool replacePixelDriver(int physicalCount) {
-  Adafruit_NeoPixel *candidate = new (std::nothrow) Adafruit_NeoPixel(physicalCount * LEDS_PER_MODULE, LED_PIN, NEO_GRB + NEO_KHZ800);
+  MatrixPixels *candidate = new (std::nothrow) MatrixPixels(physicalCount * LEDS_PER_MODULE, LED_PIN, NEO_GRB + NEO_KHZ800);
   if (!candidate || (physicalCount && !candidate->getPixels())) { delete candidate; return false; }
   delete pixelDriver;
   pixelDriver = candidate;
@@ -1551,7 +1582,7 @@ void controllerConfigStatus(const char *request) {
   // These counters describe UART activity, not delivery through the external
   // transceiver. USB requests never increment the bus counters.
   bool busReady = (bool)RS485;
-  snprintf(reply, sizeof(reply), "{\"type\":\"controller-config\",\"address\":\"%s\",\"request\":\"%s\",\"revision\":%lu,\"physicalModules\":%d,\"logicalModules\":%d,\"routing\":\"%s\",\"maxModules\":64,\"fault\":%s,\"checksum\":\"%08lx\",\"rs485\":{\"version\":1,\"ready\":%s,\"baud\":%lu,\"rxPin\":%d,\"txPin\":%d,\"directionPin\":%d,\"rxBytes\":%lu,\"rxLines\":%lu,\"txBytes\":%lu,\"pingRequests\":%lu}}\n", CONTROLLER_ADDRESS, request, (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount, MODULES, map, configurationFault ? "true" : "false", (unsigned long)groupCrc(payload), busReady ? "true" : "false", busReady ? (unsigned long)RS485.baudRate() : 0UL, RS485_RX, RS485_TX, RS485_DE_RE, (unsigned long)rs485RxBytes, (unsigned long)rs485RxLines, (unsigned long)rs485TxBytes, (unsigned long)rs485PingRequests);
+  snprintf(reply, sizeof(reply), "{\"type\":\"controller-config\",\"address\":\"%s\",\"request\":\"%s\",\"revision\":%lu,\"physicalModules\":%d,\"logicalModules\":%d,\"routing\":\"%s\",\"maxModules\":64,\"fault\":%s,\"checksum\":\"%08lx\",\"rs485\":{\"version\":1,\"ready\":%s,\"baud\":%lu,\"rxPin\":%d,\"txPin\":%d,\"directionPin\":%d,\"rxBytes\":%lu,\"rxLines\":%lu,\"txBytes\":%lu,\"pingRequests\":%lu},\"led\":{\"version\":1,\"driver\":\"rmt-stream\",\"ready\":%s,\"error\":%d}}\n", CONTROLLER_ADDRESS, request, (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount, MODULES, map, configurationFault ? "true" : "false", (unsigned long)groupCrc(payload), busReady ? "true" : "false", busReady ? (unsigned long)RS485.baudRate() : 0UL, RS485_RX, RS485_TX, RS485_DE_RE, (unsigned long)rs485RxBytes, (unsigned long)rs485RxLines, (unsigned long)rs485TxBytes, (unsigned long)rs485PingRequests, ledOutputFault ? "false" : "true", ledOutputError);
   send485(reply);
 }
 
@@ -1596,7 +1627,7 @@ void configureController(char **tokens, int count) {
       if (next.routing[i]) next.logicalCount = i + 1;
     }
     if (!validControllerRouting(next)) { send485("{\"type\":\"error\",\"message\":\"invalid-routing\"}\n"); return; }
-    Adafruit_NeoPixel *candidate = new (std::nothrow) Adafruit_NeoPixel(physicalCount * LEDS_PER_MODULE, LED_PIN, NEO_GRB + NEO_KHZ800);
+    MatrixPixels *candidate = new (std::nothrow) MatrixPixels(physicalCount * LEDS_PER_MODULE, LED_PIN, NEO_GRB + NEO_KHZ800);
     if (!candidate || (physicalCount && !candidate->getPixels())) {
       delete candidate; send485("{\"type\":\"error\",\"message\":\"config-allocation-failed\"}\n"); return;
     }
@@ -1606,7 +1637,7 @@ void configureController(char **tokens, int count) {
     }
     // Commit one complete NVS blob before activating its routing. Never persist fields separately.
     for (int i = 0; i < runtimeConfig.physicalCount * LEDS_PER_MODULE; i++) pixels.setPixelColor(i, 0);
-    pixels.show();
+    refreshPixels();
     delete pixelDriver;
     pixelDriver = candidate;
     pixels.begin(); pixels.setBrightness(255);
@@ -1614,6 +1645,7 @@ void configureController(char **tokens, int count) {
     configurationFault = false;
     resetConfiguredModules();
   }
+  if (ledOutputFault) { sendLedOutputError(); return; }
   char reply[300];
   snprintf(reply, sizeof(reply), "{\"type\":\"ack\",\"command\":\"configure\",\"address\":\"%s\",\"request\":\"%s\",\"revision\":%lu,\"physicalModules\":%d}\n", CONTROLLER_ADDRESS, tokens[1], (unsigned long)runtimeConfig.revision, runtimeConfig.physicalCount);
   send485(reply);
@@ -1641,7 +1673,7 @@ void resetConfiguredModules() {
     modules[module].lastLocateStep = -1;
     renderModule(module);
   }
-  pixels.show();
+  refreshPixels();
 }
 
 void setup() {
@@ -1662,7 +1694,7 @@ void setup() {
   resetConfiguredModules();
 
   char bootMsg[512];
-  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v15\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false");
+  snprintf(bootMsg, sizeof(bootMsg), "{\"type\":\"boot\",\"mode\":\"simple-matrix-v15\",\"protocol\":\"%s\",\"controller\":\"%s\",\"address\":\"%s\",\"modules\":%d,\"groupBlink\":1,\"displayFrame\":1,\"runtimeConfig\":1,\"physicalModules\":%d,\"configRevision\":%lu,\"configFault\":%s,\"ledReady\":%s,\"ledError\":%d}\n", FIRMWARE_PROTOCOL, CONTROLLER_NAME, CONTROLLER_ADDRESS, MODULES, runtimeConfig.physicalCount, (unsigned long)runtimeConfig.revision, configurationFault ? "true" : "false", ledOutputFault ? "false" : "true", ledOutputError);
   // Multiple controllers can boot together. Report locally over USB instead
   // of transmitting unsolicited messages over the shared RS485 bus.
   Serial.print(bootMsg);
