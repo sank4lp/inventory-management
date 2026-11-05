@@ -1937,11 +1937,12 @@ button[disabled] {
 .product-stock-filter input { width: 16px; height: 16px; min-width: 16px; margin: 0; accent-color: #1c6553; }
 
 .product-catalog-table .table-wrap { max-width: 100%; overflow-x: auto; }
-.product-catalog-table table { min-width: 850px; font-size: 13px; }
+.product-catalog-table table { width: max-content; min-width: 100%; font-size: 13px; }
 .product-catalog-table :is(th,td) { padding: 7px 10px; line-height: 1.35; vertical-align: middle; }
 .product-catalog-table td small { color: var(--muted); font-size: 12px; }
 .product-catalog-table td:last-child { min-width: 310px; }
-.product-catalog-table .mini-actions { gap: 6px; flex-wrap: nowrap; }
+.product-catalog-table .mini-actions { gap: 6px; flex-wrap: nowrap; width: max-content; }
+.product-catalog-table .mini-actions > * { flex-shrink: 0; }
 .product-catalog-table .mini-actions :is(a,button,summary) {
   display: inline-flex;
   align-items: center;

@@ -2,10 +2,11 @@
 #warehouse-excel [data-excel-error]:empty,.excel-dialog [data-dialog-error]:empty{display:none}
 .ui-template #warehouse-excel [data-excel-result] .excel-table{min-width:0;table-layout:fixed}
 .ui-template #warehouse-excel [data-excel-result] .excel-table :is(th,td){white-space:normal;overflow-wrap:anywhere}
-.excel-dialog{width:min(1100px,calc(100vw - 24px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:18px;overflow:auto;box-sizing:border-box}
+.excel-dialog{width:min(1100px,calc(100vw - 24px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:18px;overflow:auto;box-sizing:border-box;border:1px solid #d3dfda;border-radius:14px;background:#fff;color:#173f35;box-shadow:0 16px 48px #102e2833}
 dialog.excel-dialog:not([open]){display:none}
 .excel-dialog .review-task-header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
 .excel-dialog .review-task-header h2{flex:1;margin:0;min-width:0}
+.excel-dialog .review-task-header button[data-excel-back]{background:#fff;color:#245b4c;border-color:#bbcfc6}
 .excel-dialog fieldset{border:0;padding:0;margin:0;min-width:0}
 .excel-dialog h3{margin:18px 0 8px}
 .excel-dialog .excel-field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;align-items:end}
@@ -31,6 +32,8 @@ dialog.excel-dialog:not([open]){display:none}
 .excel-dialog .ui-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 @media(max-width:600px){.excel-dialog{padding:12px;width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.excel-dialog .review-task-header{gap:6px}.excel-dialog .review-task-header h2{font-size:1.1rem}.excel-dialog .excel-table th,.excel-dialog .excel-table td{padding:8px}.excel-dialog .excel-counter{grid-template-columns:minmax(150px,1fr) minmax(130px,1fr)}}
 @media(max-width:600px){
+  .ui-template.excel-dialog .excel-table:has(thead th:nth-child(4)){min-width:440px}
+  .ui-template.excel-dialog .excel-table:has(thead th:nth-child(4)) td:last-child{white-space:nowrap;overflow-wrap:normal}
   .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table),.ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) :is(thead,tbody){display:block;width:100%;min-width:0}
   .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) tr{display:grid;grid-template-columns:95px minmax(0,1fr)}
   .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) :is(th,td){width:auto;min-width:0;position:static}

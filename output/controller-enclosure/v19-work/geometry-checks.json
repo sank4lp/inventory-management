@@ -1,0 +1,127 @@
+{
+  "base": {
+    "vertices": 92585,
+    "faces": 159431,
+    "nonmanifold_edges": 0,
+    "volume_mm3": 92700.49241640342,
+    "connected_components": 1
+  },
+  "lid": {
+    "vertices": 10381,
+    "faces": 8474,
+    "nonmanifold_edges": 0,
+    "volume_mm3": 42953.571251954425,
+    "connected_components": 1
+  },
+  "vents": [
+    {
+      "side": -1,
+      "y_limits_mm": [
+        -28,
+        -8
+      ],
+      "outer_opening_y_mm": [
+        -26,
+        -22
+      ],
+      "inner_opening_y_mm": [
+        -14,
+        -10
+      ],
+      "opening_area_mm2": 92,
+      "roof_slope_deg": 45
+    },
+    {
+      "side": -1,
+      "y_limits_mm": [
+        8,
+        28
+      ],
+      "outer_opening_y_mm": [
+        10,
+        14
+      ],
+      "inner_opening_y_mm": [
+        22,
+        26
+      ],
+      "opening_area_mm2": 92,
+      "roof_slope_deg": 45
+    },
+    {
+      "side": 1,
+      "y_limits_mm": [
+        -28,
+        -8
+      ],
+      "outer_opening_y_mm": [
+        -26,
+        -22
+      ],
+      "inner_opening_y_mm": [
+        -14,
+        -10
+      ],
+      "opening_area_mm2": 92,
+      "roof_slope_deg": 45
+    },
+    {
+      "side": 1,
+      "y_limits_mm": [
+        8,
+        28
+      ],
+      "outer_opening_y_mm": [
+        10,
+        14
+      ],
+      "inner_opening_y_mm": [
+        22,
+        26
+      ],
+      "opening_area_mm2": 92,
+      "roof_slope_deg": 45
+    }
+  ],
+  "air_paths_open": 4,
+  "straight_inward_paths_blocked": 4,
+  "pin_top_z_mm": [
+    27.1,
+    27.1,
+    27.1,
+    27.1
+  ],
+  "socket_floor_z_mm": [
+    27.6,
+    27.6,
+    27.6,
+    27.6
+  ],
+  "assembly_solid_overlap_mm3": 1.596589527252945e-11,
+  "overall_mm": [
+    118,
+    98,
+    53.3
+  ],
+  "minimum_headroom_above_PCB_mm": 30,
+  "PCB_thickness_mm": 1.6,
+  "mounting_orientation": "Power IN (+Y) end upwards; lid faces outward",
+  "new_printed_volume_mm3": 135654.06366835785,
+  "volume_change_from_V18_percent": 4.104347485482118,
+  "bed_bounds_mm": [
+    [
+      69.0,
+      187.0
+    ],
+    [
+      28.0,
+      228.0
+    ],
+    [
+      0.0,
+      47.70000457763672
+    ]
+  ],
+  "print_parts": 2,
+  "minimum_edge_margin_mm": 28
+}

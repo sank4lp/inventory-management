@@ -43,6 +43,10 @@ function serve(pathname) {
 }
 
 test("static asset server exposes browser modules and rejects traversal", async () => {
+  const excelStyles = await serve('/warehouse-excel.css');
+  assert.equal(excelStyles.response.statusCode, 200);
+  assert.match(excelStyles.response.headers['Content-Type'], /text\/css/);
+  assert.match(excelStyles.response.body, /\.excel-dialog/);
   const moduleResult = await serve("/client/dom.js");
   assert.equal(moduleResult.handled, true);
   assert.equal(moduleResult.response.statusCode, 200);
@@ -134,6 +138,7 @@ test("operator and offline pages load the shared screen styles and offline insta
   handlers.get('install')({waitUntil:promise=>{installation=promise;}});
   await installation;
   assert.ok(cached.includes('/client/mobile-controls.js'), 'phone control layout must also load without internet');
+  assert.ok(cached.includes('/warehouse-excel.css'), 'Excel dialogs must keep their layout offline');
   assert.equal((await serve('/client/mobile-controls.js')).response.statusCode, 200);
   for (const path of styles(offline)) {
     assert.ok(cached.includes(path), `${path} must be available after connection loss`);

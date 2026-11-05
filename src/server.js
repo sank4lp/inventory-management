@@ -2582,6 +2582,10 @@ export const requestHandler = async (request, response) => {
       sendHtml(response, pages.renderRecommendedActionsError(user), 500);
       return;
     }
+    if (request.method === "GET" || request.method === "HEAD") {
+      sendHtml(response, pages.renderRequestError(user, error, url.pathname), error.statusCode || 400);
+      return;
+    }
     let target = user ? url.pathname : "/login";
     const confirmMatch = url.pathname.match(/^\/tasks\/(\d+)\/confirm$/);
     const putPlanMatch = url.pathname.match(/^\/tasks\/(\d+)\/put-plan$/);

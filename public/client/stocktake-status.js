@@ -1,11 +1,14 @@
 // The shell checks the current run; its stable identity survives page changes and dismissal.
 const badge=document.querySelector('[data-stocktake-badge]');
+let updateId=0;
 async function update(){
+ const thisUpdate=++updateId;
  try{
   const response=await fetch('/api/stocktaking/snapshot',{cache:'no-store',signal:AbortSignal.timeout(10000)});
   if(!response.ok)return;
-  const s=await response.json();if(String(s.user.id)!==document.body.dataset.accountId)return;
+  const s=await response.json();if(thisUpdate!==updateId||String(s.user.id)!==document.body.dataset.accountId)return;
   if(badge){badge.textContent=s.badge;badge.hidden=!s.badge;}
+  globalThis.WarehouseNotifications?.reconcileKeys?.('stocktaking-run:',s.runs.filter(r=>r.actionable).map(r=>'stocktaking-run:'+r.id));
   const r=s.runs.find(r=>r.actionable);
   if(r){
    const message=r.reviews&&(s.capabilities.approve||s.capabilities.recount)?`Stocktaking: ${r.reviews} items need checking`:!r.items.some(i=>s.capabilities.count&&i.active!==0&&(i.assignee_id===s.user.id||i.counterIds?.includes(s.user.id))&&['pending','counting','skipped','recheck'].includes(i.state))?'Stocktaking — assign / review locations':r.overdue?'Stocktaking overdue — continue':r.started_at?'Stocktaking in progress — continue':'Stocktaking pending — start';
@@ -14,6 +17,7 @@ async function update(){
   const saved=JSON.parse(localStorage.getItem('lightguide-stocktaking-v1')||'null'),partition=`${s.site}:${s.user.id}`,requests=new Map((saved?.queues?.[partition]||[]).map(q=>[q.id,q]));
   for(let n=0;n<localStorage.length;n++){const key=localStorage.key(n);if(key?.startsWith('lightguide-stocktake-request:'+partition+':'))try{const row=JSON.parse(localStorage.getItem(key));if(row?.partition===partition)requests.set(row.id,row);}catch{}}
   const pending=[...requests.values()].filter(q=>!q.result).length;
+  globalThis.WarehouseNotifications?.reconcileKeys?.('saved-count-requests',pending?['saved-count-requests']:[]);
   if(pending)globalThis.WarehouseNotifications?.notify(`${pending} saved count request(s) need receipt`,{key:'saved-count-requests',tone:'warning',href:'/stocktaking?device_help=1'});
  }catch{/* Retain the last known reminder; a failed read is not a new stocktaking event. */}
 }

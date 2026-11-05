@@ -10,7 +10,7 @@ export function taskColumnLayout(headers, available) {
   const keys = headers.map((header, index) => header.dataset.column || aliases[mobileColumnLabel(header)] || (header.querySelector?.('input[type=checkbox]') ? 'selection' : 'column-' + index));
   const leading = ['selection', 'task', 'product', 'requested', 'change', 'action'].filter(key => keys.includes(key));
   const order = [...leading, ...keys.filter(key => !leading.includes(key))];
-  const fixed = keys.includes('selection') ? {selection:28,task:48,requested:48,action:72} : {task:52,requested:72,action:80};
+  const fixed = keys.includes('selection') ? {selection:28,task:48,requested:48,action:72} : {task:52,requested:52,action:80};
   fixed.change=108;
   const base = leading.reduce((sum,key)=>sum+(fixed[key]||0),0);
   const defaults = {type:76,unit:72,assignedTo:180,completed:100,remaining:100,priority:100,status:150,progress:100,state:170,before:150,after:150,timestamp:160,cell:120,assignedBy:150,changedBy:150};
@@ -34,7 +34,7 @@ export function prepareMobileTable(table) {
     // columns off-screen; borrow space from Product when that column can spare it.
     if(table.querySelector('tbody [data-stocktake-id]')){
       const task=order.indexOf('task'),product=order.indexOf('product');
-      if(task>=0&&product>=0){const extra=Math.min(32,Math.max(0,widths[product]-64));widths[task]+=extra;widths[product]-=extra;}
+      if(task>=0&&product>=0){const extra=Math.min(25,Math.max(0,widths[product]-78));widths[task]+=extra;widths[product]-=extra;}
     }
     let stored;try{stored=JSON.parse(table.dataset.mobileColumnWidths||'null');}catch{}
     if(Array.isArray(stored)&&stored.length===keys.length&&stored.every(width=>Number.isFinite(width)&&width>=48)) {

@@ -56,6 +56,16 @@ test('active table omits snapshots, preselects the assignee and renders editors 
  assert.doesNotMatch(f.run("myTaskRow({...snapshot.tasks[0],work_state:'in_progress',assignment_state:'started'})"),/data-active-assignee|data-active-quantity/);
  assert.doesNotMatch(f.run("myTaskRow({...snapshot.tasks[0],work_state:'review',attention:1})"),/data-active-assignee|data-active-quantity/);
 });
+test('custom role permissions control active assignment editors and history scope independently of the legacy role',()=>{
+ const promoted=ui('operator');promoted.run('snapshot.capabilities={assign:true,teamView:true,view:true}');
+ assert.match(promoted.run('myTaskRow(snapshot.tasks[0])'),/data-active-assignee/);
+ assert.match(promoted.run('activeAssignmentsPage()'),/data-save-active-assignments/);
+ promoted.run("location.pathname='/work/history';snapshot.taskScope='team'");
+ assert.match(promoted.run('historyPage()'),/href="\/work\/history\?scope=team" aria-current="page"/);
+ const restricted=ui('admin');restricted.run('snapshot.capabilities={assign:false,teamView:false,view:true}');
+ assert.doesNotMatch(restricted.run('myTaskRow(snapshot.tasks[0])'),/data-active-assignee|data-active-quantity/);
+ assert.doesNotMatch(restricted.run('activeAssignmentsPage()'),/data-save-active-assignments/);
+});
 test('Save is disabled until a real field edit; reverting clears dirty state and live snapshots do not change its original token',()=>{
  const f=ui(),fields={'[data-active-assignee]':{value:'2'},'[data-active-quantity]':{value:'5'}},row={dataset:{taskRow:'7'},querySelector:s=>fields[s]},field={closest:()=>row};f.context.field=field;
  f.run('changeActiveAssignment(field)');assert.equal(f.save.disabled,true);

@@ -162,7 +162,7 @@ export function createProductPages({ db, productFieldService = null }) {
     const catalogQuantityButton = (product, kind = "quantity") => {
       const hasStock = Number(product.total_available || 0) > 0;
       const label = {quantity:"Show Quantity",items_per_location:"Show items per location",capacity_available:"Show Available Capacity"}[kind];
-      const title = hasStock ? `Show ${label.toLowerCase()} for ${product.sku} on every mapped location holding this product.` : "Put this product into a mapped location before using its LED display.";
+      const title = hasStock ? `${label} for ${product.sku} on every mapped location holding this product.` : "Put this product into a mapped location before using its LED display.";
       return `
         <button
           type="button"
@@ -695,7 +695,7 @@ export function createProductPages({ db, productFieldService = null }) {
 
                   >
                     <input type="hidden" name="status" value="${escapeHtml(selectedStatus)}"><label class="inline-form-wrap">Search products
-                      <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="Search by ${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}, ${escapeHtml(fieldLabel(labels, "product.name", "name").toLowerCase())}, or ${escapeHtml(fieldLabel(labels, "product.brand", "brand").toLowerCase())}" />
+                      <input data-live-input name="q" value="${escapeHtml(search || "")}" placeholder="${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}, ${escapeHtml(fieldLabel(labels, "product.name", "name").toLowerCase())} or ${escapeHtml(fieldLabel(labels, "product.brand", "brand").toLowerCase())}" />
                     </label>
                     ${showAddProduct ? `<input type="hidden" name="show_add" value="1" />` : ""}
                     <button type="submit">Search</button>

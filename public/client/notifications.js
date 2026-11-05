@@ -61,7 +61,7 @@ function notify(message,options={}) {
   const row=store.add(message,options);render();if(!row)return;
   if(isOpen(panel))store.read();render();showToast(row);
 }
-globalThis.WarehouseNotifications={notify,clearKey(key){store.clearKey(key);},setOfflineScope(snapshot){if(document.body.dataset.accountId||!snapshot?.user)return;const next=[snapshot.site,snapshot.dataset,snapshot.user.id];if(JSON.stringify(scope)===JSON.stringify(next))return;scope=next;dismissToast();closePanel();store=new NotificationStore({storage,scope});render();}};
+globalThis.WarehouseNotifications={notify,clearKey(key){store.clearKey(key);},reconcileKeys(prefix,activeKeys){store.reconcileKeys(prefix,activeKeys);render();const toast=host.lastElementChild;if(toast&&!store.rows.some(row=>row.id===toast.dataset.notificationId))dismissToast();},setOfflineScope(snapshot){if(document.body.dataset.accountId||!snapshot?.user)return;const next=[snapshot.site,snapshot.dataset,snapshot.user.id];if(JSON.stringify(scope)===JSON.stringify(next))return;scope=next;dismissToast();closePanel();store=new NotificationStore({storage,scope});render();}};
 for(const item of globalThis.warehouseNotificationQueue||[])notify(item.message,item.options);
 globalThis.warehouseNotificationQueue=[];
 button?.addEventListener('click',()=>{

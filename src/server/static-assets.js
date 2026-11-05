@@ -5,6 +5,7 @@ const PUBLIC_FILES = new Map([
   ["/styles.css", "styles.css"],
   ["/ui-template.css", "ui-template.css"],
   ["/device-enrollment.css", "device-enrollment.css"],
+  ["/warehouse-excel.css", "warehouse-excel.css"],
   ["/theme.css", "theme.css"],
   ["/app.js", "app.js"],
   ["/work.css", "work.css"],

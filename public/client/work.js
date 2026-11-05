@@ -777,7 +777,7 @@ function myActionDialog(t){
  restoreDrafts();d.showModal();
 }
 
-function canEditActiveAssignment(t){return isActiveAssignments()&&snapshot.user.role==='admin'&&allowed('assign')&&myWorkState(t)==='not_started'&&!t.completed_at&&!t.attention&&!t.review_followup;}
+function canEditActiveAssignment(t){return isActiveAssignments()&&allowed('assign')&&myWorkState(t)==='not_started'&&!t.completed_at&&!t.attention&&!t.review_followup;}
 function activeAssigneeOptions(t,selected){
  const people=(snapshot.operators||[]).filter(u=>u.eligible&&u.status!=='inactive');if(!people.some(u=>String(u.id)===String(t.assignee_id)))people.unshift({id:t.assignee_id,name:t.assignee_name||'Current assignee',role:''});
  return options(people,'id',assigneeLabel,selected);
@@ -953,9 +953,9 @@ function updateAssignmentForm(f,changedDirection=false){
  const button=f.querySelector('button:not([type="button"])');button.disabled=!online||assignmentPending()||!allowed('assign')||!allowed(f.elements.direction.value)||!snapshot.products?.length||!snapshot.operators?.some(u=>u.eligible);
  button.textContent=assignmentPending()?'Waiting for warehouse confirmation':'Assign Task';
 }
-function activeAssignmentsPage(){return `<section class="my-work-list active-assignments" aria-label="Active Assignments"><div class="active-assignments-toolbar">${snapshot.user.role==='admin'&&allowed('assign')?'<button type="button" data-save-active-assignments disabled>Save</button><span data-active-save-feedback role="status"></span>':''}<button type="button" class="secondary" data-fit-columns>Fit columns</button></div>${workTableFilters()}<div class="table-wrap my-work-table-wrap" tabindex="0" role="region" aria-label="Active assignments; scroll horizontally for all columns"><table class="my-work-table" data-resizable-table="active-assignments"><thead><tr>${workTableHead()}</tr></thead><tbody data-my-work-table>${snapshot.tasks.map(myTaskRow).join('')||'<tr><td colspan="13" class="empty-cell">No active assignments.</td></tr>'}</tbody></table></div><div data-my-work-pagination>${pageLinks(snapshot.taskPage)}</div></section>`;}
+function activeAssignmentsPage(){return `<section class="my-work-list active-assignments" aria-label="Active Assignments"><div class="active-assignments-toolbar">${allowed('assign')?'<button type="button" data-save-active-assignments disabled>Save</button><span data-active-save-feedback role="status"></span>':''}<button type="button" class="secondary" data-fit-columns>Fit columns</button></div>${workTableFilters()}<div class="table-wrap my-work-table-wrap" tabindex="0" role="region" aria-label="Active assignments; scroll horizontally for all columns"><table class="my-work-table" data-resizable-table="active-assignments"><thead><tr>${workTableHead()}</tr></thead><tbody data-my-work-table>${snapshot.tasks.map(myTaskRow).join('')||'<tr><td colspan="13" class="empty-cell">No active assignments.</td></tr>'}</tbody></table></div><div data-my-work-pagination>${pageLinks(snapshot.taskPage)}</div></section>`;}
 function historyPage(){
- const team=allowed('teamView'),scope=new URLSearchParams(location.search).get('scope')||(snapshot.user.role==='admin'?'team':'own');
+ const team=allowed('teamView'),scope=new URLSearchParams(location.search).get('scope')||snapshot.taskScope||(team?'team':'own');
  const tabs=team?`<nav class="work-actions" aria-label="History scope"><a href="/work/history?scope=own" ${scope!=='team'?'aria-current="page"':''}>My history</a><a href="/work/history?scope=team" ${scope==='team'?'aria-current="page"':''}>Team history</a></nav>`:'';
  return tabs+`<section class="my-work-list" aria-label="Task history">${workTableFilters()}<div class="table-wrap my-work-table-wrap" tabindex="0" role="region" aria-label="Task history; scroll horizontally for all columns"><table class="my-work-table"><thead><tr>${workTableHead()}</tr></thead><tbody data-my-work-table>${snapshot.tasks.map(myTaskRow).join('')||'<tr><td colspan="15">No matching tasks.</td></tr>'}</tbody></table></div><div data-my-work-pagination>${pageLinks(snapshot.taskPage)}</div></section>`;
 }

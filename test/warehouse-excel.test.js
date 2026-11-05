@@ -59,6 +59,21 @@ const newLocation=(f,key,physical)=>({key,create:true,confirmed:true,displayName
 const review=(f,draft,choices={})=>f.excel.review(f.actor,{id:draft.id,counterIds:[f.actor.id],...choices});
 const apply=(f,reviewed)=>f.excel.apply(f.actor,{id:reviewed.id,token:reviewed.token,confirmed:true});
 
+test('controller health polling does not expire a reviewed Excel import',()=>fixture(f=>{
+ const checked=review(f,upload(f,[],[stockRow('001',5)]));
+ f.db.prepare("UPDATE controllers SET last_seen_at=?,heartbeat_status='online' WHERE id=?").run(new Date().toISOString(),f.controller.id);
+ const result=apply(f,checked);
+ assert.equal(result.stocktakes.length,1);
+ assert.equal(f.db.prepare('SELECT available_quantity FROM inventory_balances WHERE product_id=? AND cell_id=?').get(f.productId,f.cell.id).available_quantity,8);
+}));
+
+test('a controller configuration change still invalidates a reviewed import',()=>fixture(f=>{
+ const checked=review(f,upload(f,[],[stockRow('001',5)]));
+ f.db.prepare('UPDATE controllers SET controller_code=? WHERE id=?').run('Renamed',f.controller.id);
+ assert.throws(()=>apply(f,checked),/changed after your review/);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_runs').get().n,0);
+}));
+
 test('imported counts create product-scoped work only for mismatches; inventory and reservations stay untouched',()=>fixture(f=>{
   const before=f.db.prepare('SELECT * FROM inventory_balances').all(),draft=upload(f,[],[stockRow('001',5)]);
   const checked=review(f,draft);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_runs').get().n,0);

@@ -1,7 +1,7 @@
 import {can} from '../access/catalog.js';
 
 const membership = (actor, alias = 'i') => `(${alias}.assignee_id=${Number(actor.id)} OR EXISTS(SELECT 1 FROM stocktake_item_counters m WHERE m.item_id=${alias}.id AND m.user_id=${Number(actor.id)}))`;
-const team = actor => actor.role === 'admin' && can(actor, 'count.team');
+const team = actor => can(actor, 'count.team');
 const assigned = `EXISTS(SELECT 1 FROM stocktake_items i WHERE i.run_id=r.id AND i.state!='excluded' AND (i.assignee_id IS NOT NULL OR EXISTS(SELECT 1 FROM stocktake_item_counters m WHERE m.item_id=i.id)))`;
 const personal = actor => `EXISTS(SELECT 1 FROM stocktake_items i WHERE i.run_id=r.id AND i.state!='excluded' AND ${membership(actor)})`;
 const remaining = actor => `EXISTS(SELECT 1 FROM stocktake_items i WHERE i.run_id=r.id AND i.state IN ('pending','counting','skipped','recheck') AND ${membership(actor)})`;

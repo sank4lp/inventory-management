@@ -409,6 +409,9 @@
 
 /* Shared compact location configuration and QR dialogs. */
 .location-management-table{overflow-x:auto;width:100%;}
+#location-setup-app > .ui-settings-links{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:0;margin-bottom:12px;}
+#location-setup-app > .ui-settings-links a{display:inline-flex;align-items:center;min-height:44px;padding:8px 10px;border:1px solid var(--work-border);border-radius:8px;background:#fff;color:var(--work-ink);font-size:13px;font-weight:650;line-height:1.3;text-decoration:none;}
+#location-setup-app > .ui-settings-links a:hover{border-color:#1c6553;background:#edf5f1;}
 .location-management-table table{width:100%;min-width:720px;}
 .location-management-table td,.location-management-table th{padding:.45rem .65rem;vertical-align:middle;}
 .location-qr-thumb{padding:2px!important;border:0;background:white;line-height:0;}
@@ -441,6 +444,7 @@
 /* Distinct warehouse / shelf / cell layers share geometry across all groups. */
 .locations-browser{--location-ink:#173f34;--location-soft:#eef4f1;}
 .location-page-tools{align-items:end;gap:8px;padding:12px;background:white;border:1px solid var(--work-border);border-radius:12px;}
+.location-page-tools a.green-button{color:#fff;}
 .location-page-tools form.location-search{display:flex;align-items:end;gap:6px;flex:1 1 260px;margin:0;padding:0;border:0;}
 .location-search label{flex:1;min-width:0;font-size:12px;}
 .location-search input{margin:0;width:100%;}

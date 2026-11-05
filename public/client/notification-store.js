@@ -27,13 +27,21 @@ export class NotificationStore {
     if(key&&this.dismissed[key])return null;
     const previous=key&&this.rows.find(row=>row.key===key);
     if(previous?.message===message)return null;
-    if(previous&&key.startsWith('stocktaking-run:')){previous.message=message;previous.href=safeLink(href);this.save();return null;}
+    if(previous&&(key.startsWith('stocktaking-run:')||key==='saved-count-requests')){previous.message=message;previous.href=safeLink(href);this.save();return null;}
     const row={id:this.id(),message,tone:['info','success','warning','error'].includes(tone)?tone:'info',key,href:safeLink(href),at:this.now(),read:false};
     this.rows.unshift(row);this.save();return row;
   }
   dismiss(id) {this.sync();const row=this.rows.find(row=>row.id===id);if(row?.key)this.dismissed[row.key]=true;this.rows=this.rows.filter(row=>row.id!==id);this.save();}
   clear() {this.sync();for(const row of this.rows)if(row.key)this.dismissed[row.key]=true;this.rows=[];this.save();}
   clearKey(key) { this.sync();let changed=Boolean(this.dismissed[key]);delete this.dismissed[key];for(const row of this.rows)if(row.key===key){row.key='';changed=true;}if(changed)this.save(); }
+  reconcileKeys(prefix, activeKeys) {
+    this.sync();const active=new Set(activeKeys),expired=key=>key.startsWith(prefix)&&!active.has(key);
+    // These are live reminders, not historical action receipts. Remove only
+    // reminders which a successful refresh says no longer require attention.
+    this.rows=this.rows.filter(row=>!expired(row.key||''));
+    for(const key of Object.keys(this.dismissed))if(expired(key))delete this.dismissed[key];
+    this.save();
+  }
   read() { this.sync();for(const row of this.rows)row.read=true;this.save(); }
   get unread() { return this.rows.filter(row=>!row.read).length; }
 }

@@ -643,7 +643,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const result=reassign(actor,{...input,assigneeId:person.id});assignmentEvent(actor,t.id,'review_task_updated',t.assignee_id,{previousRequested:t.requested_quantity,requested:actual+remaining,remaining,previousDue:t.due_at,dueAt:due});return {...result,taskId:t.id,message:'Task assignment updated.'};
   }
   function updateActiveAssignments(actor,input){
-    if(actor.role!=='admin')throw new Error('Only admins can edit active assignments.');
+    assertCan(actor,'work.assign');
     const edits=input.edits;
     if(!Array.isArray(edits)||!edits.length||edits.length>100||new Set(edits.map(e=>Number(e?.taskId))).size!==edits.length)throw new Error('Choose between 1 and 100 different tasks to save.');
     // Validate the complete batch before replanning anything. The command transaction rolls back all rows on failure.
@@ -1445,7 +1445,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function snapshot(actor,query={}) {
     const current=actorNow(actor);
     if(query.view==='active')query={...query,view:'history',activeOnly:true,currentAssigneeOnly:!can(current,'work.team'),scope:can(current,'work.team')?'team':undefined,taskId:undefined};
-    else if(query.view==='history'&&current.role==='admin'&&can(current,'work.team')&&!query.scope)query={...query,scope:'team'};
+    else if(query.view==='history'&&can(current,'work.team')&&!query.scope)query={...query,scope:'team'};
     if(query.view==='assign')assertCan(current,'work.assign');
     if(!can(current,'work.view'))return {...identity(),user:current,workTabs:workTabs(current),capabilities:workCapabilities(current),timing:{},operators:[],performers:[],reports:db.prepare('SELECT id,status FROM work_reports WHERE reporter_id=?').all(current.id),tasks:[],products:[],cells:can(current,'locations.labels')?db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1').all().map(c=>({...c,description:describeLocation(db,c.id)})):[],pending:[],postedReports:[],contents:[],discrepancies:[],generatedAt:now()};
     const readWorkItem=id=>id<0?stocktakeWorkItem(db,current,-id):task(current,id);

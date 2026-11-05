@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {NotificationStore} from '../public/client/notification-store.js';
 import {page} from '../src/render.js';
 import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
 const memory=()=>{const map=new Map();return {getItem:key=>map.get(key),setItem:(key,value)=>map.set(key,value)};};
 const options=(storage,scope=['warehouse-a','dataset-a',1])=>{let n=0;return {storage,scope,now:()=>1000+(++n),id:()=>`message-${n}`};};
 test('notifications persist across screens and remain private to account, site and dataset',()=>{
@@ -47,4 +48,31 @@ test('one stocktaking run updates in place and migration removes duplicate remin
  const storage=memory(),store=new NotificationStore(options(storage));store.add('Stocktaking pending',{key:'stocktaking-run:3'});assert.equal(store.add('Stocktaking in progress',{key:'stocktaking-run:3'}),null);assert.equal(store.rows.length,1);assert.equal(store.rows[0].message,'Stocktaking in progress');
  storage.setItem(store.key,JSON.stringify([1,2,3].map(n=>({id:'old-'+n,key:'stocktaking-reminder',message:'Stocktaking pending',href:'/stocktaking?run=3',at:n}))));
  const migrated=new NotificationStore(options(storage));assert.equal(migrated.rows.length,1);assert.equal(migrated.add('Stocktaking pending',{key:'stocktaking-run:3'}),null);
+});
+test('resolved reminders disappear without deleting action history or reviving dismissed active reminders',()=>{
+ const storage=memory(),store=new NotificationStore(options(storage));
+ store.add('Count saved');store.add('Run 1 pending',{key:'stocktaking-run:1'});store.add('Run 2 pending',{key:'stocktaking-run:2'});
+ store.dismiss(store.rows.find(row=>row.key==='stocktaking-run:2').id);
+ store.reconcileKeys('stocktaking-run:',['stocktaking-run:2']);
+ assert.deepEqual(store.rows.map(row=>row.message),['Count saved']);
+ assert.equal(store.add('Run 2 pending',{key:'stocktaking-run:2'}),null);
+ store.add('1 saved request',{key:'saved-count-requests'});store.add('2 saved requests',{key:'saved-count-requests'});
+ assert.equal(store.rows.filter(row=>row.key==='saved-count-requests').length,1);
+ store.clear();store.reconcileKeys('saved-count-requests',[]);
+ assert.ok(store.add('New saved request',{key:'saved-count-requests'}));
+ assert.equal(new NotificationStore(options(storage)).rows.length,1);
+});
+test('successful count refresh clears completed reminders and received requests; a failed or stale refresh cannot clear or restore them',async()=>{
+ const code=readFileSync(new URL('../public/client/stocktake-status.js',import.meta.url),'utf8').split('update();setInterval')[0];
+ const map=new Map(),storage={getItem:key=>map.get(key),get length(){return map.size;},key:n=>[...map.keys()][n]};
+ const store=new NotificationStore(options(memory()));let state={user:{id:1},site:'test',badge:1,capabilities:{count:true},runs:[{id:1,actionable:true,reviews:0,items:[{assignee_id:1,state:'pending'}]}]},ok=true;
+ const c=vm.createContext({document:{body:{dataset:{accountId:'1'}},querySelector:()=>({})},fetch:async()=>({ok,json:async()=>state}),AbortSignal,localStorage:storage,WarehouseNotifications:{notify:(message,options)=>store.add(message,options),reconcileKeys:(...args)=>store.reconcileKeys(...args)}});
+ map.set('lightguide-stocktaking-v1',JSON.stringify({queues:{'test:1':[{id:'request'}]}}));
+ vm.runInContext(code,c);await vm.runInContext('update()',c);assert.equal(store.rows.length,2);
+ ok=false;state={...state,badge:0,runs:[]};await vm.runInContext('update()',c);assert.equal(store.rows.length,2);
+ map.set('lightguide-stocktake-request:test:1:request',JSON.stringify({partition:'test:1',id:'request',result:{status:'recorded'}}));
+ ok=true;await vm.runInContext('update()',c);assert.equal(store.rows.length,0);
+ let release;c.fetch=()=>new Promise(resolve=>{release=resolve;});const slow=vm.runInContext('update()',c);
+ c.fetch=async()=>({ok:true,json:async()=>state});await vm.runInContext('update()',c);
+ release({ok:true,json:async()=>({...state,badge:1,runs:[{id:1,actionable:true,reviews:0,items:[{assignee_id:1,state:'pending'}]}]})});await slow;assert.equal(store.rows.length,0);
 });

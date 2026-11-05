@@ -29,7 +29,12 @@ export function createWarehouseExcelService({db,locationSetupService,stocktaking
   const controllers=()=>db.prepare('SELECT * FROM controllers WHERE active=1 ORDER BY id').all().map(c=>controllerLedMap(db,c));
   function stateHash(){
     const tables=['cells','controllers','products','inventory_balances','location_field_definitions','location_field_values','product_field_definitions','location_warehouses','location_shelves','stocktake_runs','stocktake_items','stocktake_item_counters'];
-    return hash([dataset(),...tables.map(table=>db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()),db.prepare("SELECT * FROM app_metadata WHERE key LIKE 'controller_profile:%' OR key='firmware_busy' ORDER BY key").all()]);
+    // Health polling is not a mapping edit. Keep all controller configuration in
+    // the fingerprint, but ignore the two fields changed by routine heartbeats.
+    return hash([dataset(),...tables.map(table=>db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all().map(row=>{
+      if(table!=='controllers')return row;
+      const {last_seen_at,heartbeat_status,...configuration}=row;return configuration;
+    })),db.prepare("SELECT * FROM app_metadata WHERE key LIKE 'controller_profile:%' OR key='firmware_busy' ORDER BY key").all()]);
   }
   function draft(a,id){
     const value=db.prepare('SELECT * FROM warehouse_excel_imports WHERE id=? AND actor_id=?').get(String(id),a.id);
