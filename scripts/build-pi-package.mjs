@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import {build} from 'esbuild';
+import {buildAppBundles} from './release/app-bundle.mjs';
 import {createHash} from 'node:crypto';
 import {chmodSync,copyFileSync,cpSync,existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,rmSync,statSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
@@ -47,9 +47,8 @@ try {
   copy(join(extracted,'caddy'),join(release,'runtime/caddy'));chmodSync(join(release,'runtime/caddy'),0o755);
   copy(join(extracted,'node-v24.22.1-linux-arm64/LICENSE'),join(release,'notices/Node-LICENSE'));
   copy(join(extracted,'LICENSE'),join(release,'notices/Caddy-LICENSE'));
-  for(const [name,entry] of [['uninstall','scripts/release/uninstall-entry.mjs'],['server','src/server.js'],['control','scripts/release/control.mjs'],['bootstrap','scripts/release/bootstrap.mjs'],['verify','scripts/release/verify.mjs'],['watchdog','scripts/release/watchdog.mjs'],['wizard-server','scripts/setup/entry.mjs'],['wizard-authorize','scripts/setup/authorize.mjs'],['wizard-system','scripts/setup/system.mjs']]){
-    await build({absWorkingDir:project,entryPoints:[entry],outfile:join(release,`app/${name}.cjs`),bundle:true,platform:'node',format:'cjs',target:'node24',minify:true,legalComments:'eof',sourcemap:false,logLevel:'warning'});
-  }
+  const runtimeDependencies=await buildAppBundles({project,output:join(release,'app')});
+  write(join(release,'app/dependencies.json'),JSON.stringify(runtimeDependencies,null,2)+'\n');
   copy(join(project,'scripts/release/portable-backup.py'),join(release,'app/portable-backup.py'));
   cpSync(join(project,'scripts/setup/ui'),join(release,'setup-ui'),{recursive:true});
   copy(join(project,'public/brand/lytguide-icon.svg'),join(release,'setup-ui/icon.svg'));

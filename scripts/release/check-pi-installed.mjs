@@ -9,6 +9,8 @@ const root='/opt/lytguide-test/current',base='http://127.0.0.1:3310',database='/
 assert.equal(process.platform,'linux');assert.equal(process.arch,'arm64');
 const env={...process.env,...Object.fromEntries(readFileSync('/etc/lytguide-test/runtime.env','utf8').split('\n').filter(s=>s&&!s.startsWith('#')).map(s=>{const i=s.indexOf('=');return [s.slice(0,i),s.slice(i+1)];}))};
 assert.equal(env.NODE_ENV,'production');assert.equal(env.HARDWARE_ADAPTER,'simulator');assert.equal(existsSync(`${root}/node_modules`),false);
+const dependencies=JSON.parse(readFileSync(`${root}/app/dependencies.json`,'utf8'));
+assert.ok(dependencies.dependencies.some(d=>d.name==='xlsx'&&d.includedIn.includes('app/server.cjs')));
 let server,cookie;
 async function start(){server=spawn('runuser',['-u','lytguide-test','--',`${root}/runtime/node`,`${root}/app/server.cjs`],{cwd:root,env,stdio:['ignore','ignore','inherit']});for(let i=0;i<50;i++){try{const r=await fetch(`${base}/login`);if(r.ok)return;}catch{}await new Promise(r=>setTimeout(r,200));}throw new Error('Packaged app did not start.');}
 async function stop(){if(!server)return;const child=server;server=null;child.kill('SIGTERM');await new Promise(resolve=>child.once('close',resolve));}
@@ -23,6 +25,12 @@ try{
   assert.equal(login.status,302);const header=login.headers.get('set-cookie');assert.match(header,/HttpOnly/);assert.match(header,/Secure/);cookie=header.split(';')[0];
   for(const path of ['/work','/work/overview','/work/history','/work/task-history','/work/active-assignments','/record-movement','/recommended-actions','/products','/cells','/stocktaking','/reports','/settings/people','/settings/roles','/devices','/location-setup','/admin/product-fields','/backups','/work/timing','/settings/system','/profile'])await get(path);
   for(const path of ['/styles.css','/ui-template.css','/app.js','/sw.js','/client/work.js','/client/vendor/jsQR.js'])await get(path);
+  await get('/warehouse-excel');await get('/settings/connect-device');
+  const workbook=Buffer.from(await (await get('/warehouse-excel/template.xlsx')).arrayBuffer());
+  assert.equal(workbook.readUInt32LE(0),0x04034b50);
+  const upload=await fetch(`${base}/api/warehouse-excel/upload`,{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json',Origin:base,Accept:'application/json'},body:JSON.stringify({fileName:'empty-sample.xlsx',base64:workbook.toString('base64')})});
+  assert.equal(upload.status,400);
+  assert.match((await upload.json()).error,/Add at least one mapping or product row/);
   const snapshot=await json('/api/work/snapshot'),product=snapshot.products[0],cell=snapshot.cells[0];assert.ok(product&&cell);assert.equal(balance(product.id),0);
   const svg=await (await get(`/labels/${cell.id}.svg`)).text();assert.match(svg,/<svg/);
   const input={requestId:randomUUID(),productId:product.id,unit:product.unit_of_measure,confirmed:true,rows:[{direction:'put',cellId:cell.id,quantity:2}]};
@@ -41,5 +49,5 @@ try{
   const badOrigin=await fetch(`${base}/api/work/recordMovement`,{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json',Origin:'https://other.invalid'},body:JSON.stringify(input)});assert.equal(badOrigin.status,400);assert.equal(balance(product.id),1);
   await stop();await start();assert.equal(balance(product.id),1);assert.equal((await command('recordMovement',input)).replayed,true);assert.equal(balance(product.id),1);
   const db=new DatabaseSync(database,{readOnly:true});try{assert.equal(db.prepare("SELECT COUNT(*) n FROM users WHERE role='operator'").get().n,0);assert.ok(db.prepare('SELECT COUNT(*) n FROM transactions').get().n>=3);}finally{db.close();}
-  console.log('PASS packaged ARM64 runtime: production login, 20 pages, assets, QR generation, Put/Pick completion, receipt replay, stock persistence and origin guard.');
+  console.log('PASS packaged ARM64 runtime without node_modules: production login, pages, local assets, QR generation, Excel workbook export and parsing, Put/Pick completion, receipt replay, stock persistence and origin guard.');
 }finally{await stop();}

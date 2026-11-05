@@ -2,6 +2,8 @@
 
 You need **64-bit Raspberry Pi OS Desktop Bookworm (Debian 12) or Trixie (Debian 13)** and **10 GB free space**. One installer detects the OS and selects its included components. Connect the Pi and phone/tablet to the same router. **Internet is not required.**
 
+The complete kit includes the app, Excel and QR libraries, Node runtime, desktop app, HTTPS server and ESP32 tools. No `npm install` is needed on the Pi. Use a newly built kit for new features; an older downloaded installer does not update when Git changes.
+
 ## Install
 
 1. Copy the complete offline kit to the Pi using a USB drive, then extract it.

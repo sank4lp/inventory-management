@@ -1,23 +1,44 @@
-# Raspberry Pi offline setup validation — 3 November 2026
+# Raspberry Pi offline setup validation — 5 November 2026
 
 ## Current artifacts
 
 | Artifact | Value |
 | --- | --- |
-| Application | `output/pi-test/lytguide-test_0.1.0~test.20261103.5_arm64.deb` |
-| Application size | 1,312,991,910 bytes |
-| Application SHA-256 | `7d9e848a4af496bc52c4f1e371a160a29164bab2ff64b23314b9c149326a3aec` |
-| Complete offline kit | `output/pi-test/offline/LytGuide-Pi-arm64-0.1.0~test.20261103.5.tar.gz` |
-| Offline kit size | 1,509,616,747 bytes |
-| Offline kit SHA-256 | `edbc1c8d5b36ee678c9a23842caa894fb88452645a40b1b67bda0e016c36abbb` |
-| Single-file uninstaller | `output/pi-test/Uninstall LytGuide.run` · 23,317 bytes |
-| Uninstaller SHA-256 | `451b12bf0fb18aabc6b1c944f253dbf199a04047b0127981359972688db16461` |
+| Application | `output/pi-test/lytguide-test_0.1.0~test.20261105.1_arm64.deb` |
+| Application size | 1,313,370,916 bytes |
+| Application SHA-256 | `bcedb63781de8f09eb0307e6cbdf572a9eb141a1168fb449d2c942fb3638a872` |
+| Complete offline kit | `output/pi-test/offline/LytGuide-Pi-arm64-0.1.0~test.20261105.1.tar.gz` |
+| Offline kit size | 1,510,297,464 bytes |
+| Offline kit SHA-256 | `920c92d11c2e95316e671564d4c5186ff24dccd06632741064f810e7f4bf5e87` |
 | OS targets | Raspberry Pi OS Desktop Bookworm (Debian 12) and Trixie (Debian 13), ARM64 |
-| Included OS dependencies | Separate repositories: 219 Bookworm and 223 Trixie ARM64/all packages; checked package indexes and SHA-256 manifests. Shared application stored once |
-| Source base | `e191a2580bcbd4b2339dbd7019dd748d47825919`, `public-product-development`, including the preserved working-tree changes |
+| Included OS dependencies | Separate repositories: 219 Bookworm and 223 Trixie ARM64/all packages |
+| Source base | `e1a59426337da06ee67a53dda0e4c24973ea7b81`, including this turn's uncommitted packaging changes |
 | Activation/licensing | Deferred; this testing build has no copy protection |
 
-Use the complete kit for installation without internet. The `.deb` alone does not carry the external OS dependency packages. The kit includes the dedicated Electron application and its runtime dependencies; customers do not need Chromium, Git, npm or a separately installed Node runtime. See [the setup guide](pi-test-installer.md).
+Use the **complete kit** for installation without internet. The `.deb` alone does not carry the external OS dependency packages. Install and Uninstall launchers are both inside the kit. The kit includes Node 24.22.1, Caddy 2.11.7, Electron 45.1.0 and the offline ESP32 toolchain; customers do not need Git, npm or a separately installed Node runtime. See [the setup guide](pi-test-installer.md).
+
+## Included runtime libraries — build 20261105.1
+
+The Git-based service failed because its checkout did not have the newly required `xlsx` package installed. Git pulls do not install npm dependencies. The offline release takes a different path: the application libraries are embedded in its compiled programs, and browser QR decoding is supplied as a local asset.
+
+The build now checks every declared production dependency against the lockfile's installed version, confirms it is included in an application bundle or checked browser asset, and rejects non-Node external imports. The release includes a hashed `app/dependencies.json` identifying the library versions and their delivery paths:
+
+- `xlsx` 0.20.3: embedded in the application, setup, control/recovery, watchdog and uninstall programs that use it.
+- `qrcode` 1.5.4: embedded in the application and setup server.
+- `jsqr` 1.4.0: local `public/client/vendor/jsQR.js`, checked byte-for-byte against the installed package.
+
+Verification for this exact build:
+
+- **886 tests passed**, zero failures or skips. New cases reject external packages and missing/mismatched/omitted dependencies, then build the actual release programs and start the server in an isolated directory without `node_modules` or global package lookup.
+- Complete kit installed with **networking disabled on both Bookworm and Trixie ARM64** disposable Linux containers. All **26,196 packaged files** passed installed integrity verification.
+- Both installed runtimes passed production login, page/local asset access, QR generation, Excel sample creation and parsing, Pick/Put completion, duplicate receipt replay, stock persistence after restart, and origin validation. Neither installation contained an application `node_modules` directory.
+- Archive safe paths, gzip CRC, all **453 payload checksums**, executable Install/Uninstall launchers and the independent archive SHA-256 passed.
+
+Both OS targets also passed offline ESP32 compilation as the unprivileged service user (329,029-byte sketch; 55,400-byte static memory), an explicit package update preserving stock and creating a recovery snapshot, and package removal retaining test data. No controller was flashed. Both disposable containers exited successfully and were removed. Evidence is retained under `output/pi-test/validation/dependencies-20261105.1/`.
+
+These are isolated software/package checks. No physical Pi, ESP32, RS485 bus, camera or warehouse data was used. Existing audit findings outside installer dependencies remain separate work. Older downloaded installers do not acquire new dependencies or features automatically; use this new complete kit.
+
+## Earlier validation records
 
 ## Controller commissioning and recovery — build 20261103.5
 
