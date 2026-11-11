@@ -1,0 +1,15 @@
+.led-test-controls{display:grid;grid-template-columns:minmax(140px,1fr) minmax(160px,2fr) minmax(130px,1fr) minmax(90px,.6fr);gap:12px;align-items:end}
+.led-test-controls label{display:grid;gap:6px;min-width:0}
+.led-test-controls input,.led-test-controls select{box-sizing:border-box;width:100%;min-width:0;height:44px}
+.led-test-page .ui-toolbar label{display:flex;align-items:center;gap:8px}
+.led-test-page input[type=checkbox]{width:18px;height:18px;min-height:18px;flex-shrink:0}
+.led-test-page .ui-col-select{width:64px}
+.led-test-error{color:#9f2424;padding:12px;border:1px solid currentColor;border-radius:8px}
+@media(max-width:700px){.led-test-controls{grid-template-columns:repeat(2,minmax(0,1fr))}.led-test-page .ui-actions button{width:100%}}
+
+.led-test-page .ui-table-scroll{max-height:360px;overflow:auto}
+.led-test-page .ui-table thead th{position:sticky;top:0;z-index:2}
+
+.led-test-page .ui-actions.led-test-actions{display:grid;grid-template-columns:minmax(190px,2fr) repeat(2,minmax(100px,1fr));gap:8px}
+.led-test-actions button{width:100%;min-height:44px}
+@media(max-width:700px){.led-test-page .ui-actions.led-test-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.led-test-actions button:first-child{grid-column:1/-1}}

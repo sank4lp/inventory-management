@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { accessSync, closeSync, constants, openSync, readSync, writeSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 
-import { resolveLedBrightness } from "../hardware-brightness.js";
+import { resolveLedBrightness, resolveTestBrightness } from "../hardware-brightness.js";
 
 function stamp() {
   return new Date().toISOString();
@@ -800,7 +800,8 @@ export function createRs485Adapter({ config = {}, logger }) {
       };
     },
     showCellQuantity(cell, quantity, color = "yellow", options = {}) {
-      const brightness = currentBrightness();
+      const testPolicy = options.testBrightnessPercent === undefined ? null : resolveTestBrightness(options.testBrightnessPercent);
+      const brightness = testPolicy || currentBrightness();
       const displayQuantity = String(quantity ?? "0").trim() || "0";
       if (!hasModuleTarget(cell)) {
         return {

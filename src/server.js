@@ -17,6 +17,7 @@ import {deviceAccessRoutes} from './modules/device-access/routes.js';
 import {warehouseExcelRoutes} from './modules/excel/routes.js';
 import {businessImportRoutes} from './modules/imports/routes.js';
 import {businessReportRoutes} from './modules/reports/routes.js';
+import {ledTestRoutes} from './modules/hardware/led-test.js';
 import {displayRoutes} from './modules/stocktaking/display-routes.js';
 import { join } from "node:path";
 import { URL } from "node:url";
@@ -569,6 +570,7 @@ export const requestHandler = async (request, response) => {
     if(warehouseExcelRoutes(request,response,url,user,getAppState()))return;
     if(locationBrowseRoutes(request,response,url,user,getAppState()))return;
     if(await locationSetupRoutes(request,response,url,user,getAppState()))return;
+    if(await ledTestRoutes(request,response,url,user,getAppState()))return;
     if(displayRoutes(request,response,url,user,getAppState()))return;
     if(phaseTwoNavigation(request,response,url,user,getAppState()))return;
     if(await stocktakingRoutes(request,response,url,user,getAppState()))return;

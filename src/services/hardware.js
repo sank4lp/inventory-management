@@ -123,8 +123,13 @@ export function createHardwareService({ db, config, logger, clock = () => new Da
             const controller=scope.controllerTest?db.prepare('SELECT * FROM controllers WHERE id=? AND active=1').get(scope.controllerTest):null;
             const setup=scope.setupSession?db.prepare('SELECT * FROM location_setup_sessions WHERE id=? AND actor_id=?').get(scope.setupSession,context.displayActor):null;
             const setupController=setup?db.prepare('SELECT * FROM controllers WHERE id=?').get(setup.controller_id):null;
+            if((scope.kind==='led_test'||scope.ledTest)&&request){
+              const live=db.prepare('SELECT address,module_count,configured_at FROM controllers WHERE id=? AND active=1').get(target.controller_id);
+              const declared=JSON.parse(request.targets_json).find(t=>t.controllerId===target.controller_id&&t.channel===ch);
+              unboundSetup=!!live&&ch<=live.module_count&&declared?.controllerSnapshot===JSON.stringify(live);
+            }
             // Authenticated commissioning receipts may address their declared controller outputs, including unbound LEDs.
-            unboundSetup=!!controller&&controller.id===target.controller_id&&ch<=controller.module_count&&scope.controllerRevision===JSON.stringify([controller.address,controller.module_count,controller.configured_at]);
+            unboundSetup=unboundSetup||!!controller&&controller.id===target.controller_id&&ch<=controller.module_count&&scope.controllerRevision===JSON.stringify([controller.address,controller.module_count,controller.configured_at]);
             unboundSetup=unboundSetup||!!setup&&setup.controller_id===target.controller_id&&
               JSON.parse(request.targets_json).some(t=>t.channel===ch&&t.controllerId===target.controller_id)&&
               (operationName==='cell_quantity_clear'||setup.status==='active'&&setup.generation===scope.setupGeneration&&

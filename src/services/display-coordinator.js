@@ -1,3 +1,4 @@
+import {validateLedTest} from '../modules/hardware/led-test-input.js';
 import {loadControllerProfile} from './controller-profiles.js';
 import {MIXED_PRODUCT_COLORS,mixedQuantityTiming} from './quantity-display.js';
 import {activeWorkGuidance,displayOwner} from '../modules/operations/guidance.js';
@@ -85,11 +86,14 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
       return {cell:c,occupiedFraction,products:products.map(p=>({...p,available:Math.max(0,p.on_hand-p.reserved_quantity)}))};}).filter(r=>scope.kind==='recommendation'||!scope.productId||r.products.length);
   }
   function start(actor,scope,input={}) {
-    const a=operationsService.actorNow(actor),id=String(input.requestId||randomUUID());if(!input.skipExpire)expire();
+    const a=operationsService.actorNow(actor),id=String(input.requestId||randomUUID());
+    if(scope.ledTest){assertCan(a,'hardware.test');if(!['led_test','locate','ping'].includes(scope.kind)||!scope.setupTargets?.length)throw new Error('Invalid LED test selection.');}
+    if(scope.kind==='led_test'){assertCan(a,'hardware.test');validateLedTest(scope);if(!scope.setupTargets?.length)throw new Error('Select at least one LED matrix.');}
+    if(!input.skipExpire)expire();
     if(scope.kind==='setup'&&(!scope.setupSession||!scope.setupTargets?.length))throw new Error('A live location setup session is required.');
     const fingerprint=createHash('sha256').update(JSON.stringify(scope)).digest('hex');
     const old=db.prepare('SELECT * FROM display_requests WHERE id=?').get(id);if(old){if(old.actor_id!==a.id||old.fingerprint!==fingerprint)throw new Error('This display request belongs to different contents or an account.');return {...old,targets:JSON.parse(old.targets_json),message:'Existing display receipt retrieved; no old command was replayed.'};}
-    assertCan(a,scope.kind==='module_number'?'hardware.test':scope.setupTarget||scope.setupTargets?(scope.controllerTest?'hardware.test':'locations.bind'):numberDisplayKinds.has(scope.kind)?'locations.quantity':'locations.locate');
+    assertCan(a,scope.ledTest||['module_number','led_test'].includes(scope.kind)?'hardware.test':scope.setupTarget||scope.setupTargets?(scope.controllerTest?'hardware.test':'locations.bind'):numberDisplayKinds.has(scope.kind)?'locations.quantity':'locations.locate');
     const rows=scope.setupTargets?scope.setupTargets.map(cell=>({cell,products:[]})):scope.setupTarget?[{cell:scope.setupTarget,products:[]}]:view(a,scope),targets=[];
     if(scope.overrideWork&&(!input.confirmOverride||!overrideDisplayKinds.has(scope.kind)))throw new Error('Confirm the PICK/PUT light override before replacing its display.');
     const conflicts=rows.filter(row=>row.cell.id).map(row=>({cellId:row.cell.id,owner:displayOwner(db,row.cell.id)})).filter(row=>row.owner?.kind==='task'&&activeWork(row.cellId));
@@ -107,6 +111,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
           else{sequence=products.map((p,index)=>({productId:p.product_id,sku:p.sku,value:displayValue(p),color:mixedColors[index%mixedColors.length]}));value=sequence[0].value;color=sequence[0].color;}
         }
       }
+      if(scope.kind==='led_test'){value=scope.text;color=scope.color;}
       if(scope.kind==='setup'){
         if(!['number','dark','flash','locate','ping'].includes(c.setupDisplay)||!Number.isInteger(c.setupNumber)||c.setupNumber<1||c.setupNumber>64)throw new Error('Invalid setup LED display.');
         value=c.setupNumber;color=c.setupDisplay==='number'?'yellow':c.setupDisplay==='dark'?'#000000':c.setupDisplay==='ping'?'green':'red';
@@ -155,7 +160,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     batch(()=>{for(const target of targets){
       if(groupedPingTargets.has(target)||!['ready','selection','unsupported','uncertain'].includes(target.status)||scope.kind==='cell_name'&&target.status!=='ready')continue;
       const c=target.cellId?cell(target.cellId):target.hardware,numeric=target.status==='ready'&&target.value!=='LOC';
-      const context={source:'display_coordinator',displayId:id,displayActor:a.id,...(target.sequence?.length?{displayTiming:mixedQuantityTiming(target.value)}:{})};
+      const context={source:'display_coordinator',displayId:id,displayActor:a.id,...(scope.kind==='led_test'?{displayTiming:{testBrightnessPercent:scope.brightness}}:{}),...(target.sequence?.length?{displayTiming:mixedQuantityTiming(target.value)}:{})};
       const result=scope.kind==='setup'?setupDelivery(target,c,context):scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);
       deliveries.push({target,result,numeric});
     }});
@@ -168,7 +173,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     }
     const sent=targets.filter(t=>t.status==='sent').length,skipped=targets.length-sent;
     const unsupportedNames=scope.kind==='cell_name'?targets.filter(t=>t.status==='unsupported').length:0;
-    const message=sent?scope.kind==='cell_name'?'Bin names are showing for up to two minutes. Click again to stop.':scope.kind==='module_number'?'LED numbers are showing for up to two minutes. Click again to stop.':scope.kind==='locate'?'Locating in red for up to five minutes. Click Locating to stop.':scope.kind==='ping'?'Pinging in green for five seconds.':'Numbers are showing for up to two minutes. Mixed-product locations alternate colors; task lights return when this display ends.':unsupportedNames?'These bin names cannot be shown on the LEDs. Use up to 55 English letters, numbers or symbols without double quotes.':!targets.length?'No active bins in this group.':targets.every(t=>t.status==='unreachable')?'Controller is offline. Check its power and connection, then try again.':scope.kind==='locate'?'This location could not be lit. It may be used for stocktaking or another display, or its controller may be offline.':'No display was sent. Check each location’s status; task and count lights were preserved.';
+    const message=scope.kind==='led_test'?`${sent} of ${targets.length} LED matrices received the test. Tests stop automatically after two minutes.`:sent?scope.kind==='cell_name'?'Bin names are showing for up to two minutes. Click again to stop.':scope.kind==='module_number'?'LED numbers are showing for up to two minutes. Click again to stop.':scope.kind==='locate'?'Locating in red for up to five minutes. Click Locating to stop.':scope.kind==='ping'?'Pinging in green for five seconds.':'Numbers are showing for up to two minutes. Mixed-product locations alternate colors; task lights return when this display ends.':unsupportedNames?'These bin names cannot be shown on the LEDs. Use up to 55 English letters, numbers or symbols without double quotes.':!targets.length?'No active bins in this group.':targets.every(t=>t.status==='unreachable')?'Controller is offline. Check its power and connection, then try again.':scope.kind==='locate'?'This location could not be lit. It may be used for stocktaking or another display, or its controller may be offline.':'No display was sent. Check each location’s status; task and count lights were preserved.';
     return {id,state:targets.length&&targets.every(t=>t.status==='busy')?'busy':'active',targets,expires_at:expires,message:message+(sent&&skipped?` ${skipped} bin(s) were skipped: ${unsupportedNames?'some names cannot be shown; ':''}check busy lights, LED mappings or controller power.`:'')};
   }
   function stop(actor,id){const a=operationsService.actorNow(actor),row=db.prepare('SELECT * FROM display_requests WHERE id=? AND actor_id=?').get(id,a.id);if(!row)throw new Error('This display belongs to another operator.');if(['active','expiring'].includes(row.state)&&clear(row)===false)return {message:'The controller has not confirmed clearing this display. Clearing will be retried automatically. Check its connection.'};return {message:'Only this display request was stopped. Newer task guidance was preserved.'};}

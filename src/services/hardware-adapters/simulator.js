@@ -1,4 +1,4 @@
-import { resolveLedBrightness } from "../hardware-brightness.js";
+import { resolveLedBrightness, resolveTestBrightness } from "../hardware-brightness.js";
 
 function stamp() {
   return new Date().toISOString();
@@ -241,7 +241,8 @@ export function createSimulatorAdapter({ config = {}, logger }) {
       ]);
     },
     showCellQuantity(cell, quantity, color = "yellow", options = {}) {
-      const brightness = brightnessPayload();
+      const testPolicy = options.testBrightnessPercent === undefined ? null : resolveTestBrightness(options.testBrightnessPercent);
+      const brightness = testPolicy ? {brightnessPercent:testPolicy.brightnessPercent,brightnessMode:testPolicy.mode} : brightnessPayload();
       const payload = {
         ts: stamp(),
         type: hasModuleTarget(cell) ? "cell-quantity-display" : "manual-guidance",

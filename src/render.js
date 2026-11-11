@@ -126,7 +126,7 @@ function nav(user, currentTitle = "", currentPath = "") {
   const counts=can(user,"count.view")?runtime.stocktakingService?.snapshot(user):null;
   const primary=navigation(user);
   const selectedWork=currentWorkTab(currentPath);
-  const active=currentPath==='/work/timing'?'Settings':selectedWork?'Work':title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')||title.includes('bin')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups','roles and permissions','hardware'].some(t=>title.includes(t))?'Settings':'Work';
+  const active=currentPath.startsWith('/settings/')||currentPath==='/work/timing'?'Settings':selectedWork?'Work':title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')||title.includes('bin')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups','roles and permissions','hardware'].some(t=>title.includes(t))?'Settings':'Work';
   return `<aside class="dashboard-sidebar" aria-label="Dashboard navigation"><div class="dashboard-sidebar-inner">
     <a class="brand dashboard-brand" href="${primary[0]?.[1]||'/profile'}"><img class="brand-logo brand-logo-horizontal" src="/brand/lytguide-logo-horizontal.svg" alt="LytGuide IMS" width="420" height="112"></a>
     <button type="button" class="mobile-nav-close" aria-label="Close menu" hidden>×</button>
