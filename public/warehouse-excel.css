@@ -58,3 +58,29 @@ dialog.excel-dialog:not([open]){display:none}
 .business-import-table .import-row-validation {display:block;white-space:normal;min-width:125px;}
 .business-import-table .import-row-reason {display:block;white-space:normal;overflow-wrap:anywhere;min-width:180px;max-width:440px;}
 .business-import-table tr[data-import-status="blocked"] .import-row-reason {color:#76262c;}
+
+.business-import-pager{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
+.business-import-pager>span{flex:1 1 230px}
+.business-import-pager label{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.business-import-pager select{width:auto!important;min-width:70px}
+.business-import-pager button{min-width:88px}
+.business-multiselect [hidden]{display:none!important}
+@media(max-width:600px){.business-import-pager>span{flex-basis:100%}.business-import-pager label{flex:1 1 130px}.business-import-pager button{flex:1 1 80px}}
+
+/* Keep import options on a single horizontal line; the table owns narrow-screen scrolling. */
+.business-import-dialog .business-row-controls{display:flex;flex-wrap:nowrap;align-items:center;gap:14px;min-width:max-content}
+.business-import-dialog .business-row-controls>*,.business-import-dialog .business-row-controls label{flex:none}
+.business-import-dialog .business-row-controls label{display:flex;flex-direction:row;align-items:center;gap:6px;white-space:nowrap}
+.business-import-dialog .business-row-controls input[type=number]{width:120px;min-width:120px}
+.business-import-dialog .business-row-controls select,.business-import-dialog .business-row-controls .searchable-select{width:180px;min-width:180px}
+.business-import-dialog .business-row-controls .business-multiselect{align-self:center;min-width:210px}
+.business-import-dialog .business-row-controls .business-multiselect>summary{display:flex;align-items:center;gap:8px;min-height:40px;box-sizing:border-box;white-space:nowrap}
+.business-import-dialog .business-row-controls .business-multiselect>summary small{display:inline;margin:0}
+.business-import-dialog [data-import-row]>td{vertical-align:middle}
+.business-import-dialog .business-row-controls>small{max-width:220px;white-space:normal}
+.business-import-dialog .business-import-options>.business-import-options:not([hidden]){display:contents}
+.business-import-dialog .business-import-options>label{flex:0 1 auto}
+.business-import-dialog .business-import-options .checkbox-line{display:flex;flex-direction:row;align-items:center;gap:8px}
+.business-import-dialog .business-import-options .business-multiselect{align-self:center}
+.business-import-dialog .business-import-pager label{flex-direction:row}
+.business-import-dialog .business-row-controls input[type=number]{max-width:160px}

@@ -18,3 +18,16 @@ test('failure reasons and product labels are escaped and missing validation neve
  assert.match(importRowPresentation({status:'blocked',errors:['Missing section.','Invalid quantity.']}).message,/Missing section\. Invalid quantity\./);
  assert.match(resultTable({rows:[row('ready','Stock matches.')]},true),/>Saved</);
 });
+
+test('large stock and voucher result tables render bounded pages without dropping rows or reasons',()=>{
+ const rows=Array.from({length:20000},(_,i)=>({...row(i%2?'blocked':'ready','Reason '+i),row:i+2}));
+ for(const kind of ['products','issue','received']){
+  const html=resultTable({kind,rows});
+  assert.equal((html.match(/data-import-status=/g)||[]).length,50);
+  assert.match(html,/Rows 1–50 of 20000/);assert.match(html,/Page 1 of 400/);
+  const last=resultTable({kind,rows},true,399);
+  assert.equal((last.match(/data-import-status=/g)||[]).length,50);
+  assert.match(last,/Reason 19999/);assert.match(last,/Rows 19951–20000/);
+  assert.ok(html.length<70000);
+ }
+});

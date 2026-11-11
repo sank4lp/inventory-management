@@ -106,7 +106,7 @@ export function parseBusinessWorkbook(buffer,kind){
   }
   if(!rows.length)fail('The file contains headers only. Add at least one product or voucher row.');
   const groups=new Map();
-  for(const row of rows){const key=kind==='products'?JSON.stringify([row.productKey,normalizeIdentity(row.values.mpi_status)]):row.lineKey;groups.set(key,[...(groups.get(key)||[]),row]);}
-  for(const group of groups.values())if(group.length>1)for(const row of group)row.errors.push(`This ${kind==='products'?'product and MPI status':'voucher product line'} is repeated in rows ${group.map(r=>r.row).join(', ')}. Resolve the repeated rows before importing them.`);
+  for(const row of rows){const key=kind==='products'?JSON.stringify([row.productKey,normalizeIdentity(row.values.mpi_status)]):row.lineKey;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);}
+  for(const group of groups.values())if(group.length>1){const rowList=group.slice(0,10).map(r=>r.row).join(', ')+(group.length>10?` and ${group.length-10} more rows`:'');const message=`This ${kind==='products'?'product and MPI status':'voucher product line'} is repeated in rows ${rowList}. Resolve the repeated rows before importing them.`;for(const row of group)row.errors.push(message);}
   return {kind,sheet:name,columns,rows,fileHash:hash(buffer)};
 }
