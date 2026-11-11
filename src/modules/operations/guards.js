@@ -14,7 +14,7 @@ export function guardUtilityDisplays(db, scope = {}) {
 export function guardSetupChange(db, scope = {}) {
   guardUtilityDisplays(db,scope);
   if (hasOutstandingWork(db, scope)) {
-    const error=new Error("This change affects outstanding warehouse work. Review the blocking tasks before continuing.");
+    const error=new Error("This change affects outstanding shed work. Review the blocking tasks before continuing.");
     error.code='OUTSTANDING_WORK';error.statusCode=409;
     error.scope=Object.fromEntries(['cellId','productId'].filter(key=>scope[key]!=null).map(key=>[key,scope[key]]));
     throw error;
@@ -23,5 +23,5 @@ export function guardSetupChange(db, scope = {}) {
 
 export function guardLegacyTask(db, taskId) {
   const task = db.prepare("SELECT * FROM tasks WHERE id=?").get(Number(taskId));
-  if (task?.workflow_version === 2) throw new Error("Use the task's per-cell actions so recorded and pending work stay intact.");
+  if (task?.workflow_version === 2) throw new Error("Use the task's per-bin actions so recorded and pending work stay intact.");
 }

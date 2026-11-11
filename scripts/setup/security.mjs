@@ -14,16 +14,16 @@ export function createSetupSessions({redeem,onAuthorize=()=>{},clock=()=>Date.no
   const sessions=new Map();
   return {
     async unlock(token){
-      if(typeof token!=='string'||!/^[a-f0-9]{64}$/.test(token))throw new Error('Setup authorisation expired. Open Warehouse Setup again.');
+      if(typeof token!=='string'||!/^[a-f0-9]{64}$/.test(token))throw new Error('Setup authorisation expired. Open Shed Setup again.');
       const grant=await redeem(hash(token));
-      if(!grant||grant.expiresAt<clock()||!Number.isInteger(grant.uid)||grant.uid<1)throw new Error('Setup authorisation expired. Open Warehouse Setup again.');
+      if(!grant||grant.expiresAt<clock()||!Number.isInteger(grant.uid)||grant.uid<1)throw new Error('Setup authorisation expired. Open Shed Setup again.');
       await onAuthorize(grant);
       if(grant.restart===true)sessions.clear();
       const value=randomBytes(32).toString('hex');sessions.set(hash(value),{uid:grant.uid,expiresAt:clock()+SETUP_SESSION_MS});return value;
     },
     actor(header=''){
       const match=header.match(/(?:^|;\s*)lytguide_setup=([a-f0-9]{64})(?:;|$)/),key=match?hash(match[1]):'',session=sessions.get(key);
-      if(!session||session.expiresAt<clock()){sessions.delete(key);throw Object.assign(new Error('Setup authorisation expired. Open Warehouse Setup again.'),{status:401});}
+      if(!session||session.expiresAt<clock()){sessions.delete(key);throw Object.assign(new Error('Setup authorisation expired. Open Shed Setup again.'),{status:401});}
       session.expiresAt=clock()+SETUP_SESSION_MS;return {uid:session.uid};
     },
   };

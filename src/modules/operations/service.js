@@ -49,12 +49,13 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function line(id) {
     const value = db.prepare(`SELECT l.*, t.created_by, t.type, t.workflow_version, t.status AS task_status,
-      t.started_at AS task_started_at, t.allow_mixed_put, t.plan_revision, t.attention,t.review_followup, t.completed_at, t.assignee_id, t.assignment_state, t.assignment_generation AS current_generation, t.requested_quantity, p.name AS product_name, p.sku, p.items_per_cell,
+      t.started_at AS task_started_at, t.allow_mixed_put, t.plan_revision, t.attention,t.review_followup, t.completed_at, t.assignee_id, t.assignment_state, t.assignment_generation AS current_generation, t.requested_quantity, p.name AS product_name, p.cos_sec, p.part_no, p.mpi_status, p.sku, p.items_per_cell,
       p.unit_of_measure AS current_unit, c.logical_code, c.guidance_mode, c.active AS cell_active,
       c.controller_id, c.hardware_channel, c.binding_revision, c.label_id, c.label_revision, ctrl.address AS controller_address
       FROM task_lines l JOIN tasks t ON t.id=l.task_id JOIN products p ON p.id=l.product_id
       JOIN cells c ON c.id=l.cell_id LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE l.id=?`).get(Number(id));
     if (!value) throw new Error("Allocation not found.");
+    if(value.cos_sec)value.product_name=`${value.product_name} · ${value.mpi_status} · ${value.cos_sec}/${value.part_no}`;
     return value;
   }
   function own(actor, allocation) {
@@ -222,7 +223,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   function manualAccounting(report, quantity = report.quantity) {
     const unit = db.prepare('SELECT unit_of_measure FROM products WHERE id=?').get(report.product_id).unit_of_measure;
     try {
-      const factor = historicalFactor(db, report.product_id, report.unit, report.occurred_at || report.created_at);
+      const factor = historicalFactor(db, report.product_id, report.unit, report.occurred_at || report.created_at,report.merged_from_product_id);
       const accountingQuantity = workQuantity(quantity * factor);
       return { unit, factor, quantity: accountingQuantity, available: true, evidence: `Recorded conversion history from ${report.unit} to ${unit}; factor ${factor}; movement time ${report.occurred_at || report.created_at}` };
     } catch (error) { return { unit, available: false, reason: error.message }; }
@@ -353,8 +354,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (remaining > 0) {
       const recorded=Number(db.prepare('SELECT COALESCE(SUM(MAX(0,available_quantity)),0) n FROM inventory_balances WHERE product_id=?').get(product.id).n);
       const overStock=input.direction==='pick'&&Number(input.quantity??remaining)>recorded;
-      const error=new Error(input.direction==='put'?`Not enough put capacity. Space for ${rounded(allocations.reduce((n,l)=>n+l.planned_quantity,0))} ${product.unit_of_measure} is available now${restricted?' at the selected location':''}. Active work and locations needing checks are protected. Choose another location or check items per cell.`:overStock?`Not enough recorded stock: ${recorded} ${product.unit_of_measure}. Reduce the pick or confirm the actual stock in the cells first.`:'Not enough stock after active reservations and location checks. Unstarted or review reservations can be used; active picks remain protected. Reduce the quantity or finish active work first.');
-      if(input.recovery?.mode==='count')error.message='Not enough stock in the confirmed cells for this pick. Nothing was saved. Check the counts or go back and reduce the pick quantity.';
+      const error=new Error(input.direction==='put'?`Not enough put capacity. Space for ${rounded(allocations.reduce((n,l)=>n+l.planned_quantity,0))} ${product.unit_of_measure} is available now${restricted?' at the selected location':''}. Active work and locations needing checks are protected. Choose another location or check items per bin.`:overStock?`Not enough recorded stock: ${recorded} ${product.unit_of_measure}. Reduce the pick or confirm the actual stock in the bins first.`:'Not enough stock after active reservations and location checks. Unstarted or review reservations can be used; active picks remain protected. Reduce the quantity or finish active work first.');
+      if(input.recovery?.mode==='count')error.message='Not enough stock in the confirmed bins for this pick. Nothing was saved. Check the counts or go back and reduce the pick quantity.';
       error.planning={direction:input.direction,productId:product.id,code:input.direction==='put'?'put_capacity':overStock?'pick_count':'pick_reserved'};throw error;
     }
     return allocations;
@@ -431,7 +432,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       if(claim.kind==='pick'){const room=pickRoom.has(claim.product_id)?pickRoom.get(claim.product_id):balance(claim.product_id,cellId);fits=claim.quantity<=room+1e-9;pickRoom.set(claim.product_id,room-claim.quantity);}
       else{fits=claim.items_per_cell>0&&claim.quantity/claim.items_per_cell<=putSpace+1e-9;putSpace-=claim.quantity/claim.items_per_cell;}
       if(fits)continue;
-      const allocation=line(claim.id),reason=`Stocktake #${stocktakeId} changed the stock or space at this location. Update the remaining work or close this task.`;
+      const allocation=line(claim.id),reason=`${stocktakeId==null?'Product merging':`Stocktake #${stocktakeId}`} changed the stock or space at this location. Update the remaining work or close this task.`;
       let report=db.prepare("SELECT * FROM work_reports WHERE line_id=? AND status IN ('review','received') ORDER BY created_at LIMIT 1").get(allocation.id);
       if(!report)report=insertReport(actor,{quantity:0,unknown:true,origin:`stocktake-reservation:${stocktakeId}:${allocation.id}`,reason},allocation);
       review(report,reason);event('reservation_displaced',actor,allocation.id,{stocktakeId,reason},report.id);taskProgress(allocation.task_id);
@@ -743,6 +744,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(metadata("firmware_busy")) throw new Error("Controller maintenance is in progress. Report physical work manually; reserve new work after maintenance finishes.");
     const product = db.prepare("SELECT * FROM products WHERE id=? AND active=1").get(Number(input.productId));
     if (!product) throw new Error("Choose an active product.");
+    if(input.direction==='put'&&product.capacity_pending)throw new Error('Set items per location on the product page or finish its stocktake before assigning Put work.');
     if (!["pick", "put"].includes(input.direction)) throw new Error("Choose Pick or Put.");
     let remaining = workQuantity(input.quantity, true);
     const recoveryResult=planningRecovery.prepare(actor,input,product);
@@ -839,7 +841,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     for(const p of plan.products){
       const supplied=input.products?.find(r=>Number(r.productId)===p.productId);
       const destinations=supplied?.destinations||p.suggested;
-      if(!Array.isArray(destinations)||!destinations.length||Math.abs(destinations.reduce((n,d)=>n+workQuantity(d.quantity,true),0)-p.quantity)>0.000001)throw new Error('Choose destinations for the entire quantity of '+p.name+'. If space is short, check items per cell or choose custom locations.');
+      if(!Array.isArray(destinations)||!destinations.length||Math.abs(destinations.reduce((n,d)=>n+workQuantity(d.quantity,true),0)-p.quantity)>0.000001)throw new Error('Choose destinations for the entire quantity of '+p.name+'. If space is short, check items per bin or choose custom locations.');
       const pick=create(actor,{direction:'pick',productId:p.productId,quantity:p.quantity,plan_cell_id:source,protectUnstarted:true,note:'Move all stock out of this location before reassigning its LED. Complete the linked put tasks afterwards.'});
       picks.push(pick.taskId);
       for(const d of destinations){
@@ -907,7 +909,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     // An explicit action may resend its own elected display, never claim another worker’s display or physical turn.
     const owned=l.controller_id&&l.hardware_channel&&desired?.lineId===l.id&&['quantity','locate'].includes(desired.action)&&desired.binding===guidanceBinding(db,l.cell_id);
     if(owned)db.prepare('UPDATE work_guidance SET delivered=0 WHERE cell_id=? AND generation=?').run(l.cell_id,row.generation);
-    return {status:'recorded',guidanceCells:owned?[l.cell_id]:[],guidanceClaims:owned?[{cellId:l.cell_id,generation:row.generation,lineId:l.id}]:[],message:owned?'Light refresh requested. Check the cell and quantity on screen.':guidanceStatus(l,actor)?.message||'Follow the current task instructions.'};
+    return {status:'recorded',guidanceCells:owned?[l.cell_id]:[],guidanceClaims:owned?[{cellId:l.cell_id,generation:row.generation,lineId:l.id}]:[],message:owned?'Light refresh requested. Check the bin and quantity on screen.':guidanceStatus(l,actor)?.message||'Follow the current task instructions.'};
   }
   function acquire(actor, input) {
     if(metadata("firmware_busy")) throw new Error("Controller maintenance is in progress. No new guidance is available.");
@@ -936,7 +938,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function reportActual(actor, input) {
     const allocation = line(input.lineId);
-    if(input.cellCompletion===true&&input.differenceConfirmed!==true&&(Number(input.cellId)!==allocation.cell_id||Number(input.quantity)!==allocation.planned_quantity))throw new Error('Confirm the changed location or quantity before completing this cell.');
+    if(input.cellCompletion===true&&input.differenceConfirmed!==true&&(Number(input.cellId)!==allocation.cell_id||Number(input.quantity)!==allocation.planned_quantity))throw new Error('Confirm the changed location or quantity before completing this bin.');
     const previousOwner = db.prepare('SELECT 1 FROM work_instruction_history WHERE line_id=? AND assignee_id=?').get(allocation.id,actor.id);
     if(actor.id!==allocation.assignee_id && !previousOwner && !can(actor,'review.resolve')) throw new Error('You can report only your own allocations or earlier assigned work.');
     const report = insertReport(actor, {...input,unknown:false}, allocation);
@@ -951,14 +953,14 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if(input.cellCompletion===true)db.prepare('UPDATE tasks SET explicit_close=1 WHERE id=?').run(allocation.task_id);
     if(input.cellCompletion===true&&Number(input.cellId)!==allocation.cell_id&&!db.prepare('SELECT 1 FROM cells WHERE id=? AND active=1').get(Number(input.cellId)))return review(report,'The actual location is inactive. A supervisor must verify the moved items before stock is changed.');
     if(input.method==='camera' && !validLocationLabel(db,identity().site,allocation,input.location)) return review(report,'The location label changed or does not match. Verify the original physical work.');
-    if(input.method==='manual' && !String(input.manualReason||'').trim()) return review(report,'Manual completion needs a reason and verification of the cell.');
+    if(input.method==='manual' && !String(input.manualReason||'').trim()) return review(report,'Manual completion needs a reason and verification of the bin.');
     if (db.prepare("SELECT 1 FROM work_reports WHERE line_id=? AND status='review' AND id!=?").get(allocation.id,report.id) || allocation.execution_state!=='working' || allocation.device_id!==input.deviceId || input.manual===true) return review(report,'Actual work received for supervisor verification. No new guidance or movement has been assumed.');
     return settle(actor,report,allocation);
   }
   function verify(actor,input) {
     const l=line(input.lineId);executeOwner(actor,l,input);
     if(l.execution_state!=='working'||l.revision!==Number(input.revision)||l.device_id!==input.deviceId||hasEvidence(l.id))throw new Error('This location changed or needs review. Refresh before finishing.');
-    if(!validLocationLabel(db,identity().site,l,input.location))throw new Error('Wrong, unknown or revoked QR. Scan this cell’s label, complete manually, or report another location.');
+    if(!validLocationLabel(db,identity().site,l,input.location))throw new Error('Wrong, unknown or revoked QR. Scan this bin’s label, complete manually, or report another location.');
     event('location_verified',actor,l.id,{cellId:l.cell_id});
     return {status:'verified',revision:l.revision,message:'Location checked. Press Finish only after moving the items.'};
   }
@@ -1116,9 +1118,9 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function rejectCell(actor,input){
     const allocation=line(input.lineId);own(actor,allocation);executeOwner(actor,allocation,input);
-    if(!['ready','working'].includes(allocation.execution_state)||Number(input.revision)!==allocation.revision||hasEvidence(allocation.id))throw new Error('This cell changed. Refresh the task before rejecting it.');
-    if(allocation.execution_state==='working'&&allocation.device_id!==input.deviceId)throw new Error('This cell is active on another device. Resume there or ask a supervisor to check it.');
-    if(input.zeroConfirmed!==true)throw new Error('Confirm that nothing moved at this cell. If stock moved, record the actual quantity instead.');
+    if(!['ready','working'].includes(allocation.execution_state)||Number(input.revision)!==allocation.revision||hasEvidence(allocation.id))throw new Error('This bin changed. Refresh the task before rejecting it.');
+    if(allocation.execution_state==='working'&&allocation.device_id!==input.deviceId)throw new Error('This bin is active on another device. Resume there or ask a supervisor to check it.');
+    if(input.zeroConfirmed!==true)throw new Error('Confirm that nothing moved at this bin. If stock moved, record the actual quantity instead.');
     const reasons=['Location is full','Different product is here','Insufficient quantity','Location cannot be reached','Other'];
     if(!reasons.includes(input.reason)||input.reason==='Other'&&!String(input.note||'').trim())throw new Error('Choose a reason, or describe the issue under Other.');
     const reason=input.reason+(input.note?' — '+String(input.note).trim().slice(0,500):'');
@@ -1127,9 +1129,9 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     db.prepare("UPDATE task_lines SET execution_state='cancelled',revision=revision+1,note=? WHERE id=?").run(reason,allocation.id);
     db.prepare("UPDATE work_reservations SET state='released' WHERE line_id=?").run(allocation.id);
     releaseTurn(allocation);syncReservations();
-    const result=review(report,'This cell was skipped with zero movement. Check the reason and assign the remaining work or close the task.');
+    const result=review(report,'This bin was skipped with zero movement. Check the reason and assign the remaining work or close the task.');
     event('cell_rejected',actor,allocation.id,{reason,reportId:report.id},report.id);taskProgress(allocation.task_id);
-    return {...result,taskId:allocation.task_id,message:'Cell skipped. The supervisor can review and reassign the remaining work.'};
+    return {...result,taskId:allocation.task_id,message:'Bin skipped. The supervisor can review and reassign the remaining work.'};
   }
   function correct(actor, input, verified = false) {
     const allocation = line(input.lineId); if(allocation.assignee_id!==actor.id)assertCan(actor,"review.resolve");
@@ -1139,7 +1141,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     if (db.prepare("SELECT 1 FROM work_events WHERE line_id=? AND event_type IN ('allocation_accounted_elsewhere','movement_accounted_by_stocktake')").get(allocation.id)) throw new Error('This allocation is covered by an existing movement. Correct the original movement record so stock is adjusted only once.');
     const verification = String(input.verification || "").trim();
     if (!verification) throw new Error("Give a reason for correcting this earlier record. Use Record completed movement for a new physical return or pick.");
-    const factor=historicalFactor(db,allocation.product_id,allocation.unit_of_measure,allocation.completed_at||allocation.started_at);
+    const factor=historicalFactor(db,allocation.product_id,allocation.unit_of_measure,allocation.completed_at||allocation.started_at,allocation.merged_from_product_id);
     const quantity = workQuantity(input.quantity);
     if(!verified&&countBoundary(db,{cell_id:allocation.cell_id},allocation))return review(insertReport(actor,{...input,productId:allocation.product_id,cellId:allocation.cell_id,direction:allocation.type,quantity,unit:allocation.unit_of_measure},allocation),'This earlier correction overlaps a stocktake. Verify whether its difference is already included before changing stock again.');
     const delta = rounded((quantity - allocation.actual_quantity) * factor * (allocation.type === "pick" ? -1 : 1));
@@ -1249,13 +1251,13 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const result = withTransaction(db, () => {
       const current = actorNow(actor);
       if(input.actorId!=null && Number(input.actorId)!==current.id)throw new Error("This saved command belongs to another account. Sign in as its original reporter.");
-      if (input.site && input.site !== identity().site) throw new Error("This saved update belongs to another warehouse.");
+      if (input.site && input.site !== identity().site) throw new Error("This saved update belongs to another shed.");
       const receipt = db.prepare("SELECT * FROM operation_receipts WHERE actor_id=? AND request_id=?").get(current.id, id);
       if (receipt) {
         if (receipt.fingerprint !== fingerprint) throw new Error("This request was already submitted with different details. Retrieve its result before changing the entry.");
         return { ...JSON.parse(receipt.result_json), replayed: true };
       }
-      if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The warehouse dataset changed. Refresh before requesting new work.");
+      if (input.dataset && input.dataset !== identity().dataset && !["report", "manual"].includes(action)) throw new Error("The shed dataset changed. Refresh before requesting new work.");
       const permissions={discardSetupTasks:'locations.manage',updateActiveAssignments:'work.assign',reopen:'work.assign',updateReviewTask:'work.assign',closeTask:can(current,'work.stop')?'work.stop':'work.teamStop',sendTaskReview:can(current,'work.stop')?'work.stop':'work.teamStop',resume:'work.execute',pause:'work.execute',guide:'work.execute',assign:'work.assign',create:input.direction==='put'?'work.put':'work.pick',acquire:'work.execute',verify:'work.execute',start:'work.execute',decline:'work.execute',handBack:'work.execute',assignReview:'work.assign',observeReview:'work.execute',resumeFollowup:'work.execute',acknowledgeReturn:'work.assign',updateReturned:'work.assign',reassign:'work.assign',stop:can(current,'work.stop')?'work.stop':'work.teamStop',deadline:'work.deadline',timing:'work.timing',askReview:'work.report',report:'work.execute',manual:'work.report',recordMovement:'work.report',recommendation:'work.report',cancel:'work.stop',rejectCell:'work.stop',correct:'work.correct',replan:'work.execute',locationDetails:'locations.manage',mode:'locations.mode',reconcile:'review.reconcile',resolve:input.dismissDuplicate?'review.link':'review.resolve',resolveAndAssignRemaining:'review.resolve'};
       const required=permissions[action];if(!required)throw new Error('Unknown work permission.');
       if(!can(current,required)&&!['report','manual','askReview','correct'].includes(action))assertCan(current,required);
@@ -1359,14 +1361,14 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const visible=actor&&(owner.kind==='task'?can(actor,'work.team')||db.prepare('SELECT 1 FROM tasks WHERE id=? AND (assignee_id=? OR created_by=?)').get(owner.taskId,actor.id,actor.id):can(actor,'count.team'));
       return {state:'waiting',message:waitingMessage(owner),blocker:{kind:owner.kind,name:owner.name,taskId:owner.taskId,runId:owner.runId,...(visible?{href:owner.kind==='task'?'/tasks/'+owner.taskId:'/stocktaking?run='+owner.runId}:{})}};
     }
-    if(metadata('firmware_busy'))return {state:'manual',message:'Controller maintenance is in progress. Follow the cell instructions on screen.'};
+    if(metadata('firmware_busy'))return {state:'manual',message:'Controller maintenance is in progress. Follow the bin instructions on screen.'};
     if(l.controller_id&&metadata('controller_firmware_hold:'+l.controller_id))return {state:'manual',message:'Controller firmware update is not yet verified. Existing tasks are kept; retry the update to restore LED guidance.'};
-    if(!l.controller_id||!l.hardware_channel)return {state:'manual',message:'Manual location — follow the cell name and quantity on your screen.'};
+    if(!l.controller_id||!l.hardware_channel)return {state:'manual',message:'Manual location — follow the bin name and quantity on your screen.'};
     const row=db.prepare('SELECT * FROM work_guidance WHERE cell_id=?').get(l.cell_id),d=row?JSON.parse(row.desired):null;
     if(!owner)return {state:'blocked',message:'This task is not eligible for light guidance. Refresh its assignment and permissions.'};
     if(overridingQuantityDisplay(l.cell_id))return {state:'manual',message:'Light temporarily shows another display. Use the task instructions on screen; task guidance returns when that display ends.'};
-    if(!row.delivered||d.binding!==guidanceBinding(db,l.cell_id))return {state:'manual',message:'Light not confirmed sent — follow the cell name and quantity on your screen.'};
-    return d.action==='locate'?{state:'shared',message:'Your task owns this locator — use your action and quantity on screen.'}:{state:'sent',message:`Quantity guidance sent: ${l.planned_quantity} ${l.unit_of_measure}. Check the cell label on arrival.`};
+    if(!row.delivered||d.binding!==guidanceBinding(db,l.cell_id))return {state:'manual',message:'Light not confirmed sent — follow the bin name and quantity on your screen.'};
+    return d.action==='locate'?{state:'shared',message:'Your task owns this locator — use your action and quantity on screen.'}:{state:'sent',message:`Quantity guidance sent: ${l.planned_quantity} ${l.unit_of_measure}. Check the bin label on arrival.`};
   }
   function task(actor, id) {
     const current=actorNow(actor),result=tasks.get(Number(id));if(!result)return null;
@@ -1380,6 +1382,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     result.canAct=can(current,"work.execute")&&result.assignee_id===current.id;
     const assignee=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assignee_id);result.assignee_name=assignee?.name||null;result.assignee_username=assignee?.username||null;
     const assigner=db.prepare('SELECT name,username FROM users WHERE id=?').get(result.assigned_by);result.assigned_by_name=assigner?.name||null;result.assigned_by_username=assigner?.username||null;
+    result.voucher=db.prepare('SELECT v.id,v.kind,v.number,l.mpi_status,l.condition FROM voucher_lines l JOIN vouchers v ON v.id=l.voucher_id WHERE l.task_id=?').get(result.id)||null;
     result.assignment_history=history;
     const previousAssignment=[...history].reverse().find(e=>e.assignee_id!=null||e.previous_assignee!=null);
     result.previous_assignee_id=result.assignee_id??previousAssignment?.assignee_id??previousAssignment?.previous_assignee??null;
@@ -1516,7 +1519,34 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       ORDER BY r.created_at DESC,r.id LIMIT 100`).all(report.product_id,report.cell_id,report.direction,query,query);
   }
   const planningRecovery=createPlanningRecovery({db,workQuantity,event});
+  function stageVoucherAssignment(actor,input){
+    const a=actorNow(actor,'work.assign');
+    const result=create(a,input,true);flagDisplacedReservations(a,result.taskId);reconcileGuidance();return result;
+  }
+  function stageVoucherUpdate(actor,input){
+    const a=actorNow(actor,'work.assign'),t=db.prepare('SELECT * FROM tasks WHERE id=?').get(Number(input.taskId));
+    if(!t||t.completed_at||t.attention||t.assignment_state!=='offered'||db.prepare("SELECT 1 FROM task_lines WHERE task_id=? AND (started_at IS NOT NULL OR execution_state!='ready')").get(t.id))throw new Error('This task has already started or needs review. Resolve it from My Work before changing the voucher.');
+    if(db.prepare('SELECT 1 FROM task_lines WHERE task_id=? AND product_id!=?').get(t.id,input.productId))throw new Error('Changing the product or MPI of an existing voucher task requires closing that task first.');
+    const result=updateReviewTask(a,{taskId:t.id,generation:t.assignment_generation,progressToken:progressToken(t.id),assigneeId:input.assigneeId,remainingQuantity:input.quantity,changeDue:true,duration:input.dueDuration,timeUnit:input.dueUnit});
+    db.prepare('UPDATE tasks SET instruction_note=? WHERE id=?').run(String(input.note||'').slice(0,2000),t.id);
+    flagDisplacedReservations(a,t.id);reconcileGuidance();return {...result,taskId:t.id};
+  }
+  function stageMpiChange(actor,productId,previous,next){
+    const a=actorNow(actor,'products.edit'),ids=[];
+    for(const t of db.prepare("SELECT DISTINCT t.id FROM tasks t JOIN task_lines l ON l.task_id=t.id WHERE l.product_id=? AND t.completed_at IS NULL AND t.outcome NOT IN ('completed','cancelled','stopped')").all(productId)){
+      const l=db.prepare("SELECT * FROM task_lines WHERE task_id=? AND product_id=? AND execution_state!='superseded' ORDER BY id LIMIT 1").get(t.id,productId);
+      if(!l)continue;
+      const reason=`MPI Status changed from ${previous} to ${next}. Check this assignment before moving more stock.`;
+      const report=insertReport(a,{quantity:0,unknown:true,origin:`mpi-change:${t.id}:${randomUUID()}`,reason},line(l.id));review(report,reason);taskProgress(t.id);ids.push(t.id);
+      assignmentEvent(a,t.id,'mpi_changed',null,{previous,next,productId});
+    }
+    reconcileGuidance();return ids;
+  }
+  function refreshMergedInstructions(actor,taskIds){
+    const cells=new Set();for(const id of taskIds)for(const l of db.prepare('SELECT id,cell_id FROM task_lines WHERE task_id=?').all(id)){captureInstruction(l.id);cells.add(l.cell_id);}
+    for(const cell of cells)reconcileCountReservations(actor,cell,null);reconcileGuidance();
+  }
   function planningOptions(actor,input){return {...identity(),actorId:actor.id,...planningRecovery.options(actorNow(actor,'work.view'),input)};}
   const history=createWorkHistory({db,actorNow,task,identity});
-  return { ...history, setupBlockers:(a,i)=>{const actor=actorNow(a,'locations.manage');return {...identity(),actorId:actor.id,...setupBlockers(db,actor,i)};}, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, reconcileCountReservations, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock, planningOptions, locationMovePlan, reserveLocationMove, discardLocationMove, dispose:()=>stocktakeDisplayQueue.dispose() };
+  return { ...history, refreshMergedInstructions,stageVoucherAssignment,stageVoucherUpdate,stageMpiChange,setupBlockers:(a,i)=>{const actor=actorNow(a,'locations.manage');return {...identity(),actorId:actor.id,...setupBlockers(db,actor,i)};}, command, task, snapshot, identity, actorNow, line, held, requestCountGuidance, reconcileGuidance, reconcileCountReservations, flushGuidance, flagInactivity, searchMovements, countCandidates, productStock, planningOptions, locationMovePlan, reserveLocationMove, discardLocationMove, dispose:()=>stocktakeDisplayQueue.dispose() };
 }

@@ -47,4 +47,4 @@ if ! DEBIAN_FRONTEND=noninteractive apt_local --no-remove --no-install-recommend
  tail -n 14 "$log" >&2
  fail "Installation could not finish. Details: $log"
 fi
-message 'LytGuide installed. Open Warehouse Setup from the Pi application menu.'
+message 'LytGuide installed. Open Shed Setup from the Pi application menu.'

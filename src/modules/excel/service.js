@@ -39,7 +39,7 @@ export function createWarehouseExcelService({db,locationSetupService,stocktaking
   function draft(a,id){
     const value=db.prepare('SELECT * FROM warehouse_excel_imports WHERE id=? AND actor_id=?').get(String(id),a.id);
     if(!value)error('This import was not found for your account. Upload the file again.');
-    if(value.dataset!==dataset())error('Warehouse data was restored. Upload the file again.');
+    if(value.dataset!==dataset())error('Shed data was restored. Upload the file again.');
     if(value.status!=='applied'&&value.expires_at<clock().toISOString())error('This import expired. Upload the file again.');
     return value;
   }
@@ -193,7 +193,7 @@ export function createWarehouseExcelService({db,locationSetupService,stocktaking
     if(stateHash()!==value.state_hash)error('Stock, locations or assignments changed after your review. Review the import again; nothing was saved.');
     const backup=backupService.createBackup({kind:'manual',source:'before-excel-import'});
     const result=withTransaction(db,()=>{
-      const current=actor(a);if(stateHash()!==value.state_hash)error('Warehouse data changed. Review the import again.');
+      const current=actor(a);if(stateHash()!==value.state_hash)error('Shed data changed. Review the import again.');
       const summary=stage(current,value,JSON.parse(value.review_json));
       const result={id:value.id,...summary,backup:backup.filename,message:'Import saved. Stock quantities are unchanged; mismatches are ready for stocktaking.'};
       db.prepare("UPDATE warehouse_excel_imports SET status='applied',document_json='{}',review_json=NULL,result_json=? WHERE id=?").run(json(result),value.id);

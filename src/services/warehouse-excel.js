@@ -6,8 +6,8 @@ import {dirname,join} from 'node:path';
 import {controllerLedMap} from '../modules/locations/led-mapping.js';
 
 export const WAREHOUSE_EXCEL_FILE='LytGuide-Warehouse.xlsx';
-export const MAPPING_COLUMNS=['Cell Name','Controller Name','Physical LED number','Warehouse','Shed/Shelf'];
-export const STOCK_COLUMNS=['SKU','Product Name','Cell Name','Actual Stock','Unit','Items per location','Brand','Category','Variant','Description'];
+export const MAPPING_COLUMNS=['Bin Name','Controller Name','Physical LED number','Shed','Rack'];
+export const STOCK_COLUMNS=['SKU','Product Name','Bin Name','Actual Stock','Unit','Items per location','Brand','Category','Variant','Description'];
 const MAX_ROWS=20000;
 const cellName=cell=>cell.display_name||cell.logical_code;
 
@@ -40,13 +40,13 @@ export function warehouseExcelData(db) {
       product.unit_of_measure,Number(product.items_per_cell),product.brand||'',product.category||'',product.variant||'',product.description||'',
     ]);
   }
-  if(mappingRows.length>MAX_ROWS||stockRows.length>MAX_ROWS)throw new Error('The warehouse is too large for a single Excel import. The full database backup is still available.');
+  if(mappingRows.length>MAX_ROWS||stockRows.length>MAX_ROWS)throw new Error('The shed is too large for a single Excel import. The full database backup is still available.');
   return {mappingRows,stockRows};
 }
 
 export function warehouseExcelBuffer(data,{createdAt=new Date(),sheets=['LED Mapping','Products & Stock']}={}) {
   const workbook=XLSX.utils.book_new();
-  workbook.Props={Title:'LytGuide warehouse mapping and stock',Author:'LytGuide',CreatedDate:new Date(createdAt)};
+  workbook.Props={Title:'LytGuide shed mapping and stock',Author:'LytGuide',CreatedDate:new Date(createdAt)};
   for(const [name,headers,rows,widths] of [
     ['LED Mapping',MAPPING_COLUMNS,data.mappingRows,[28,24,24,26,26]],
     ['Products & Stock',STOCK_COLUMNS,data.stockRows,[22,32,28,18,18,24,24,24,24,48]],

@@ -87,19 +87,19 @@ export function createAdminPages({ db, backupService = null }) {
       `
         <form method="post" action="/admin/adjustments" class="stack-form" data-adjustment-form>
           <div class="adjustment-cell-selector">
-            <label>Cell
+            <label>Bin
               ${cellPickerField(cells, null, "adjustment-cell")}
             </label>
-            <button type="button" class="ghost-button" data-adjustment-locate-cell disabled>Locate Cell</button>
+            <button type="button" class="ghost-button" data-adjustment-locate-cell disabled>Locate Bin</button>
           </div>
           <div class="adjustment-lines-shell">
             <div class="adjustment-lines-header">
-              <strong>Products Counted In This Cell</strong>
+              <strong>Products Counted In This Bin</strong>
               <button type="button" class="ghost-button" data-adjustment-add disabled>Add Product Line</button>
             </div>
             <div class="stack-form adjustment-lines" data-adjustment-lines>
               <div class="adjustment-empty-state" data-adjustment-empty>
-                Select a cell to load saved product counts.
+                Select a bin to load saved product counts.
               </div>
             </div>
           </div>

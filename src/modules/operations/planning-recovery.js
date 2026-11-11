@@ -36,7 +36,7 @@ export function createPlanningRecovery({db,workQuantity,event}){
    if(!['capacity','location','mixed'].includes(r.mode))throw new Error('Choose how to store these items.');
    if(r.mode==='capacity'){
     assertCan(actor,'products.capacity');
-    const n=workQuantity(r.itemsPerCell,true);if(r.confirmed!==true||Number(r.previousCapacity)!==p.items_per_cell||n<=p.items_per_cell)throw new Error('Confirm a larger items-per-cell value after checking the space. Reopen this choice if capacity changed.');
+    const n=workQuantity(r.itemsPerCell,true);if(r.confirmed!==true||Number(r.previousCapacity)!==p.items_per_cell||n<=p.items_per_cell)throw new Error('Confirm a larger items-per-bin value after checking the space. Reopen this choice if capacity changed.');
     db.prepare('UPDATE products SET items_per_cell=? WHERE id=?').run(n,p.id);event('product_capacity_changed',actor,null,{productId:p.id,previous:p.items_per_cell,itemsPerCell:n,reason:'Capacity checked during put planning'});p.items_per_cell=n;
    }else{
     const cell=db.prepare('SELECT * FROM cells WHERE id=? AND active=1').get(Number(r.cellId));if(!cell)throw new Error('Choose an active location.');
@@ -44,11 +44,11 @@ export function createPlanningRecovery({db,workQuantity,event}){
    }
    return {};
   }
-  if(r.mode!=='count'||r.confirmed!==true||!Array.isArray(r.counts)||!r.counts.length||r.counts.length>200)throw new Error('Enter and confirm the actual stock in each chosen cell.');
+  if(r.mode!=='count'||r.confirmed!==true||!Array.isArray(r.counts)||!r.counts.length||r.counts.length>200)throw new Error('Enter and confirm the actual stock in each chosen bin.');
   const total=Number(db.prepare('SELECT COALESCE(SUM(MAX(0,available_quantity)),0) n FROM inventory_balances WHERE product_id=?').get(p.id).n);
   if(Number(input.quantity)<=total)throw new Error('Recorded stock now covers this quantity. Go back and try the pick again without a stock override.');
   const seen=new Set(),rows=r.counts.map(row=>{
-   const c=db.prepare('SELECT * FROM cells WHERE id=? AND active=1').get(Number(row.cellId));if(!c||seen.has(c.id))throw new Error('Choose each active cell once.');seen.add(c.id);
+   const c=db.prepare('SELECT * FROM cells WHERE id=? AND active=1').get(Number(row.cellId));if(!c||seen.has(c.id))throw new Error('Choose each active bin once.');seen.add(c.id);
    if(row.token!==token(p,c))throw new Error('Stock or reservations changed while counting. Go back and count again.');
    if(controlledCell(db,c.id)||db.prepare('SELECT 1 FROM work_discrepancies WHERE cell_id=? AND product_id=?').get(c.id,p.id))throw new Error(`${c.logical_code}: resolve the existing stock check first.`);
    if(db.prepare('SELECT 1 FROM cell_turns WHERE cell_id=? AND uncertain=0').get(c.id)||db.prepare('SELECT 1 FROM stocktake_display_claims cl JOIN stocktake_items i ON i.id=cl.item_id WHERE i.cell_id=?').get(c.id))throw new Error(`${c.logical_code}: someone is working here. Count after they finish.`);
@@ -62,7 +62,7 @@ export function createPlanningRecovery({db,workQuantity,event}){
    const baseline={products:[observed],ledgerId:db.prepare('SELECT COALESCE(MAX(id),0) n FROM transactions').get().n};
    db.prepare('INSERT INTO stocktake_attempts(id,item_id,counter_id,generation,baseline_json,started_at,method,identity_evidence,observation_id) VALUES(?,?,?,1,?,?,?,?,?)').run(attempt,item.id,actor.id,JSON.stringify(baseline),at,'manual',c.logical_code,observation);
    const tx=postMovement(db,{actor,performer:actor.id,productId:p.id,cellId:c.id,quantity:observed.difference,type:'adjustment',origin:'pick-count:'+input.requestId+':'+c.id,reason:'Actual stock confirmed before pick; urgent follow-up stocktake required',unit:p.unit_of_measure,expectedBalance:before});
-   db.prepare("INSERT INTO stocktake_observations(id,attempt_id,item_id,counter_id,lines_json,unknown_json,reported_reason,note,counted_at,received_at,status,verification,reviewer_id,reviewed_at) VALUES(?,?,?,?,?,'[]',?,?,?,?, 'approved',?,?,?)").run(observation,attempt,item.id,actor.id,JSON.stringify([observed]),'Stock mismatch','Actual cell count confirmed before pick',at,at,'Operator explicitly confirmed actual stock before pick',actor.id,at);
+   db.prepare("INSERT INTO stocktake_observations(id,attempt_id,item_id,counter_id,lines_json,unknown_json,reported_reason,note,counted_at,received_at,status,verification,reviewer_id,reviewed_at) VALUES(?,?,?,?,?,'[]',?,?,?,?, 'approved',?,?,?)").run(observation,attempt,item.id,actor.id,JSON.stringify([observed]),'Stock mismatch','Actual bin count confirmed before pick',at,at,'Operator explicitly confirmed actual stock before pick',actor.id,at);
    db.prepare('INSERT INTO stocktake_settlements(observation_id,transaction_ids,actor_id,created_at) VALUES(?,?,?,?)').run(observation,JSON.stringify(tx?[tx]:[]),actor.id,at);
    db.prepare('UPDATE stocktake_items SET latest_observation=? WHERE id=?').run(observation,item.id);
   }

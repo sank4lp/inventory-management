@@ -69,9 +69,9 @@ const main = new Set([
   'backups.view','backups.create','backups.restore',
 ]);
 const groupNames = {
-  Work:'Daily warehouse work', Review:'Review unfinished work',
+  Work:'Daily shed work', Review:'Review unfinished work',
   Stocktaking:'Count and correct stock', Products:'Manage products',
-  Locations:'Manage locations and lights', Reports:'Use warehouse reports',
+  Locations:'Manage locations and lights', Reports:'Use shed reports',
   Hardware:'Set up hardware', Administration:'Manage people and settings',
   Backups:'Keep and restore backups',
 };

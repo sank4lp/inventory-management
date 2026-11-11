@@ -34,13 +34,13 @@ test('an existing database groups legacy cells, including blank and case-varied 
  const cells=db.prepare('SELECT * FROM cells ORDER BY id').all();
  assert.equal(cells[0].shelf_id,cells[2].shelf_id);assert.equal(cells[0].warehouse_name,'West');assert.equal(cells[0].travel_instructions,'Shelf 5');
  assert.equal(cells[2].warehouse_name,'West');assert.equal(cells[2].travel_instructions,'Shelf 5');
- assert.equal(cells[1].warehouse_name,'Default Warehouse');assert.equal(cells[1].travel_instructions,'Unassigned shed/shelf');
+ assert.equal(cells[1].warehouse_name,'Default Shed');assert.equal(cells[1].travel_instructions,'Unassigned rack');
  assert.deepEqual(cells.map(c=>[c.id,c.logical_code,c.description_revision]),[[1,'A',1],[2,'B',1],[3,'C',1]]);
  const before=locationHierarchy(db);migrateLocationHierarchy(db);assert.deepEqual(locationHierarchy(db),before);db.close();
 });
 test('legacy and new locations persist names and default hierarchy; migration is repeatable',()=>{
  const f=fixture(),c=f.db.prepare('SELECT * FROM cells LIMIT 1').get();
- assert.equal(c.warehouse_name,'Default Warehouse');assert.equal(c.travel_instructions,'Unassigned shed/shelf');assert.ok(c.shelf_id);
+ assert.equal(c.warehouse_name,'Default Shed');assert.equal(c.travel_instructions,'Unassigned rack');assert.ok(c.shelf_id);
  f.send('details',{cellId:c.id,descriptionRevision:c.description_revision,displayName:'Cell Alpha',warehouseName:'West',travelInstructions:'Shelf 5'});
  const saved=f.db.prepare('SELECT * FROM cells WHERE id=?').get(c.id);assert.equal(saved.display_name,'Cell Alpha');assert.equal(saved.warehouse_name,'West');assert.equal(saved.travel_instructions,'Shelf 5');
  const before=locationHierarchy(f.db);migrateLocationHierarchy(f.db);assert.deepEqual(locationHierarchy(f.db),before);
@@ -51,8 +51,8 @@ test('cell moves and whole-shelf moves update cached directions atomically witho
  let d=f.draft();d.warehouses.push({id:'new-east',name:'East'});d.shelves.push({id:'new-shelf',name:'Shelf 2',warehouseId:'new-east'});d.cells[0].shelfId='new-shelf';d.cells[1].shelfId='new-shelf';
  const input={...d,requestId:randomUUID()},r=f.setup.command(f.admin,'hierarchy',input);assert.equal(r.changed,2);assert.equal(f.setup.command(f.admin,'hierarchy',input).replayed,true);
  let cells=f.db.prepare('SELECT * FROM cells ORDER BY id LIMIT 2').all();assert.equal(cells[0].warehouse_name,'East');assert.equal(cells[1].travel_instructions,'Shelf 2');
- d=f.draft();const shelf=d.shelves.find(s=>s.name==='Shelf 2');shelf.warehouseId=d.warehouses.find(w=>w.name==='Default Warehouse').id;f.send('hierarchy',d);
- cells=f.db.prepare('SELECT * FROM cells ORDER BY id LIMIT 2').all();assert.ok(cells.every(c=>c.warehouse_name==='Default Warehouse'));assert.ok(cells.every(c=>c.description_revision===3));
+ d=f.draft();const shelf=d.shelves.find(s=>s.name==='Shelf 2');shelf.warehouseId=d.warehouses.find(w=>w.name==='Default Shed').id;f.send('hierarchy',d);
+ cells=f.db.prepare('SELECT * FROM cells ORDER BY id LIMIT 2').all();assert.ok(cells.every(c=>c.warehouse_name==='Default Shed'));assert.ok(cells.every(c=>c.description_revision===3));
  assert.deepEqual(f.db.prepare('SELECT id,logical_code,label_id,controller_id,hardware_channel,binding_revision FROM cells ORDER BY id').all(),before);assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),balances);assert.deepEqual(f.db.prepare('SELECT * FROM transactions').all(),tx);f.db.close();
 });
 test('stale layouts, duplicate names, missing cells and operator writes are rejected without partial changes',()=>{
@@ -60,14 +60,14 @@ test('stale layouts, duplicate names, missing cells and operator writes are reje
  const c=f.db.prepare('SELECT * FROM cells LIMIT 1').get();f.send('details',{cellId:c.id,descriptionRevision:c.description_revision,displayName:'Renamed'});
  const before=locationHierarchy(f.db);assert.throws(()=>f.send('hierarchy',d),/Locations changed/);assert.deepEqual(locationHierarchy(f.db),before);
  const missing=f.draft();missing.cells.pop();assert.throws(()=>f.send('hierarchy',missing),/every location/);
- const duplicate=f.draft();duplicate.warehouses.push({id:'new-copy',name:'default warehouse'});assert.throws(()=>f.send('hierarchy',duplicate),/different name/);
- const bad=f.draft();bad.shelves[0].warehouseId='new-no-such-warehouse';assert.throws(()=>f.send('hierarchy',bad),/Choose a warehouse/);assert.deepEqual(locationHierarchy(f.db),before);f.db.close();
+ const duplicate=f.draft();duplicate.warehouses.push({id:'new-copy',name:'default shed'});assert.throws(()=>f.send('hierarchy',duplicate),/different name/);
+ const bad=f.draft();bad.shelves[0].warehouseId='new-no-such-warehouse';assert.throws(()=>f.send('hierarchy',bad),/Choose a shed/);assert.deepEqual(locationHierarchy(f.db),before);f.db.close();
 });
 test('location cards nest correctly, escape labels, show per-product stock and retain preferred-location shortcuts',()=>{
  const f=fixture();let html='';const response={writeHead(){},end(v){html=v;}};
  assert.equal(locationBrowseRoutes({method:'GET'},response,new URL('http://localhost/cells'),f.admin,{db:f.db,operationsService:f.work,displayCoordinator:f.display}),true);
- assert.match(html,/data-warehouse-zone/);assert.match(html,/data-shelf-zone/);assert.match(html,/Default Warehouse/);assert.match(html,/data-edit-layout/);
- for(const label of ['Product','SKU','On shelf','Reserved','Available to pick','Total capacity'])assert.ok(html.includes(label));
+ assert.match(html,/data-warehouse-zone/);assert.match(html,/data-shelf-zone/);assert.match(html,/Default Shed/);assert.match(html,/data-edit-layout/);
+ for(const label of ['Product','SKU','On rack','Reserved','Available to pick','Total capacity'])assert.ok(html.includes(label));
  assert.match(html,/class="ghost-button" href="\/pick\?cell_id=1"/);assert.match(html,/class="ghost-button" href="\/put\?cell_id=1"/);assert.match(html,/Stocktake at this location/);assert.match(html,/href="\/stocktaking\?cellId=1"/);
  locationBrowseRoutes({method:'GET'},response,new URL('http://localhost/cells?q=NOT-A-LOCATION'),f.op,{db:f.db,operationsService:f.work,displayCoordinator:f.display});assert.match(html,/No locations match/);assert.doesNotMatch(html,/data-edit-layout/);
  const tree=locationTree({warehouses:[{id:1,name:'<script>bad</script>'}],shelves:[{id:2,name:'Shelf "B"',warehouse_id:1}],cells:[{id:3,shelf_id:2,logical_code:'<bad>'}]},{3:'<article>Cell</article>'},{editing:true});assert.match(tree,/&lt;script&gt;/);assert.doesNotMatch(tree,/<script>/);assert.match(tree,/data-cell-shelf="3"/);assert.match(tree,/data-drag-kind="shelf"/);f.db.close();

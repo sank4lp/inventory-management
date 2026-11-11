@@ -239,7 +239,7 @@ export function createLocationPages({ db }) {
             "All Locations",
             allCells.length
               ? renderAllLocations(allCells)
-              : `<p class="muted">No active locations are configured. Ask an admin to add cells in Configuration.</p>`,
+              : `<p class="muted">No active locations are configured. Ask an admin to add bins in Configuration.</p>`,
             "",
             `id="all-locations"`,
           )}
@@ -251,10 +251,10 @@ export function createLocationPages({ db }) {
   function renderCellDetail(user, flash, cell) {
     if (!cell) {
       return page({
-        title: "Cell Not Found",
+        title: "Bin Not Found",
         user,
-        flash: flash || { message: "Cell not found.", tone: "error" },
-        content: `<p><a href="/cells">Back To Cells</a></p>`,
+        flash: flash || { message: "Bin not found.", tone: "error" },
+        content: `<p><a href="/cells">Back To Bins</a></p>`,
       });
     }
 
@@ -293,8 +293,8 @@ export function createLocationPages({ db }) {
         ${can(user,'locations.manage')?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
           <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="descriptionRevision" value="${describeLocation(db,cell.id).descriptionRevision}">
           <label>Location name<input name="displayName" maxlength="160" value="${escapeHtml(cell.display_name||'')}"></label>
-          <label>Shed / shelf details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second shelf on the left"></label>
-          <p>The cell code, QR and stock history stay unchanged. </p><button>Save directions</button></form>`):''}
+          <label>Rack details<input name="travelInstructions" maxlength="1000" value="${escapeHtml(cell.travel_instructions||'')}" placeholder="For example: Enter the packing area, second rack on the left"></label>
+          <p>The bin code, QR and stock history stay unchanged. </p><button>Save directions</button></form>`):''}
       `,
     });
   }
@@ -323,7 +323,7 @@ export function createLocationPages({ db }) {
               <button type="submit" class="green-button firmware-nav-button" data-firmware-submit hidden disabled>${editing?'Update firmware':'Flash controller'}</button>
             </div>
           </nav></div>
-          <header class="firmware-wizard-head"><h2>${editing?`Edit ${escapeHtml(name)}`:'Set up as fresh controller'}</h2><p class="muted">${editing?'Update this ESP32 or connect a replacement. Your cells and LED mappings stay with this controller.':'Use a new or previously used ESP32. Choose its LED count, then confirm replacing its saved LED setup.'}</p></header>
+          <header class="firmware-wizard-head"><h2>${editing?`Edit ${escapeHtml(name)}`:'Set up as fresh controller'}</h2><p class="muted">${editing?'Update this ESP32 or connect a replacement. Your bins and LED mappings stay with this controller.':'Use a new or previously used ESP32. Choose its LED count, then confirm replacing its saved LED setup.'}</p></header>
           ${firmwareOptions.arduinoCli.available?'':'<p class="firmware-port-status firmware-port-status-missing" role="alert">The firmware tools are not installed on this host.</p>'}
           <ol class="wizard-steps" aria-label="Controller setup progress">${steps.map(([title,subtitle],i)=>`<li class="wizard-step-indicator ${i===0?'wizard-step-indicator-active':'wizard-step-indicator-upcoming'}" data-firmware-step-indicator="${i}" ${i===0?'aria-current="step"':''}><span class="wizard-step-node" aria-hidden="true"><span class="wizard-step-number">${i+1}</span>${wizardCheckIcon()}</span><span class="wizard-step-copy"><strong>${title}</strong><span>${subtitle}</span></span></li>`).join('')}</ol>
           <input type="hidden" name="replacement_controller_id" value="${selected?.id||''}" data-firmware-replacement data-name="${escapeHtml(name)}" data-count="${originalCount}" data-ready="${ready?'1':'0'}">
@@ -340,7 +340,7 @@ export function createLocationPages({ db }) {
           <section class="firmware-step" data-firmware-step="2" hidden>
             <div class="firmware-grid">
               ${editing?'<label>Action<select name="maintenance_action"><option value="update">Update firmware / LED count</option><option value="replace">Replace ESP32</option></select></label>':''}
-              <label>Controller name<input name="controller_name" placeholder="e.g. Shelf A" ${editing?`value="${escapeHtml(name)}" readonly`:''} required maxlength="80"></label>
+              <label>Controller name<input name="controller_name" placeholder="e.g. Rack A" ${editing?`value="${escapeHtml(name)}" readonly`:''} required maxlength="80"></label>
               <label>LED modules<input type="number" name="module_count" min="${firmwareOptions.moduleCount.min}" max="${firmwareOptions.moduleCount.max}" step="1" placeholder="4" ${editing?`value="${count}"`:''} required></label>
               <label>Serial port<input name="port" list="firmware-ports" placeholder="Select the connected ESP32" data-firmware-port-input required><input type="hidden" name="device_identity" value="" data-firmware-device-identity></label>
             </div>
@@ -354,8 +354,8 @@ export function createLocationPages({ db }) {
           <section class="firmware-step" data-firmware-step="3" hidden>
             <h3>${editing?'Ready to update':'Ready to add your controller'}</h3>
             <dl class="firmware-review"><div><dt>Controller</dt><dd data-firmware-review-name></dd></div><div><dt>LED modules</dt><dd data-firmware-review-count></dd></div><div><dt>Serial port</dt><dd data-firmware-review-port></dd></div></dl>
-            <p>${editing?'The LED setup will be read back and checked. Existing location names, QR codes and stock are kept. A changed LED count adds unused outputs or removes only unassigned outputs from the end of the chain.':'Firmware will be uploaded. The saved LED setup on this ESP32 will be replaced with sequential outputs using the LED count above. Warehouse products, users and other controllers stay unchanged.'}</p>
-            ${editing?`<div data-firmware-replacement-help>${ready?'':'<p role="alert">The saved LED setup is unavailable. Restore the controller setup before updating its firmware; existing locations and mappings are kept.</p>'}<label class="firmware-confirmation"><input type="checkbox" name="replacement_confirmed" value="1" required>The selected ESP32 is isolated for USB maintenance. The old board is off the RS485 bus, and existing LEDs stay in the same order.</label></div>`:'<label class="firmware-confirmation"><input type="checkbox" name="fresh_setup_confirmed" value="1" required>I want to replace this ESP32’s saved LED setup. It is disconnected from the old warehouse and isolated for USB flashing.</label>'}
+            <p>${editing?'The LED setup will be read back and checked. Existing location names, QR codes and stock are kept. A changed LED count adds unused outputs or removes only unassigned outputs from the end of the chain.':'Firmware will be uploaded. The saved LED setup on this ESP32 will be replaced with sequential outputs using the LED count above. Shed products, users and other controllers stay unchanged.'}</p>
+            ${editing?`<div data-firmware-replacement-help>${ready?'':'<p role="alert">The saved LED setup is unavailable. Restore the controller setup before updating its firmware; existing locations and mappings are kept.</p>'}<label class="firmware-confirmation"><input type="checkbox" name="replacement_confirmed" value="1" required>The selected ESP32 is isolated for USB maintenance. The old board is off the RS485 bus, and existing LEDs stay in the same order.</label></div>`:'<label class="firmware-confirmation"><input type="checkbox" name="fresh_setup_confirmed" value="1" required>I want to replace this ESP32’s saved LED setup. It is disconnected from the old shed and isolated for USB flashing.</label>'}
             ${editing?'<label class="firmware-confirmation" data-layout-change-confirmation hidden><input type="checkbox" name="layout_change_confirmed" value="1">I changed the LED count. Existing LEDs stay in the same order; added or removed LEDs are at the end of the chain.</label>':''}
             <p class="muted" role="status" data-firmware-start-hint>Keep USB connected until verification finishes.</p>
             <div class="firmware-progress" data-firmware-progress hidden><div class="firmware-progress-head"><strong data-firmware-stage>Queued</strong><span data-firmware-percent>0%</span></div><progress data-firmware-progress-bar value="0" max="100"></progress><p class="firmware-hint" role="status" data-firmware-hint hidden></p><details class="firmware-diagnostics"><summary>Upload details</summary><pre class="firmware-log" data-firmware-log></pre></details></div>
@@ -414,7 +414,7 @@ export function createLocationPages({ db }) {
         <div class="panel-heading">
           <div>
             <h2>Module Assignments</h2>
-            <p class="muted">Ping a module, then assign it to the physical cell it controls.</p>
+            <p class="muted">Ping a module, then assign it to the physical bin it controls.</p>
           </div>
           <div class="mini-actions mapping-toolbar">
             <span class="mapping-toolbar-status" data-mapping-dirty-count>All Mappings Saved</span>
@@ -540,7 +540,7 @@ export function createLocationPages({ db }) {
           <div class="modal-panel mapping-unsaved-panel">
             <div class="modal-header">
               <div>
-                <h2 id="mapping-unsaved-title">Unsaved Cell Mapping Changes</h2>
+                <h2 id="mapping-unsaved-title">Unsaved Bin Mapping Changes</h2>
                 <p class="muted">Save or discard the pending mapping changes before leaving this section.</p>
               </div>
             </div>
@@ -562,7 +562,7 @@ export function createLocationPages({ db }) {
 
     switch (sectionKey) {
       case 'controller-connect':
-        return `<section id="controller-connect" class="app-panel" data-config-section="controller-connect"><h2>Connect existing controller</h2><p class="muted">Keep its firmware and LED setup. Connect its RS485 wiring and select the adapter before continuing.</p><form method="post" action="/devices/controller-connect"><div class="firmware-grid"><label>Controller name<input name="controller_name" value="${escapeHtml(controllerName)}" required maxlength="80"></label><label>Saved RS485 address<input name="controller_address" value="${escapeHtml(controllerAddress)}" required maxlength="80"></label></div><p class="muted">Use the address from the previous warehouse setup or controller label. The app reads the firmware and LED configuration without uploading anything.</p><button type="submit" class="green-button">Check & connect</button></form></section>`;
+        return `<section id="controller-connect" class="app-panel" data-config-section="controller-connect"><h2>Connect existing controller</h2><p class="muted">Keep its firmware and LED setup. Connect its RS485 wiring and select the adapter before continuing.</p><form method="post" action="/devices/controller-connect"><div class="firmware-grid"><label>Controller name<input name="controller_name" value="${escapeHtml(controllerName)}" required maxlength="80"></label><label>Saved RS485 address<input name="controller_address" value="${escapeHtml(controllerAddress)}" required maxlength="80"></label></div><p class="muted">Use the address from the previous shed setup or controller label. The app reads the firmware and LED configuration without uploading anything.</p><button type="submit" class="green-button">Check & connect</button></form></section>`;
       case "controller-setup":
         return renderControllerSetupSection(controllers,controllerId);
       case "cell-create":
@@ -634,7 +634,7 @@ export function createLocationPages({ db }) {
           <form
             method="post"
             action="/devices/controller-delete"
-            ${uiConfirmation({title:'Delete controller',label:'Delete controller',danger:true,message:'Its cells stay available for manual Pick/Put until remapped.',facts:[['Controller',controller.controller_code],['RS485 address',String(controller.address||'—')],['LED modules',String(controller.module_count||0)]]})}
+            ${uiConfirmation({title:'Delete controller',label:'Delete controller',danger:true,message:'Its bins stay available for manual Pick/Put until remapped.',facts:[['Controller',controller.controller_code],['RS485 address',String(controller.address||'—')],['LED modules',String(controller.module_count||0)]]})}
           >
             <input type="hidden" name="controller_id" value="${controller.id}" />
             <button
@@ -680,14 +680,14 @@ export function createLocationPages({ db }) {
                 <details class="ui-help"><summary>About controller status</summary><p>Health shows the latest saved check. Use Refresh for a live RS485 check. Configured output counts come from controller setup; mapped locations do not establish the physical light count.</p></details>
               </div>
             </div>
-            ${uiFacts([['Controllers Online',escapeHtml(`${onlineControllers}/${controllers.length}`)],['Configured LED outputs',escapeHtml(formatQuantity(moduleTotal))],['Mapped Cells',escapeHtml(formatQuantity(mappedCells.length))],['Manual Cells',escapeHtml(formatQuantity(manualCells.length))]])}
+            ${uiFacts([['Controllers Online',escapeHtml(`${onlineControllers}/${controllers.length}`)],['Configured LED outputs',escapeHtml(formatQuantity(moduleTotal))],['Mapped Bins',escapeHtml(formatQuantity(mappedCells.length))],['Manual Bins',escapeHtml(formatQuantity(manualCells.length))]])}
           </section>
 
           <section id="controller-health" class="app-panel" data-config-overview>
             <div class="panel-heading">
               <div>
                 <h2>Controller Health</h2>
-                <details class="ui-help"><summary>About removing a controller</summary><p>Delete removes only the controller. Its cells stay active for manual pick and put until remapped.</p></details>
+                <details class="ui-help"><summary>About removing a controller</summary><p>Delete removes only the controller. Its bins stay active for manual pick and put until remapped.</p></details>
               </div>
             </div>
             ${uiTable([{key:'controller',label:'Controller'},{key:'address',label:'RS485 ID'},{key:'health',label:'Health'},{key:'date',label:'Last Seen'},{key:'outputs',label:'Configured outputs'},{key:'mapped',label:'Mapped locations'},{key:'action',label:'Actions'}],controllerRows,{label:'Controller Health'})}

@@ -1,3 +1,4 @@
+import {BUSINESS_FACTS,businessProductFacts,businessProductFields} from '../../modules/imports/product-ui.js';
 import {can} from "../../modules/access/catalog.js";
 import {
   getCellDetail,
@@ -143,6 +144,7 @@ export function createProductPages({ db, productFieldService = null }) {
     search = "",
     options = {},
   ) {
+    const businessCatalog=Boolean(db.prepare("SELECT 1 FROM products WHERE active=1 AND cos_sec IS NOT NULL LIMIT 1").get());
     const labels = fieldLabels();
     const identifierLabel = fieldLabel(labels, "product.sku", "SKU");
     const nameLabel = fieldLabel(labels, "product.name", "Name");
@@ -206,13 +208,14 @@ export function createProductPages({ db, productFieldService = null }) {
       )}</p>
       <div class="product-catalog-table">
       ${table(
-        [identifierLabel, nameLabel, "Items Per Location", "On shelf", unitLabel, "Action"],
+        businessCatalog?[...BUSINESS_FACTS.map(([,label])=>label),"Items per location","Action"]:[identifierLabel, nameLabel, "Items Per Location", "On rack", unitLabel, "Action"],
         products.map((product) => [
+          ...(businessCatalog?[...BUSINESS_FACTS.map(([key])=>["name","cos_sec","part_no"].includes(key)?`<a href="/products/${product.id}">${escapeHtml(product[key]??"—")}</a>`:escapeHtml(product[key]??"—")),product.capacity_pending?"Set during stocktake":escapeHtml(formatQuantity(product.items_per_cell))]:[
           `<a href="/products/${product.id}">${escapeHtml(product.sku)}</a>`,
           `<a href="/products/${product.id}">${escapeHtml(product.name)}</a><br /><small>${escapeHtml(product.brand)}</small>`,
           escapeHtml(formatQuantity(product.items_per_cell)),
           escapeHtml(formatQuantity(product.total_available)),
-          escapeHtml(product.unit_of_measure),
+          escapeHtml(product.unit_of_measure)]),
           quickActionLinks(
             product.id,
             "",
@@ -360,7 +363,7 @@ export function createProductPages({ db, productFieldService = null }) {
     const disabled = !product.locations.length;
     const title = disabled
       ? "Put stock into a mapped location before showing this product's quantities."
-      : "Show this product's available quantity on every mapped LED cell holding it.";
+      : "Show this product's available quantity on every mapped LED bin holding it.";
     const clearAttrs = active
       ? ` data-product-find-led-clear-form data-product-find-led-clear-endpoint="/products/${product.id}/find/clear"`
       : "";
@@ -407,8 +410,8 @@ export function createProductPages({ db, productFieldService = null }) {
       ${edit || capacity ? `
         <dialog class="product-settings-dialog" data-product-settings-dialog aria-labelledby="product-settings-title">
           <header class="product-settings-header"><h2 id="product-settings-title">Product Settings</h2><button type="button" class="dialog-dismiss" data-discard-product-settings aria-label="Close product settings">×</button></header>
-          <form method="post" action="/products/${product.id}/settings" class="stack-form" data-product-settings-form>
-            <fieldset ${edit ? "" : "disabled"}>
+          <form method="post" action="${product.cos_sec?'/api/business-import/saveProduct':`/products/${product.id}/settings`}" class="stack-form" data-product-settings-form>
+            ${product.cos_sec?businessProductFields(product,{edit,capacity,changeUnit:can(user,"products.fields")}):`<fieldset ${edit ? "" : "disabled"}>
               ${edit ? '<input type="hidden" name="edit_details" value="1">' : ""}
               <div class="form-grid">
                 <label>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}<input value="${escapeHtml(product.sku)}" disabled title="SKU is the product identity and cannot be changed." /></label>
@@ -421,7 +424,7 @@ export function createProductPages({ db, productFieldService = null }) {
               </div>
               <label>${escapeHtml(fieldLabel(labels, "product.description", "Description"))}<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label>
             </fieldset>
-            <label>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items per location"))}<input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required ${capacity?"":"disabled"} /></label>
+            <label>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items per location"))}<input type="number" min="1" step="1" inputmode="numeric" name="items_per_cell" value="${escapeHtml(product.items_per_cell)}" required ${capacity?"":"disabled"} /></label>`}
             <label class="checkbox-line"><input type="checkbox" name="confirmed" value="1" required> I confirm these changes.</label>
             <p role="status" class="form-feedback" data-product-settings-error></p>
             <div class="modal-actions"><button type="submit" data-save-product-settings disabled>Save Details</button><button type="button" class="ghost-button" data-discard-product-settings>Discard changes</button></div>
@@ -489,7 +492,7 @@ export function createProductPages({ db, productFieldService = null }) {
             [
               fieldLabel(labels, "product.sku", "SKU"),
               fieldLabel(labels, "product.name", "Name"),
-              "On shelf",
+              "On rack",
               fieldLabel(labels, "product.unit_of_measure", "Unit"),
               "30-day avg",
               "Status",
@@ -676,18 +679,18 @@ export function createProductPages({ db, productFieldService = null }) {
         <section class="reports-workspace" data-reports-workspace>
           ${renderProductStatusReports(productStatusReports, generatedAt, reportFormat)}
           <section class="page-actions">
-            ${can(user,'count.manage')?'<a class="action-cta-button secondary-cta" href="/warehouse-excel">Import Excel</a><a class="action-cta-button secondary-cta" href="/warehouse-excel/template.xlsx" download="LytGuide-Warehouse-Sample.xlsx">Download sample Excel</a>':''}
+            ${can(user,'products.edit')?'<a class="action-cta-button secondary-cta" href="/products/import">Import Products</a><a class="action-cta-button secondary-cta" href="/products/merge">Merge Products</a><a class="action-cta-button secondary-cta" href="/products/import/template.xlsx" download>Download sample Excel</a>':''}
             ${
               showAddProduct
                 ? `<a class="action-cta-button secondary-cta" href="/products">Close</a>`
-                : `<a class="action-cta-button" href="/products?show_add=1">Add Product</a>`
+                : `<a class="action-cta-button" href="/products/new">Add Product</a>`
             }
           </section>
           <section class="single-column-wide ${showAddProduct ? "catalog-underlay" : ""}">
             ${card(
               "Catalog",
               `
-                <p data-mobile-help-copy>Stock values are on shelf, including reserved goods. Locations with unresolved conditions need review.</p><div class="catalog-controls">
+                <p data-mobile-help-copy>Stock values are on rack, including reserved goods. Locations with unresolved conditions need review.</p><div class="catalog-controls">
                   <form
                     method="get"
                     action="/products"
@@ -717,10 +720,10 @@ export function createProductPages({ db, productFieldService = null }) {
                     data-show-label="Show All Quantities"
                     data-active-label="Showing All Quantities"
                     data-led-loading-label="Showing All"
-                    data-active-title="Showing total available stock on every mapped cell. Click to clear."
+                    data-active-title="Showing total available stock on every mapped bin. Click to clear."
                     aria-pressed="false"
-                    title="Show total available stock on every mapped cell in yellow."
-                  >Show all quantities — entire warehouse</button>
+                    title="Show total available stock on every mapped bin in yellow."
+                  >Show all quantities — entire shed</button>
                 </div>
                 <div id="catalog-product-results">
                   ${renderCatalogProductResults(
@@ -807,13 +810,13 @@ export function createProductPages({ db, productFieldService = null }) {
             <div class="product-summary-layout">
               <section class="product-summary-overview" aria-label="Product details">
                 <dl class="task-info-grid product-summary-facts">
-                  ${[["name", "Name"], ["category", "Category"], ["variant", "Variant / Size"], ["description", "Description"]].map(([key, label]) => `<div class="task-info-field"><dt>${escapeHtml(fieldLabel(labels, `product.${key}`, label))}</dt><dd>${escapeHtml(product[key] || "—")}</dd></div>`).join("") }
+                  ${product.cos_sec?businessProductFacts(product):`                  ${[["name", "Name"], ["category", "Category"], ["variant", "Variant / Size"], ["description", "Description"]].map(([key, label]) => `<div class="task-info-field"><dt>${escapeHtml(fieldLabel(labels, `product.${key}`, label))}</dt><dd>${escapeHtml(product[key] || "—")}</dd></div>`).join("") }
                   <div class="task-info-field">
                     <dt>${escapeHtml(fieldLabel(labels, "product.sku", "SKU"))}</dt>
                     <dd>${escapeHtml(product.sku)}</dd>
                   </div>
                   <div class="task-info-field">
-                    <dt>On shelf</dt>
+                    <dt>On rack</dt>
                     <dd>${escapeHtml(formatQuantity(product.total_available))} <span>${escapeHtml(product.unit_of_measure)}</span></dd>
                   </div>
                   <div class="task-info-field">
@@ -828,6 +831,7 @@ export function createProductPages({ db, productFieldService = null }) {
                     <dt>${escapeHtml(fieldLabel(labels, "product.items_per_cell", "Items Per Location"))}</dt>
                     <dd>${escapeHtml(formatQuantity(product.items_per_cell))}</dd>
                   </div>
+`}
                   ${customAttributes.map(field => `<div class="task-info-field"><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.data_type === "boolean" ? (field.value ? "Yes" : "No") : field.value)}</dd></div>`).join("")}
                 </dl>
               </section>
@@ -847,10 +851,10 @@ export function createProductPages({ db, productFieldService = null }) {
         ${card(
           "Locations Holding This Product",
           table(
-            ["Cell", "On shelf", "Last Activity", "Action"],
+            ["Bin", "On rack", "Last Activity", "Action"],
             product.locations.map((location) => [
               `<a href="/cells/${location.cell_id}">${escapeHtml(location.logical_code)}</a>`,
-              `On shelf ${escapeHtml(formatQuantity(location.available_quantity))} ${escapeHtml(product.unit_of_measure)}`,
+              `On rack ${escapeHtml(formatQuantity(location.available_quantity))} ${escapeHtml(product.unit_of_measure)}`,
               escapeHtml(formatDate(location.last_activity_at)),
               `
                 <div class="mini-actions">
@@ -946,7 +950,7 @@ export function createProductPages({ db, productFieldService = null }) {
           <section class="guide-strip">
             <span class="guide-pill active-guide">Step 1: Choose Product</span>
             <span class="guide-pill">Step 2: Enter Quantity</span>
-            <span class="guide-pill">Step 3: Review Cells</span>
+            <span class="guide-pill">Step 3: Review Bins</span>
           </section>
           ${card(
             "Pick Items",
@@ -1203,7 +1207,7 @@ export function createProductPages({ db, productFieldService = null }) {
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Preferred</th><th>Cell</th><th>Quantity</th><th>Last Activity</th></tr>
+            <tr><th>Preferred</th><th>Bin</th><th>Quantity</th><th>Last Activity</th></tr>
           </thead>
           <tbody data-movement-stock-rows>
             ${renderMovementStockRows(product, preferredCellIds)}
@@ -1242,7 +1246,7 @@ export function createProductPages({ db, productFieldService = null }) {
     const loadedCount = locations.length;
     const totalCount = Number(product.stock_location_count ?? loadedCount);
     const findTitle = locations.length
-      ? "Show this product's available quantity on every mapped LED cell holding it."
+      ? "Show this product's available quantity on every mapped LED bin holding it."
       : "Put stock into a mapped location before showing this product's quantities.";
     return `
       <section
@@ -1282,7 +1286,7 @@ export function createProductPages({ db, productFieldService = null }) {
         ${
           locations.length
             ? `${renderMovementStockTable(stockProduct, preferredCellIds)}${renderMovementStockFooter(stockProduct, loadedCount)}`
-            : `<p class="muted">This product is not currently stored in any cell.</p>`
+            : `<p class="muted">This product is not currently stored in any bin.</p>`
         }
       </section>
     `;
@@ -1322,7 +1326,7 @@ export function createProductPages({ db, productFieldService = null }) {
           <section class="guide-strip">
             <span class="guide-pill active-guide">Step 1: Choose Product</span>
             <span class="guide-pill">Step 2: Enter Quantity</span>
-            <span class="guide-pill">Step 3: Review Cells</span>
+            <span class="guide-pill">Step 3: Review Bins</span>
           </section>
           ${card(
             "Put Items Away",
@@ -1348,7 +1352,7 @@ export function createProductPages({ db, productFieldService = null }) {
               <p class="muted">
                 ${selectedProduct ? `Selected product: ${escapeHtml(selectedProduct.name)}. ` : ""}
                 ${selectedProduct ? `The planning batch is ${escapeHtml(formatQuantity(selectedProduct.items_per_cell))} ${escapeHtml(selectedProduct.unit_of_measure)} per location. You can enter a larger quantity; the system will split it across eligible locations when space is available. ` : ""}
-                ${selectedCell ? `The system will try ${escapeHtml(selectedCell.logical_code)} first, then add more cells only if needed. ` : ""}
+                ${selectedCell ? `The system will try ${escapeHtml(selectedCell.logical_code)} first, then add more bins only if needed. ` : ""}
                 After the task is created, follow the RED LED instructions and confirm where the items were placed.
               </p>
             `,

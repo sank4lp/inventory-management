@@ -21,11 +21,15 @@ for(const resetMode of ['clear-work','fresh'])for(const keepHardware of [true,fa
     source.prepare("INSERT INTO location_labels(token,cell_id,state,created_at,qr_value,scanned_at,bound_by) VALUES('keep-label',?,'bound','2026-01-01','customer-qr','2026-01-01',?)").run(cell.id,owner.id);
     source.prepare('INSERT INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(?,?,7,0)').run(product.id,cell.id);
     source.prepare("INSERT INTO app_metadata(key,value,updated_at) VALUES('deadline_defaults','{\"hours\":4}','2026-01-01')").run();
+    source.prepare('INSERT INTO product_import_aliases(identity_key,cos_sec,part_no,main_product_id,created_by,created_at) VALUES(?,?,?,?,?,?)').run('["OLD","PART"]','OLD','PART',product.id,owner.id,'2026-11-10');
+    source.prepare("INSERT INTO product_movement_thresholds(product_id,period,direction,slow_below,fast_above,unit,updated_by,updated_at) VALUES(?,'month','combined',10,100,?,?,?)").run(product.id,product.unit_of_measure,owner.id,'2026-11-10');
     const before=source.prepare('SELECT * FROM inventory_balances').all(),usersBefore=source.prepare('SELECT * FROM users').all();
     const folder=join(root,'reset');const result=buildResetWarehouse(source,folder,{resetMode,keepHardware,username:'newowner',password:'1234',warehouseName:'Fresh Warehouse'});
     dest=new DatabaseSync(join(folder,'data/inventory.db'));
     for(const table of ['inventory_balances','tasks','transactions','stocktake_runs','work_reports','operation_receipts','work_guidance'])assert.equal(dest.prepare('SELECT COUNT(*) n FROM '+table).get().n,0,table);
     assert.equal(dest.prepare('SELECT COUNT(*) n FROM products').get().n,resetMode==='fresh'?0:source.prepare('SELECT COUNT(*) n FROM products').get().n);
+    assert.equal(dest.prepare('SELECT COUNT(*) n FROM product_import_aliases').get().n,resetMode==='fresh'?0:1);
+    assert.equal(dest.prepare('SELECT COUNT(*) n FROM product_movement_thresholds').get().n,resetMode==='fresh'?0:1);
     assert.equal(dest.prepare('SELECT username FROM users').get().username,resetMode==='fresh'?'newowner':'oldowner');
     assert.ok(verifyPassword(resetMode==='fresh'?'1234':'old-owner-password',dest.prepare('SELECT password_hash FROM users').get().password_hash));
     assert.equal(dest.prepare('SELECT COUNT(*) n FROM controllers').get().n,keepHardware?1:0);

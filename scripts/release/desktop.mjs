@@ -10,8 +10,8 @@ export function desktopEnvironment(environment){const clean={...environment};for
 export function desktopExecutable(root){return join(root,'desktop/lytguide-desktop');}
 export function desktopEntry({setup=false}={}){return `[Desktop Entry]
 Type=Application
-Name=${setup?'LytGuide Warehouse Setup':'LytGuide'}
-Comment=${setup?'Set up the warehouse from the beginning':'Open the local warehouse application'}
+Name=${setup?'LytGuide Shed Setup':'LytGuide'}
+Comment=${setup?'Set up the shed from the beginning':'Open the local shed application'}
 Exec=/usr/bin/lytguide-test ${setup?'wizard':'open'}
 TryExec=/usr/bin/lytguide-test
 Icon=lytguide

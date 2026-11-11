@@ -23,7 +23,7 @@ export function displayOwner(db,cellId) {
     AND NOT EXISTS(SELECT 1 FROM work_reports w WHERE w.line_id=l.id AND w.status IN ('review','received'))`).get(d.lineId);
   return owner?{...owner,kind:'task',generation:row.generation}:null;
 }
-export function waitingMessage(owner){return `Waiting for ${owner.name} · ${owner.kind==='count'?'Stocktake':'Task'} #${owner.taskId??owner.runId}. This location will become available when their cell work finishes or stops.`;}
+export function waitingMessage(owner){return `Waiting for ${owner.name} · ${owner.kind==='count'?'Stocktake':'Task'} #${owner.taskId??owner.runId}. This location will become available when their bin work finishes or stops.`;}
 export function guidanceBinding(db,cellId) {
   const c=db.prepare('SELECT c.controller_id,c.hardware_channel,c.binding_revision,ctrl.address,ctrl.module_count,ctrl.configured_at FROM cells c LEFT JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.id=?').get(cellId);
   return JSON.stringify(c||null);

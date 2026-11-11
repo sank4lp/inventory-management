@@ -1671,10 +1671,7 @@ function wireReportsWorkspace() {
   librarySearch?.addEventListener("input", () => {
     const query = librarySearch.value.trim().toLowerCase();
     let visibleCount = 0;
-    reportButtons.forEach((button) => {
-      if (!button.closest(".report-library-list")) {
-        return;
-      }
+    libraryList?.querySelectorAll(".report-library-item").forEach((button) => {
       const matches = !query || (button.dataset.reportSearchText || button.textContent || "").toLowerCase().includes(query);
       button.hidden = !matches;
       if (matches) {
@@ -1685,7 +1682,7 @@ function wireReportsWorkspace() {
       let sibling = label.nextElementSibling;
       let hasVisibleReport = false;
       while (sibling && !sibling.classList.contains("report-library-group-label")) {
-        if (sibling.matches("[data-report-open]") && !sibling.hidden) {
+        if (sibling.matches(".report-library-item") && !sibling.hidden) {
           hasVisibleReport = true;
           break;
         }
@@ -2523,7 +2520,7 @@ function wireAdjustmentForms() {
       if (locateButton) {
         locateButton.disabled = !cellId;
         locateButton.dataset.cellId = cellId;
-        locateButton.dataset.showLabel = "Locate Cell";
+        locateButton.dataset.showLabel = "Locate Bin";
         setCatalogProductQuantityButtonState(locateButton, Boolean(cellId && activeCatalogProductQuantity?.key === `cell:${cellId}:locate`));
       }
       if (lightQuantityButton) {
@@ -2546,7 +2543,7 @@ function wireAdjustmentForms() {
 
     addButton.addEventListener("click", () => {
       if (!selectedCellId()) {
-        setLinesMessage("Select a cell before adding product counts.", "warning");
+        setLinesMessage("Select a bin before adding product counts.", "warning");
         refreshActionControls();
         return;
       }
@@ -2575,8 +2572,8 @@ function wireAdjustmentForms() {
       if (!lines.querySelector("[data-adjustment-line]")) {
         setLinesMessage(
           selectedCellId()
-            ? "No product lines selected for this cell."
-            : "Select a cell to load saved product counts.",
+            ? "No product lines selected for this bin."
+            : "Select a bin to load saved product counts.",
           "info",
         );
       }
@@ -2606,7 +2603,7 @@ function wireAdjustmentForms() {
       setAdjustmentStatus("");
       if (!cellId) {
         nextIndex = 0;
-        setLinesMessage("Select a cell to load saved product counts.", "info");
+        setLinesMessage("Select a bin to load saved product counts.", "info");
         refreshActionControls();
         return;
       }
@@ -2640,7 +2637,7 @@ function wireAdjustmentForms() {
         } else {
           nextIndex = 0;
           setLinesMessage(
-            `No saved products in ${payload.cell?.logicalCode || "this cell"}. Add a product line to count into this cell.`,
+            `No saved products in ${payload.cell?.logicalCode || "this bin"}. Add a product line to count into this bin.`,
             "info",
           );
         }
@@ -2661,7 +2658,7 @@ function wireAdjustmentForms() {
 
     lightQuantityButton?.addEventListener("click", async () => {
       if (!selectedCellId()) {
-        setAdjustmentStatus("Choose a cell before lighting the quantity.", "warning");
+        setAdjustmentStatus("Choose a bin before lighting the quantity.", "warning");
         return;
       }
       if (!enteredQuantities().length) {
@@ -2691,7 +2688,7 @@ function wireAdjustmentForms() {
         setAdjustmentStatus(
           payload.message ||
             `Showing ${payload.displayQuantity || "the entered quantity"} on ${
-              payload.cell?.logicalCode || "the selected cell"
+              payload.cell?.logicalCode || "the selected bin"
             }.`,
           payload.degraded ? "warning" : "success",
         );
@@ -3647,17 +3644,17 @@ function confirmQuantityOverride(conflicts = [], locating = false, pinging = fal
     dialog.setAttribute("aria-labelledby", "quantity-override-title");
     dialog.innerHTML = `<h2 id="quantity-override-title">Show quantities?</h2><p>Are you sure you want to see quantities of selected products?</p><p data-conflict-detail></p><label><input type="checkbox" />Yes, I want to override the current PICK/PUT task</label><div class="modal-actions"><button type="button" class="ghost-button" data-cancel>Cancel</button><button type="button" class="blue-button" data-confirm disabled>Show quantities anyways</button></div>`;
     if (locating) {
-      dialog.querySelector("h2").textContent = "Locate this cell?";
+      dialog.querySelector("h2").textContent = "Locate this bin?";
       dialog.querySelector("p").textContent = "This temporarily replaces the PICK/PUT light at this location.";
       dialog.querySelector("[data-confirm]").textContent = "Locate anyway";
     }
     if (pinging) {
-      dialog.querySelector("h2").textContent = "Ping this cell?";
+      dialog.querySelector("h2").textContent = "Ping this bin?";
       dialog.querySelector("p").textContent = "This replaces the PICK/PUT light with a green ripple for five seconds.";
       dialog.querySelector("[data-confirm]").textContent = "Ping anyway";
     }
     if (["cell_name", "module_number"].includes(displayKind)) {
-      const label = displayKind === "cell_name" ? "cell names" : "LED numbers";
+      const label = displayKind === "cell_name" ? "bin names" : "LED numbers";
       dialog.querySelector("h2").textContent = `Show ${label}?`;
       dialog.querySelector("p").textContent = "This temporarily replaces the PICK/PUT lights in this group.";
       dialog.querySelector("[data-confirm]").textContent = `Show ${label} anyway`;
@@ -4373,7 +4370,7 @@ function wireCellMappingForm() {
 
     control.value = "";
     control.dataset.currentLabel = input.value;
-    input.setCustomValidity(input.value.trim() ? "Choose a cell from the list." : "");
+    input.setCustomValidity(input.value.trim() ? "Choose a bin from the list." : "");
     return !input.value.trim();
   };
 
@@ -4604,7 +4601,7 @@ function wireCellDeleteForms() {
     }
     form.dataset.deleteCellBound = "true";
     form.addEventListener("submit", (event) => {
-      const cellName = form.dataset.cellName || "this cell";
+      const cellName = form.dataset.cellName || "this bin";
       const hasStock = form.dataset.cellHasStock === "true";
 
       if (hasStock) {
@@ -4613,7 +4610,7 @@ function wireCellDeleteForms() {
         return;
       }
 
-      if (!window.confirm(`Delete ${cellName}? The location must be empty. Any mapped LED module will remain available in Cell Mapping.`)) {
+      if (!window.confirm(`Delete ${cellName}? The location must be empty. Any mapped LED module will remain available in Bin Mapping.`)) {
         event.preventDefault();
       }
     });

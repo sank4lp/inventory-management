@@ -51,7 +51,7 @@ const groups = {
     ['locations.mode','Change shared or exclusive guidance',false,['locations.manage']],
   ],
   Reports: [
-    ['reports.view','View and print warehouse report library',true],
+    ['reports.view','View and print shed report library',true],
     ['reports.format','Change shared report appearance',false,['reports.view']],
   ],
   Hardware: [
@@ -100,6 +100,7 @@ export function navigation(user) {return [['Work','/work','pick','work.view'],['
 export const WORK_TABS = [
   {href:'/work',label:'My Work',permission:'work.view',capability:'view'},
   {href:'/work/overview',label:'Assign Work',permission:'work.assign',capability:'assign'},
+  {href:'/work/vouchers',label:'Vouchers',permission:'work.view',capability:'view'},
   {href:'/work/active-assignments',label:'Active Assignments',permission:'work.view',capability:'view'},
   {href:'/work/history',label:'History',permission:'work.view',capability:'view'},
   {href:'/work/task-history',label:'Task History',permission:'work.view',capability:'view'},

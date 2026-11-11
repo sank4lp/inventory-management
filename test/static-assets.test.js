@@ -43,6 +43,13 @@ function serve(pathname) {
 }
 
 test("static asset server exposes browser modules and rejects traversal", async () => {
+  const reportStyles = await serve('/business-reports.css');
+  assert.equal(reportStyles.response.statusCode, 200);
+  assert.match(reportStyles.response.headers['Content-Type'], /text\/css/);
+  assert.match(reportStyles.response.body, /business-report-printing/);
+  const reportClient = await serve('/client/business-reports.js');
+  assert.equal(reportClient.response.statusCode, 200);
+  assert.match(reportClient.response.headers['Content-Type'], /javascript/);
   const excelStyles = await serve('/warehouse-excel.css');
   assert.equal(excelStyles.response.statusCode, 200);
   assert.match(excelStyles.response.headers['Content-Type'], /text\/css/);
@@ -139,6 +146,7 @@ test("operator and offline pages load the shared screen styles and offline insta
   await installation;
   assert.ok(cached.includes('/client/mobile-controls.js'), 'phone control layout must also load without internet');
   assert.ok(cached.includes('/warehouse-excel.css'), 'Excel dialogs must keep their layout offline');
+  assert.ok(cached.includes('/business-reports.css'), 'Report styles must be available without internet');
   assert.equal((await serve('/client/mobile-controls.js')).response.statusCode, 200);
   for (const path of styles(offline)) {
     assert.ok(cached.includes(path), `${path} must be available after connection loss`);

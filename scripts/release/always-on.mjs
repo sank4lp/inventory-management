@@ -64,12 +64,12 @@ X-GNOME-Autostart-enabled=true
 export async function waitForDesktopApp({readUrl,isPending,probe,launch,sleep,now=Date.now,timeoutMs=180000}){
   if(isPending())return {opened:false,reason:'Setup is not complete'};
   const url=readUrl();if(!url)return {opened:false,reason:'Not installed'};
-  if(!/^http:\/\/localhost:\d+\/work$/.test(url))throw new Error('Invalid local warehouse address');
+  if(!/^http:\/\/localhost:\d+\/work$/.test(url))throw new Error('Invalid local shed address');
   const until=now()+timeoutMs;
   while(now()<until){
     if(isPending())return {opened:false,reason:'Setup is in progress'};
     try{await probe(url.replace('/work','/login'));await launch(url);return {opened:true};}catch{}
     await sleep(2000);
   }
-  return {opened:false,reason:'Warehouse is not ready yet; open LytGuide from the menu later'};
+  return {opened:false,reason:'Shed is not ready yet; open LytGuide from the menu later'};
 }

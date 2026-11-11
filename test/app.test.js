@@ -614,7 +614,7 @@ test("profile page shows account details and activity summary", async () => {
     operator.id,
   );
   assert.match(adminUserHtml, /User Account/);
-  assert.match(adminUserHtml, /Warehouse Operator/);
+  assert.match(adminUserHtml, /Shed Operator/);
   assert.match(adminUserHtml, /Back To People &amp; Access/);
   assert.match(adminUserHtml, /Recent Tasks/);
   assert.match(adminUserHtml, new RegExp(`href="/tasks/${operatorTask.id}"`));
@@ -697,7 +697,7 @@ test("operators can view reports but not admin-only pages by direct URL", async 
   );
   assert.equal(adminUserResponse.statusCode, 200);
   assert.match(adminUserResponse.body, /User Account/);
-  assert.match(adminUserResponse.body, /Warehouse Operator/);
+  assert.match(adminUserResponse.body, /Shed Operator/);
 });
 
 test("database-backed settings and inventory survive an app restart", async () => {
@@ -1556,7 +1556,7 @@ test("operator movement screens keep context and use plain task actions", async 
   );
   assert.match(putTaskHtml, /name="plan_qty_new___INDEX__"/);
   assert.match(putTaskHtml, /step="1"[\s\S]*name="plan_qty_new___INDEX__"/);
-  assert.match(putTaskHtml, /Update Cell/);
+  assert.match(putTaskHtml, /Update Bin/);
   assert.match(putTaskHtml, /data-put-task-cell-control/);
   assert.match(putTaskHtml, /data-put-confirm-cell-for=/);
   assert.match(putTaskHtml, /form="put-plan-form"/);
@@ -1979,15 +1979,15 @@ test("warehouse optimization recommendations consolidate product into closer cel
   );
 
   const overviewHtml = createHomePages({ db }).renderHome(user, null, new URL("http://localhost/"));
-  assert.match(overviewHtml, /Optimize Warehouse/);
+  assert.match(overviewHtml, /Optimize Shed/);
   assert.match(overviewHtml, /href="\/recommended-actions"/);
 
   const detailHtml = createTaskPages({ db }).renderRecommendedActions(user, null, action.key);
   assert.match(detailHtml, /Frees 3 locations/);
   assert.match(detailHtml, /Show Full Optimization LEDs/);
-  assert.match(detailHtml, /Put Into cell OPT-R1-C01[\s\S]*Quantity: 3/);
-  assert.match(detailHtml, /Pick From cell OPT-R1-C04[\s\S]*Quantity: 2/);
-  assert.equal((detailHtml.match(/Pick From cell OPT-R1-C04/g) || []).length, 1);
+  assert.match(detailHtml, /Put Into bin OPT-R1-C01[\s\S]*Quantity: 3/);
+  assert.match(detailHtml, /Pick From bin OPT-R1-C04[\s\S]*Quantity: 2/);
+  assert.equal((detailHtml.match(/Pick From bin OPT-R1-C04/g) || []).length, 1);
   assert.match(detailHtml, /name="move_source_0"/);
   assert.match(detailHtml, /name="actual_pick_0"/);
   assert.match(detailHtml, /name="actual_put_0"/);
@@ -2662,7 +2662,7 @@ test("critical device changes create interim critical backups", async () => {
   );
 
   assert.equal(response.statusCode, 302);
-  assert.match(response.headers.Location, /Cell\+Z1-R9-C99\+added/);
+  assert.match(response.headers.Location, /Bin\+Z1-R9-C99\+added/);
 
   const createdCell = getAppState()
     .locationService.listCells()
@@ -2683,7 +2683,7 @@ test("critical device changes create interim critical backups", async () => {
   );
 
   assert.equal(renameResponse.statusCode, 302);
-  assert.match(renameResponse.headers.Location, /Cell\+renamed\+to\+Z1-R9-C98/);
+  assert.match(renameResponse.headers.Location, /Bin\+renamed\+to\+Z1-R9-C98/);
   assert.equal(
     getAppState()
       .locationService.listCells()
@@ -2704,7 +2704,7 @@ test("critical device changes create interim critical backups", async () => {
   );
 
   assert.equal(deleteResponse.statusCode, 302);
-  assert.match(deleteResponse.headers.Location, /Cell\+Z1-R9-C98\+deleted/);
+  assert.match(deleteResponse.headers.Location, /Bin\+Z1-R9-C98\+deleted/);
 
   const backupNames = readdirSync(join(sandbox, "data", "backups"));
   assert.ok(
@@ -3581,7 +3581,7 @@ test("mapping form errors return to the mapping workflow", async () => {
   const redirectUrl = new URL(response.headers.Location, "http://localhost");
   assert.equal(
     redirectUrl.searchParams.get("flash"),
-    "Selected cell was not found.",
+    "Selected bin was not found.",
   );
 });
 
@@ -3951,11 +3951,11 @@ test("deleting a cell requires it to be empty and preserves mapped LED modules",
   );
   assert.match(
     statusHtml,
-    /<dt>Mapped Cells<\/dt><dd>0<\/dd>/,
+    /<dt>Mapped Bins<\/dt><dd>0<\/dd>/,
   );
   assert.match(
     statusHtml,
-    /<dt>Manual Cells<\/dt><dd>82<\/dd>/,
+    /<dt>Manual Bins<\/dt><dd>82<\/dd>/,
   );
   const remapped = inventory.updateCellMapping(db, {
     cellId: deletedMapped.modulePlaceholder.id,

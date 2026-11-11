@@ -367,7 +367,7 @@ export function createRs485Adapter({ config = {}, logger }) {
         degraded: true,
         status: "offline",
         message: usbOnly
-          ? 'The selected port is an ESP32 USB connection. Select the Pi’s USB-RS485 adapter for warehouse communication.'
+          ? 'The selected port is an ESP32 USB connection. Select the Pi’s USB-RS485 adapter for shed communication.'
           : `No RS485 reply from ${controller.controller_code||controllerAddress}${port?` on ${port}`:''}. Check the selected adapter, controller power and A/B wiring.`,
         events: [
           event({
@@ -645,7 +645,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       return {
         ok: true,
         degraded: skipped > 0,
-        message: skipped > 0 ? `${skipped} cell(s) require manual guidance because they are not mapped.` : null,
+        message: skipped > 0 ? `${skipped} bin(s) require manual guidance because they are not mapped.` : null,
         events,
       };
     },
@@ -681,7 +681,7 @@ export function createRs485Adapter({ config = {}, logger }) {
       return {
         ok: true,
         degraded: skipped > 0,
-        message: skipped > 0 ? `${skipped} cell(s) had no LED guidance to clear.` : null,
+        message: skipped > 0 ? `${skipped} bin(s) had no LED guidance to clear.` : null,
         events,
       };
     },

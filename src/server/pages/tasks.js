@@ -149,12 +149,12 @@ export function createTaskPages({ db }) {
     const visualTone = mapped ? safeColor : "manual";
     const colorLabel = mapped ? `${ledColorLabel(safeColor)} LED` : "Manual";
     const quantityText = quantity ? `Quantity: ${formatQuantity(quantity)}${unit ? ` ${unit}` : ""}` : "";
-    const detailText = detail || (mapped ? "" : "No LED is mapped for this cell.");
+    const detailText = detail || (mapped ? "" : "No LED is mapped for this bin.");
 
     return `
       <div class="led-instruction led-instruction-${escapeHtml(visualTone)}">
         <span class="led-chip led-chip-${escapeHtml(visualTone)}">${escapeHtml(colorLabel)}</span>
-        <strong>${escapeHtml(action)} cell ${escapeHtml(cellCode)}</strong>
+        <strong>${escapeHtml(action)} bin ${escapeHtml(cellCode)}</strong>
         ${quantityText ? `<span>${escapeHtml(quantityText)}</span>` : ""}
         ${detailText ? `<small>${escapeHtml(detailText)}</small>` : ""}
       </div>
@@ -227,7 +227,7 @@ export function createTaskPages({ db }) {
               quantity: cell.quantity,
               mapped: cellHasMappedLed(cell.cellId),
               detail: cellHasMappedLed(cell.cellId)
-                ? "This target cell will show the total RED put instruction."
+                ? "This target bin will show the total RED put instruction."
                 : "",
             }),
           )
@@ -241,7 +241,7 @@ export function createTaskPages({ db }) {
               quantity: cell.quantity,
               mapped: cellHasMappedLed(cell.cellId),
               detail: cellHasMappedLed(cell.cellId)
-                ? "This source cell will show the total GREEN pick instruction."
+                ? "This source bin will show the total GREEN pick instruction."
                 : "",
             }),
           )
@@ -253,7 +253,7 @@ export function createTaskPages({ db }) {
   function renderPutPlanRow(cells, { key, cellId = null, quantity = "", removable = false }) {
     return `
       <div class="put-plan-row" data-put-plan-row>
-        <label>Cell
+        <label>Bin
           ${cellPickerField(cells, cellId, `put-plan-${key}`, `plan_cell_${key}`, "put-plan-form")}
         </label>
         <label>Items
@@ -273,7 +273,7 @@ export function createTaskPages({ db }) {
         ${
           removable
             ? `<button type="button" class="ghost-button" data-put-plan-remove>Remove</button>`
-            : `<button type="submit" form="put-plan-form" class="ghost-button" data-led-command-submit data-led-loading-label="Updating">Update Cell</button>`
+            : `<button type="submit" form="put-plan-form" class="ghost-button" data-led-command-submit data-led-loading-label="Updating">Update Bin</button>`
         }
       </div>
     `;
@@ -330,14 +330,14 @@ export function createTaskPages({ db }) {
     const reviewHeaders = task.type === "put"
       ? [
           "Instruction",
-          "Final Cell",
+          "Final Bin",
           "Suggested",
           "Actual",
           ...(canAdjustPutPlan ? ["Update"] : []),
         ]
       : [
           "Instruction",
-          ...(editable || taskIsActive ? ["Final Cell"] : []),
+          ...(editable || taskIsActive ? ["Final Bin"] : []),
           "Suggested",
           "Actual",
         ];
@@ -393,7 +393,7 @@ export function createTaskPages({ db }) {
               class="ghost-button"
               data-led-command-submit
               data-led-loading-label="Updating"
-            >Update Cell</button>`,
+            >Update Bin</button>`,
           ]
         : []),
     ]);
@@ -437,7 +437,7 @@ export function createTaskPages({ db }) {
         </section>
         <section class="guide-strip">
           <span class="guide-pill">${escapeHtml(taskLabel)}</span>
-          <span class="guide-pill active-guide">Review Cells</span>
+          <span class="guide-pill active-guide">Review Bins</span>
         </section>
         ${card(
           editMode ? `Correct ${movementLabel} Result` : "Task Summary",
@@ -472,7 +472,7 @@ export function createTaskPages({ db }) {
                       ${renderPutPlanRow(cells, { key: "new___INDEX__", quantity: 0, removable: true })}
                     </template>
                     <div class="mini-actions put-plan-actions">
-                      <button type="button" class="ghost-button" data-put-plan-add>Add Another Cell</button>
+                      <button type="button" class="ghost-button" data-put-plan-add>Add Another Bin</button>
                       <span class="muted" data-put-plan-total>Adjusted Total: ${escapeHtml(formatQuantity(plannedTotal))}</span>
                     </div>
                     <form
@@ -663,7 +663,7 @@ export function createTaskPages({ db }) {
                             <div class="recommendation-row ${action.optimizationPlan ? "recommendation-row-compact" : ""}">
                               <div class="recommendation-summary">
                                 <strong>${escapeHtml(action.productSku)}</strong>
-                                <p class="muted">Move ${escapeHtml(formatQuantity(move.quantity))} item(s) from ${escapeHtml(sourceLogicalCode)} to the target cell below.</p>
+                                <p class="muted">Move ${escapeHtml(formatQuantity(move.quantity))} item(s) from ${escapeHtml(sourceLogicalCode)} to the target bin below.</p>
                                 ${
                                   action.optimizationPlan
                                     ? ""
@@ -675,7 +675,7 @@ export function createTaskPages({ db }) {
                                           color: "green",
                                           quantity: move.quantity,
                                           mapped: sourceMapped,
-                                          detail: sourceMapped ? "The source cell will show this GREEN LED instruction." : "",
+                                          detail: sourceMapped ? "The source bin will show this GREEN LED instruction." : "",
                                         })}
                                         ${renderLedInstruction({
                                           action: "Put Into",
@@ -683,7 +683,7 @@ export function createTaskPages({ db }) {
                                           color: "red",
                                           quantity: move.quantity,
                                           mapped: targetMapped,
-                                          detail: targetMapped ? "The selected target cell will show this RED LED instruction." : "",
+                                          detail: targetMapped ? "The selected target bin will show this RED LED instruction." : "",
                                         })}
                                       </div>
                                     `
@@ -696,7 +696,7 @@ export function createTaskPages({ db }) {
                                 </label>
                                 <label>Actual picked from source<input type="number" min="0" step="1" name="actual_pick_${index}" required placeholder="Actual, including 0"></label>
                                 <label>Actual put at target<input type="number" min="0" step="1" name="actual_put_${index}" required placeholder="Actual, including 0"></label>
-                                <label>Target Cell
+                                <label>Target Bin
                                   ${cellPickerField(
                                     cells,
                                     move.targetCellId,

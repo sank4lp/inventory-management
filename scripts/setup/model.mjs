@@ -1,7 +1,7 @@
 export const STEPS={
-  new:[['choose','Get started'],['system','Check Pi'],['network','Warehouse Wi-Fi'],['account','Administrator & recovery'],['phones','Phones & tablets'],['hardware','Controllers'],['locations','Locations & QR codes'],['finish','Ready']],
-  configure:[['choose','Get started'],['system','Check Pi'],['network','Warehouse Wi-Fi'],['account','Administrator & recovery'],['phones','Phones & tablets'],['hardware','Controllers'],['locations','Locations & QR codes'],['finish','Ready']],
-  replace:[['choose','Get started'],['system','Check Pi'],['network','Warehouse Wi-Fi'],['backup','Restore warehouse'],['phones','Phones & tablets'],['hardware','Check controllers'],['finish','Ready']],
+  new:[['choose','Get started'],['system','Check Pi'],['network','Shed Wi-Fi'],['account','Administrator & recovery'],['phones','Phones & tablets'],['hardware','Controllers'],['locations','Locations & QR codes'],['finish','Ready']],
+  configure:[['choose','Get started'],['system','Check Pi'],['network','Shed Wi-Fi'],['account','Administrator & recovery'],['phones','Phones & tablets'],['hardware','Controllers'],['locations','Locations & QR codes'],['finish','Ready']],
+  replace:[['choose','Get started'],['system','Check Pi'],['network','Shed Wi-Fi'],['backup','Restore shed'],['phones','Phones & tablets'],['hardware','Check controllers'],['finish','Ready']],
 };
 export function initialSetupState(){return {format:1,revision:1,mode:null,step:'choose',done:[],completedAt:null,simulation:false,checks:{},startedAt:new Date().toISOString()};}
 export function restartedSetupState(previous){

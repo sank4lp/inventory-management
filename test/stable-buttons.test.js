@@ -11,7 +11,7 @@ test('Ping, Locate and ordinary changing actions include every planned label',()
  assert.ok(buttonLabels('Ping',{}, {ping:true}).includes('Pinging'));
  assert.ok(buttonLabels('Locate',{}, {locate:true}).includes('Locating'));
  assert.ok(buttonLabels('Save Details').includes('Saving…'));
- assert.ok(buttonLabels('Assign Task').includes('Waiting for warehouse confirmation'));
+ assert.ok(buttonLabels('Assign Task').includes('Waiting for shed confirmation'));
  assert.ok(buttonLabels('Menu').includes('Close menu'));
  assert.ok(buttonLabels('Hide module').includes('Show module'));
  assert.ok(buttonLabels('Discard All (1)').includes('Discard All (100)'));

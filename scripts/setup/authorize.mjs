@@ -19,9 +19,9 @@ export function prepareRecoveryAccess(locate=findCardRecoveryDirectory){
 }
 export async function authorizeSetup(){
   const args=process.argv.slice(2);if(args.length>1||args.some(arg=>arg!=='--resume'))throw new Error('Invalid Setup launch option.');
-  if(process.platform!=='linux'||process.arch!=='arm64'||process.getuid()!==0)throw new Error('Warehouse Setup must be authorised on the Raspberry Pi.');
+  if(process.platform!=='linux'||process.arch!=='arm64'||process.getuid()!==0)throw new Error('Shed Setup must be authorised on the Raspberry Pi.');
   const uid=Number(process.env.PKEXEC_UID||process.env.SUDO_UID);
-  if(!Number.isSafeInteger(uid)||uid<1)throw new Error('Open Warehouse Setup from the Pi desktop as its normal user.');
+  if(!Number.isSafeInteger(uid)||uid<1)throw new Error('Open Shed Setup from the Pi desktop as its normal user.');
   const recovery=prepareRecoveryAccess();
   execFileSync('systemctl',[recovery.created?'restart':'start','lytguide-test-setup.service'],{stdio:['ignore','pipe','pipe'],timeout:30000});
   const expected=JSON.parse(readFileSync(join(INSTALL_ROOT,'candidate/release.json'),'utf8')).version;
@@ -29,7 +29,7 @@ export async function authorizeSetup(){
   for(let attempt=0;attempt<40;attempt++){
     try{const response=await fetch(`http://localhost:${SETUP_PORT}/setup-api/version`,{signal:AbortSignal.timeout(1000)});if(response.ok)version=(await response.json()).version;break;}catch{await new Promise(resolve=>setTimeout(resolve,100));}
   }
-  if(version!==expected)throw new Error('Warehouse Setup was updated. Finish any controller operation, restart this Raspberry Pi, then open Warehouse Setup again.');
+  if(version!==expected)throw new Error('Shed Setup was updated. Finish any controller operation, restart this Raspberry Pi, then open Shed Setup again.');
   mkdirSync(SETUP_RUNTIME,{recursive:true,mode:0o700});
   const token=randomBytes(32).toString('hex'),hash=createHash('sha256').update(token).digest('hex');
   writeFileSync(join(SETUP_RUNTIME,hash+'.json'),JSON.stringify({uid,expiresAt:Date.now()+120000,restart:!args.includes('--resume')}),{flag:'wx',mode:0o600});

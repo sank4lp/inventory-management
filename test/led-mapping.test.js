@@ -171,8 +171,8 @@ test('new sheds persist for LED and manual locations, reuse names and reject wro
  for(const cellId of [id,next,third])assert.equal(f.db.prepare('SELECT shelf_id FROM cells WHERE id=?').get(cellId).shelf_id,group.id);
  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM location_shelves WHERE name='Packing Shed' COLLATE NOCASE").get().n,1);
  const east=Number(f.db.prepare("INSERT INTO location_warehouses(name) VALUES('East')").run().lastInsertRowid),before=f.map().revision;
- assert.throws(()=>f.save([{physical:3,name:'Rejected',warehouseId:east,shelfId:group.id}]),/Choose a shed/);
+ assert.throws(()=>f.save([{physical:3,name:'Rejected',warehouseId:east,shelfId:group.id}]),/Choose a rack/);
  assert.equal(f.map().revision,before);assert.equal(f.db.prepare("SELECT COUNT(*) n FROM cells WHERE display_name='Rejected'").get().n,0);
- for(const values of [{warehouseId:99999,shelfId:group.id},{warehouseId:warehouse.id,shelfId:''},{warehouseId:warehouse.id,shelfId:'new',newShelfName:'  '}])assert.throws(()=>f.command('manual',{displayName:'Invalid',...values}),/warehouse|shed/);
+ for(const values of [{warehouseId:99999,shelfId:group.id},{warehouseId:warehouse.id,shelfId:''},{warehouseId:warehouse.id,shelfId:'new',newShelfName:'  '}])assert.throws(()=>f.command('manual',{displayName:'Invalid',...values}),/shed|rack/);
  assert.equal(f.db.prepare("SELECT COUNT(*) n FROM cells WHERE display_name='Invalid'").get().n,0);f.db.close();
 });

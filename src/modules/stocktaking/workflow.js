@@ -2,23 +2,23 @@
 export function stocktakeScope(db,input) {
   let cells=db.prepare('SELECT c.id,c.shelf_id,s.warehouse_id FROM cells c LEFT JOIN location_shelves s ON s.id=c.shelf_id WHERE c.active=1 ORDER BY c.id').all();
   if(input.warehouseId){
-    if(!db.prepare('SELECT 1 FROM location_warehouses WHERE id=?').get(Number(input.warehouseId)))throw new Error('Choose an existing warehouse.');
+    if(!db.prepare('SELECT 1 FROM location_warehouses WHERE id=?').get(Number(input.warehouseId)))throw new Error('Choose an existing shed.');
     cells=cells.filter(c=>c.warehouse_id===Number(input.warehouseId));
   }
   if(input.mode==='shelf'){
-    if(!input.shelfId||!db.prepare('SELECT 1 FROM location_shelves WHERE id=?').get(Number(input.shelfId)))throw new Error('Choose a shed / shelf.');
+    if(!input.shelfId||!db.prepare('SELECT 1 FROM location_shelves WHERE id=?').get(Number(input.shelfId)))throw new Error('Choose a rack.');
     cells=cells.filter(c=>c.shelf_id===Number(input.shelfId));
   }
   if(['selected','product'].includes(input.mode)){
     const ids=[...new Set((input.cellIds||[]).map(Number))];
-    if(ids.length){if(ids.some(id=>!cells.some(c=>c.id===id)))throw new Error('Choose active locations within this warehouse.');cells=cells.filter(c=>ids.includes(c.id));}
+    if(ids.length){if(ids.some(id=>!cells.some(c=>c.id===id)))throw new Error('Choose active locations within this shed.');cells=cells.filter(c=>ids.includes(c.id));}
     else if(input.mode==='selected'||input.locationsChosen===true||input.locationsChosen==='true')throw new Error('Choose at least one location.');
     if(input.mode==='product'){
       if(!db.prepare('SELECT 1 FROM products WHERE id=? AND active=1').get(Number(input.productId)))throw new Error('Choose an active product.');
       if(!ids.length)cells=cells.filter(c=>db.prepare('SELECT 1 FROM inventory_balances WHERE cell_id=? AND product_id=? AND available_quantity!=0').get(c.id,Number(input.productId)));
     }
   }
-  if(!['warehouse','shelf','product','selected'].includes(input.mode))throw new Error('Choose warehouse, shed / shelf or product.');
+  if(!['warehouse','shelf','product','selected'].includes(input.mode))throw new Error('Choose shed, rack or product.');
   if(!cells.length)throw new Error('No active locations in this selection.');
   return cells.map(c=>c.id);
 }

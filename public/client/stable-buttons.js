@@ -1,5 +1,5 @@
 // Reserve label space before a toggle starts, rather than resizing its neighbours.
-const knownPairs=[['Save','Saving…'],['Save Details','Saving…'],['Assign Task','Waiting for warehouse confirmation'],['Select','Done'],['Show More','Show Less'],['Show module','Hide module'],['Menu','Close menu']];
+const knownPairs=[['Save','Saving…'],['Save Details','Saving…'],['Assign Task','Waiting for shed confirmation'],['Select','Done'],['Show More','Show Less'],['Show module','Hide module'],['Menu','Close menu']];
 export function buttonLabels(text,data={},flags={}) {
  text=String(text||'');
  const labels=new Set([String(text||'').trim(),data.showLabel,data.activeLabel,data.loadingLabel,data.ledLoadingLabel,...String(data.stableLabels||'').split('|')].filter(Boolean));

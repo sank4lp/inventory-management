@@ -15,7 +15,7 @@ export function updateAdministrator(db,{userId,username,password}={}){
     const passwordChanged=typeof password==='string'&&password.length>0,changed=user.username!==username||passwordChanged;
     if(!changed)return {userId:user.id,username,changed:false};
     db.prepare('UPDATE users SET username=?,password_hash=?,session_version=session_version+1 WHERE id=?').run(username,passwordChanged?hashPassword(password):user.password_hash,user.id);
-    db.prepare('INSERT INTO system_events(event_type,status,message,payload,created_at) VALUES(?,?,?,?,?)').run('administrator_credentials_changed','info','Administrator sign-in updated during local warehouse setup.',JSON.stringify({userId:user.id,previousUsername:user.username,username,passwordChanged}),new Date().toISOString());
+    db.prepare('INSERT INTO system_events(event_type,status,message,payload,created_at) VALUES(?,?,?,?,?)').run('administrator_credentials_changed','info','Administrator sign-in updated during local shed setup.',JSON.stringify({userId:user.id,previousUsername:user.username,username,passwordChanged}),new Date().toISOString());
     return {userId:user.id,username,changed:true};
   });
 }

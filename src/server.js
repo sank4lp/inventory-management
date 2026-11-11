@@ -15,6 +15,8 @@ import {locationBrowseRoutes} from './modules/locations/browse.js';
 import {locationSetupRoutes} from './modules/locations/routes.js';
 import {deviceAccessRoutes} from './modules/device-access/routes.js';
 import {warehouseExcelRoutes} from './modules/excel/routes.js';
+import {businessImportRoutes} from './modules/imports/routes.js';
+import {businessReportRoutes} from './modules/reports/routes.js';
 import {displayRoutes} from './modules/stocktaking/display-routes.js';
 import { join } from "node:path";
 import { URL } from "node:url";
@@ -512,7 +514,7 @@ function backupAwareFlash(message, tone, backupResult) {
 export const requestHandler = async (request, response) => {
   if (request.method === "POST") {
     try {
-      if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) throw new Error("Open this action from the warehouse website.");
+      if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) throw new Error("Open this action from the shed website.");
       await parseForm(request);
     } catch (error) { sendJson(response, { error: error.message }, error.statusCode || 400); return; }
   }
@@ -520,7 +522,7 @@ export const requestHandler = async (request, response) => {
   if(runtimeReadiness(request,response,url,{enabled:Boolean(process.env.LYTGUIDE_SETUP_PENDING_FILE),secret:appConfig.sessionSecret,getDb:()=>getAppState().db}))return;
   if(url.pathname==='/setup-not-ready'&&request.method==='GET'){sendHtml(response,setupWaitingPage());return;}
   if(setupBlocked(request.method,url.pathname)){
-    if(url.pathname.startsWith('/api/')||request.method!=='GET')sendJson(response,{error:'Warehouse setup is not finished. Complete Warehouse Setup on the Pi before starting work.'},503);
+    if(url.pathname.startsWith('/api/')||request.method!=='GET')sendJson(response,{error:'Shed setup is not finished. Complete Shed Setup on the Pi before starting work.'},503);
     else sendRedirect(response,'/setup-not-ready');return;
   }
   const {
@@ -562,6 +564,8 @@ export const requestHandler = async (request, response) => {
     }
     if(await accessRoutes(request,response,url,user,getAppState()))return;
     if(await deviceAccessRoutes(request,response,url,user))return;
+    if(businessImportRoutes(request,response,url,user,getAppState()))return;
+    if(businessReportRoutes(request,response,url,user,getAppState()))return;
     if(warehouseExcelRoutes(request,response,url,user,getAppState()))return;
     if(locationBrowseRoutes(request,response,url,user,getAppState()))return;
     if(await locationSetupRoutes(request,response,url,user,getAppState()))return;
@@ -1206,7 +1210,7 @@ export const requestHandler = async (request, response) => {
         .listCellCatalog()
         .find((entry) => entry.id === Number(apiCellLocateMatch[1]));
       if (!cell) {
-        sendJson(response, { error: "Cell not found." }, 404);
+        sendJson(response, { error: "Bin not found." }, 404);
         return;
       }
       const active = !["0", "false", "off", "clear"].includes(
@@ -1236,7 +1240,7 @@ export const requestHandler = async (request, response) => {
         .listCellCatalog()
         .find((entry) => entry.id === Number(apiCellPingMatch[1]));
       if (!cell) {
-        sendJson(response, { error: "Cell not found." }, 404);
+        sendJson(response, { error: "Bin not found." }, 404);
         return;
       }
       const result = hardwareService.sendCellTest(cell, "green");
@@ -1264,7 +1268,7 @@ export const requestHandler = async (request, response) => {
         .listCellCatalog()
         .find((entry) => entry.id === Number(apiCellCountClearMatch[1]));
       if (!cell) {
-        sendJson(response, { error: "Cell not found." }, 404);
+        sendJson(response, { error: "Bin not found." }, 404);
         return;
       }
       const result = hardwareService.clearCellQuantity(cell, {
@@ -1293,7 +1297,7 @@ export const requestHandler = async (request, response) => {
         .listCells()
         .find((entry) => entry.id === Number(apiCellCountMatch[1]));
       if (!cell) {
-        sendJson(response, { error: "Cell not found." }, 404);
+        sendJson(response, { error: "Bin not found." }, 404);
         return;
       }
 
@@ -1444,8 +1448,8 @@ export const requestHandler = async (request, response) => {
       const backupResult = createAutomaticBackup("task-put-plan-adjust");
       const nextFlash = backupAwareFlash(
         updated.guidance.degraded
-          ? "Put cells updated. Hardware guidance is unavailable, so continue with manual on-screen guidance."
-          : "Put cells updated and LED quantities refreshed.",
+          ? "Put bins updated. Hardware guidance is unavailable, so continue with manual on-screen guidance."
+          : "Put bins updated and LED quantities refreshed.",
         updated.guidance.degraded ? "warning" : "success",
         backupResult,
       );
@@ -1617,7 +1621,7 @@ export const requestHandler = async (request, response) => {
     if(request.method==='GET'&&url.pathname==='/backups/warehouse.xlsx') {
       if(!ensureAuth(response,user))return;
       const bytes=backupService.readExcel();
-      response.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="LytGuide-Warehouse.xlsx"','Cache-Control':'no-store','Content-Length':bytes.length});
+      response.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="LytGuide-Shed.xlsx"','Cache-Control':'no-store','Content-Length':bytes.length});
       response.end(bytes);return;
     }
 
@@ -1884,13 +1888,13 @@ export const requestHandler = async (request, response) => {
       }
       const pickLines = guidanceLines.filter((line) => line.guidance_color === "green");
       const putLines = guidanceLines.filter((line) => line.guidance_color === "red");
-      const ledSummary = `GREEN LED pick cells: ${pickLines
+      const ledSummary = `GREEN LED pick bins: ${pickLines
         .map((line) => `${line.logical_code} (${line.planned_quantity})`)
-        .join(", ")}. RED LED put cells: ${putLines
+        .join(", ")}. RED LED put bins: ${putLines
         .map((line) => `${line.logical_code} (${line.planned_quantity})`)
         .join(", ")}.`;
       const guidanceMessage = guidance.degraded
-        ? `${ledSummary} ${guidance.message || "Some cells need manual guidance."}`
+        ? `${ledSummary} ${guidance.message || "Some bins need manual guidance."}`
         : ledSummary;
       sendRedirect(
         response,
@@ -2093,7 +2097,7 @@ export const requestHandler = async (request, response) => {
       const deleted = locationService.deleteController({ controllerId: controller.id,actor:user });
       const backupResult = createCriticalBackup("controller-deleted");
       const nextFlash = backupAwareFlash(
-        `${controller.controller_code} was deleted. ${deleted.detachedCellCount} cell(s) remain active for manual pick/put until remapped.`,
+        `${controller.controller_code} was deleted. ${deleted.detachedCellCount} bin(s) remain active for manual pick/put until remapped.`,
         "success",
         backupResult,
       );
@@ -2117,10 +2121,10 @@ export const requestHandler = async (request, response) => {
       const cell = locationService.listCellCatalog().find((entry) => entry.id === Number(form.cell_id));
       if (!cell) {
         if (wantsJson) {
-          sendJson(response, { error: "Cell not found." }, 404);
+          sendJson(response, { error: "Bin not found." }, 404);
           return;
         }
-        throw new Error("Cell not found.");
+        throw new Error("Bin not found.");
       }
       const result = hardwareService.sendCellTest(cell, form.color || "green");
       const message = result.degraded
@@ -2164,7 +2168,7 @@ export const requestHandler = async (request, response) => {
         mappedBy: user.id,
       });
       const backupResult = createCriticalBackup("cell-mapping-update");
-      const nextFlash = backupAwareFlash("Cell mapping updated.", "success", backupResult);
+      const nextFlash = backupAwareFlash("Bin mapping updated.", "success", backupResult);
       sendRedirect(response, appendFlash("/devices#cell-mapping", nextFlash.message, nextFlash.tone));
       return;
     }
@@ -2178,7 +2182,7 @@ export const requestHandler = async (request, response) => {
       const returnTo = safeLocalPath(form.return_to, "/devices#cell-mapping");
 
       if (!mappings.length) {
-        sendRedirect(response, appendFlash(returnTo, "No cell mapping changes to save.", "info"));
+        sendRedirect(response, appendFlash(returnTo, "No bin mapping changes to save.", "info"));
         return;
       }
 
@@ -2193,7 +2197,7 @@ export const requestHandler = async (request, response) => {
       }
       const backupResult = createCriticalBackup("cell-mapping-bulk-update");
       const nextFlash = backupAwareFlash(
-        `${mappings.length} cell mapping${mappings.length === 1 ? "" : "s"} updated.`,
+        `${mappings.length} bin mapping${mappings.length === 1 ? "" : "s"} updated.`,
         "success",
         backupResult,
       );
@@ -2213,7 +2217,7 @@ export const requestHandler = async (request, response) => {
         createdBy: user.id,
       });
       const backupResult = createCriticalBackup("cell-created");
-      const nextFlash = backupAwareFlash(`Cell ${cell.logical_code} added.`, "success", backupResult);
+      const nextFlash = backupAwareFlash(`Bin ${cell.logical_code} added.`, "success", backupResult);
       sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
       return;
     }
@@ -2230,7 +2234,7 @@ export const requestHandler = async (request, response) => {
         renamedBy: user.id,
       });
       const backupResult = createCriticalBackup("cell-renamed");
-      const nextFlash = backupAwareFlash(`Cell renamed to ${cell.logical_code}.`, "success", backupResult);
+      const nextFlash = backupAwareFlash(`Bin renamed to ${cell.logical_code}.`, "success", backupResult);
       sendRedirect(response, appendFlash("/devices#cell-management", nextFlash.message, nextFlash.tone));
       return;
     }
@@ -2242,7 +2246,7 @@ export const requestHandler = async (request, response) => {
       const form = await parseForm(request);
       const impact = locationService.getCellDeletionImpact(form.cell_id);
       if (impact.hasStock) {
-        throw new Error("Move all stock out of this cell before deleting it.");
+        throw new Error("Move all stock out of this bin before deleting it.");
       }
       if (impact.cell.controller_id && impact.cell.hardware_channel) {
         hardwareService.setCellLocate(impact.cell, false);
@@ -2262,7 +2266,7 @@ export const requestHandler = async (request, response) => {
         ? " Historical task and hardware records were preserved."
         : "";
       const nextFlash = backupAwareFlash(
-        `Cell ${deleted.cell.logical_code} deleted.${moduleSummary}${dataSummary} Safety backup: ${safetyBackup.filename}.`,
+        `Bin ${deleted.cell.logical_code} deleted.${moduleSummary}${dataSummary} Safety backup: ${safetyBackup.filename}.`,
         "success",
         createCriticalBackup(deleted.hasData ? "cell-delete-with-history" : "cell-delete"),
       );
@@ -2478,7 +2482,7 @@ export const requestHandler = async (request, response) => {
       const cellId = Number(url.searchParams.get("cell_id"));
       const cell = getCellDetail(db, cellId);
       if (!cell) {
-        sendJson(response, { error: "Cell not found." }, 404);
+        sendJson(response, { error: "Bin not found." }, 404);
         return;
       }
 

@@ -53,7 +53,7 @@ export async function uninstallWarehouse({run=defaultRun,confirm=askDeleteBackup
  const {install,state,config}=paths,retained=paths.retained||RETAINED_BACKUP_ROOT,managedDirectories=paths.backupDirectories||STANDARD_BACKUP_DIRECTORIES;for(const path of [install,state,config])ownedRoot(path);
  if(!existsSync(join(install,'.lytguide-test-installation')))throw new Error('This is not a managed LytGuide installation. Nothing was deleted.');
  if(existsSync(join(state,'restore-in-progress.json')))throw new Error('An interrupted restore must be recovered before uninstalling.');
- log('Uninstall LytGuide. A fresh warehouse recovery copy will be saved before removal.');
+ log('Uninstall LytGuide. A fresh shed recovery copy will be saved before removal.');
  const deleteBackups=await confirm();
  const configuration=existsSync(join(config,'config.json'))?JSON.parse(readFileSync(join(config,'config.json'),'utf8')):{};
  let fd,stopped=false,removed=false,deletingBackups=false;const wasActive=[];
@@ -71,8 +71,8 @@ export async function uninstallWarehouse({run=defaultRun,confirm=askDeleteBackup
    // automatic Finder-readable SD destination normally requires FAT.
    saved=await backup(run,{...configuration,recoveryDirectory:directory},{directoryVerified:true,retainAll:true,purpose:'uninstall'});
    if(!saved?.path||!existsSync(saved.path)||!lstatSync(saved.path).isFile()||lstatSync(saved.path).size<1)throw new Error('The latest backup could not be confirmed. Nothing was removed.');
-   log('Latest warehouse backup saved: '+saved.path);
-  }else log('No warehouse database exists on this installation. Existing recovery copies will be kept unless you selected Y.');
+   log('Latest shed backup saved: '+saved.path);
+  }else log('No shed database exists on this installation. Existing recovery copies will be kept unless you selected Y.');
   // Preserve older local restore points too, outside the application folders.
   const recovery=join(state,'recovery');
   if(realDirectory(recovery)&&readdirSync(recovery).length){mkdirSync(retained,{recursive:true,mode:0o700});if(!realDirectory(retained))throw new Error('The recovery folder is not a normal directory.');const target=join(retained,'uninstall-recovery-'+randomUUID());try{renameSync(recovery,target);}catch(error){if(error.code!=='EXDEV')throw error;cpSync(recovery,target,{recursive:true,dereference:false,errorOnExist:true,force:false});}syncDirectory(retained);}
@@ -85,6 +85,6 @@ export async function uninstallWarehouse({run=defaultRun,confirm=askDeleteBackup
   return {removed:true,deleteBackups,backupPath:deleteBackups?null:saved?.path||null};
  }catch(error){
   if(stopped&&!removed)for(const service of wasActive)try{run('systemctl',['start',service]);}catch{}
-  throw new Error(error.message+(removed?(deletingBackups?' Software was removed, but backup cleanup needs attention.':' The latest backup remains available if cleanup did not finish.'):' Uninstall stopped before removing warehouse data.'));
+  throw new Error(error.message+(removed?(deletingBackups?' Software was removed, but backup cleanup needs attention.':' The latest backup remains available if cleanup did not finish.'):' Uninstall stopped before removing shed data.'));
  }finally{if(fd!==undefined){closeSync(fd);rmSync(lock,{force:true});}}
 }

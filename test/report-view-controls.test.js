@@ -269,18 +269,18 @@ test("curated report library exposes one clear question and print target per rep
   );
   const expectedReports = [
     ["product-movement", "Product Movement & Demand", "Which products were picked most in the selected timeframe?", true],
-    ["stock-snapshot", "Stock Snapshot", "What stock is recorded on shelf?", false],
+    ["stock-snapshot", "Stock Snapshot", "What stock is recorded on rack?", false],
     ["replenishment-watch", "Replenishment Watch", "Which products are out of stock or down to one normal location batch?", false],
     ["slow-moving-stock", "Slow-Moving Stock", "Which stocked products were not picked in the selected timeframe?", true],
     ["movement", "Stock Change Over Time", "Did inventory increase or decrease during the selected timeframe?", true],
     ["team-activity", "Team Throughput", "What pick and put-away work did each team member complete?", true],
-    ["issues", "Exception Hotspots", "Where did completed warehouse work fall short of plan?", true],
+    ["issues", "Exception Hotspots", "Where did completed shed work fall short of plan?", true],
     ["adjustments", "Adjustment Audit", "Who manually changed stock, when, and why?", true],
   ];
 
   assert.match(html, /Curated Questions/);
-  assert.match(html, /Choose the warehouse question you want answered\./);
-  assert.match(html, /<span>9<\/span>/);
+  assert.match(html, /Choose the shed question you want answered\./);
+  assert.match(html, /<span>14<\/span>/);
   const libraryItems = tagsWithAttribute(html, "a", "data-report-open");
   const inlineReports = tagsWithAttribute(html, "article", "data-report-inline");
   const printOptions = tagsWithAttribute(html, "button", "data-report-print-option");
@@ -626,7 +626,7 @@ test('Stock Snapshot prints recorded stock including reservations and only links
  const before=db.prepare('SELECT * FROM inventory_balances').all();
  const html=pages.renderReports(admin,null,new URL('http://localhost/reports#stock-snapshot'));
  const stock=extractInlineReport(html,'stock-snapshot');
- assert.match(stock,/On shelf \(recorded\)/);assert.match(stock,/including reserved goods/);assert.match(stock,/Reserved Boots/);assert.match(stock,/>7(?:\.0)?(?:\s|<)/);
+ assert.match(stock,/On rack \(recorded\)/);assert.match(stock,/including reserved goods/);assert.match(stock,/Reserved Boots/);assert.match(stock,/>7(?:\.0)?(?:\s|<)/);
  assert.doesNotMatch(stock,/What stock can we pick right now|>Available</);assert.match(stock,/href="\/cells"/);
  // The printable article is the same content used on screen; no alternative misleading heading.
  assert.doesNotMatch(stock,/data-report-screen-only/);

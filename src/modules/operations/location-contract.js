@@ -38,7 +38,7 @@ export function saveLocationDescription(db, actor, input) {
   if(!cell||cell.description_revision!==Number(input.descriptionRevision))throw new Error('Location details changed. Refresh before saving.');
   const name=String(input.displayName||'').trim(),travel=String(input.travelInstructions||'').trim();
   const warehouse=input.warehouseName==null?cell.warehouse_name:String(input.warehouseName).trim();
-  if((warehouse||'').length>160||/[\u0000-\u001f]/.test(warehouse||''))throw new Error('Use a warehouse name up to 160 characters.');
+  if((warehouse||'').length>160||/[\u0000-\u001f]/.test(warehouse||''))throw new Error('Use a shed name up to 160 characters.');
   if(name.length>160||travel.length>1000||/[\u0000-\u001f]/.test(name))throw new Error('Use a readable name up to 160 characters and directions up to 1000 characters.');
   if(name&&db.prepare('SELECT 1 FROM cells WHERE id!=? AND active=1 AND (display_name=? COLLATE NOCASE OR logical_code=? COLLATE NOCASE)').get(cell.id,name,name))throw new Error('Another location already uses that name. Choose an unambiguous name.');
   // Definition editing/commissioning is Phase 2. Values use the same stable field keys now.

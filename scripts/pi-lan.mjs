@@ -33,9 +33,9 @@ function localProbe(appPort) {
   run('curl',['--noproxy','*','--fail','--silent','--show-error','--max-time','10','--output','/dev/null',`http://127.0.0.1:${appPort}/login`]);
 }
 function verify(options) {
-  if(!existsSync(LAN_ROOT_CERT))throw new Error('The warehouse certificate has not been created yet. Check the HTTPS service status.');
+  if(!existsSync(LAN_ROOT_CERT))throw new Error('The shed certificate has not been created yet. Check the HTTPS service status.');
   localProbe(options.appPort);
-  if(status(LAN_SERVICE,'ActiveState')!=='active')throw new Error('The warehouse HTTPS service is not active.');
+  if(status(LAN_SERVICE,'ActiveState')!=='active')throw new Error('The shed HTTPS service is not active.');
   // Certificate validation stays enabled; there is no insecure (-k) fallback.
   run('curl',['--noproxy','*','--fail','--silent','--show-error','--max-time','10','--cacert',LAN_ROOT_CERT,'--output','/dev/null',`${phoneUrl(options)}/login`]);
 }
@@ -90,13 +90,13 @@ function install(options) {
     if(before.active)repair(()=>run('systemctl',['start',LAN_SERVICE]));
     throw new Error(`HTTPS setup failed; restored the previous HTTPS configuration. The inventory service/database were not changed. ${error.message}${recovery.length?` Recovery needs attention: ${recovery.join('; ')}`:''}`);
   }
-  console.log(`Warehouse HTTPS is ready at ${phoneUrl(options)}\nNetwork: ${network.cidr} (${network.interface})\nExisting inventory service and hardware configuration are unchanged.\nReserve ${options.address} in the router. Install the public certificate on your phone before opening the site.\nExport it: sudo node scripts/pi-lan.mjs certificate --address ${options.address}${options.port===443?'':` --port ${options.port}`}`);
+  console.log(`Shed HTTPS is ready at ${phoneUrl(options)}\nNetwork: ${network.cidr} (${network.interface})\nExisting inventory service and hardware configuration are unchanged.\nReserve ${options.address} in the router. Install the public certificate on your phone before opening the site.\nExport it: sudo node scripts/pi-lan.mjs certificate --address ${options.address}${options.port===443?'':` --port ${options.port}`}`);
 }
 function certificate(options) {
   verify(options);
   const target='/home/admin/lightguide-warehouse-root.cer';
   const publicCertificate=execFileSync('openssl',['x509','-in',LAN_ROOT_CERT,'-outform','DER'],{timeout:20000});
-  if(existsSync(target)&&!readFileSync(target).equals(publicCertificate))throw new Error('A different certificate already exists in /home/admin. Rename it before exporting; do not replace a previously trusted warehouse certificate silently.');
+  if(existsSync(target)&&!readFileSync(target).equals(publicCertificate))throw new Error('A different certificate already exists in /home/admin. Rename it before exporting; do not replace a previously trusted shed certificate silently.');
   writeFileSync(target,publicCertificate,{mode:0o644});chmodSync(target,0o644);
   chownSync(target,Number(run('id',['-u','admin'])),Number(run('id',['-g','admin'])));
   console.log(`Public certificate: ${target}\n${run('openssl',['x509','-inform','DER','-in',target,'-noout','-fingerprint','-sha256'])}\nOnly this public certificate should be copied to the phone. Private keys remain on the Pi.`);
@@ -104,7 +104,7 @@ function certificate(options) {
 
 try {
   const options=parseLanArguments(process.argv.slice(2));
-  if(options.command==='help')console.log('On the Raspberry Pi:\n  sudo node scripts/pi-lan.mjs check --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs install --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs verify --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs certificate --address 192.168.1.140\nOptional: --port 8443, --app-port 3000, --enroll-port 8444, --name "Main warehouse"\nSee docs/pi-local-network.md for phone certificate setup.');
+  if(options.command==='help')console.log('On the Raspberry Pi:\n  sudo node scripts/pi-lan.mjs check --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs install --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs verify --address 192.168.1.140\n  sudo node scripts/pi-lan.mjs certificate --address 192.168.1.140\nOptional: --port 8443, --app-port 3000, --enroll-port 8444, --name "Main shed"\nSee docs/pi-local-network.md for phone certificate setup.');
   else {
     requirePi();
     if(options.command==='install')install(options);

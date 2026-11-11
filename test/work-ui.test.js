@@ -264,7 +264,7 @@ test('mobile menu Escape and breakpoint changes restore focus after CSS hides a 
 test('saved updates describe the actual action and distinguish delivery from supervisor checking',()=>{
  const ui=view();ui.context.update={action:'report',input:{direction:'pick',quantity:4,unit:'cases'},state:'local',message:'Saved report'};
  let html=ui.run('queueEntry(update)');assert.match(html,/Pick 4 cases/);assert.match(html,/Saved on this device/);assert.doesNotMatch(html,/supervisor check|report/i);
- ui.context.update={...ui.context.update,state:'review'};html=ui.run('queueEntry(update)');assert.match(html,/Received by the warehouse/);assert.match(html,/do not repeat the movement/);assert.doesNotMatch(html,/receipt is not confirmed|Waiting for warehouse confirmation/);
+ ui.context.update={...ui.context.update,state:'review'};html=ui.run('queueEntry(update)');assert.match(html,/Received by the shed/);assert.match(html,/do not repeat the movement/);assert.doesNotMatch(html,/receipt is not confirmed|Waiting for shed confirmation/);
  ui.context.update={action:'reassign',input:{},state:'not-applied',message:'Assignment changed'};html=ui.run('queueEntry(update)');assert.match(html,/Assign task/);assert.match(html,/Change could not be saved/);assert.doesNotMatch(html,/Quantity needs supervisor/);
 });
 test('count comparison uses actual evidence and leaves inclusion versus separate movement explicit',()=>{
@@ -370,7 +370,7 @@ test('Assign Work is a single open form with eight-hour default, actual-directio
   const ui=view({role:'custom'});ui.run(`snapshot.capabilities={view:true,assign:true,${direction}:true};snapshot.products=[{id:1,name:'Boots',sku:'B1',unit_of_measure:'pairs'}];snapshot.operators=[{id:1,name:'Admin',username:'admin',role_name:'Admin',assignedTaskCount:2,eligible:true,status:'active'},{id:2,name:'Custom',username:'custom',role_name:'Warehouse lead',assignedTaskCount:1,eligible:true,status:'active'},{id:3,name:'Reader',username:'reader',eligible:false,status:'active'},{id:4,name:'Inactive',username:'inactive',eligible:false,status:'inactive'}];path='/work/overview';render()`);
   const html=ui.root.innerHTML;assert.doesNotMatch(html,/aria-label="Work views"/);assert.match(html,/data-work-action="assign"/);assert.match(html,new RegExp('value="'+direction+'" checked'));assert.match(html,new RegExp('value="'+(direction==='pick'?'put':'pick')+'"  disabled'));assert.match(html,/name="dueDuration"[^>]+value="8"/);assert.match(html,/value="hours" selected/);assert.match(html,/value="days">Days/);assert.match(html,/value="3" disabled>Reader · reader · User · 0 assigned tasks — Cannot take tasks/);assert.match(html,/value="4" disabled>Inactive · inactive · User · 0 assigned tasks — Inactive/);assert.match(html,/>Assigned to<select/);assert.match(html,/Admin · admin · Admin · 2 assigned tasks/);assert.match(html,/Custom · custom · Warehouse lead · 1 assigned task</);assert.match(html,/>Assign Task</);
   assert.doesNotMatch(html,/data-task-table|Team task status|Workloads|productSearch|operatorSearch|name="dueAt"|name="note"|work-toolbar|work-footer/);
-  ui.run("outbox=[{partition:key(),action:'assign',state:'error',input:{}}]");assert.match(ui.run('assignmentPage()'),/<button disabled>Waiting for warehouse confirmation/);
+  ui.run("outbox=[{partition:key(),action:'assign',state:'error',input:{}}]");assert.match(ui.run('assignmentPage()'),/<button disabled>Waiting for shed confirmation/);
   ui.run('outbox=[];snapshot.products=[]');assert.match(ui.run('assignmentPage()'),/No active products available/);
   ui.run("snapshot.products=[{id:1}];snapshot.operators=[]");assert.match(ui.run('assignmentPage()'),/No users are eligible/);
  }
@@ -384,7 +384,7 @@ test('assignment controls match duration bounds and lock unknown outcomes withou
  const button={},radios=[{value:'pick'},{value:'put'}],f={dataset:{workAction:'assign'},elements:{dueUnit:{value:'hours'},dueDuration:{},direction:{value:'pick'}},querySelectorAll:()=>radios,querySelector:()=>button};ui.context.f=f;
  ui.run('updateAssignmentForm(f)');assert.equal(button.disabled,false);assert.equal(radios[0].disabled,false);assert.equal(radios[1].disabled,true);assert.equal(f.elements.dueDuration.max,8760);assert.equal(Number(f.elements.dueDuration.min)*60,1);
  for(const [unit,max,factor] of [['minutes',525600,1],['days',365,1440]]){f.elements.dueUnit.value=unit;ui.run('updateAssignmentForm(f)');assert.equal(f.elements.dueDuration.max,max);assert.equal(Number(f.elements.dueDuration.min)*factor,1);}
- ui.run("outbox=[{partition:key(),action:'assign',state:'sending'}];updateAssignmentForm(f)");assert.equal(button.disabled,true);assert.equal(button.textContent,'Waiting for warehouse confirmation');
+ ui.run("outbox=[{partition:key(),action:'assign',state:'sending'}];updateAssignmentForm(f)");assert.equal(button.disabled,true);assert.equal(button.textContent,'Waiting for shed confirmation');
  ui.run("outbox=[{partition:key(),action:'create',input:{assigneeId:2},state:'error'}];updateAssignmentForm(f)");assert.equal(button.disabled,true);
  ui.run("outbox=[];online=false;updateAssignmentForm(f)");assert.equal(button.disabled,true);
 });
@@ -427,7 +427,7 @@ test('live returned dialog detects changed progress without replacing focused dr
 
 test('older review task dialog lookup is bounded and refuses account or warehouse mixing',async()=>{
  const ui=view({role:'admin'});let called;ui.context.AbortSignal={timeout:ms=>({timeout:ms})};ui.context.fetch=async(url,options)=>{called={url,options};return {ok:true,json:async()=>({user:{id:1},site:'warehouse-a',tasks:[{id:101}]})};};assert.equal((await ui.run('fetchDialogTask(101)')).id,101);assert.match(called.url,/taskId=101/);assert.equal(called.options.signal.timeout,15000);
- for(const fresh of [{user:{id:2},site:'warehouse-a',tasks:[{id:101}]},{user:{id:1},site:'other',tasks:[{id:101}]},{user:{id:1},site:'warehouse-a',dataset:'changed',tasks:[{id:101}]}]){ui.context.fetch=async()=>({ok:true,json:async()=>fresh});await assert.rejects(ui.run('fetchDialogTask(101)'),/account, warehouse or dataset changed/);}
+ for(const fresh of [{user:{id:2},site:'warehouse-a',tasks:[{id:101}]},{user:{id:1},site:'other',tasks:[{id:101}]},{user:{id:1},site:'warehouse-a',dataset:'changed',tasks:[{id:101}]}]){ui.context.fetch=async()=>({ok:true,json:async()=>fresh});await assert.rejects(ui.run('fetchDialogTask(101)'),/account, shed or dataset changed/);}
  ui.context.fetch=async()=>({ok:true,json:async()=>({user:{id:1},site:'warehouse-a',tasks:[]})});await assert.rejects(ui.run('fetchDialogTask(101)'),/no longer available/);assert.equal(ui.run('snapshot.watchedTasks[0].id'),101);assert.equal(ui.run('snapshot.tasks.length'),0);
 });
 

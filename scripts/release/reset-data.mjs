@@ -5,7 +5,7 @@ import {hashPassword} from '../../src/services/auth.js';
 import {administratorPassword} from './account-password.mjs';
 
 const ACCOUNT_TABLES=['access_roles','users','registration_keys','access_events'];
-const CATALOG_TABLES=['product_field_definitions','products','product_attribute_values','report_definitions'];
+const CATALOG_TABLES=['product_field_definitions','products','product_attribute_values','report_definitions','product_import_aliases','product_movement_thresholds'];
 const HARDWARE_TABLES=['zones','location_warehouses','location_shelves','controllers','cells','location_field_definitions','location_field_values','location_labels'];
 const settingsKey=key=>/_(?:settings|schedule|defaults|timezone)(?:_v\d+)?$/.test(key)||['pending_review_timeout_minutes','backup_retention_days','default_pick_assignment_minutes','default_put_assignment_minutes','default_stocktake_due_days'].includes(key);
 
@@ -23,7 +23,7 @@ export function buildResetWarehouse(source,folder,{resetMode,keepHardware,userna
   }finally{process.chdir(previousCwd);}
   try{
     const tables=[...(resetMode==='clear-work'?[...ACCOUNT_TABLES,...CATALOG_TABLES,'location_field_definitions','stocktake_schedules']:[]),...(keepHardware?HARDWARE_TABLES:[])];
-    const unique=[...new Set(tables)];
+    const unique=[...new Set(tables)].filter(table=>!['product_import_aliases','product_movement_thresholds'].includes(table)||source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table));
     const triggers=db.prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger'").all();
     db.exec('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE');
     try{
@@ -50,7 +50,7 @@ export function buildResetWarehouse(source,folder,{resetMode,keepHardware,userna
       if(db.prepare('PRAGMA foreign_key_check').all().length)throw new Error('Retained setup has incomplete references. No reset was activated.');
       const now=new Date().toISOString();save.run('dataset_generation',randomUUID(),now);
       if(!keepHardware)save.run('setup_reconnect_candidates',JSON.stringify(candidates),now);
-      db.prepare('INSERT INTO system_events(event_type,status,message,payload,created_at) VALUES(?,?,?,?,?)').run('warehouse_data_reset','info','Warehouse data reset during Raspberry Pi replacement.',JSON.stringify({resetMode,keepHardware}),now);
+      db.prepare('INSERT INTO system_events(event_type,status,message,payload,created_at) VALUES(?,?,?,?,?)').run('warehouse_data_reset','info','Shed data reset during Raspberry Pi replacement.',JSON.stringify({resetMode,keepHardware}),now);
       db.exec('COMMIT; PRAGMA foreign_keys=ON; PRAGMA wal_checkpoint(TRUNCATE)');
       return {resetMode,keepHardware,reconnectCandidates:keepHardware?[]:candidates};
     }catch(error){db.exec('ROLLBACK; PRAGMA foreign_keys=ON');throw error;}

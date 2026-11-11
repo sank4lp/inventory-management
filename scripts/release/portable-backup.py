@@ -1,4 +1,4 @@
-"""Portable, checked warehouse snapshots. Uses only Python's standard library.
+"""Portable, checked shed snapshots. Uses only Python's standard library.
 
 The archive is data, never an executable disk image. Extraction never trusts tar
 paths, links, ownership or permissions. The live SQLite WAL is included through
@@ -52,7 +52,7 @@ def check_database(path):
             raise ValueError('The backup database is damaged.')
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {'users', 'products', 'cells', 'inventory_balances', 'tasks', 'app_metadata', 'controllers'} <= tables:
-            raise ValueError('This is not a supported LytGuide warehouse database.')
+            raise ValueError('This is not a supported LytGuide shed database.')
         if connection.execute('PRAGMA foreign_key_check').fetchone():
             raise ValueError('The backup has broken database references.')
         return {name: connection.execute('SELECT COUNT(*) FROM ' + name).fetchone()[0]
@@ -103,13 +103,13 @@ def create(data, destination, version, hints=None, pki=None, excel_snapshot=None
                 for item in sorted(archives.iterdir()):
                     name = 'archives/' + item.name
                     if not safe_name(name) or item.is_symlink() or not item.is_file():
-                        raise ValueError('Unexpected file in warehouse archive storage: ' + item.name)
+                        raise ValueError('Unexpected file in shed archive storage: ' + item.name)
                     # Freeze archive bytes too: no changing file is hashed then read again.
                     copied = pathlib.Path(work, item.name)
                     shutil.copyfile(item, copied)
                     entries.append((name, copied))
             if len(entries) > 10000 or sum(path.stat().st_size for _, path in entries) > MAX_EXPANDED:
-                raise ValueError('Warehouse data is too large for this recovery format.')
+                raise ValueError('Shed data is too large for this recovery format.')
             manifest = {'format': 'lytguide-recovery', 'formatVersion': 1, 'packageVersion': version,
                         'createdAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                         'counts': counts, 'hints': hints or {},

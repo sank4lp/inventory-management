@@ -37,10 +37,10 @@ export function createSetupServer({driver,redeem,assets,iconPath,buildVersion='d
         if(job?.running){json(response,{...await driver.status(),job});return;}json(response,{...await driver.refresh(),job});return;
       }
       if(request.method==='GET'&&url.pathname==='/setup-api/phone-qr'){
-        const status=await driver.status(),value=status.phone?.downloadUrl||status.phone?.appUrl;if(!value)throw new Error('Finish the warehouse network setup first.');response.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});response.end(await QRCode.toString(value,{type:'svg',margin:2,width:220}));return;
+        const status=await driver.status(),value=status.phone?.downloadUrl||status.phone?.appUrl;if(!value)throw new Error('Finish the shed network setup first.');response.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});response.end(await QRCode.toString(value,{type:'svg',margin:2,width:220}));return;
       }
       if(request.method==='GET'&&url.pathname==='/setup-api/certificate'){
-        const value=await driver.certificate();response.writeHead(200,{'Content-Type':'application/pkix-cert','Content-Disposition':'attachment; filename="LytGuide-warehouse.cer"','Cache-Control':'no-store'});response.end(value);return;
+        const value=await driver.certificate();response.writeHead(200,{'Content-Type':'application/pkix-cert','Content-Disposition':'attachment; filename="LytGuide-shed.cer"','Cache-Control':'no-store'});response.end(value);return;
       }
       if(request.method==='POST'&&url.pathname==='/setup-api/backup-upload'){
         if(job?.running||uploading)throw Object.assign(new Error('Wait for the current setup step to finish.'),{status:409});
@@ -58,16 +58,16 @@ export function createSetupServer({driver,redeem,assets,iconPath,buildVersion='d
         Promise.resolve().then(()=>driver.action(input.action,input,actor)).then(()=>{current.running=false;current.finishedAt=Date.now();},error=>{current.running=false;current.finishedAt=Date.now();current.error=error.message;});json(response,{job:current},202);return;
       }
       if(setupProxyAllowed(request.method,url.pathname)){
-        if(job?.running)throw Object.assign(new Error('Setup is updating the warehouse. Wait a moment, then retry.'),{status:409});
+        if(job?.running)throw Object.assign(new Error('Setup is updating the shed. Wait a moment, then retry.'),{status:409});
         const target=`http://127.0.0.1:${driver.appPort()}`;
         const headers={...request.headers,host:`127.0.0.1:${driver.appPort()}`,cookie:driver.appCookie(),origin:target};delete headers['accept-encoding'];delete headers['x-setup-csrf'];
         const upstream=httpRequest(target+request.url,{method:request.method,headers,timeout:120000},incoming=>{
           const output={...incoming.headers,'cache-control':'no-store','referrer-policy':'same-origin'};delete output['set-cookie'];delete output['content-length'];delete output['content-security-policy'];
           if(incoming.headers['content-type']?.includes('text/html')){const chunks=[];incoming.on('data',c=>chunks.push(c));incoming.on('end',()=>{response.writeHead(incoming.statusCode,output);response.end(embedHtml(Buffer.concat(chunks).toString('utf8')));});}
           else{response.writeHead(incoming.statusCode,output);incoming.pipe(response);}
-        });upstream.on('timeout',()=>upstream.destroy(new Error('Controller setup took too long. Refresh and retry.')));upstream.on('error',()=>{if(!response.headersSent)json(response,{error:'The warehouse is starting. Wait a moment and refresh this setup panel.'},503);else response.destroy();});request.pipe(upstream);return;
+        });upstream.on('timeout',()=>upstream.destroy(new Error('Controller setup took too long. Refresh and retry.')));upstream.on('error',()=>{if(!response.headersSent)json(response,{error:'The shed is starting. Wait a moment and refresh this setup panel.'},503);else response.destroy();});request.pipe(upstream);return;
       }
-      json(response,{error:'This page is available in the warehouse after setup.'},404);
+      json(response,{error:'This page is available in the shed after setup.'},404);
     }catch(error){if(!response.headersSent)json(response,{error:error.message},error.status||400);else response.destroy();}
   });
   const timer=setInterval(()=>{if(!job?.running&&Date.now()-lastActivity>30*60000)onIdle();},60000);timer.unref();server.on('close',()=>clearInterval(timer));return server;

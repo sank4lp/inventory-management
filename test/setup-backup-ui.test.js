@@ -9,8 +9,8 @@ function ui(data){
 }
 const found={id:'a'.repeat(64),name:'LytGuide-Uninstall-20261031T120000-1234abcd.lytbackup',modifiedAt:'2026-10-31T12:00:00Z',directory:'/boot/firmware/LYTGUIDE-RECOVERY'};
 test('Get started offers explicit Yes/No for a detected backup and keeps ordinary new/existing setup choices available',()=>{
- const base={state:{step:'choose',done:[]},detectedBackups:[found],hasWarehouse:false};const html=ui(base);assert.match(html,/Warehouse backup found/);assert.match(html,/Yes, restore backup/);assert.match(html,/No, continue without restoring/);assert.match(html,/data-choose="new"/);
- assert.doesNotMatch(ui({...base,state:{...base.state,backupPromptDismissed:true}}),/data-restore-detected/);assert.doesNotMatch(ui({...base,detectedBackups:[]}),/Warehouse backup found/);
+ const base={state:{step:'choose',done:[]},detectedBackups:[found],hasWarehouse:false};const html=ui(base);assert.match(html,/Shed backup found/);assert.match(html,/Yes, restore backup/);assert.match(html,/No, continue without restoring/);assert.match(html,/data-choose="new"/);
+ assert.doesNotMatch(ui({...base,state:{...base.state,backupPromptDismissed:true}}),/data-restore-detected/);assert.doesNotMatch(ui({...base,detectedBackups:[]}),/Shed backup found/);
 });
 test('Restore offers detected-file selection and the native file picker together; both require backup inspection and explicit restore confirmation',()=>{
  const html=ui({state:{mode:'replace',step:'backup',done:[],backupFile:{name:found.name,bytes:123}},detectedBackups:[found]});

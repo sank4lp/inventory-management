@@ -404,7 +404,7 @@ function attachRequestedProductFields(db, rows, columns) {
       } else if (definition.field_kind === "custom") {
         row.fields[fieldKey] = attributes.get(`${row.product_id}:${fieldKey}`) ?? null;
       } else {
-        row.fields[fieldKey] = row[definition.source_column] ?? null;
+        row.fields[fieldKey] = row[definition.source_column] ?? db.prepare("SELECT * FROM products WHERE id=?").get(row.product_id)?.[definition.source_column] ?? null;
       }
     }
   }
@@ -1460,7 +1460,7 @@ export function buildMovementOverTimeReport(db, options = {}) {
 function exceptionGrouping(event, groupBy) {
   const unit = String(event.unit_of_measure || "Recorded unit").trim() || "Recorded unit";
   const category = String(event.category || "Uncategorized").trim() || "Uncategorized";
-  const cell = String(event.logical_code || "Unknown cell").trim() || "Unknown cell";
+  const cell = String(event.logical_code || "Unknown bin").trim() || "Unknown bin";
   const taskType = String(event.task_type || "task").trim().toLowerCase() || "task";
   return {
     product: {

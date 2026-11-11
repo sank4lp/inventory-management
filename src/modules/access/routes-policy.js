@@ -1,6 +1,14 @@
 import {can,SETTINGS} from './catalog.js';
 // Every public route is explicit. API command families additionally enforce action and resource scope in services.
 export const ROUTE_POLICY = [
+  ['GET',/^\/reports\/(sections|stocktake-range|movement-speed|customers)$/,'reports.view'],
+  ['POST',/^\/api\/reports\/movement-threshold$/,'reports.view'],
+  ['GET',/^\/products\/merge$/,'products.edit'],
+  ['GET',/^\/products\/new$/,'products.add'],
+  ['GET',/^\/products\/import(?:\/template\.xlsx)?$/,'products.edit'],
+  ['GET',/^\/work\/vouchers$/,'work.view'],
+  ['GET',/^\/api\/business-import\/(voucher|vouchers)$/,'work.view'],
+  ['POST',/^\/api\/business-import\/(upload|review|apply|saveProduct|mergeReview)$/,'account'],
   ['GET',/^\/settings\/connect-device(?:\/root\.cer)?$/,'system.view'],
   ['GET',/^\/warehouse-excel(?:\/template\.xlsx)?$/,'count.manage'],
   ['POST',/^\/api\/warehouse-excel\/(upload|review|apply)$/,'count.manage'],

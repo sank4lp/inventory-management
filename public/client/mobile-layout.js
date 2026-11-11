@@ -6,7 +6,7 @@ export function mobileColumnLabel(header) {
     .replace(/[↑↓↕]/g, '').replace(/\s+/g, ' ').trim();
 }
 export function taskColumnLayout(headers, available) {
-  const aliases = {'Task ID':'task','Product':'product','Change':'change','Assigned To':'assignedTo','Assigned By':'assignedBy','Changed By':'changedBy','Timestamp (IST)':'timestamp','Cell':'cell','Details before':'before','Details after':'after'};
+  const aliases = {'Task ID':'task','Product':'product','Change':'change','Assigned To':'assignedTo','Assigned By':'assignedBy','Changed By':'changedBy','Timestamp (IST)':'timestamp','Cell':'cell','Bin':'cell','Details before':'before','Details after':'after'};
   const keys = headers.map((header, index) => header.dataset.column || aliases[mobileColumnLabel(header)] || (header.querySelector?.('input[type=checkbox]') ? 'selection' : 'column-' + index));
   const leading = ['selection', 'task', 'product', 'requested', 'change', 'action'].filter(key => keys.includes(key));
   const order = [...leading, ...keys.filter(key => !leading.includes(key))];

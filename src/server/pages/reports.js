@@ -807,7 +807,7 @@ function stockDetailColumnLabel(column, { groupLabel, unitLabel, labels }) {
     return "Products";
   }
   if (column === "available_quantity") {
-    return "On shelf (recorded)";
+    return "On rack (recorded)";
   }
   return labels[column] || fallbackLabels[column] || column.replace(/^custom\./, "").replaceAll("_", " ");
 }
@@ -1093,7 +1093,7 @@ function stockCompositionBody(
       </section>
       <footer class="report-notes">
         <strong>Calculation note</strong>
-        <span>Stock composition shows recorded on-shelf stock, including reserved goods; it is not the quantity available to pick. Percentages use the complete total for each compatible unit, including the “Other” slice.</span>
+        <span>Stock composition shows recorded on-rack stock, including reserved goods; it is not the quantity available to pick. Percentages use the complete total for each compatible unit, including the “Other” slice.</span>
       </footer>
     </section>
   `;
@@ -1623,7 +1623,7 @@ function replenishmentWatchBody(report = {}, labels = {}) {
     <section class="report-document-section">
       <h4>Products To Review</h4>
       ${table(
-        [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "On shelf (recorded)", batchLabel, "Locations"],
+        [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "On rack (recorded)", batchLabel, "Locations"],
         rows.map((row) => [
           `${escapeHtml(row.name)}<br /><small>${escapeHtml(skuLabel)}: ${escapeHtml(row.sku)}</small>`,
           escapeHtml(row.category || "Uncategorized"),
@@ -1637,7 +1637,7 @@ function replenishmentWatchBody(report = {}, labels = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>Quantities are recorded on shelf, including reserved goods. “Low” means one normal location batch or less. This is a practical replenishment watch, not a demand forecast or supplier reorder point.</span>
+      <span>Quantities are recorded on rack, including reserved goods. “Low” means one normal location batch or less. This is a practical replenishment watch, not a demand forecast or supplier reorder point.</span>
     </footer>
   `;
 }
@@ -1951,7 +1951,7 @@ export function createReportsPages({ db }) {
       {
         key: "stock-snapshot",
         title: "Stock Snapshot",
-        description: "What stock is recorded on shelf?",
+        description: "What stock is recorded on rack?",
         metric: formatQuantity(stockCompositionReport.totalMatchingRows ?? stockCompositionRows.length),
         metricLabel: "Products With Stock",
         usesGlobalRange: false,
@@ -2001,7 +2001,7 @@ export function createReportsPages({ db }) {
       {
         key: "issues",
         title: "Exception Hotspots",
-        description: "Where did completed warehouse work fall short of plan?",
+        description: "Where did completed shed work fall short of plan?",
         metric: formatQuantity(exceptionHotspotsReport.totals?.affected_tasks || 0),
         metricLabel: "Affected Tasks",
         usesGlobalRange: true,
@@ -2015,7 +2015,7 @@ export function createReportsPages({ db }) {
         metricLabel: "Count Changes",
         usesGlobalRange: true,
         body: table(
-          ["When", `${productNameLabel} / ${skuLabel}`, "Cell", "Delta", unitLabel, "Reason", "Recorded By"],
+          ["When", `${productNameLabel} / ${skuLabel}`, "Bin", "Delta", unitLabel, "Reason", "Recorded By"],
           reports.adjustments.map((row) => [
             escapeHtml(formatDate(row.created_at)),
             `${escapeHtml(row.product_name)}<br /><small>${escapeHtml(skuLabel)}: ${escapeHtml(row.sku)}</small>`,
@@ -2039,9 +2039,9 @@ export function createReportsPages({ db }) {
         <section class="reports-workspace" data-reports-workspace>
           <header class="reports-hero app-panel" data-report-screen-only>
             <div>
-              <p class="report-eyebrow">Warehouse Intelligence</p>
+              <p class="report-eyebrow">Shed Intelligence</p>
               <h2>Report Library</h2>
-              <p>Choose the warehouse question you want answered.</p>
+              <p>Choose the shed question you want answered.</p>
             </div>
             <div class="reports-hero-actions">
               ${
@@ -2072,14 +2072,19 @@ export function createReportsPages({ db }) {
                   <p class="report-eyebrow">Curated Questions</p>
                   <h2 id="report-library-title">Choose A Report</h2>
                 </div>
-                <span>${escapeHtml(formatQuantity(reportSections.length+1))}</span>
+                <span>${escapeHtml(formatQuantity(reportSections.length+6))}</span>
               </div>
               <label class="report-library-search">
                 <span>Search reports</span>
                 <input type="search" placeholder="Name or purpose" autocomplete="off" data-report-library-search />
               </label>
-              <nav class="report-library-list report-overview-grid" aria-label="Curated warehouse reports">
+              <nav class="report-library-list report-overview-grid" aria-label="Curated shed reports">
                 ${[['Stock',['stock-snapshot','replenishment-watch','slow-moving-stock']],['Operations',['product-movement','movement','team-activity']],['Checks',['issues','adjustments']]].map(([label,keys])=>`<p class="report-library-group-label">${label}</p>${builtInReportSections.filter(r=>keys.includes(r.key)).map(reportLibraryItem).join('')}`).join('')}
+                <a class="report-library-item" href="/reports/sections">Section Stock · products by Section (cos_sec)</a>
+                <a class="report-library-item" href="/reports/stocktake-range?rangeBy=product">Range &amp; Depth · Products, MPI combined</a>
+                <a class="report-library-item" href="/reports/stocktake-range?rangeBy=mpi">Range &amp; Depth · Separate MPI variants</a>
+                <a class="report-library-item" href="/reports/movement-speed">Product Movement · Fast, Normal and Slow</a>
+                <a class="report-library-item" href="/reports/customers">Customer Movement · vouchers and recorded quantities</a>
                 <a class="report-library-item" href="/reports/stocktake-differences">Stocktake differences · count evidence and coverage</a>
                 <p class="report-library-empty" data-report-library-empty hidden>No reports match that search.</p>
               </nav>

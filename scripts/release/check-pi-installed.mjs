@@ -42,7 +42,7 @@ try{
       task=(await json(`/api/work/snapshot?taskId=${created.taskId}`)).tasks.find(t=>t.id===created.taskId);let line=task.lines.find(l=>l.id===original.id);
       await command('acquire',{lineId:line.id,revision:line.revision,method:'arrival'});
       task=(await json(`/api/work/snapshot?taskId=${created.taskId}`)).tasks.find(t=>t.id===created.taskId);line=task.lines.find(l=>l.id===original.id);
-      const done=await command('report',{lineId:line.id,revision:line.revision,assignmentGeneration:line.current_generation,cellId:line.cell_id,unit:line.unit_of_measure,quantity:line.planned_quantity,method:'manual',manualReason:'Package acceptance cell check',cellCompletion:true});assert.equal(done.status,'recorded');
+      const done=await command('report',{lineId:line.id,revision:line.revision,assignmentGeneration:line.current_generation,cellId:line.cell_id,unit:line.unit_of_measure,quantity:line.planned_quantity,method:'manual',manualReason:'Package acceptance bin check',cellCompletion:true});assert.equal(done.status,'recorded');
     }
     task=(await json(`/api/work/snapshot?taskId=${created.taskId}`)).tasks.find(t=>t.id===created.taskId);assert.equal(task.outcome,'completed');assert.equal(balance(product.id),expected);
   }

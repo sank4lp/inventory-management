@@ -177,7 +177,7 @@ async function confirmRestore(options,message){
   if(options['--confirm']==='RESTORE')return;
   if(options['--confirm']||!process.stdin.isTTY)throw new Error('Confirm explicitly with --confirm RESTORE, or run this in a terminal.');
   const rl=createInterface({input:process.stdin,output:process.stdout});
-  try{if(await rl.question('Keep the old Pi off. Type RESTORE to replace this test warehouse: ')!=='RESTORE')throw new Error('Restore cancelled.');}finally{rl.close();}
+  try{if(await rl.question('Keep the old Pi off. Type RESTORE to replace this test shed: ')!=='RESTORE')throw new Error('Restore cancelled.');}finally{rl.close();}
 }
 async function restoreWarehouse(options){
   requireRoot();assertRestoreSettled();
@@ -205,7 +205,7 @@ async function restoreWarehouse(options){
     if(typeof manifest.packageVersion!=='string'||!/^[0-9][0-9A-Za-z.+~:-]*$/.test(manifest.packageVersion))throw new Error('Invalid backup version.');
     const version=JSON.parse(readFileSync(join(current,'release.json'),'utf8')).version;
     try{run('dpkg',['--compare-versions',version,'ge',manifest.packageVersion]);}catch{throw new Error('This backup needs the same or a newer LytGuide package. Update the replacement Pi first.');}
-    await confirmRestore(options,`Backup: ${manifest.createdAt}\n${manifest.counts.products} products · ${manifest.counts.cells} locations · ${manifest.counts.users} users · ${manifest.counts.tasks} tasks\nThis replaces the test warehouse on this Pi. Changes after the backup must be checked physically.`);
+    await confirmRestore(options,`Backup: ${manifest.createdAt}\n${manifest.counts.products} products · ${manifest.counts.cells} locations · ${manifest.counts.users} users · ${manifest.counts.tasks} tasks\nThis replaces the test shed on this Pi. Changes after the backup must be checked physically.`);
     const hasCertificate=existsSync(join(staging,'pki'));
     if(hasCertificate)renameSync(join(staging,'pki'),certificateStage);
     // Migrate and pause the extracted copy before touching this Pi's live data.
@@ -240,8 +240,8 @@ async function restoreWarehouse(options){
     syncDirectory(STATE_ROOT);
     if(!noStart){run('systemctl',['start',APP_SERVICE]);await waitForApp(next);if(next.address){run('systemctl',['start',WEB_SERVICE]);await waitForHttps(next);publishEnrollment(next,account(WEB_USER));}}
     activated=true;
-    console.log(`Warehouse prepared from ${manifest.createdAt}. ${preparation.trim()}\n${resetMode==='fresh'?'Sign in with the new administrator.':'Sign in with the retained warehouse accounts.'} Hardware is in simulator mode. Verify stock and hardware connections before enabling real controllers.\nPrevious test data retained at ${saved}/data`);
-    if(next.recoveryDirectory)try{console.log('New recovery copy: '+(await createRecoveryCopy(run,next)).path);}catch(error){console.error('Warehouse restored, but its new SD-card copy failed: '+error.message);}
+    console.log(`Shed prepared from ${manifest.createdAt}. ${preparation.trim()}\n${resetMode==='fresh'?'Sign in with the new administrator.':'Sign in with the retained shed accounts.'} Hardware is in simulator mode. Verify stock and hardware connections before enabling real controllers.\nPrevious test data retained at ${saved}/data`);
+    if(next.recoveryDirectory)try{console.log('New recovery copy: '+(await createRecoveryCopy(run,next)).path);}catch(error){console.error('Shed restored, but its new SD-card copy failed: '+error.message);}
   } catch(error) {
     if(saved&&!activated){
       try{
@@ -266,11 +266,11 @@ async function main(){
     else throw new Error('That command does not accept a setup request.');
   }
   if(command==='help'){
-    console.log('On the Raspberry Pi:\n  sudo lytguide-test setup [--address 192.168.1.140]\n  lytguide-test open\n  lytguide-test status\n  sudo lytguide-test certificate > ~/lytguide-test-root.cer\n  sudo lytguide-test update\n  sudo lytguide-test start|stop|restart\n  sudo lytguide-test backup\n  sudo lytguide-test backup --output /home/admin/warehouse.lytbackup\n  sudo lytguide-test restore --file /home/admin/warehouse.lytbackup\n  sudo lytguide-test restore-rollback\n  sudo lytguide-test setup --hardware rs485 --serial-port /dev/ttyUSB0\nDefaults: separate test data, simulator, app port 3310, HTTPS port 8443.\nSD-card recovery copies run every 15 minutes after setup. An update preserves test data and certificate storage. Finish physical work before updating.\nSee the included Pi test installer guide.');return;
+    console.log('On the Raspberry Pi:\n  sudo lytguide-test setup [--address 192.168.1.140]\n  lytguide-test open\n  lytguide-test status\n  sudo lytguide-test certificate > ~/lytguide-test-root.cer\n  sudo lytguide-test update\n  sudo lytguide-test start|stop|restart\n  sudo lytguide-test backup\n  sudo lytguide-test backup --output /home/admin/shed.lytbackup\n  sudo lytguide-test restore --file /home/admin/shed.lytbackup\n  sudo lytguide-test restore-rollback\n  sudo lytguide-test setup --hardware rs485 --serial-port /dev/ttyUSB0\nDefaults: separate test data, simulator, app port 3310, HTTPS port 8443.\nSD-card recovery copies run every 15 minutes after setup. An update preserves test data and certificate storage. Finish physical work before updating.\nSee the included Pi test installer guide.');return;
   }
   if(command==='verify-start'){assertRestoreSettled();return;}
   if(command==='wizard'){
-    if(process.platform!=='linux'||process.arch!=='arm64'||process.getuid()===0)throw new Error('Open Warehouse Setup as the normal user on the Raspberry Pi desktop.');
+    if(process.platform!=='linux'||process.arch!=='arm64'||process.getuid()===0)throw new Error('Open Shed Setup as the normal user on the Raspberry Pi desktop.');
     const executable=desktopExecutable(candidate);
     if(!existsSync(executable))throw new Error('Reinstall the complete LytGuide application. Its desktop runtime is missing.');
     const child=spawn(executable,desktopWindowArgs({setup:true,resume:options['--resume']===true}),{detached:true,stdio:'ignore',env:desktopEnvironment(process.env)});child.on('error',error=>console.error(error.message));child.unref();return;
@@ -282,7 +282,7 @@ async function main(){
   if(command==='restore'){await restoreWarehouse(options);return;}
   if(command==='restore-rollback'){
     requireRoot();if(active(APP_SERVICE)||active(WEB_SERVICE))throw new Error('Stop test services before rolling back an interrupted restore.');
-    await confirmRestore(options,'Roll back the interrupted restore to the previously saved test warehouse.');
+    await confirmRestore(options,'Roll back the interrupted restore to the previously saved test shed.');
     const fd=acquireRecoveryLock();try{console.log('Previous test data/configuration restored from '+rollbackRestore()+'. Run sudo lytguide-test start when ready.');}finally{closeSync(fd);rmSync(join(STATE_ROOT,'.setup-lock'));}return;
   }
   if(command==='uninstall'){requireRoot();await uninstallWarehouse();return;}
@@ -294,7 +294,7 @@ async function main(){
   }
   if(command==='setup'||command==='update'){await setup(options);return;}
   if(command==='version'){console.log(JSON.parse(readFileSync(join(candidate,'release.json'),'utf8')).version);return;}
-  if(command==='certificate'){requireRoot();if(!existsSync(rootCert))throw new Error('Start warehouse HTTPS first. No certificate has been created.');process.stdout.write(new X509Certificate(readFileSync(rootCert)).raw);return;}
+  if(command==='certificate'){requireRoot();if(!existsSync(rootCert))throw new Error('Start shed HTTPS first. No certificate has been created.');process.stdout.write(new X509Certificate(readFileSync(rootCert)).raw);return;}
   if(command==='status'){
     console.log(existsSync(configPath)?`Test app: ${serviceState(APP_SERVICE)}; HTTPS: ${serviceState(WEB_SERVICE)}. Run with sudo for configuration changes.\n${recoveryStatus()}`:'Not configured. Run sudo lytguide-test setup.');return;
   }

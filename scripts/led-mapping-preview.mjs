@@ -24,7 +24,7 @@ const operationsService=createOperationsService({db}),hardwareService=createHard
 const state={db,operationsService,displayCoordinator,locationSetupService};
 const cmd=(action,input)=>locationSetupService.command(user,action,{requestId:crypto.randomUUID(),...input});
 const revision=locationSetupService.snapshot(user).ledControllers.find(v=>v.id===c.id).revision;
-cmd('saveLedMappings',{controllerId:c.id,revision,rows:[{physical:1,name:'Shelf A · Cell 01'},{physical:2,name:'Shelf A · Cell 02'}]});
+cmd('saveLedMappings',{controllerId:c.id,revision,rows:[{physical:1,name:'Rack A · Bin 01'},{physical:2,name:'Rack A · Bin 02'}]});
 const cell=locationSetupService.snapshot(user).cells.find(c=>c.display_name==='Shelf A · Cell 01');
 db.prepare('INSERT OR REPLACE INTO inventory_balances(product_id,cell_id,available_quantity,reserved_quantity) VALUES(1,?,7,0)').run(cell.id);
 if(process.argv.includes('--blocking-work')){

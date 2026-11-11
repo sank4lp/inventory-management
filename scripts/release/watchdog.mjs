@@ -13,7 +13,7 @@ const statusPath=join(STATE_ROOT,'watchdog-status.json');
 function system(args){return execFileSync('systemctl',args,{encoding:'utf8',timeout:65000,stdio:['ignore','pipe','pipe']});}
 function service(name){const properties=Object.fromEntries(system(['show',name,'-p','ActiveState','-p','MainPID','-p','ActiveEnterTimestampMonotonic']).trim().split('\n').map(line=>{const i=line.indexOf('=');return [line.slice(0,i),line.slice(i+1)];}));return {name,pid:Number(properties.MainPID)||0,activeState:properties.ActiveState,startedAt:Number(properties.ActiveEnterTimestampMonotonic)/1000||0};}
 function maintenance(pid){
- const path=join(STATE_ROOT,'data/inventory.db');if(!existsSync(path))return 'Warehouse data is not ready';
+ const path=join(STATE_ROOT,'data/inventory.db');if(!existsSync(path))return 'Shed data is not ready';
  const db=new DatabaseSync(path,{readOnly:true});
  try{db.exec('PRAGMA busy_timeout=250');const busy=db.prepare("SELECT value FROM app_metadata WHERE key='firmware_busy'").get();const owner=db.prepare("SELECT value FROM app_metadata WHERE key='firmware_busy_owner'").get();if(busy&&owner){const value=JSON.parse(owner.value);if(value.id===busy.value&&value.pid===pid)return 'Controller firmware maintenance';}return null;}finally{db.close();}
 }
@@ -30,12 +30,12 @@ export async function runWatchdog(){
  let fd;try{fd=acquireRecoveryLock();}catch{return;}
  try{
   const config=validateTestConfig(JSON.parse(readFileSync(join(CONFIG_ROOT,'config.json'),'utf8'))),app=service(APP_SERVICE);
-  let blocked;try{blocked=maintenance(app.pid);}catch{blocked='Warehouse maintenance or data check requires attention';}
+  let blocked;try{blocked=maintenance(app.pid);}catch{blocked='Shed maintenance or data check requires attention';}
   const rows=[app];let web;if(config.address){web=service(WEB_SERVICE);rows.push(web);}
   if(!blocked&&app.activeState==='active')app.healthy=await readinessProbe(`http://127.0.0.1:${config.appPort}${READINESS_PATH}`,readinessToken(config.sessionSecret));
   if(web){
    if(blocked||!app.healthy)web.skip='Waiting for application readiness';
-   else if(!Object.values(networkInterfaces()).flat().some(row=>row?.address===config.address))web.skip='Warehouse network address is not available';
+   else if(!Object.values(networkInterfaces()).flat().some(row=>row?.address===config.address))web.skip='Shed network address is not available';
    else if(!existsSync(join(STATE_ROOT,'caddy/pki/authorities/local/root.crt')))web.skip='Phone certificate needs attention';
    else if(web.activeState==='active')web.healthy=await readinessProbe(`https://${config.address}:${config.httpsPort}${READINESS_PATH}`,readinessToken(config.sessionSecret),readFileSync(join(STATE_ROOT,'caddy/pki/authorities/local/root.crt')));
   }

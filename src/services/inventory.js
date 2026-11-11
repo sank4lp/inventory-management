@@ -59,7 +59,7 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
   };
 }
 
-function getActiveCell(db, cellId, message = "Selected cell is not active.") {
+function getActiveCell(db, cellId, message = "Selected bin is not active.") {
   const cell = db
     .prepare("SELECT * FROM cells WHERE id = ? AND active = 1")
     .get(Number(cellId));
@@ -70,7 +70,7 @@ function getActiveCell(db, cellId, message = "Selected cell is not active.") {
 }
 
 function assertPutCellEligible(db, { productId, cellId }) {
-  const cell = getActiveCell(db, cellId, "Selected put cell is not active.");
+  const cell = getActiveCell(db, cellId, "Selected put bin is not active.");
   const otherProduct = db
     .prepare(
       `
@@ -87,7 +87,7 @@ function assertPutCellEligible(db, { productId, cellId }) {
 
   if (otherProduct) {
     throw new Error(
-      `Cell ${cell.logical_code} already contains ${otherProduct.sku}. Choose an empty cell or a cell with the same product.`,
+      `Bin ${cell.logical_code} already contains ${otherProduct.sku}. Choose an empty bin or a bin with the same product.`,
     );
   }
 
@@ -111,7 +111,7 @@ function getPickCellAvailability(db, { productId, cellId }) {
     .get(Number(productId), Number(cellId));
 
   if (!cell) {
-    throw new Error("Selected pick cell is not active.");
+    throw new Error("Selected pick bin is not active.");
   }
 
   return cell;
@@ -174,7 +174,7 @@ function buildCellAnomalies(db) {
         logicalCode: cell.logicalCode,
         title: `${cell.logicalCode} has mixed products`,
         description: `${cell.products.map((item) => `${item.sku} (${item.totalQuantity})`).join(", ")}`,
-        actionSummary: `Move ${moveProduct.sku} from ${cell.logicalCode} into its own cell(s).`,
+        actionSummary: `Move ${moveProduct.sku} from ${cell.logicalCode} into its own bin(s).`,
         productId: moveProduct.productId,
         productSku: moveProduct.sku,
         productName: moveProduct.name,
@@ -433,9 +433,9 @@ function buildWarehouseOptimizationRecommendations(db) {
       type: "warehouse_optimization",
       severity: "info",
       cellId: moves[0].sourceCellId,
-      logicalCode: `${product.cells.length} cells`,
+      logicalCode: `${product.cells.length} bins`,
       title: `Optimize ${product.productSku} storage`,
-      description: `Stored ${displayQuantity(totalQuantity)} across ${product.cells.length} cells; ideal ${displayQuantity(itemsPerCell)} per cell.`,
+      description: `Stored ${displayQuantity(totalQuantity)} across ${product.cells.length} bins; ideal ${displayQuantity(itemsPerCell)} per bin.`,
       actionSummary: `Move ${displayQuantity(
         moves.reduce((sum, move) => sum + Number(move.quantity || 0), 0),
       )} ${product.productSku} item(s) into ${targetCells.map((cell) => cell.logicalCode).join(", ")}.`,
@@ -769,7 +769,7 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
 
         if (actualQuantity > Number(pickCell.available_quantity)) {
           throw new Error(
-            `Cell ${pickCell.logical_code} only has ${Number(pickCell.available_quantity)} item(s) left for ${line.sku}. Choose another eligible cell or reduce the quantity.`,
+            `Bin ${pickCell.logical_code} only has ${Number(pickCell.available_quantity)} item(s) left for ${line.sku}. Choose another eligible bin or reduce the quantity.`,
           );
         }
 
@@ -890,10 +890,10 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
       continue;
     }
     if (!Number.isInteger(cellId) || cellId <= 0) {
-      throw new Error("Choose a valid cell for each adjusted put line.");
+      throw new Error("Choose a valid bin for each adjusted put line.");
     }
     if (seenCells.has(cellId)) {
-      throw new Error("Each adjusted put cell can appear only once.");
+      throw new Error("Each adjusted put bin can appear only once.");
     }
     assertPutCellEligible(db, { productId, cellId });
     seenCells.add(cellId);
@@ -901,7 +901,7 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
   }
 
   if (!nextAllocations.length) {
-    throw new Error("Add at least one cell with a quantity greater than zero.");
+    throw new Error("Add at least one bin with a quantity greater than zero.");
   }
 
   return withTransaction(db, () => {
@@ -943,7 +943,7 @@ export function correctCompletedTask(
       if(raw!=null&&String(raw).trim()==="")throw new Error("Enter an explicit actual quantity, including zero.");
       const quantity=Number(raw??line.actual_quantity),cellId=Number(actualCellIds?.[line.id]||line.cell_id);
       if(!Number.isFinite(quantity)||quantity<0)throw new Error("Corrected quantities must be zero or greater.");
-      const factor=historicalFactor(db,line.product_id,line.unit_of_measure,task.completed_at||task.started_at), sign=task.type==='pick'?-1:1;
+      const factor=historicalFactor(db,line.product_id,line.unit_of_measure,task.completed_at||task.started_at,line.merged_from_product_id), sign=task.type==='pick'?-1:1;
       add(line.product_id,line.cell_id,-sign*line.actual_quantity*factor);
       add(line.product_id,cellId,sign*quantity*factor);
       updates.push({line,quantity,cellId});
@@ -986,7 +986,7 @@ export function createAdjustment(db, { productId, cellId, quantityDelta, userId,
   guardSetupChange(db,{cellId:Number(cellId)});
   const cell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
   if (!cell) {
-    throw new Error("Cell not found.");
+    throw new Error("Bin not found.");
   }
 
   if (!String(reason || "").trim()) {
@@ -1056,7 +1056,7 @@ export function createAdjustment(db, { productId, cellId, quantityDelta, userId,
 
       if (Number(balance.available_quantity) + delta < 0) {
         throw new Error(
-          `Adjustment for ${line.product.sku} would make the cell quantity negative.`,
+          `Adjustment for ${line.product.sku} would make the bin quantity negative.`,
         );
       }
 
@@ -1711,10 +1711,10 @@ export function deleteController(db, { controllerId }) {
 function normalizeLogicalCode(value) {
   const logicalCode = String(value || "").trim().toUpperCase();
   if (!logicalCode) {
-    throw new Error("Cell name is required.");
+    throw new Error("Bin name is required.");
   }
   if (!/^[A-Z0-9._:-]+$/.test(logicalCode)) {
-    throw new Error("Cell name can use letters, numbers, dot, dash, underscore, or colon.");
+    throw new Error("Bin name can use letters, numbers, dot, dash, underscore, or colon.");
   }
   return logicalCode;
 }
@@ -1828,7 +1828,7 @@ export function getCellDeletionImpact(db, cellId) {
     .get(id);
 
   if (!cell) {
-    throw new Error("Cell not found.");
+    throw new Error("Bin not found.");
   }
 
   const counts = db
@@ -1869,7 +1869,7 @@ export function deleteCell(db, { cellId, deletedBy = null } = {}) {
   return withTransaction(db, () => {
     const impact = getCellDeletionImpact(db, cellId);
     if (impact.hasStock) {
-      throw new Error("Move all stock out of this cell before deleting it.");
+      throw new Error("Move all stock out of this bin before deleting it.");
     }
 
     const id = Number(cellId);
@@ -1969,10 +1969,10 @@ function detachCellsForManualOperation(db, cellIds) {
 export function createCell(db, { logicalCode, capacity = 12, createdBy = null, travelInstructions } = {}) {
   const code = normalizeLogicalCode(logicalCode);
   const details=travelInstructions==null?null:String(travelInstructions).trim();
-  if(details!=null&&details.length>1000)throw new Error('Shed / shelf details must be at most 1000 characters.');
+  if(details!=null&&details.length>1000)throw new Error('Rack details must be at most 1000 characters.');
   const cellCapacity = Number(capacity || 12);
   if (!Number.isFinite(cellCapacity) || cellCapacity <= 0) {
-    throw new Error("Cell capacity must be a positive number.");
+    throw new Error("Bin capacity must be a positive number.");
   }
 
   const existing = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(code);
@@ -1992,7 +1992,7 @@ export function createCell(db, { logicalCode, capacity = 12, createdBy = null, t
       if(details)db.prepare('UPDATE cells SET travel_instructions=?,description_revision=description_revision+1 WHERE id=?').run(details,existing.id);
       return db.prepare("SELECT * FROM cells WHERE id = ?").get(existing.id);
     }
-    throw new Error("A cell with this name already exists.");
+    throw new Error("A bin with this name already exists.");
   }
 
   const zoneId = getOrCreateZone(db);
@@ -2031,7 +2031,7 @@ export function renameCell(db, { cellId, logicalCode, renamedBy = null } = {}) {
 
     const existing = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(code);
     if (existing && Number(existing.id) !== id) {
-      throw new Error("A cell with this name already exists.");
+      throw new Error("A bin with this name already exists.");
     }
 
     db.prepare(
@@ -2070,14 +2070,14 @@ export function updateCellMapping(
     }
 
     if (!sourceCell.controller_id) {
-      throw new Error("Choose a mapped LED module before assigning a cell.");
+      throw new Error("Choose a mapped LED module before assigning a bin.");
     }
 
     let targetCell = null;
     if (targetCellId) {
       targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(targetCellId));
       if (!targetCell) {
-        throw new Error("Selected cell was not found.");
+        throw new Error("Selected bin was not found.");
       }
       if (Number(targetCell.active) !== 1) {
         throw new Error("Selected cell is not active. Choose an active cell from the list.");
@@ -2089,7 +2089,7 @@ export function updateCellMapping(
         throw new Error("Add this location before assigning it to an LED module.");
       }
       if (Number(targetCell.active) !== 1) {
-        throw new Error("Selected cell is not active. Add this location before assigning it to an LED module.");
+        throw new Error("Selected bin is not active. Add this location before assigning it to an LED module.");
       }
     } else {
       throw new Error("Choose a location to assign this LED module.");
@@ -2436,13 +2436,13 @@ export function applyRecommendedAction(
   const sourceQuantities = new Map();
   for (const move of normalizedMoves) {
     if (!move.sourceCellId) {
-      throw new Error("Source cell not found.");
+      throw new Error("Source bin not found.");
     }
     if (!move.targetCellId) {
-      throw new Error("Target cell not found.");
+      throw new Error("Target bin not found.");
     }
     if (move.sourceCellId === move.targetCellId) {
-      throw new Error("Source and target cells must be different.");
+      throw new Error("Source and target bins must be different.");
     }
     sourceQuantities.set(
       move.sourceCellId,
@@ -2456,11 +2456,11 @@ export function applyRecommendedAction(
       .prepare("SELECT * FROM cells WHERE id = ?")
       .get(Number(moveSourceCellId));
     if (!sourceCell) {
-      throw new Error("Source cell not found.");
+      throw new Error("Source bin not found.");
     }
     const sourceBalance = balances.getOrCreate(product.id, sourceCell.id);
     if (Number(sourceBalance.available_quantity) < totalQuantity) {
-      throw new Error(`Source cell ${sourceCell.logical_code} does not have enough quantity for this adjustment.`);
+      throw new Error(`Source bin ${sourceCell.logical_code} does not have enough quantity for this adjustment.`);
     }
     sourceCells.set(moveSourceCellId, {
       cell: sourceCell,
@@ -2493,7 +2493,7 @@ export function applyRecommendedAction(
     for (const move of normalizedMoves) {
       const targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(move.targetCellId);
       if (!targetCell) {
-        throw new Error("Target cell not found.");
+        throw new Error("Target bin not found.");
       }
       assertPutCellEligible(db, {
         productId: product.id,

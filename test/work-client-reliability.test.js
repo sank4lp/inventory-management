@@ -21,7 +21,7 @@ test('lost response retries the exact durable command; other accounts are never 
 });
 test('refresh refuses account changes before sending any queued work',async()=>{
  const {context,run}=client();let writes=0;context.fetch=async()=>({ok:true,json:async()=>({site:'test',user:{id:2},reports:[]})});context.saved=()=>{writes++;};
- run('store=async()=>saved();');await assert.rejects(run('refresh()'),/account or warehouse changed/);assert.equal(writes,0);
+ run('store=async()=>saved();');await assert.rejects(run('refresh()'),/account or shed changed/);assert.equal(writes,0);
 });
 test('Finish queued during an existing sync is delivered before its own sync resolves',async()=>{
  const {context,run}=client();const records=new Map(),sent=[];let release;
@@ -121,8 +121,8 @@ test('definitive activation rejection frees the task for a corrected new request
 });
 test('old-dataset unknown activation is preserved without blocking current work or rewriting retry identity',async()=>{
  const c=activationClient();c.context.old={id:'old',partition:'test:1',action:'create',state:'activation-unknown',input:{site:'test',dataset:'old-data',actorId:1,requestId:'old'}};c.run('records.set(old.id,old);outbox=[old]');const frozen=JSON.stringify(c.context.old.input);
- await assert.rejects(c.run('deliverActivation(old)'),/another account, warehouse or dataset/);assert.equal(c.sent.length,0);assert.equal(JSON.stringify(c.context.old.input),frozen);assert.equal(c.run('activationPending()'),undefined);
- await c.run("beginActivation('create',{})");assert.equal(c.sent.length,1);assert.equal(c.records.get('old').state,'activation-unknown');assert.match(c.run('queueEntry(old)'),/Preserved from another warehouse dataset/);assert.doesNotMatch(c.run('queueEntry(old)'),/data-retry-activation/);
+ await assert.rejects(c.run('deliverActivation(old)'),/another account, shed or dataset/);assert.equal(c.sent.length,0);assert.equal(JSON.stringify(c.context.old.input),frozen);assert.equal(c.run('activationPending()'),undefined);
+ await c.run("beginActivation('create',{})");assert.equal(c.sent.length,1);assert.equal(c.records.get('old').state,'activation-unknown');assert.match(c.run('queueEntry(old)'),/Preserved from another shed dataset/);assert.doesNotMatch(c.run('queueEntry(old)'),/data-retry-activation/);
 });
 test('account and warehouse mismatches cannot deliver a saved activation',async()=>{
  for(const patch of ["actorId:2","site:'other'"]){const c=activationClient();c.run(`outbox=[{id:'saved',partition:key(),action:'resume',state:'activation-unknown',input:{site:'test',dataset:'data',actorId:1,${patch}}}]`);const frozen=c.run('JSON.stringify(outbox[0].input)');await assert.rejects(c.run('deliverActivation(outbox[0])'),/another account/);assert.equal(c.sent.length,0);assert.equal(c.run('JSON.stringify(outbox[0].input)'),frozen);}

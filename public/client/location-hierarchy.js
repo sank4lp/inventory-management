@@ -62,8 +62,8 @@ export async function mount() {
  listen(window,'beforeunload',event=>{if(busy||dirty()){event.preventDefault();event.returnValue='';}});
  listen(edit,'click',()=>{editing=true;draft=structuredClone(base);render();controls();});
  listen(cancel,'click',async()=>{if(!await confirmDiscard())return;draft=structuredClone(base);editing=false;root.classList.remove('is-editing');root.innerHTML=normalMarkup;error.textContent='';controls();});
- listen(add,'click',()=>{const open=expanded(),id='new-'+crypto.randomUUID();draft.warehouses.push({id,name:'New warehouse'});open.add('warehouse:'+id);render(open);mark();root.querySelector(`[data-warehouse-name="${id}"]`).focus();});
- listen(root,'click',event=>{const b=event.target.closest('[data-add-shelf]');if(!b)return;const open=expanded(),id='new-'+crypto.randomUUID();draft.shelves.push({id,name:'New shed/shelf',warehouse_id:b.dataset.addShelf});open.add('shelf:'+id);render(open);mark();root.querySelector(`[data-shelf-name="${id}"]`).focus();});
+ listen(add,'click',()=>{const open=expanded(),id='new-'+crypto.randomUUID();draft.warehouses.push({id,name:'New shed'});open.add('warehouse:'+id);render(open);mark();root.querySelector(`[data-warehouse-name="${id}"]`).focus();});
+ listen(root,'click',event=>{const b=event.target.closest('[data-add-shelf]');if(!b)return;const open=expanded(),id='new-'+crypto.randomUUID();draft.shelves.push({id,name:'New rack',warehouse_id:b.dataset.addShelf});open.add('shelf:'+id);render(open);mark();root.querySelector(`[data-shelf-name="${id}"]`).focus();});
  listen(root,'input',event=>{const t=event.target;if(t.hasAttribute('data-warehouse-name'))draft.warehouses.find(w=>String(w.id)===t.dataset.warehouseName).name=t.value;else if(t.hasAttribute('data-shelf-name'))draft.shelves.find(s=>String(s.id)===t.dataset.shelfName).name=t.value;else return;refreshLabels();mark();});
  function move(kind,id,to){
   if(kind==='cell'){const c=draft.cells.find(v=>String(v.id)===String(id));if(!c||String(c.shelf_id)===String(to)||!draft.shelves.some(s=>String(s.id)===String(to)))return;c.shelf_id=to;}
@@ -77,7 +77,7 @@ export async function mount() {
  listen(root,'pointermove',event=>{
   if(!drag||event.pointerId!==drag.pointer)return;
   if(!drag.started&&Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<6)return;
-  event.preventDefault();if(!drag.started){drag.started=true;root.classList.add('is-dragging');drag.ghost=document.createElement('div');drag.ghost.className='location-drag-ghost';drag.ghost.textContent=drag.kind==='cell'?'Move cell':'Move shed/shelf';document.body.append(drag.ghost);}
+  event.preventDefault();if(!drag.started){drag.started=true;root.classList.add('is-dragging');drag.ghost=document.createElement('div');drag.ghost.className='location-drag-ghost';drag.ghost.textContent=drag.kind==='cell'?'Move bin':'Move rack';document.body.append(drag.ghost);}
   drag.ghost.style.left=event.clientX+12+'px';drag.ghost.style.top=event.clientY+12+'px';
   for(const el of root.querySelectorAll('.location-drop-target'))el.classList.remove('location-drop-target');
   const target=document.elementFromPoint(event.clientX,event.clientY)?.closest(drag.kind==='cell'?'[data-shelf-zone]':'[data-warehouse-zone]');

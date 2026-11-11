@@ -30,7 +30,7 @@ test("Products summary and out-of-stock checkbox preserve catalog actions", () =
     assert.match(html, /name="outOfStock" value="1" checked/);
     assert.match(catalog, /Empty Test Product/);
     assert.doesNotMatch(catalog, /Stocked Test Product/);
-    assert.match(catalog, /<th>SKU<\/th><th>Name<\/th><th>Items Per Location<\/th><th>On shelf<\/th><th>Unit of measure<\/th><th>Action<\/th>/);
+    assert.match(catalog, /<th>SKU<\/th><th>Name<\/th><th>Items Per Location<\/th><th>On rack<\/th><th>Unit of measure<\/th><th>Action<\/th>/);
     assert.match(catalog, new RegExp(`href="/products/${emptyId}"`));
     assert.match(catalog, /Show Quantity/);
     assert.match(catalog, /href="\/pick\?product_id=/);

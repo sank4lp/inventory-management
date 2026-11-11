@@ -358,8 +358,8 @@ test("reports page presents a finite curated question library without custom cre
 
   assert.match(html, /Curated Questions/);
   assert.match(html, /Choose A Report/);
-  assert.match(html, /Choose the warehouse question you want answered\./);
-  assert.match(html, /aria-label="Curated warehouse reports"/);
+  assert.match(html, /Choose the shed question you want answered\./);
+  assert.match(html, /aria-label="Curated shed reports"/);
   assert.match(html, /Stocktake differences/);
 
   const questions = [
@@ -368,7 +368,7 @@ test("reports page presents a finite curated question library without custom cre
       "Product Movement & Demand",
       "Which products were picked most in the selected timeframe?",
     ],
-    ["stock-snapshot", "Stock Snapshot", "What stock is recorded on shelf?"],
+    ["stock-snapshot", "Stock Snapshot", "What stock is recorded on rack?"],
     [
       "replenishment-watch",
       "Replenishment Watch",
@@ -392,7 +392,7 @@ test("reports page presents a finite curated question library without custom cre
     [
       "issues",
       "Exception Hotspots",
-      "Where did completed warehouse work fall short of plan?",
+      "Where did completed shed work fall short of plan?",
     ],
     [
       "adjustments",

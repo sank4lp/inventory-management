@@ -935,7 +935,7 @@ export function createBackupService({
     },
     readExcel() {
       const path=join(backupDir(),WAREHOUSE_EXCEL_FILE);
-      if(!existsSync(path))throw Object.assign(new Error('Create a backup first to generate the warehouse Excel file.'),{statusCode:404});
+      if(!existsSync(path))throw Object.assign(new Error('Create a backup first to generate the shed Excel file.'),{statusCode:404});
       return readFileSync(path);
     },
     createAutomaticBackupIfDue,

@@ -23,7 +23,7 @@ export function parseLanArguments(args) {
     const name=names[rest[i]], value=rest[i+1];
     if (!name || !value || value.startsWith('--')) throw new Error('Each option needs a value: --address, --port, --app-port, --enroll-port, --name.');
     if (name==='address') options.address=value;
-    else if(name==='warehouseName'){if(!value.trim()||value.length>80||/[\r\n\0]/.test(value))throw new Error('Use a warehouse name of 1–80 characters.');options.warehouseName=value.trim();}
+    else if(name==='warehouseName'){if(!value.trim()||value.length>80||/[\r\n\0]/.test(value))throw new Error('Use a shed name of 1–80 characters.');options.warehouseName=value.trim();}
     else {
       if (!/^\d+$/.test(value) || Number(value)<1 || Number(value)>65535) throw new Error('Ports must be whole numbers from 1 to 65535.');
       options[name]=Number(value);
@@ -36,7 +36,7 @@ export function parseLanArguments(args) {
 }
 
 export function lanNetwork(address, interfaces) {
-  if (!privateIPv4(address)) throw new Error('Only a private IPv4 address can be used for warehouse access.');
+  if (!privateIPv4(address)) throw new Error('Only a private IPv4 address can be used for shed access.');
   const matches=Object.entries(interfaces).flatMap(([name,rows])=>(rows||[]).filter(row=>row.address===address&&!row.internal&&row.family==='IPv4').map(row=>({name,...row})));
   if (matches.length!==1) throw new Error('This address is not assigned to one Pi network interface. Check hostname -I and reserve the address in the router.');
   const row=matches[0], mask=row.netmask.split('.').map(Number);
@@ -78,7 +78,7 @@ https://${address}:${port} {
         reverse_proxy 127.0.0.1:${appPort}
     }
     handle {
-        respond "Connect to the warehouse Wi-Fi to open LightGuide." 403
+        respond "Connect to the shed Wi-Fi to open LightGuide." 403
     }
 }
 ${enrollment}`;
@@ -87,7 +87,7 @@ ${enrollment}`;
 export function renderLanUnit() {
   return `${MANAGED_MARKER}
 [Unit]
-Description=LightGuide warehouse HTTPS access
+Description=LightGuide shed HTTPS access
 Wants=network-online.target
 After=network-online.target ${APP_SERVICE}
 
@@ -153,7 +153,7 @@ http://${address}:${enrollPort} {
   file_server
  }
  handle {
-  respond "Connect to the warehouse Wi-Fi." 403
+  respond "Connect to the shed Wi-Fi." 403
  }
 }
 `;

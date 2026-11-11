@@ -8,7 +8,7 @@ export function runtimeReadiness(request,response,url,{enabled,secret,getDb}){
   if(request.method!=='GET'||!local||!/^[a-f0-9]{64}$/.test(given)||!timingSafeEqual(Buffer.from(given),Buffer.from(expected))){response.writeHead(404,{'Cache-Control':'no-store'});response.end();return true;}
   try{
     const row=getDb().prepare("SELECT value FROM app_metadata WHERE key='dataset_generation'").get();
-    if(!row?.value)throw new Error('Warehouse not ready');
+    if(!row?.value)throw new Error('Shed not ready');
     response.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});response.end(JSON.stringify({ready:true,service:'lytguide-runtime-v1'}));
   }catch{response.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});response.end(JSON.stringify({ready:false}));}
   return true;

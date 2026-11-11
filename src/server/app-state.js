@@ -13,6 +13,7 @@ import { createAdminService } from "../services/admin.js";
 import { createAnomalyService } from "../services/anomalies.js";
 import { createBackupService } from "../services/backups.js";
 import {createWarehouseExcelService} from '../modules/excel/service.js';
+import {createBusinessImportService} from '../modules/imports/service.js';
 import { createCatalogService } from "../services/catalog.js";
 import { createDatabaseMaintenanceService } from "../services/database-maintenance.js";
 import { createFirmwareService } from "../services/firmware.js";
@@ -187,6 +188,7 @@ function buildAppState() {
 
   return {
     warehouseExcelService:createWarehouseExcelService({db,locationSetupService,stocktakingService,backupService}),
+    businessImportService:createBusinessImportService({db,operationsService,stocktakingService,backupService}),
     locationSetupService,
     displayCoordinator,
     stocktakingService,

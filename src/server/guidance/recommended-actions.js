@@ -9,16 +9,16 @@ export function recommendationGuidanceTask(form = {}) {
 export function recommendationGuidanceLines(cells, { sourceCellId, targetCellId, quantity }) {
   const moveQuantity = Number(quantity);
   if (!Number.isFinite(moveQuantity) || moveQuantity <= 0) {
-    throw new Error("Move quantity must be greater than zero before lighting cells.");
+    throw new Error("Move quantity must be greater than zero before lighting bins.");
   }
 
   const sourceCell = cells.find((entry) => entry.id === Number(sourceCellId));
   const targetCell = cells.find((entry) => entry.id === Number(targetCellId));
   if (!sourceCell) {
-    throw new Error("Source cell was not found.");
+    throw new Error("Source bin was not found.");
   }
   if (!targetCell) {
-    throw new Error("Choose a target cell before sending the light signal.");
+    throw new Error("Choose a target bin before sending the light signal.");
   }
 
   return [

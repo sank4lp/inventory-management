@@ -20,7 +20,7 @@ if(dialog){
    const response=await fetch('/api/work/cellHistory?'+new URLSearchParams({cellId:cell,page}),{headers:{Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(15000)}),data=await response.json();
    if(request!==read||!dialog.open||cell!==cellId)return;
    if(!response.ok)throw new Error(data.error||'History could not be loaded. Try again.');
-   if(String(data.actorId)!==dialog.dataset.actor||data.site!==dialog.dataset.site||data.dataset!==dialog.dataset.dataset)throw new Error('Account or warehouse changed. Reload this page.');
+   if(String(data.actorId)!==dialog.dataset.actor||data.site!==dialog.dataset.site||data.dataset!==dialog.dataset.dataset)throw new Error('Account or shed changed. Reload this page.');
    content.innerHTML=cellHistoryContent(data);
   }catch(error){if(request===read&&dialog.open)content.innerHTML='<p class="work-callout warning">'+escape(error.message)+'</p><button type="button" class="secondary" data-cell-history-page="'+page+'">Retry</button>';}
   finally{if(request===read)content.removeAttribute('aria-busy');}

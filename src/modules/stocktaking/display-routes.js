@@ -9,7 +9,7 @@ export function displayRoutes(request,response,url,user,state) {
    if(!ensureApiAuth(response,user))return true;const i=request.parsedForm;
    if(url.pathname.endsWith('/stop')){sendJson(response,d.stop(user,i.displayId));return true;}
    const selectors=['cellId','shelfId','warehouseId'].filter(key=>i[key]!==undefined);
-   if(selectors.length>1||selectors.some(key=>!Number.isSafeInteger(Number(i[key]))||Number(i[key])<1))throw new Error('Choose one valid cell, shed/shelf or warehouse.');
+   if(selectors.length>1||selectors.some(key=>!Number.isSafeInteger(Number(i[key]))||Number(i[key])<1))throw new Error('Choose one valid bin, rack or shed.');
    const kind=i.displayKind||i.kind;
    const scope={kind:['locate','ping','module_number','cell_name'].includes(kind)?kind:displayKind(kind),...Object.fromEntries(selectors.map(key=>[key,Number(i[key])])),...(i.productId?{productId:Number(i.productId)}:{}),...(i.overrideWork==='1'?{overrideWork:true}:{})};
    const result=d.start(user,scope,{requestId:i.requestId,promptOnBusy:i.promptOnBusy==='1',confirmOverride:i.confirmOverride==='1',previewOnly:i.previewOnly==='1'});

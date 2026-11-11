@@ -40,7 +40,7 @@ export function createDesktop({runtime=electron,readWorkUrl=()=>readFileSync(joi
       event.preventDefault();
       let work;try{work=desktopTarget(readWorkUrl());}catch{}
       if(origin==='http://localhost:3311'&&work&&originMatches(url,work.origin)&&new URL(url).pathname==='/work'){
-        if(isPending()){void message(win,{type:'info',title:'Finish Setup',message:'Finish Setup before opening the warehouse.'});return;}
+        if(isPending()){void message(win,{type:'info',title:'Finish Setup',message:'Finish Setup before opening the shed.'});return;}
         void openWork().then(()=>{if(!win.isDestroyed())win.close();});return;
       }
       void outside(url);
@@ -53,8 +53,8 @@ export function createDesktop({runtime=electron,readWorkUrl=()=>readFileSync(joi
       // Reports, printing and existing task links retain their separate windows.
       const child=makeWindow({partition,origin,title:'LytGuide',parent:win});void child.loadURL(url);return {action:'deny'};
     });
-    win.webContents.on('will-prevent-unload',event=>{const choice=askSync?askSync(win):dialog.showMessageBoxSync(win,{type:'question',title:'Unsaved changes',message:'Leave without saving?',detail:'Unsaved changes will be discarded. Recorded warehouse work stays saved.',buttons:['Stay','Leave'],defaultId:0,cancelId:0});if(choice===1)event.preventDefault();});
-    win.webContents.on('render-process-gone',async()=>{if(win.isDestroyed())return;const choice=await message(win,{type:'error',title:'LytGuide',message:'This window stopped responding.',detail:'Your recorded warehouse work stays saved.',buttons:['Reload','Close'],cancelId:1});if(win.isDestroyed())return;if(choice.response===0)win.webContents.reload();else win.close();});
+    win.webContents.on('will-prevent-unload',event=>{const choice=askSync?askSync(win):dialog.showMessageBoxSync(win,{type:'question',title:'Unsaved changes',message:'Leave without saving?',detail:'Unsaved changes will be discarded. Recorded shed work stays saved.',buttons:['Stay','Leave'],defaultId:0,cancelId:0});if(choice===1)event.preventDefault();});
+    win.webContents.on('render-process-gone',async()=>{if(win.isDestroyed())return;const choice=await message(win,{type:'error',title:'LytGuide',message:'This window stopped responding.',detail:'Your recorded shed work stays saved.',buttons:['Reload','Close'],cancelId:1});if(win.isDestroyed())return;if(choice.response===0)win.webContents.reload();else win.close();});
     return win;
   }
   async function showSetup({resume=false}={}){
@@ -66,11 +66,11 @@ export function createDesktop({runtime=electron,readWorkUrl=()=>readFileSync(joi
       const response=await request(target.origin+'/setup-api/unlock',{method:'POST',headers:{Origin:target.origin,'Content-Type':'application/json'},body:JSON.stringify({token:target.hash.slice(1)}),signal:AbortSignal.timeout(10000)});
       const result=await response.json();if(!response.ok)throw new Error(result.error||'Setup could not be opened.');
       const cookie=response.headers.get('set-cookie')?.match(/(?:^|;\s*)lytguide_setup=([a-f0-9]{64})/);
-      if(!cookie)throw new Error('Setup did not return its authorisation. Reopen Warehouse Setup.');
+      if(!cookie)throw new Error('Setup did not return its authorisation. Reopen Shed Setup.');
       await ses.cookies.set({url:target.origin,name:'lytguide_setup',value:cookie[1],httpOnly:true,sameSite:'strict',path:'/',expirationDate:Date.now()/1000+1800});
-      win=makeWindow({partition,origin:target.origin,title:'LytGuide Warehouse Setup'});const previous=setupWindow;setupWindow=win;
+      win=makeWindow({partition,origin:target.origin,title:'LytGuide Shed Setup'});const previous=setupWindow;setupWindow=win;
       await win.loadURL(target.origin+'/');if(previous&&!previous.isDestroyed())previous.close();
-    }catch(error){if(win&&!win.isDestroyed())win.close();await message(setupWindow||workWindow,{type:'error',title:'Warehouse Setup',message:'Setup could not open.',detail:error.message});if(!windows.size)app.quit();}
+    }catch(error){if(win&&!win.isDestroyed())win.close();await message(setupWindow||workWindow,{type:'error',title:'Shed Setup',message:'Setup could not open.',detail:error.message});if(!windows.size)app.quit();}
     finally{startingSetup=false;}
   }
   async function openWork(){
@@ -89,14 +89,14 @@ export function createDesktop({runtime=electron,readWorkUrl=()=>readFileSync(joi
         }
         if(win.isDestroyed())return;
         if(ready){try{await win.loadURL(target.href);return;}catch{}}
-        const result=await message(win,{type:'warning',title:'LytGuide',message:'The warehouse service is not responding.',detail:'Try again, or open Warehouse Setup to check this Pi.',buttons:['Try again','Warehouse Setup','Close'],defaultId:0,cancelId:2});
+        const result=await message(win,{type:'warning',title:'LytGuide',message:'The shed service is not responding.',detail:'Try again, or open Shed Setup to check this Pi.',buttons:['Try again','Shed Setup','Close'],defaultId:0,cancelId:2});
         if(result.response===1){await showSetup({resume:true});win.close();return;}if(result.response===2){win.close();return;}
       }
     })();try{await workStarting;}finally{workStarting=null;}
   }
   function menu(){Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform==='darwin'?[{label:'LytGuide',submenu:[{role:'about'},{type:'separator'},{role:'quit'}]}]:[]),
-    {label:'File',submenu:[{label:'Warehouse Setup…',click:()=>void showSetup()},{type:'separator'},{role:'close'},...(process.platform==='darwin'?[]:[{role:'quit'}])]},
+    {label:'File',submenu:[{label:'Shed Setup…',click:()=>void showSetup()},{type:'separator'},{role:'close'},...(process.platform==='darwin'?[]:[{role:'quit'}])]},
     {label:'Edit',submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'}]},
     {label:'View',submenu:[{label:'Back',accelerator:'Alt+Left',click:()=>{const history=BrowserWindow.getFocusedWindow()?.webContents.navigationHistory;if(history?.canGoBack())history.goBack();}},{label:'Forward',accelerator:'Alt+Right',click:()=>{const history=BrowserWindow.getFocusedWindow()?.webContents.navigationHistory;if(history?.canGoForward())history.goForward();}},{type:'separator'},{role:'reload'},{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'},{role:'togglefullscreen'}]},
     {label:'Window',submenu:[{role:'minimize'},{role:'zoom'}]},

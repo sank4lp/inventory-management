@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run only inside a disposable ARM64 Linux container, with network disabled.
 set -eu
-if [ -z "${LYTGUIDE_DISPOSABLE_CONTAINER:-}" ]; then echo "Use the isolated release-check container, never a warehouse Pi." >&2; exit 1; fi
+if [ -z "${LYTGUIDE_DISPOSABLE_CONTAINER:-}" ]; then echo "Use the isolated release-check container, never a shed Pi." >&2; exit 1; fi
 package=${1:?Supply the test .deb}
 dpkg -i "$package"
 printf '%s\n' package-test-password | lytguide-test setup --no-start --admin qa --password-stdin

@@ -30,11 +30,11 @@ export async function connectWifi(run,input,{directory='/etc/NetworkManager/syst
   writeFileSync(path,wifiKeyfile({...input,uuid,security:/WPA3/.test(security)&&!/WPA2/.test(security)?'sae':'wpa-psk'}),{flag:'wx',mode:0o600});
   try {
     run('nmcli',['connection','load',path]);run('nmcli',['--wait','60','connection','up','uuid',uuid],{timeout:75000});
-    const result=currentNetwork(run);if(!result.addresses.some(row=>row.name===device.device))throw new Error('Wi-Fi connected without a warehouse IP address. Check the router DHCP settings.');
+    const result=currentNetwork(run);if(!result.addresses.some(row=>row.name===device.device))throw new Error('Wi-Fi connected without a shed IP address. Check the router DHCP settings.');
     return result;
   }catch(error){
     try{run('nmcli',['connection','delete','uuid',uuid]);}catch{}if(existsSync(path))rmSync(path);
     if(/^[a-fA-F0-9-]{36}$/.test(previous))try{run('nmcli',['--wait','30','connection','up','uuid',previous],{timeout:45000});}catch{}
-    throw new Error('Could not connect to warehouse Wi-Fi. Check its name/password and router. '+(error.message.includes('DHCP')?error.message:''));
+    throw new Error('Could not connect to shed Wi-Fi. Check its name/password and router. '+(error.message.includes('DHCP')?error.message:''));
   }
 }

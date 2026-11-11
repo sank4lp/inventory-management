@@ -70,6 +70,6 @@ ln -s "$release" "$root/.candidate-$$"
 mv -Tf "$root/.candidate-$$" "$root/candidate"
 if [ ! -e "$root/current" ]; then ln -s "$release" "$root/current"; fi
 if [ -d /run/systemd/system ]; then systemctl daemon-reload; fi
-echo "LytGuide installed. Open LytGuide Warehouse Setup from the Pi application menu."
+echo "LytGuide installed. Open LytGuide Shed Setup from the Pi application menu."
 echo "For an existing test installation, run: sudo lytguide-test update"
-echo "Your existing inventory-management service and warehouse data were not changed."
+echo "Your existing inventory-management service and shed data were not changed."

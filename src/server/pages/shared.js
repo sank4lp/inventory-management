@@ -200,7 +200,7 @@ export function cellPickerField(
     options: cells.map((cell) => {
       const contents = cell.inventory_summary
         ? truncateText(cell.inventory_summary, 54)
-        : "Empty cell";
+        : "Empty bin";
       const occupiedLabel = `${formatQuantity(cell.occupied_quantity)} occupied`;
       const searchText = `${cell.logical_code} ${cell.inventory_summary || ""}`.toLowerCase();
 
@@ -223,9 +223,9 @@ export function cellPickerField(
     fieldPrefix,
     hiddenName,
     selectedLabel,
-    placeholder: "Type cell code",
+    placeholder: "Type bin code",
     toggleLabel: "Search",
-    requiredMessage: "Choose a cell from the list.",
+    requiredMessage: "Choose a bin from the list.",
     formId,
     compact: true,
   });

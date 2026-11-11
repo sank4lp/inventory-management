@@ -6,8 +6,10 @@ import { migrateOperations } from "./modules/operations/schema.js";
 import { migrateStocktaking } from "./modules/stocktaking/schema.js";
 import {migrateLocationHierarchy} from './modules/locations/hierarchy.js';
 import {migratePhaseTwo} from './modules/stocktaking/phase-two-schema.js';
+import {migrateBusinessImports} from './modules/imports/catalog.js';
+import {migrateBusinessReports} from './modules/reports/data.js';
 
-export const APP_SCHEMA_VERSION = "10";
+export const APP_SCHEMA_VERSION = "14";
 
 const CORE_PRODUCT_FIELD_DEFINITIONS = [
   {
@@ -216,7 +218,7 @@ function seedUsers(db, authHelpers) {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
     ).run(
-      "Warehouse Operator",
+      "Shed Operator",
       "operator",
       hashPassword("operator123"),
       "operator",
@@ -1137,6 +1139,8 @@ export function createDatabase(authHelpers) {
   }
   migrateOperations(db);
   migrateStocktaking(db);
+  migrateBusinessImports(db);
+  migrateBusinessReports(db);
   migratePhaseTwo(db);
   migrateLocationHierarchy(db);
   migrateAccess(db);

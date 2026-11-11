@@ -21,7 +21,7 @@ test('counting keeps physical totals primary and optional time unknown unless ex
  ui.context.run.attempts[0].baseline.products=[];assert.match(ui.run('countForm(run,item)'),/name="emptyConfirmed"/);
 });
 test('schedule uses warehouse timezone and only enables cadence-relevant interval with stable calendar anchors',()=>{
- const ui=countUI();assert.match(ui.run('schedule()'),/Warehouse time: Europe\/London/);
+ const ui=countUI();assert.match(ui.run('schedule()'),/Shed time: Europe\/London/);
  const fields={frequency:{value:'weekly'},intervalDays:{value:'10'},nextDue:{value:'2026-10-31'},timezone:{value:'Europe/London'}};
  const nodes=Object.fromEntries(['[data-custom-interval]','[data-timezone-summary]','[data-next-date]'].map(k=>[k,{}]));ui.context.fixtureForm={elements:fields,querySelector:s=>nodes[s]};
  ui.run('scheduleFields(fixtureForm)');assert.equal(nodes['[data-custom-interval]'].hidden,true);assert.equal(fields.intervalDays.disabled,true);assert.match(nodes['[data-next-date]'].textContent,/2026-11-07/);
@@ -53,7 +53,7 @@ test('stocktake locations stay hidden until searched, with partial name and area
 });
 test('a paused stocktake shows its summary and Resume without automatically starting from its list link',()=>{
  const ui=countUI();ui.run(`snapshot.conditions=[];snapshot.runs=[{id:7,title:'Main warehouse',status:'in_progress',started_at:'2026-10-13T09:00:00Z',paused_at:'2026-10-13T10:00:00Z',completed:1,total:2,scopeChanges:[],items:[{id:1,cell_id:1,state:'counted',assignee_id:1,description:{name:'A'}},{id:2,cell_id:2,state:'pending',assignee_id:1,description:{name:'B'}}]}]`);
- const html=ui.run('runView(snapshot.runs[0])');assert.match(html,/>Paused</);assert.match(html,/data-start-run/);assert.match(html,/1\/2 cells done/);assert.match(html,/data-scan-stocktake disabled/);assert.doesNotMatch(html,/Start counting|data-count-action="observe"/);
+ const html=ui.run('runView(snapshot.runs[0])');assert.match(html,/>Paused</);assert.match(html,/data-start-run/);assert.match(html,/1\/2 bins done/);assert.match(html,/data-scan-stocktake disabled/);assert.doesNotMatch(html,/Start counting|data-count-action="observe"/);
  assert.equal(ui.run('stocktakeLink(snapshot.runs[0])'),'/stocktaking?run=7');assert.match(ui.run('landing()'),/href="\/stocktaking\?run=7">Resume/);
 });
 test('searching stocktake product locations preserves hidden selections and warehouse eligibility',()=>{

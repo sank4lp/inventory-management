@@ -58,7 +58,7 @@ if(process.argv[2]==='produce') {
   assert.equal((await fetch(base+'/api/work/snapshot',{headers:{Connection:'close',Cookie:expected.cookie}})).status,401);
   await login();
   const snapshot=await (await fetch(base+'/api/work/snapshot',{headers:{Connection:'close',Cookie:cookie}})).json();assert.equal(snapshot.tasks.find(t=>t.id===expected.taskId).outcome,'needs_review');
-  console.log('PASS restored original warehouse, archived history and accounts; old sessions rejected and unfinished task is reviewable through the API.');
+  console.log('PASS restored original shed, archived history and accounts; old sessions rejected and unfinished task is reviewable through the API.');
   const product=query('SELECT * FROM products WHERE id=?',expected.productId)[0];
   await command('recordMovement',{productId:product.id,unit:product.unit_of_measure,confirmed:true,rows:[{direction:'put',cellId:expected.cellId,quantity:1}]});
   run('lytguide-test',['stop']);
@@ -66,7 +66,7 @@ if(process.argv[2]==='produce') {
   writeFileSync('/tmp/lytguide-service-check/fail-next-app-start','1');
   assert.throws(()=>run('lytguide-test',['restore','--file','/tmp/warehouse-transfer.lytbackup','--confirm','RESTORE']));
   assert.equal(query('SELECT SUM(available_quantity) n FROM inventory_balances')[0].n,2);assert.equal(digest('/etc/lytguide-test/config.json'),healthyConfig);assert.equal(existsSync(state+'/restore-in-progress.json'),false);
-  console.log('PASS failed activation retains the replacement warehouse stock and configuration.');
+  console.log('PASS failed activation retains the replacement shed stock and configuration.');
   // Model power disappearing after old data was moved aside but before commit.
   const folder=state+'/recovery/pre-restore-'+randomUUID();mkdirSync(folder,{mode:0o700});
   const names=['config.json','runtime.env','desktop-url'];for(const name of names)copyFileSync('/etc/lytguide-test/'+name,folder+'/'+name);

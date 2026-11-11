@@ -1,7 +1,7 @@
 export async function parseForm(request) {
   if (request.parsedForm) return request.parsedForm;
   const chunks = []; let size = 0;
-  const limit=request.url?.split('?')[0]==='/api/warehouse-excel/upload'?9*1024*1024:1024*1024;
+  const limit=['/api/warehouse-excel/upload','/api/business-import/upload'].includes(request.url?.split('?')[0])?9*1024*1024:1024*1024;
   for await (const chunk of request) {
     size += chunk.length;
     if (size > limit) throw new Error("Request too large.");

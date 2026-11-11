@@ -274,8 +274,8 @@ test('warehouse identity is enforced for fresh and replayed receipts',async()=>{
  const {db,w,op,p,cells}=await fixture();const input={requestId:randomUUID(),site:w.identity().site,direction:'put',productId:p.id,cellId:cells[0].id,quantity:1,origin:'warehouse-check'};
  w.command(op,'manual',input);
  db.prepare("UPDATE app_metadata SET value='different-warehouse' WHERE key='warehouse_identity'").run();
- assert.throws(()=>w.command(op,'manual',input),/another warehouse/);
- assert.throws(()=>w.command(op,'manual',{...input,requestId:randomUUID()}),/another warehouse/);
+ assert.throws(()=>w.command(op,'manual',input),/another shed/);
+ assert.throws(()=>w.command(op,'manual',{...input,requestId:randomUUID()}),/another shed/);
  assert.equal(db.prepare('SELECT COUNT(*) n FROM work_reports').get().n,1);db.close();
 });
 

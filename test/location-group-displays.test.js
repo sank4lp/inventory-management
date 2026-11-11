@@ -80,7 +80,7 @@ test('invalid or conflicting group selectors never fall back to displaying the w
 test('unsupported names are skipped with an explanation rather than shortened or replaced with LOC',t=>{
  const f=fixture(t);f.db.prepare('UPDATE cells SET display_name=? WHERE id=?').run('A'.repeat(56),f.cells[0].id);
  const shown=f.api({displayKind:'cell_name',shelfId:String(f.shed)});
- assert.equal(shown.targets.find(r=>r.cellId===f.cells[0].id).status,'unsupported');assert.match(shown.message,/1 cell\(s\) were skipped/);
+ assert.equal(shown.targets.find(r=>r.cellId===f.cells[0].id).status,'unsupported');assert.match(shown.message,/1 bin\(s\) were skipped/);
  assert.equal(f.writes.length,1);assert.ok(f.writes[0].includes('Beta bin'));assert.ok(!f.writes[0].includes('LOC'));
  f.display.stop(f.admin,shown.id);f.db.prepare('UPDATE cells SET display_name=? WHERE id=?').run('Cell "quoted"',f.cells[1].id);
  const none=f.api({displayKind:'cell_name',shelfId:String(f.shed)});assert.ok(none.targets.every(r=>r.status==='unsupported'));assert.match(none.message,/55 English/);
@@ -112,8 +112,8 @@ test('group displays preserve active stocktake lights even when task override is
 
 test('the rendered page has scoped group controls, with LED-number access following existing hardware permission',t=>{
  const f=fixture(t),render=actor=>{let html;const response={writeHead(){},end(body){html=body;}};locationBrowseRoutes({method:'GET'},response,new URL('http://localhost/cells'),actor,{db:f.db,operationsService:f.work,displayCoordinator:f.display});return html;};
- const admin=render(f.admin);assert.match(admin,/Show cell names/);assert.match(admin,/Show LED numbers/);assert.match(admin,/Show quantities/);assert.match(admin,new RegExp(`data-warehouse-id="${f.east}"`));assert.match(admin,new RegExp(`data-shelf-id="${f.shed}"`));
- const operator=render(f.op);assert.match(operator,/Show cell names/);assert.match(operator,/Show quantities/);assert.doesNotMatch(operator,/Show LED numbers/);
+ const admin=render(f.admin);assert.match(admin,/Show bin names/);assert.match(admin,/Show LED numbers/);assert.match(admin,/Show quantities/);assert.match(admin,new RegExp(`data-warehouse-id="${f.east}"`));assert.match(admin,new RegExp(`data-shelf-id="${f.shed}"`));
+ const operator=render(f.op);assert.match(operator,/Show bin names/);assert.match(operator,/Show quantities/);assert.doesNotMatch(operator,/Show LED numbers/);
 });
 
 

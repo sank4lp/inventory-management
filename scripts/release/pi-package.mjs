@@ -23,8 +23,8 @@ export function validateTestConfig(value) {
   if(!/^[a-f0-9]{64}$/.test(config.sessionSecret||''))throw new Error('A per-installation session secret is required.');
   if(!/^[A-Za-z0-9-]{1,100}$/.test(config.siteId||''))throw new Error('Invalid test site identity.');
   if(config.recoveryDirectory!=null&&!['/boot/firmware/LYTGUIDE-RECOVERY','/boot/LYTGUIDE-RECOVERY'].includes(config.recoveryDirectory))throw new Error('Invalid SD-card recovery folder.');
-  if(config.blankWarehouse!=null&&typeof config.blankWarehouse!=='boolean')throw new Error('Invalid warehouse mode.');
-  if(config.warehouseName!=null&&(typeof config.warehouseName!=='string'||!config.warehouseName.trim()||config.warehouseName.length>80||/[\r\n\0]/.test(config.warehouseName)))throw new Error('Use a warehouse name of 1–80 characters.');
+  if(config.blankWarehouse!=null&&typeof config.blankWarehouse!=='boolean')throw new Error('Invalid shed mode.');
+  if(config.warehouseName!=null&&(typeof config.warehouseName!=='string'||!config.warehouseName.trim()||config.warehouseName.length>80||/[\r\n\0]/.test(config.warehouseName)))throw new Error('Use a shed name of 1–80 characters.');
   if(config.enrollPort!=null&&(!Number.isInteger(config.enrollPort)||config.enrollPort<1024||config.enrollPort>65535||[config.appPort,config.httpsPort].includes(config.enrollPort)))throw new Error('Choose a separate certificate-download port from 1024–65535.');
   return config;
 }

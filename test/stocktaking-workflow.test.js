@@ -171,7 +171,7 @@ test('combined work filters and pagination retain stocktake scope without collid
   assert.equal(first.taskPage.total,23);assert.equal(first.tasks.length,20);assert.equal(second.tasks.length,3);assert.equal(new Set([...first.tasks,...second.tasks].map(t=>t.id)).size,23);
   assert.ok(first.tasks.some(t=>t.id===pick.taskId&&t.type==='pick'));assert.ok(first.tasks.some(t=>t.id===-runs[0]&&t.work_kind==='stocktake'));
   assert.deepEqual(page({taskSearch:runs[0]+' stocktake',taskSearchExact:'1'}).tasks.map(t=>t.stocktake_id),[runs[0]]);
-  assert.equal(page({productSearch:'Warehouse stock check',productSearchExact:'1'}).taskPage.total,22);assert.equal(page({reviewOnly:'1'}).taskPage.total,0);
+  assert.equal(page({productSearch:'Shed stock check',productSearchExact:'1'}).taskPage.total,22);assert.equal(page({reviewOnly:'1'}).taskPage.total,0);
   assert.equal(f.work.snapshot(f.op,{view:'history'}).tasks.some(t=>t.work_kind==='stocktake'),false,'Pick/Put history commands remain separate');
   f.cmd(f.admin,'assignAreas',{runId:runs[0],assignments:[{mode:'selected',cellIds:[f.cells[1].id],counterIds:[f.admin.id]}]});assert.equal(page({taskSearch:runs[0]+' stocktake',taskSearchExact:'1'}).taskPage.total,0);
   assert.throws(()=>f.cmd(f.op,'join',{runId:runs[0],sessionId:randomUUID()}),/another counter|No remaining/);

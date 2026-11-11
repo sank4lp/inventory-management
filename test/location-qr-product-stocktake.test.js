@@ -47,7 +47,7 @@ test('customer QR is opaque, unique, replaceable, permission protected and prese
  f.assign(f.current(c.id),'CUSTOM-SECOND-QR');assert.equal(resolveLocationLabel(f.db,f.work.identity().site,qr),null);
  assert.throws(()=>f.assign(other,qr),/replaced/);
  assert.throws(()=>f.assign(other,'bad\ncode'),/readable/);
- assert.throws(()=>f.assign(other,'lytguide:another-site:x:1'),/another warehouse/);
+ assert.throws(()=>f.assign(other,'lytguide:another-site:x:1'),/another shed/);
  assert.deepEqual(f.db.prepare('SELECT * FROM inventory_balances').all(),balances);
  f.db.close();
 });
@@ -181,6 +181,6 @@ test('QR source repair waits for active counting and active task work rather tha
   assert.throws(()=>f.sc('repairQrReassignment',f.repair),/Finish or pause counting/);
   const item=f.count.snapshot(f.op).runs.find(r=>r.id===run).items[0];f.cc('pause',{itemId:item.id,generation:item.generation});
   const target=f.current(f.target.id),made=f.work.command(f.op,'create',{requestId:randomUUID(),direction:'pick',quantity:1,productId:f.products[0].id,preferredCellId:target.id});
-  assert.throws(()=>f.sc('repairQrReassignment',f.repair),/outstanding warehouse work/);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A').id,f.source.id);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM location_qr_reassignments').get().n,0);
+  assert.throws(()=>f.sc('repairQrReassignment',f.repair),/outstanding shed work/);assert.equal(resolveLocationLabel(f.db,f.work.identity().site,'QR-A').id,f.source.id);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM location_qr_reassignments').get().n,0);
  }finally{f.db.close();}
 });

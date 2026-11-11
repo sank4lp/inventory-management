@@ -106,9 +106,9 @@ export function createHomePages({ db }) {
             ${overviewActionIcon("reports")}
             <span class="overview-action-label">Reports</span>
           </a>
-          <a class="overview-action-tile overview-action-optimize" href="/recommended-actions" aria-label="Optimize Warehouse">
+          <a class="overview-action-tile overview-action-optimize" href="/recommended-actions" aria-label="Optimize Shed">
             ${overviewActionIcon("optimize")}
-            <span class="overview-action-label">Optimize Warehouse</span>
+            <span class="overview-action-label">Optimize Shed</span>
           </a>
         </section>
         <section class="overview-secondary-grid overview-recent-grid">

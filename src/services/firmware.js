@@ -432,7 +432,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
       const key=`firmware_job:${owner.id}`,saved=parseMetadata(db.prepare('SELECT value FROM app_metadata WHERE key=?').get(key)?.value);
       if(saved?.status==='running'){
         saved.status='failed';saved.stage='interrupted';saved.finishedAt=nowIso();saved.error='Controller maintenance was interrupted. Reconnect the same ESP32 and retry this controller.';
-        saved.recoveryHint='The warehouse mappings were kept. An upload that was not verified must be retried before using this controller.';
+        saved.recoveryHint='The shed mappings were kept. An upload that was not verified must be retried before using this controller.';
         db.prepare('UPDATE app_metadata SET value=?,updated_at=? WHERE key=?').run(JSON.stringify(saved),nowIso(),key);
       }
       for(const pending of db.prepare("SELECT key,value FROM app_metadata WHERE key LIKE 'controller_replacement_pending:%'").all()){
@@ -563,7 +563,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
           try {await session.exchange(command,r=>r.type==='ack' && r.command==='configure' && r.address?.toUpperCase()===job.controllerAddress.toUpperCase() && r.request===requestId);}catch(error){appendLog(job,`Restore confirmation missing; checking the full configuration: ${error.message}`);}
           actual=await readUsbConfiguration(session,job.controllerAddress);
         }
-        if(actual.physicalCount!==desired.physicalCount || JSON.stringify(actual.routing)!==JSON.stringify(desired.routing))throw new Error('Replacement routing could not be verified. Existing cell mappings were preserved.');
+        if(actual.physicalCount!==desired.physicalCount || JSON.stringify(actual.routing)!==JSON.stringify(desired.routing))throw new Error('Replacement routing could not be verified. Existing bin mappings were preserved.');
       } else if(job.freshSetup) {
         const routing=Array.from({length:64},(_,i)=>i<job.moduleCount?i+1:0);
         if(actual.fault || actual.physicalCount!==job.moduleCount || JSON.stringify(actual.routing)!==JSON.stringify(routing)) {
@@ -633,7 +633,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
     job.controllerAddress = controller.address;
     job.deviceName = controller.controller_code;
     job.mappingSummary = controller.mappingSummary || null;
-    job.verificationHint = job.preserveExistingWork ? "Firmware and the saved LED order verified. Existing tasks, locations and stock are unchanged. Reconnect the same LED/RS485 wiring; task lights resume when the controller reconnects." : job.replacement ? "Replacement firmware and routing verified over USB. Cell mappings are unchanged. Disconnect USB, reconnect the same LED/RS485 wiring, then Ping the controller to check the connection." :
+    job.verificationHint = job.preserveExistingWork ? "Firmware and the saved LED order verified. Existing tasks, locations and stock are unchanged. Reconnect the same LED/RS485 wiring; task lights resume when the controller reconnects." : job.replacement ? "Replacement firmware and routing verified over USB. Bin mappings are unchanged. Disconnect USB, reconnect the same LED/RS485 wiring, then Ping the controller to check the connection." :
       "Controller firmware and LED setup verified. Reconnect its LED/RS485 wiring, check Controller health, then name and pair locations in Manage Locations.";
     const payload = {
       jobId: job.id,
@@ -738,10 +738,10 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
             // no longer starts. A verified host profile and ROM identity allow
             // reflashing; an unavailable old application is not a dead end.
             if(!/USB confirmation timed out|configuration response|configuration reply|configuration checksum|ESP32 rejected/.test(error.message))throw error;
-            appendLog(job,`The old firmware could not report its LED setup (${error.message}). Restoring the verified warehouse profile after upload.`);
+            appendLog(job,`The old firmware could not report its LED setup (${error.message}). Restoring the verified shed profile after upload.`);
           }
           const desired=job.sourceProfile;
-          if(actual?.fault)appendLog(job,'The ESP32 has a saved-setup fault. Restoring the verified warehouse profile after upload.');
+          if(actual?.fault)appendLog(job,'The ESP32 has a saved-setup fault. Restoring the verified shed profile after upload.');
           else if(actual&&(actual.physicalCount!==desired.physicalCount||JSON.stringify(actual.routing)!==JSON.stringify(desired.routing)))throw new Error('The connected controller LED count or order differs from its saved setup. Review the layout before updating firmware. Existing tasks are kept.');
         }finally{session.close();}
       }
@@ -1005,7 +1005,7 @@ export function createFirmwareService({ db, config = {}, logger, backupService =
         recordSystemEvent({eventType:'controller_profile_saved',status:'info',message:`Replacement backup saved for ${controller.controller_code}.`,payload:{controllerId:controller.id,revision:actual.revision}});
         backupService?.createCriticalBackup?.({source:`controller-profile-${controller.controller_code}`});
         const busMessage=diagnostics?` RS485 port ready: target 115200 baud, reported ${diagnostics.baud}. RX GPIO${diagnostics.rxPin}, TX GPIO${diagnostics.txPin}, direction GPIO${diagnostics.directionPin}. Received ${diagnostics.rxBytes} bytes / ${diagnostics.rxLines} lines; ${diagnostics.pingRequests} ping requests; submitted ${diagnostics.txBytes} bytes for transmission. This does not verify the A/B connection.`:' This firmware does not report RS485 diagnostics. USB setup is verified; the A/B connection is not.';
-        return {message:'Controller setup saved. You can now replace its ESP32 without remapping cells.'+busMessage,profile,diagnostics};
+        return {message:'Controller setup saved. You can now replace its ESP32 without remapping bins.'+busMessage,profile,diagnostics};
       }finally{session?.close();releaseMaintenance(lock,controller.id);}
     },
     startFlashJob(input = {}, actor = null) {

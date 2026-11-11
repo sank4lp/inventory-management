@@ -6,7 +6,7 @@ import {cpSync,existsSync,mkdirSync,readFileSync,readlinkSync,renameSync,symlink
 import {request} from 'node:https';
 import {DatabaseSync} from 'node:sqlite';
 
-assert.ok(process.env.LYTGUIDE_DISPOSABLE_CONTAINER,'Never run against a warehouse installation.');
+assert.ok(process.env.LYTGUIDE_DISPOSABLE_CONTAINER,'Never run against a shed installation.');
 const root='/opt/lytguide-test',config='/etc/lytguide-test/config.json',database='/var/lib/lytguide-test/data/inventory.db';
 const run=(name,args=[])=>execFileSync(name,args,{encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:120000});
 const digest=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
