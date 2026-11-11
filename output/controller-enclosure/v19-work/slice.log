@@ -1,8 +1,0 @@
-[2026-11-05 15:37:17.103905] [0x00000001f27121c0] [trace]   Initializing StaticPrintConfigs
-[2026-11-05 15:37:17.112117] [0x00000001f27121c0] [warning] cli mode, Current BambuStudio Version 02.08.02.61
-[2026-11-05 15:37:17.263429] [0x00000001f27121c0] [warning] no filament colors found in projects
-[2026-11-05 15:37:17.384806] [0x000000016fc53000] [warning] Detected missing Voronoi vertex, input polygons will be rotated back and forth.
-[2026-11-05 15:37:17.394789] [0x000000016fc53000] [warning] Detected missing Voronoi vertex, input polygons will be rotated back and forth.
-[2026-11-05 15:37:18.133105] [0x000000016d7e7000] [error]   ZFiller: encounter idx from clip: 129
-[2026-11-05 15:37:18.167664] [0x00000001f27121c0] [warning] tree support default to organic support
-[2026-11-05 15:37:18.167691] [0x000000016f02f000] [warning] tree support default to organic support

@@ -112,7 +112,7 @@ export function createHomePages({ db }) {
           </a>
         </section>
         <section class="overview-secondary-grid overview-recent-grid">
-          <section id="recent-tasks" class="secondary-panel recent-tasks-panel" data-row-collapser data-row-limit="3" data-row-label="tasks">
+          <section id="recent-tasks" class="secondary-panel recent-tasks-panel">
             <div class="secondary-panel-header">
               <h2>Recent Tasks</h2>
             </div>

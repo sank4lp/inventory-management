@@ -445,6 +445,7 @@
 .locations-browser{--location-ink:#173f34;--location-soft:#eef4f1;}
 .location-page-tools{align-items:end;gap:8px;padding:12px;background:white;border:1px solid var(--work-border);border-radius:12px;}
 .location-page-tools a.green-button{color:#fff;}
+.location-page-tools a.action-cta-button:hover{text-decoration:none;}
 .location-page-tools form.location-search{display:flex;align-items:end;gap:6px;flex:1 1 260px;margin:0;padding:0;border:0;}
 .location-search label{flex:1;min-width:0;font-size:12px;}
 .location-search input{margin:0;width:100%;}

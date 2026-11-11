@@ -105,3 +105,29 @@ test('new Stocktaking form prefills the saved warehouse deadline and keeps its d
  assert.match(ui.run('landing()'),/name="dueDate" type="date" value="2026-11-04"/);assert.doesNotMatch(ui.run('landing()'),/name="dueDate"[^>]*readonly/);
  ui.run("snapshot.defaultDueDate=null");assert.match(ui.run('landing()'),/name="dueDate" type="date" value=""/);
 });
+
+
+test('unstarted and paused stocktakes offer the matching start action and location instruction',()=>{
+ const ui=countUI();ui.run(`online=true;snapshot.conditions=[];snapshot.runs=[{id:7,title:'Main warehouse',status:'pending',started_at:null,paused_at:null,scopeChanges:[],items:[{id:1,cell_id:1,state:'pending',assignee_id:1,description:{name:'A'}}]}]`);
+ let html=ui.run('runView(snapshot.runs[0])');
+ assert.match(html,/data-start-run >Start Stock Take<\/button>/);assert.match(html,/Start Stock Take to count/);assert.match(html,/data-stop-run>Cancel Stock Take<\/button>/);assert.doesNotMatch(html,/>Stop Stock Take<|Start or resume/);
+ assert.equal(ui.run('stocktakeEndAction(snapshot.runs[0]).label'),'Cancel Stock Take');
+ ui.run(`snapshot.runs[0].started_at='2026-11-05T09:00:00Z';snapshot.runs[0].paused_at='2026-11-05T09:10:00Z';snapshot.runs[0].status='in_progress'`);
+ html=ui.run('runView(snapshot.runs[0])');assert.match(html,/data-start-run >Resume Stock Take<\/button>/);assert.match(html,/Resume Stock Take to count/);assert.match(html,/data-stop-run>Stop Stock Take<\/button>/);assert.doesNotMatch(html,/>Cancel Stock Take</);
+});
+test('unassigned managers see the actual counter and assignment option instead of being told to start',()=>{
+ const ui=countUI();ui.run(`online=true;snapshot.conditions=[];snapshot.counters=[{id:2,name:'Rajesh',username:'rajesh'}];snapshot.runs=[{id:7,title:'Shelf count',status:'pending',scopeChanges:[],items:[{id:1,cell_id:1,state:'pending',assignee_id:2,counterIds:[2],counters:[{id:2,name:'Rajesh',username:'rajesh'}],description:{name:'A'}}]}]`);
+ let html=ui.run('runView(snapshot.runs[0])');assert.doesNotMatch(html,/data-start-run|Start or resume to count|Stock Take to count/);assert.match(html,/Assigned to Rajesh · rajesh/);assert.match(html,/Assign areas to counters/);assert.match(html,/data-stop-run>Cancel Stock Take<\/button>/);
+ ui.run(`snapshot.capabilities.count=false;snapshot.runs[0].items[0].assignee_id=1`);
+ html=ui.run('runView(snapshot.runs[0])');assert.doesNotMatch(html,/data-start-run/);assert.match(html,/Assign a counter below/);
+ ui.run(`snapshot.capabilities.count=true;snapshot.capabilities.manage=false`);
+ html=ui.run('runView(snapshot.runs[0])');assert.doesNotMatch(html,/data-stop-run/);
+});
+test('a shared cell owned by another counter does not hide the assigned counter resume action',()=>{
+ const ui=countUI();ui.run(`online=true;snapshot.conditions=[];snapshot.runs=[{id:7,title:'Shared count',status:'in_progress',started_at:'2026-11-05T09:00:00Z',scopeChanges:[],items:[{id:1,cell_id:1,state:'counting',assignee_id:2,counterIds:[1,2],description:{name:'A'},guidance:{ownerId:2,message:'Being counted by Rajesh.'}}]}]`);
+ const html=ui.run('runView(snapshot.runs[0])');assert.match(html,/data-start-run >Resume Stock Take<\/button>/);assert.equal(ui.run('canCount(snapshot.runs[0],snapshot.runs[0].items[0])'),false);assert.equal(ui.run('assignedCount(snapshot.runs[0],snapshot.runs[0].items[0])'),true);
+ ui.run(`presenceSession={active:true}`);
+ const active=ui.run('runView(snapshot.runs[0])');assert.match(active,/data-pause-run/);assert.doesNotMatch(active,/data-start-run|Stock Take to count/);assert.match(active,/Being counted by Rajesh/);
+ ui.run(`snapshot.runs[0].status='completed';snapshot.runs[0].items[0].state='counted';snapshot.runs[0].items[0].assignee_id=2;snapshot.runs[0].items[0].counterIds=[2]`);
+ const complete=ui.run('runView(snapshot.runs[0])');assert.doesNotMatch(complete,/data-start-run|data-stop-run|data-pause-run|Stock Take to count/);
+});

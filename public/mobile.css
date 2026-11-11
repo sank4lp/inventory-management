@@ -346,7 +346,7 @@
   :is(.page-body,dialog,.offline-shell) [data-mobile-control-grid] > label[data-mobile-control-item="fit"] {
     display: flex !important; flex-direction: column; gap: 4px !important; margin-block: 0 !important;
   }
-  :is(.page-body:not(:has(.auth-shell)),dialog,.offline-shell) :is(button,a.mini-link,a.ghost-button,a.green-button,a.action-cta-button,a.work-primary,a.work-secondary):not(.searchable-toggle,.combo-toggle,.icon-button,.dialog-dismiss,.notification-close,.row-collapse-icon-button),
+  :is(.page-body:not(:has(.auth-shell)),dialog,.offline-shell) :is(button,a.mini-link,a.ghost-button,a.green-button,a.action-cta-button,a.work-primary,a.work-secondary):not(.searchable-toggle,.combo-toggle,.icon-button,.dialog-dismiss,.notification-close),
   :is(.page-body:not(:has(.auth-shell)),dialog,.offline-shell) :is(input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=range]):not([type=color]),select) {
     box-sizing: border-box; height: 44px !important; min-height: 44px !important;
   }

@@ -13,11 +13,11 @@ export function uiPanel(title, content, {actions = '', id = ''} = {}) {
 
 // Columns and cell contents stay in the same order on every device. The first
 // column remains visible while the remaining information scrolls on a phone.
-export function uiTable(columns, rows, {label = 'Records', empty = 'No records yet.', rowLimit = null, rowLabel = 'rows'} = {}) {
-  const markup = `<div class="ui-table-scroll${rowLimit ? ' table-wrap' : ''}" data-mobile-table="scroll" role="region" aria-label="${escapeHtml(label)}" tabindex="0">
+export function uiTable(columns, rows, {label = 'Records', empty = 'No records yet.'} = {}) {
+  const markup = `<div class="ui-table-scroll" data-mobile-table="scroll" role="region" aria-label="${escapeHtml(label)}" tabindex="0">
     <table class="ui-table"><thead><tr>${columns.map(column => `<th scope="col" class="ui-col-${escapeHtml(column.key)}">${escapeHtml(column.label)}</th>`).join('')}</tr></thead>
     <tbody>${rows.length ? rows.map(row => `<tr>${row.map((value, index) => `<td class="ui-col-${escapeHtml(columns[index].key)}">${value}</td>`).join('')}</tr>`).join('') : `<tr><td class="ui-empty" colspan="${columns.length}">${escapeHtml(empty)}</td></tr>`}</tbody></table></div>`;
-  return rowLimit ? `<div data-row-collapser data-row-limit="${Math.max(1,Number(rowLimit)||5)}" data-row-label="${escapeHtml(rowLabel)}">${markup}</div>` : markup;
+  return markup;
 }
 
 export function uiFacts(items, label = 'Details') {

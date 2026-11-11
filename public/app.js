@@ -311,11 +311,6 @@ async function updateLiveResults(form) {
   const query = input.value.trim();
   if (!query && !showResultsWhenEmpty) {
     target.innerHTML = emptyHtml;
-    const rowCollapser = target.closest("[data-row-collapser]");
-    if (rowCollapser) {
-      resetRowCollapser(rowCollapser);
-      wireRowCollapsers(rowCollapser);
-    }
     return;
   }
 
@@ -335,11 +330,6 @@ async function updateLiveResults(form) {
 
   target.innerHTML = await response.text();
   syncCatalogProductQuantityButtons();
-  const rowCollapser = target.closest("[data-row-collapser]");
-  if (rowCollapser) {
-    resetRowCollapser(rowCollapser);
-    wireRowCollapsers(rowCollapser);
-  }
 }
 
 function wireLiveSearch() {
@@ -4190,7 +4180,6 @@ function wireConfigurationWorkspace() {
     wireLedCommandForms();
     wireCellMappingForm();
     wireCellDeleteForms();
-    wireRowCollapsers(section);
   };
 
   const loadSection = async (activeKey) => {
@@ -4631,118 +4620,6 @@ function wireCellDeleteForms() {
   });
 }
 
-function resetRowCollapser(section) {
-  section.querySelectorAll("[data-row-collapse-footer]").forEach((footer) => footer.remove());
-  section.querySelectorAll("[data-row-collapse-frame]").forEach((frame) => {
-    const tableWrap = Array.from(frame.children).find((child) => child.classList?.contains("table-wrap"));
-    if (tableWrap) {
-      frame.insertAdjacentElement("beforebegin", tableWrap);
-    }
-    frame.remove();
-  });
-  section.querySelectorAll("tbody tr[hidden]").forEach((row) => {
-    row.hidden = false;
-  });
-  delete section.dataset.rowCollapserBound;
-}
-
-function rowCollapseIcon() {
-  return `
-    <svg class="row-collapse-chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none">
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  `;
-}
-
-function createRowCollapseFrame(tableWrap) {
-  const existingFrame = tableWrap.closest("[data-row-collapse-frame]");
-  if (existingFrame) {
-    return existingFrame;
-  }
-
-  const frame = document.createElement("div");
-  frame.className = "row-collapse-frame";
-  frame.dataset.rowCollapseFrame = "true";
-  tableWrap.insertAdjacentElement("beforebegin", frame);
-  frame.append(tableWrap);
-  return frame;
-}
-
-function wireRowCollapsers(root = document) {
-  const sections = [];
-  if (root instanceof Element && root.matches("[data-row-collapser]")) {
-    sections.push(root);
-  }
-  root.querySelectorAll?.("[data-row-collapser]").forEach((section) => sections.push(section));
-
-  sections.forEach((section) => {
-    if (section.dataset.rowCollapserBound === "true") {
-      return;
-    }
-
-    const tableWrap = section.querySelector(".table-wrap");
-    const tbody = tableWrap?.querySelector("tbody");
-    const rows = Array.from(tbody?.querySelectorAll("tr") || []);
-    const limit = Math.max(1, Number(section.dataset.rowLimit || 4));
-
-    if (!tableWrap || !tbody || rows.length <= limit) {
-      return;
-    }
-    section.dataset.rowCollapserBound = "true";
-
-    const label = section.dataset.rowLabel || "rows";
-    const displayLabel = label.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
-    const iconToggle = section.dataset.rowToggleStyle !== "plain";
-    const footer = document.createElement("div");
-    footer.className = "row-collapse-footer";
-    footer.dataset.rowCollapseFooter = "true";
-    if (iconToggle) {
-      footer.classList.add("row-collapse-footer-glow");
-    }
-
-    const status = document.createElement("span");
-    status.className = "muted row-collapse-status";
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = iconToggle ? "row-collapse-icon-button" : "ghost-button";
-    button.setAttribute("aria-expanded", "false");
-    if (iconToggle) {
-      button.innerHTML = rowCollapseIcon();
-    }
-
-    footer.append(status, button);
-
-    const frame = createRowCollapseFrame(tableWrap);
-    frame.append(footer);
-
-    const render = (expanded) => {
-      rows.forEach((row, index) => {
-        row.hidden = !expanded && index >= limit;
-      });
-      frame.classList.toggle("row-collapse-frame-collapsed", !expanded);
-      frame.classList.toggle("row-collapse-frame-expanded", expanded);
-      if (iconToggle) {
-        footer.classList.toggle("row-collapse-footer-expanded", expanded);
-        button.classList.toggle("row-collapse-icon-button-expanded", expanded);
-        button.setAttribute("aria-label", expanded ? `Show Fewer ${displayLabel}` : `Show More ${displayLabel}`);
-      } else {
-        button.textContent = expanded ? "Show Less" : "Show More";
-      }
-      button.setAttribute("aria-expanded", expanded ? "true" : "false");
-      status.textContent = expanded
-        ? `Showing All ${rows.length} ${displayLabel}`
-        : `Showing ${limit} Of ${rows.length} ${displayLabel}`;
-    };
-
-    button.addEventListener("click", () => {
-      render(button.getAttribute("aria-expanded") !== "true");
-    });
-
-    render(false);
-  });
-}
-
 function mountPage() {
   wireActionScrollRestore();
   wireSystemHealthNotice();
@@ -4778,7 +4655,6 @@ function mountPage() {
   wireConfigurationWorkspace();
   wireCellMappingForm();
   wireCellDeleteForms();
-  wireRowCollapsers();
 }
 if(document.readyState==='loading')onPage(document,'DOMContentLoaded',mountPage);else mountPage();
 

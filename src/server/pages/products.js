@@ -731,8 +731,6 @@ export function createProductPages({ db, productFieldService = null }) {
                   )}
                 </div>
               `,
-              "",
-              `data-row-collapser data-row-limit="8" data-row-label="products"`,
             )}
           </section>
         </section>
@@ -888,8 +886,6 @@ export function createProductPages({ db, productFieldService = null }) {
             ]),
             "This product is not stored in any location yet. Use Put to place stock.",
           ),
-          "",
-          `data-row-collapser data-row-limit="4" data-row-label="cells"`,
         )}
         ${renderCapacityRecommendationPrompt(url)}
       `,
@@ -1175,14 +1171,6 @@ export function createProductPages({ db, productFieldService = null }) {
     `;
   }
 
-  function movementStockShowMoreIcon() {
-    return `
-      <svg class="row-collapse-chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none">
-        <path d="M6 9l6 6 6-6" />
-      </svg>
-    `;
-  }
-
   function renderMovementStockRows(product, preferredCellIds = []) {
     const preferredIds = new Set(preferredCellIds.map((cellId) => Number(cellId)));
     return (product?.locations || [])
@@ -1232,17 +1220,13 @@ export function createProductPages({ db, productFieldService = null }) {
     }
 
     return `
-      <div class="row-collapse-footer row-collapse-footer-glow" data-movement-stock-footer>
-        <span class="muted row-collapse-status" data-movement-stock-status>Showing ${escapeHtml(loadedCount)} Of ${escapeHtml(totalCount)} Locations</span>
+      <div class="movement-stock-footer" data-movement-stock-footer>
+        <span class="muted" data-movement-stock-status>Showing ${escapeHtml(loadedCount)} Of ${escapeHtml(totalCount)} Locations</span>
         <button
           type="button"
-          class="row-collapse-icon-button"
+          class="ghost-button"
           data-movement-stock-load-more
-          aria-label="Show More Locations"
-          aria-expanded="false"
-        >
-          ${movementStockShowMoreIcon()}
-        </button>
+        >Load more locations</button>
       </div>
     `;
   }

@@ -50,7 +50,7 @@
     overflow-wrap: anywhere;
   }
   a.ghost-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
-  .icon-button, .toast-close, .row-collapse-icon-button {
+  .icon-button, .toast-close {
     width: var(--ui-control-height);
     min-width: var(--ui-control-height);
     min-height: var(--ui-control-height);

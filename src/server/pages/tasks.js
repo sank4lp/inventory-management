@@ -579,8 +579,6 @@ export function createTaskPages({ db }) {
                   ]),
                 )
               : `<p class="muted">No recommended actions right now.</p>`,
-            "",
-            `data-row-collapser data-row-limit="8" data-row-label="recommendations"`,
           )}
         `,
       });

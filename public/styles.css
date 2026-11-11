@@ -4684,111 +4684,13 @@ tbody tr:last-child td {
   box-shadow: inset 3px 0 0 rgba(107, 183, 255, 0.38);
 }
 
-.row-collapse-frame {
-  position: relative;
-}
-
-.row-collapse-footer {
+.movement-stock-footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
   padding-top: 10px;
-}
-
-.row-collapse-footer-glow {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  justify-content: center;
-  min-height: 96px;
-  margin-top: 0;
-  padding: 48px 0 10px;
-  overflow: hidden;
-  isolation: isolate;
-  background: transparent;
-  border-radius: 0 0 var(--radius) var(--radius);
-  cursor: default;
-  pointer-events: none;
-}
-
-.row-collapse-footer-glow::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.52) 56%,
-    rgba(255, 255, 255, 1) 100%
-  );
-}
-
-.row-collapse-footer-glow.row-collapse-footer-expanded {
-  position: static;
-  min-height: auto;
-  margin-top: 0;
-  padding: 10px 0 0;
-  background: transparent;
-  pointer-events: auto;
-}
-
-.row-collapse-footer-glow.row-collapse-footer-expanded::before {
-  display: none;
-}
-
-.row-collapse-footer-glow .row-collapse-status {
-  display: none;
-}
-
-.row-collapse-status {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-}
-
-.row-collapse-icon-button {
-  position: relative;
-  z-index: 1;
-  display: inline-grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  color: #ffffff;
-  background: linear-gradient(135deg, rgba(147, 51, 234, 0.96), rgba(168, 85, 247, 0.78));
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 999px;
-  box-shadow: var(--shadow-tight);
-  cursor: pointer;
-  pointer-events: auto;
-}
-
-.row-collapse-icon-button:hover {
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
-}
-
-.row-collapse-icon-button:focus-visible {
-  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.16), 0 12px 28px rgba(147, 51, 234, 0.22);
-}
-
-.row-collapse-chevron {
-  width: 22px;
-  height: 22px;
-  stroke: currentColor;
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 160ms ease;
-}
-
-.row-collapse-icon-button-expanded .row-collapse-chevron {
-  transform: rotate(180deg);
 }
 
 .empty-cell {

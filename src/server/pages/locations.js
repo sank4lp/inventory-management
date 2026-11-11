@@ -241,7 +241,7 @@ export function createLocationPages({ db }) {
               ? renderAllLocations(allCells)
               : `<p class="muted">No active locations are configured. Ask an admin to add cells in Configuration.</p>`,
             "",
-            `id="all-locations" data-row-collapser data-row-limit="6" data-row-label="locations"`,
+            `id="all-locations"`,
           )}
         </div>
       `,
@@ -289,8 +289,6 @@ export function createLocationPages({ db }) {
             ]),
             "This location is empty right now.",
           ),
-          "",
-          `data-row-collapser data-row-limit="4" data-row-label="products"`,
         )}
         ${can(user,'locations.manage')?card('Location directions',`<form method="post" action="/cells/${cell.id}/directions" class="stack-form">
           <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="descriptionRevision" value="${describeLocation(db,cell.id).descriptionRevision}">
@@ -412,7 +410,7 @@ export function createLocationPages({ db }) {
       });
 
     return `
-      <section id="cell-mapping" class="app-panel" data-config-section="cell-mapping" data-row-collapser data-row-limit="4" data-row-label="mappings">
+      <section id="cell-mapping" class="app-panel" data-config-section="cell-mapping">
         <div class="panel-heading">
           <div>
             <h2>Module Assignments</h2>

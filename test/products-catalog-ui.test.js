@@ -23,6 +23,7 @@ test("Products summary and out-of-stock checkbox preserve catalog actions", () =
     const pages = createProductPages({ db });
     const html = pages.renderProducts(user, null, "", false, new URL("http://localhost/products?outOfStock=1"));
     const catalog = html.split('id="catalog-product-results">')[1].split("</tbody>")[0];
+    assert.doesNotMatch(html, /data-row-collapser|row-collapse/);
     assert.match(html, /class="product-status-summary"/);
     assert.match(html, /data-report-open="catalog-items"/);
     assert.match(html, /title="Print this list"/);
@@ -51,6 +52,8 @@ test("Products summary and out-of-stock checkbox preserve catalog actions", () =
     assert.doesNotMatch(detail, /Show Total Capacity|capacity_total/);
     const emptyWarehouse=()=>{db.exec('UPDATE inventory_balances SET available_quantity=0, reserved_quantity=0');return pages.renderProducts(user, null, "", false, new URL("http://localhost/products"));};
     const allZeroHtml=emptyWarehouse();
+    assert.ok(db.prepare("SELECT COUNT(*) AS count FROM products").get().count > 8);
+    for(const product of db.prepare("SELECT id FROM products").all())assert.ok(allZeroHtml.includes(`href="/products/${product.id}"`));
     const showAll=allZeroHtml.match(/<button[\s\S]*?data-quantity-key="catalog-audit"[\s\S]*?<\/button>/)[0];
     assert.doesNotMatch(showAll,/disabled aria-disabled/);
 

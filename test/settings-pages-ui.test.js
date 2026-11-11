@@ -43,7 +43,7 @@ test('Settings tables preserve product field submissions, backup safeguards and 
   await call('POST','/backups/create');const backups=await call('GET','/backups');
   assert.match(backups.body,/data-ui-open-dialog="backup-schedule"/);assert.match(backups.body,/data-ui-open-dialog="restore-backup-0"/);
   assert.match(backups.body,/name="confirm_restore"[^>]*pattern="RESTORE"[^>]*required/);
-  assert.match(backups.body,/data-row-collapser data-row-limit="5"/);assert.doesNotMatch(backups.body,/aria-label="Close Restore database"/);
+  assert.doesNotMatch(backups.body,/data-row-collapser|row-collapse/);assert.doesNotMatch(backups.body,/aria-label="Close Restore database"/);
   assert.match(backups.body,/action="\/backups\/schedule"/);assert.match(backups.body,/action="\/backups\/retention"/);assert.doesNotMatch(backups.body,/>Restore Notes</);
   assert.match((await call('GET','/settings/system')).body,/ui-disclosure.*Recent recovery actions/);
   const originalHealth=state.systemService.refreshControllerHealth;
