@@ -252,6 +252,7 @@ export function createSimulatorAdapter({ config = {}, logger }) {
         quantity: String(quantity),
         color,
         scrollOnce:options.scrollOnce===true,scrollSpeedMs:options.scrollSpeedMs||120,
+        solidColour:options.testSolidColour===true && !!testPolicy,
         ...brightness,
         ...(hasModuleTarget(cell) ? {} : { reason: "cell-not-mapped-to-controller" }),
       };

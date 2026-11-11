@@ -170,6 +170,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     <link rel="stylesheet" href="/responsive.css" />
     <link rel="stylesheet" href="/layout.css" />
     <link rel="stylesheet" href="/mobile.css" />
+    <link rel="stylesheet" href="/table-scroll.css" />
     ${user ? '<script type="module" src="/client/session.js"></script>' : ''}
     <script type="module" src="/client/navigation.js"></script>
     <script type="module" src="/client/stable-buttons.js"></script>
@@ -180,6 +181,7 @@ export function page({ title, user, flash, content, currentPath = "" }) {
     ${user ? '<script type="module" src="/client/work-outbox-status.js"></script><script type="module" src="/client/stocktake-status.js"></script>' : ''}
     <script type="module" src="/client/mobile-nav.js"></script>
     <script type="module" src="/client/mobile-layout.js"></script>
+    <script type="module" src="/client/table-scroll.js"></script>
     <script type="module" src="/client/displays.js"></script><script type="module" src="/client/recommendation-actuals.js"></script>
   </head>
   <body class="${hasDashboardShell ? "dashboard-body" : "auth-body"}" ${user ? `data-account-id="${user.id}" ${Number.isFinite(user.sessionExpiresAt)?`data-session-remaining-ms="${Math.max(0,user.sessionExpiresAt-Date.now())}"`:""} data-notification-scope="${escapeHtml(JSON.stringify(notificationScope))}"` : ""}>

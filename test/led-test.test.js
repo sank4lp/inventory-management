@@ -94,3 +94,41 @@ test('Locate and Ping use existing patterns across selected mapped and unbound o
  const again=startLedTest(f.state,f.admin,{...f.form(),action:'ping'});
  f.advance();f.displayCoordinator.expire();assert.equal(f.db.prepare('SELECT state FROM display_requests WHERE id=?').get(again.id).state,'stopped');
 });
+
+test('solid colour fills every selected matrix at chosen brightness without requiring content',t=>{
+ const f=fixture(t),chosen=[f.targets()[0],f.targets().at(-1)];
+ const result=startLedTest(f.state,f.admin,{...f.form(chosen),mode:'solid',text:'',brightness:'60',color:'#123abc'});
+ assert.ok(result.targets.every(t=>t.status==='sent'));
+ assert.equal(f.writes.length,2);
+ assert.ok(f.writes.every(line=>/ fill \d+ #123abc 60$/.test(line)));
+ const html=renderLedTest(f.state,f.admin);
+ assert.match(html,/>Showing on selected LEDs<\/button>/);
+ assert.match(html,/value="show"[^>]*formaction="\/settings\/led-test\/stop"/);
+ assert.match(html,/data-led-content hidden/);
+ f.displayCoordinator.stop(f.admin,result.id);
+ startLedTest(f.state,f.admin,{...f.form(chosen),mode:'solid',text:'',brightness:'0'});
+ assert.ok(f.writes.at(-1).endsWith('fill 4 #ff6600 0'));
+ assert.throws(()=>startLedTest(f.state,f.admin,{...f.form(),mode:'solid',brightness:'101'}),/Brightness/);
+ assert.throws(()=>startLedTest(f.state,f.admin,{...f.form(),mode:'solid',color:'invalid'}),/colour/);
+});
+
+test('JSON LED actions update state without redirects and validation preserves the active display',async t=>{
+ const f=fixture(t,'simulator');
+ const request=async(path,form,method='POST')=>{
+   const res={writeHead(code,headers){this.code=code;this.headers=headers;},end(body){this.body=JSON.parse(body);}};
+   await ledTestRoutes({method,headers:{accept:'application/json'},parsedForm:form},res,new URL('http://local'+path),f.admin,f.state);
+   assert.equal(res.headers.Location,undefined);assert.match(res.headers['Content-Type'],/application\/json/);return res;
+ };
+ const start=await request('/settings/led-test',{...f.form(),mode:'solid',text:'',brightness:'40'});
+ assert.equal(start.code,200);assert.match(start.body.html,/>Showing on selected LEDs<\/button>/);
+ const event=JSON.parse(f.db.prepare("SELECT payload FROM device_events WHERE event_type='cell_quantity_displayed' ORDER BY id DESC LIMIT 1").get().payload);
+ assert.equal(event.solidColour,true);assert.equal(event.brightnessPercent,40);
+ const bad=await request('/settings/led-test',{...f.form(),brightness:'200'});
+ assert.equal(bad.code,422);assert.match(bad.body.error,/Brightness/);assert.match(bad.body.html,/>Showing on selected LEDs<\/button>/);
+ const row=f.db.prepare('SELECT id FROM display_requests ORDER BY rowid DESC LIMIT 1').get();
+ const stop=await request('/settings/led-test/stop',{displayId:row.id});
+ assert.equal(stop.code,200);assert.doesNotMatch(stop.body.html,/>Showing on selected LEDs<\/button>/);
+ await request('/settings/led-test',{...f.form(),action:'ping'});f.advance();
+ const expired=await request('/settings/led-test',{},'GET');
+ assert.doesNotMatch(expired.body.html,/>Pinging<\/button>/);
+});

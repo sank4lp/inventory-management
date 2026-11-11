@@ -49,3 +49,12 @@ dialog.excel-dialog:not([open]){display:none}
 .business-multiselect{position:relative;min-width:200px;align-self:stretch}.business-multiselect>summary{font-weight:600;cursor:pointer;padding:.6rem;border:1px solid #ccd7d3;border-radius:6px}.business-multiselect>summary small{display:block;font-weight:400}.business-multiselect>div{padding:.5rem;border:1px solid #ccd7d3;border-radius:6px;background:white;min-width:210px}.business-option-list{max-height:180px;overflow:auto}.business-option-list label{display:flex;align-items:center;gap:.5rem;min-height:36px}.business-option-list label[hidden]{display:none}.business-option-list input[type=checkbox]{width:auto;flex:none}.business-import-dialog table{table-layout:auto}.business-import-dialog .ui-actions{position:sticky;bottom:0;background:white;padding:.75rem 0}.business-import-dialog .business-import-options input{min-width:0;width:100%}
 
 [data-stocktake-options][hidden]{display:none!important}.business-import-options input[type=checkbox]{width:auto;flex:none}.business-import-dialog .merge-selection-cell{min-width:44px}.business-import-dialog .merge-selection-cell input{width:auto}
+
+/* Import validity uses text as well as colour, including sticky cells and hover. */
+.business-import-table tr[data-import-status="ready"] > td {background:#eaf7ee !important;}
+.business-import-table tr[data-import-status="blocked"] > td {background:#fff0f0 !important;}
+.business-import-table tr[data-import-status="ready"] .import-row-validation {color:#205b36;}
+.business-import-table tr[data-import-status="blocked"] .import-row-validation {color:#962c32;}
+.business-import-table .import-row-validation {display:block;white-space:normal;min-width:125px;}
+.business-import-table .import-row-reason {display:block;white-space:normal;overflow-wrap:anywhere;min-width:180px;max-width:440px;}
+.business-import-table tr[data-import-status="blocked"] .import-row-reason {color:#76262c;}

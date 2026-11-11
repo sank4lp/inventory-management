@@ -160,7 +160,7 @@ export function createDisplayCoordinator({db,hardwareService,operationsService,c
     batch(()=>{for(const target of targets){
       if(groupedPingTargets.has(target)||!['ready','selection','unsupported','uncertain'].includes(target.status)||scope.kind==='cell_name'&&target.status!=='ready')continue;
       const c=target.cellId?cell(target.cellId):target.hardware,numeric=target.status==='ready'&&target.value!=='LOC';
-      const context={source:'display_coordinator',displayId:id,displayActor:a.id,...(scope.kind==='led_test'?{displayTiming:{testBrightnessPercent:scope.brightness}}:{}),...(target.sequence?.length?{displayTiming:mixedQuantityTiming(target.value)}:{})};
+      const context={source:'display_coordinator',displayId:id,displayActor:a.id,...(scope.kind==='led_test'?{displayTiming:{testBrightnessPercent:scope.brightness,testSolidColour:scope.mode==='solid'}}:{}),...(target.sequence?.length?{displayTiming:mixedQuantityTiming(target.value)}:{})};
       const result=scope.kind==='setup'?setupDelivery(target,c,context):scope.kind==='locate'?hardwareService.setCellLocate(c,true,context):scope.kind==='ping'?hardwareService.sendCellTest(c,'green',context):hardwareService.showCellQuantity(c,target.status==='ready'?target.value:'LOC',target.color||'yellow',context);
       deliveries.push({target,result,numeric});
     }});

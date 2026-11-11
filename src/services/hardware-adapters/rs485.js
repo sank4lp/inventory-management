@@ -198,7 +198,8 @@ export function createRs485Adapter({ config = {}, logger }) {
 
   let pendingDisplayCommands=null;
   function send(command,options={}) {
-    const entry=displayEntry(command);
+    const fill=/^to ([A-Za-z0-9._:-]+) fill (\d+) /.exec(command);
+    const entry=fill?{address:fill[1],channel:Number(fill[2]),fill:true}:displayEntry(command);
     if(!entry){rawSend(command,options);return;}
     if(pendingDisplayCommands){pendingDisplayCommands.push({entry,command,options});return;}
     const failures=flushDisplayCommands([{entry,command,options}]);
@@ -207,8 +208,28 @@ export function createRs485Adapter({ config = {}, logger }) {
   function flushDisplayCommands(commands) {
     const groups=new Map(),failures=[];
     for(const command of commands){const key=command.entry.address.toUpperCase();if(!groups.has(key))groups.set(key,[]);groups.get(key).push(command);}
-    for(const [address,group] of groups){
+    for(const [address,commands] of groups){
+      let group=commands;
       try{
+        // Fill is supported by existing firmware but not by the binary display frame.
+        // Keep it in the batch so failed acknowledgements use the same clear/retry safeguards.
+        for(const item of group.filter(c=>c.entry.fill)){
+          if(writeLine&&typeof config.rs485ReadWindow!=='function'){rawSend(item.command,item.options);continue;}
+          readSerialWindow(20);
+          const accepts=reply=>reply.type==='ack'&&reply.command==='fill'&&reply.module===item.entry.channel&&(!reply.address||String(reply.address).toUpperCase()===address);
+          const failed=reply=>reply.type==='error'&&reply.message==='led-output-failed'&&String(reply.address).toUpperCase()===address;
+          let confirmed=false;
+          for(let attempt=0;attempt<3&&!confirmed;attempt++){
+            rawSend(item.command,{repeats:1,immediate:true});
+            const replies=parseJsonLines(readSerialWindow(250,reply=>accepts(reply)||failed(reply)));
+            if(replies.some(failed))throw new Error('The controller received the command, but its LED output failed.');
+            confirmed=replies.some(accepts);
+          }
+          if(!confirmed)throw new Error('Controller did not acknowledge the solid colour display. Check its connection and try again.');
+          lastReplyAt=performance.now();
+        }
+        group=group.filter(c=>!c.entry.fill);
+        if(!group.length)continue;
         let capability=groupCapabilities.get(address);
         // Write-only injected transports retain the legacy test/integration contract.
         if(writeLine&&typeof config.rs485ReadWindow!=='function'){for(const command of group)rawSend(command.command,command.options);continue;}
@@ -832,7 +853,9 @@ export function createRs485Adapter({ config = {}, logger }) {
       const scrollOnce=options.scrollOnce===true;
       const command = addressedCommand(
         controllerAddress,
-        `text ${cell.hardware_channel} ${firmwareToken(displayQuantity)} ${resolvedColor} ${scrollSpeedMs} ${brightness.brightnessPercent}${scrollOnce?" once":""}`,
+        options.testSolidColour===true && testPolicy
+          ? `fill ${cell.hardware_channel} ${resolvedColor} ${brightness.brightnessPercent}`
+          : `text ${cell.hardware_channel} ${firmwareToken(displayQuantity)} ${resolvedColor} ${scrollSpeedMs} ${brightness.brightnessPercent}${scrollOnce?" once":""}`,
       );
       clearLocateTimer(cell.hardware_channel, controllerAddress);
       send(command);
@@ -851,7 +874,7 @@ export function createRs485Adapter({ config = {}, logger }) {
               controllerAddress,
               quantity: displayQuantity,
               color: resolvedColor,
-              scrollSpeedMs,scrollOnce,
+              scrollSpeedMs,scrollOnce,solidColour:options.testSolidColour===true && !!testPolicy,
               ...brightnessPayload(brightness),
             },
           }),

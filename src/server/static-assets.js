@@ -2,6 +2,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
 
 const PUBLIC_FILES = new Map([
+  ["/table-scroll.css", "table-scroll.css"],
   ["/led-test.css", "led-test.css"],
   ["/styles.css", "styles.css"],
   ["/ui-template.css", "ui-template.css"],

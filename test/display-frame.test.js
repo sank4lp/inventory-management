@@ -160,3 +160,18 @@ test('unbound LEDs use only the declared controller setup receipt; failed acknow
  f.db.prepare('UPDATE cells SET controller_id=NULL,hardware_channel=NULL WHERE controller_id=?').run(f.controller.id);
  const result=setup.command(f.admin,'start',{requestId:crypto.randomUUID(),controllerId:f.controller.id});assert.equal(result.lighting.ready,false);const session=setup.snapshot(f.admin).sessions[0];assert.equal(session.lightReady,false);assert.throws(()=>setup.command(f.admin,'bind',{requestId:crypto.randomUUID(),sessionId:session.id,generation:session.generation,displayName:'Unconfirmed',fieldSignature:setup.snapshot(f.admin).fieldSignature,qrLater:true,physicalConfirmed:true}),/Re-light|Select this LED/);assert.equal(f.db.prepare("SELECT COUNT(*) n FROM cells WHERE display_name='Unconfirmed'").get().n,0);
 });
+
+test('solid fill uses existing firmware ACKs and surfaces missing acknowledgements in the batch',()=>{
+ let response='',ack=true;const writes=[];
+ const adapter=createRs485Adapter({logger,config:{rs485WriteRepeats:1,rs485InterCommandDelayMs:0,
+  rs485WriteLine(line){writes.push(line.trim());const parts=line.trim().split(' ');response=ack?JSON.stringify({type:'ack',command:'fill',module:Number(parts[3])})+'\n':'';},
+  rs485ReadWindow(){const next=response;response='';return next;}}});
+ try{
+  const delivered=adapter.batch(()=>{for(const cell of cells.slice(0,2))adapter.showCellQuantity(cell,'','#00ffff',{testBrightnessPercent:25,testSolidColour:true});});
+  assert.deepEqual(delivered.failures,[]);assert.equal(writes.length,2);assert.ok(writes.every(line=>/fill [12] #00ffff 25$/.test(line)));
+  ack=false;
+  const missing=adapter.batch(()=>adapter.showCellQuantity(cells[0],'','#00ffff',{testBrightnessPercent:25,testSolidColour:true}));
+  assert.equal(missing.failures.length,1);assert.match(missing.failures[0].message,/acknowledge the solid colour/);
+  assert.equal(writes.length,5);
+ }finally{adapter.dispose();}
+});

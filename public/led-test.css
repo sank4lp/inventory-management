@@ -13,3 +13,9 @@
 .led-test-page .ui-actions.led-test-actions{display:grid;grid-template-columns:minmax(190px,2fr) repeat(2,minmax(100px,1fr));gap:8px}
 .led-test-actions button{width:100%;min-height:44px}
 @media(max-width:700px){.led-test-page .ui-actions.led-test-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.led-test-actions button:first-child{grid-column:1/-1}}
+
+.led-test-controls [hidden],.led-test-page [data-led-error][hidden]{display:none}
+.led-test-actions button[aria-pressed=true]{background:#167348;color:#fff;border-color:#167348}
+
+.led-test-controls[data-mode=solid]{grid-template-columns:2fr 1fr 1fr}
+@media(max-width:700px){.led-test-controls[data-mode=solid]{grid-template-columns:repeat(2,minmax(0,1fr))}.led-test-controls[data-mode=solid]>label:first-child{grid-column:1/-1}}

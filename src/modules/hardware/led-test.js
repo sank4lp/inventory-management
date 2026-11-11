@@ -1,7 +1,7 @@
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {escapeHtml as e} from '../../render.js';
 import {templatePage,uiPanel,uiTable} from '../../server/ui.js';
-import {sendHtml,sendRedirect} from '../../server/http/responses.js';
+import {sendHtml,sendRedirect,sendJson} from '../../server/http/responses.js';
 import {parseForm} from '../../server/http/request-body.js';
 import {currentActor} from '../access/service.js';
 import {setupLedMap} from '../locations/setup-lights.js';
@@ -52,35 +52,38 @@ export function renderLedTest(state,user,form={},error='') {
   ]),{label:'LED matrices',empty:'No configured LEDs. Add a controller and its LED modules in Hardware.'});
   const statuses={sent:'Sent',busy:'Busy — work or another display',unreachable:'Offline / not confirmed',unmapped:'Not mapped',unsupported:'Unsupported'};
   const report=row?JSON.parse(row.targets_json):[];
-  const active=row&&['active','expiring'].includes(row.state)&&row.expires_at>new Date().toISOString();
-  const patternButton=(kind,label,running)=>{const on=active&&previous?.kind===kind;return `<button name="action" value="${kind}" formnovalidate data-led-pattern="${kind}"${on?` formaction="/settings/led-test/stop" data-until="${e(row.expires_at)}" aria-pressed="true"`:' aria-pressed="false"'}${targets.length?'':' disabled'}>${on?running:label}</button>`;};
-  const results=row?uiPanel('Last test',`<p>${row.state==='expiring'?'Stopping — waiting for controller confirmation.':active?`${report.filter(t=>t.status==='sent').length} of ${report.length} matrices sent. ${previous?.kind==='ping'?'Ping: five seconds.':previous?.kind==='locate'?'Locate: five minutes.':'Test window: two minutes.'}`:'Test ended.'}</p>${uiTable([{key:'controller',label:'Controller'},{key:'led',label:'LED number'},{key:'result',label:'Delivery'}],report.map(t=>{
+  const active=row&&row.state==='active'&&row.expires_at>new Date().toISOString()&&report.some(t=>t.status==='sent');
+  const stopping=row?.state==='expiring';
+  const patternButton=(kind,label,running)=>{const on=(active||stopping)&&previous?.kind===(kind==='show'?'led_test':kind);return `<button name="action" value="${kind}" formnovalidate data-led-pattern="${kind}" data-stable-labels="${label}|${running}|Stopping…"${on?` formaction="/settings/led-test/stop" data-until="${e(row.expires_at)}" aria-pressed="true"`:' aria-pressed="false"'}${targets.length?'':' disabled'}>${on?stopping?'Stopping…':running:label}</button>`;};
+  const results=row?uiPanel('Last test',`<p>${row.state==='expiring'?'Stopping — waiting for controller confirmation.':active?`${report.filter(t=>t.status==='sent').length} of ${report.length} matrices sent. ${previous?.kind==='ping'?'Ping: five seconds.':previous?.kind==='locate'?'Locate: five minutes.':'Test window: two minutes.'}`:row.state==='stopped'?'Test ended.':'No matrices received the display. Check the delivery details below.'}</p>${uiTable([{key:'controller',label:'Controller'},{key:'led',label:'LED number'},{key:'result',label:'Delivery'}],report.map(t=>{
     const target=targets.find(a=>a.cell.controller_id===t.controllerId&&a.cell.hardware_channel===t.channel);
     return [e(target?.controllerName||String(t.controllerId)),e(String(target?.physical||t.channel)),e(statuses[t.status]||t.status)];
   }),{label:'Test delivery'})}${row.state!=='stopped'?`<form method="post" action="/settings/led-test/stop" class="ui-actions"><input type="hidden" name="displayId" value="${e(row.id)}"><button class="ui-button-secondary">Stop test</button></form>`:''}`):'';
   return templatePage({title:'LED matrix test',currentPath:'/settings/led-test',user,content:`<div class="ui-settings-page led-test-page">
     <nav class="ui-toolbar"><a href="/settings">← Settings</a><a href="/devices">Hardware</a></nav>
-    ${error?`<p role="alert" class="led-test-error">${e(error)}</p>`:''}
+    <p role="alert" class="led-test-error" data-led-error ${error?'':'hidden'}>${e(error)}</p>
     ${uiPanel('Test display',`<form method="post" action="/settings/led-test" class="ui-form" data-led-test-form>
       <input type="hidden" name="requestId" value="${randomUUID()}"><input type="hidden" name="displayId" value="${e(row?.id||'')}">
-      <div class="led-test-controls">
-        <label>Display type<select name="mode"><option value="text"${values.mode==='text'?' selected':''}>Text (String)</option><option value="integer"${values.mode==='integer'?' selected':''}>Number (Int)</option></select></label>
-        <label>Content<input name="text" required maxlength="55" value="${e(values.text)}" autocomplete="off"></label>
+      <div class="led-test-controls" data-mode="${e(values.mode)}">
+        <label>Display type<select name="mode"><option value="text"${values.mode==='text'?' selected':''}>Text (String)</option><option value="integer"${values.mode==='integer'?' selected':''}>Number (Int)</option><option value="solid"${values.mode==='solid'?' selected':''}>Solid colour</option></select></label>
+        <label data-led-content ${values.mode==='solid'?'hidden':''}>Content<input name="text" ${values.mode==='solid'?'disabled':'required'} maxlength="55" value="${e(values.text)}" autocomplete="off"></label>
         <label>Brightness (%)<input type="number" name="brightness" min="0" max="100" step="1" required value="${e(values.brightness)}"></label>
         <label>Colour<input type="color" name="color" value="${/^#[0-9a-f]{6}$/i.test(values.color)?values.color:'#00ff00'}"></label>
       </div>
       <div class="ui-toolbar"><label><input type="checkbox" data-led-select-all> Select all LEDs</label><span data-led-selection-count aria-live="polite"></span></div>
-      <div class="ui-actions led-test-actions"><button name="action" value="show"${targets.length?'':' disabled'}>Show on selected LEDs</button>${patternButton('locate','Locate','Locating')}${patternButton('ping','Ping','Pinging')}</div>${cells}
-      <details class="ui-help"><summary>Help</summary><p>The same content appears on each selected matrix. Longer content scrolls. Text supports up to 55 English letters, numbers or symbols, without double quotes. Brightness 0 turns the pixels dark.</p><p>Busy LEDs are skipped. Content tests stop after two minutes. Locate uses the red inward pattern for five minutes; Ping uses the green outward pattern for five seconds. Click Locating or Pinging again to stop. These patterns use full brightness and their standard colours. Timers continue when you leave this page. Stop test ends the display sooner. Inventory and LED mappings are unchanged.</p></details>
-    </form>`)}${results}</div><link rel="stylesheet" href="/led-test.css"><script type="module" src="/client/led-test.js"></script>`});
+      <div class="ui-actions led-test-actions">${patternButton('show','Show on selected LEDs','Showing on selected LEDs')}${patternButton('locate','Locate','Locating')}${patternButton('ping','Ping','Pinging')}</div>${cells}
+      <details class="ui-help"><summary>Help</summary><p>The same content appears on each selected matrix. Solid colour lights all 64 pixels at the selected brightness. Longer content scrolls. Text supports up to 55 English letters, numbers or symbols, without double quotes. Brightness 0 turns the pixels dark.</p><p>Busy LEDs are skipped. Content tests stop after two minutes. Locate uses the red inward pattern for five minutes; Ping uses the green outward pattern for five seconds. Click Showing on selected LEDs, Locating or Pinging again to stop. These patterns use full brightness and their standard colours. Timers continue when you leave this page. Stop test ends the display sooner. Inventory and LED mappings are unchanged.</p></details>
+    </form>`)}<div data-led-results data-version="${createHash('sha256').update(JSON.stringify([row?.id,row?.state,row?.targets_json,!!active])).digest('hex')}">${results}</div></div><link rel="stylesheet" href="/led-test.css"><script type="module" src="/client/led-test.js"></script>`});
 }
 
 export async function ledTestRoutes(request,response,url,user,state) {
   if(!['/settings/led-test','/settings/led-test/stop'].includes(url.pathname))return false;
   currentActor(state.db,user,'hardware.test');
+  const json=String(request.headers?.accept||'').includes('application/json');
+  const reply=(form={},error='',status=200)=>sendJson(response,{html:renderLedTest(state,user,form,error),error},status);
   if(request.method==='GET'){
     state.displayCoordinator.expire();
-    sendHtml(response,renderLedTest(state,user));return true;
+    if(json)reply();else sendHtml(response,renderLedTest(state,user));return true;
   }
   if(request.method!=='POST')return false;
   const form=await parseForm(request);
@@ -90,7 +93,7 @@ export async function ledTestRoutes(request,response,url,user,state) {
       if(!row)throw new Error('This test is no longer available for your account.');
       state.displayCoordinator.stop(user,row.id);
     }else startLedTest(state,user,form);
-    sendRedirect(response,'/settings/led-test');
-  }catch(error){sendHtml(response,renderLedTest(state,user,form,error.message),422);}
+    if(json)reply();else sendRedirect(response,'/settings/led-test');
+  }catch(error){if(json)reply(form,error.message,422);else sendHtml(response,renderLedTest(state,user,form,error.message),422);}
   return true;
 }

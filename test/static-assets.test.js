@@ -133,7 +133,7 @@ test("operator and offline pages load the shared screen styles and offline insta
   for (const html of [work, offline]) {
     assert.equal(styles(html).filter(path => path === '/work.css').length, 1);
     assert.equal(styles(html).filter(path => path === '/layout.css').length, 1);
-    assert.deepEqual(styles(html).slice(-3), ['/responsive.css', '/layout.css', '/mobile.css']);
+    assert.deepEqual(styles(html).slice(-4), ['/responsive.css', '/layout.css', '/mobile.css', '/table-scroll.css']);
   }
   const handlers = new Map();
   let cached = [];
@@ -144,6 +144,8 @@ test("operator and offline pages load the shared screen styles and offline insta
   let installation;
   handlers.get('install')({waitUntil:promise=>{installation=promise;}});
   await installation;
+  assert.ok(cached.includes('/client/table-scroll.js'));
+  assert.ok(cached.includes('/table-scroll.css'));
   assert.ok(cached.includes('/client/mobile-controls.js'), 'phone control layout must also load without internet');
   assert.ok(cached.includes('/warehouse-excel.css'), 'Excel dialogs must keep their layout offline');
   assert.ok(cached.includes('/business-reports.css'), 'Report styles must be available without internet');
