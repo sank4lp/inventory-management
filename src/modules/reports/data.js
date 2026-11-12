@@ -94,13 +94,15 @@ export function recordedMovements(db,actor,{fromAt,toAt,section,productId}={}){
   for(const [value,clause] of [[fromAt,'tr.created_at>=?'],[toAt,'tr.created_at<=?']])if(value){if(!Number.isFinite(Date.parse(value)))fail('Choose a valid report timeframe.');conditions.push(clause);args.push(new Date(value).toISOString());}
   if(fromAt&&toAt&&Date.parse(fromAt)>Date.parse(toAt))fail('The report start must be before its end.');
   const products=new Map(db.prepare('SELECT * FROM products').all().map(p=>[p.id,p]));
+  const conversions=new Map();for(const c of db.prepare('SELECT * FROM product_unit_conversions ORDER BY created_at,id').all()){if(!conversions.has(c.product_id))conversions.set(c.product_id,[]);conversions.get(c.product_id).push(c);}
+  const conversionContext={products,conversions};
   const tasks=new Map(db.prepare('SELECT id,type,created_by,assignee_id FROM tasks').all().map(t=>[t.id,t]));
   return db.prepare(`SELECT tr.*,t.type task_type FROM transactions tr LEFT JOIN tasks t ON t.id=tr.task_id WHERE ${conditions.join(' AND ')} ORDER BY tr.created_at,tr.id`).all(...args).flatMap(tr=>{
     const p=products.get(tr.product_id);if(!p||!productFilter(p,{section,productId}))return [];
     if(!can(user,'work.team')&&!(tr.task_id?allowedTask(db,user,tasks.get(tr.task_id)):tr.user_id===user.id||tr.performed_by===user.id))return [];
     const direction=tr.type==='adjustment'?tr.task_type:tr.type;
     let quantity=Number(tr.quantity_delta)*(direction==='pick'?-1:1),unit=tr.unit_of_measure||p.unit_of_measure,conversionError=null;
-    try{quantity=round(quantity*historicalFactor(db,p.id,unit,tr.created_at,tr.merged_from_product_id));unit=p.unit_of_measure;}catch(error){conversionError=error.message;}
+    try{quantity=round(quantity*historicalFactor(db,p.id,unit,tr.created_at,tr.merged_from_product_id,conversionContext));unit=p.unit_of_measure;}catch(error){conversionError=error.message;}
     return [{...tr,product:p,direction,quantity,unit,conversionError}];
   });
 }
@@ -116,8 +118,9 @@ export function movementSpeedReport(db,actor,{period='month',end,section,product
     if(!grouped.has(id))grouped.set(id,{...event.product,unit_of_measure:event.unit,product_id:event.product.id,picked:0,put:0,conversionError:event.conversionError});
     const row=grouped.get(id);row[event.direction==='pick'?'picked':'put']=round(row[event.direction==='pick'?'picked':'put']+event.quantity);if(event.conversionError)row.conversionError=event.conversionError;
   }
+  const thresholds=new Map(db.prepare('SELECT * FROM product_movement_thresholds WHERE period=? AND direction=?').all(period,direction).map(t=>[t.product_id,t]));
   const rows=[...grouped.values()].map(p=>{
-    const saved=db.prepare('SELECT * FROM product_movement_thresholds WHERE product_id=? AND period=? AND direction=?').get(p.id,period,direction);
+    const saved=thresholds.get(p.id);
     const threshold=saved&&saved.unit===p.unit_of_measure&&!p.conversionError?saved:null;
     const quantity=direction==='pick'?p.picked:direction==='put'?p.put:round(p.picked+p.put);
     return {...p,quantity,threshold,savedThreshold:saved||null,classification:movementClass(quantity,threshold)};

@@ -460,6 +460,7 @@ test('Phase 1 legacy migration never invents assignment history/deadlines; resta
  assert.throws(()=>cmd(admin,'timing',{minutes:0}),/positive/);
  const {migrateOperations}=await import('../src/modules/operations/schema.js');migrateOperations(db);
  assert.equal(w.task(op,t.id).due_at,due);assert.equal(w.snapshot(admin).timing.enabled,false);
+ const compactTiming=w.snapshot(admin,{view:'timing'});assert.deepEqual(compactTiming.timing,w.snapshot(admin).timing);assert.deepEqual(compactTiming.products,[]);assert.deepEqual(compactTiming.cells,[]);assert.throws(()=>w.snapshot(op,{view:'timing'}),/permitted|permission|Admin/i);
  // Existing source records carry no false audit entries when assignment state is legacy.
  db.prepare("UPDATE tasks SET assignment_source='legacy',assignment_state='legacy',assigned_at=NULL,assigned_by=NULL,due_at=NULL WHERE id=?").run(t.id);
  db.prepare('DELETE FROM task_assignment_events WHERE task_id=?').run(t.id);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {importRowPresentation,resultTable} from '../public/client/business-import.js';
+import {importRowPresentation,resultTable,currentStock} from '../public/client/business-import.js';
 const row=(status,message)=>({row:2,status,message,values:{cos_sec:'A',part_no:'123',nomen1:'Test item',mpi_status:'CURRENT'}});
 test('stock, issue and received previews distinguish valid, invalid and intentionally excluded rows',()=>{
  for(const kind of ['products','issue','received']){
@@ -30,4 +30,11 @@ test('large stock and voucher result tables render bounded pages without droppin
   assert.match(last,/Reason 19999/);assert.match(last,/Rows 19951–20000/);
   assert.ok(html.length<70000);
  }
+});
+
+test('review quantity follows the selected MPI row and distinguishes new products from zero stock',()=>{
+ const row={values:{mpi_status:'NFP'},variants:[{id:1,mpi_status:'CURRENT',currentStock:0},{id:2,mpi_status:'OBT',currentStock:12}]};
+ assert.equal(currentStock(row),'Choose MPI row');assert.equal(currentStock(row,{sourceProductId:1}),0);
+ assert.equal(currentStock(row,{sourceProductId:2}),12);assert.equal(currentStock(row,{sourceProductId:'new'}),'New product (0)');
+ assert.equal(currentStock({...row,values:{mpi_status:'OBT'}}),12);
 });

@@ -6896,3 +6896,53 @@ textarea::placeholder {
     transition-duration: 1ms !important;
   }
 }
+
+/* Shared quantity inspection: readable product identity beside each LED value. */
+.task-edit-dialog.quantity-browser{width:min(1100px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;overflow:auto}
+.quantity-browser-toolbar,.quantity-browser-actions{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin:12px 0}
+.quantity-browser-toolbar>label{flex:1 1 260px;min-width:0}
+.quantity-browser-toolbar select{width:100%}
+.quantity-browser [hidden]{display:none!important}
+.quantity-browser .table-wrap{max-height:55dvh;overflow:auto}
+.quantity-browser .quantity-is-showing>td{background:#eaf7ee!important}
+.quantity-browser [data-showing]:not(:empty){display:block;font-weight:600}
+.quantity-browser [data-show-row]{min-width:96px}
+.quantity-camera{width:min(480px,calc(100vw - 24px));max-height:90dvh;overflow:auto}
+.quantity-camera video{display:block;width:100%;max-height:45dvh;object-fit:contain}
+@media(max-width:600px){.quantity-browser{padding:12px}.quantity-browser-toolbar>label{flex-basis:100%}.quantity-browser-actions>button{flex:1 1 130px}.quantity-browser .work-views{display:flex;width:100%}.quantity-browser .work-views button{flex:1}.quantity-browser th,.quantity-browser td{white-space:nowrap}}
+
+.task-edit-dialog.quantity-browser,.task-edit-dialog.quantity-camera{border:1px solid #dce5df;border-radius:14px;color:#1b3029;background:white;padding:18px}
+.quantity-browser .review-task-header,.quantity-camera .review-task-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.quantity-browser .review-task-header h2,.quantity-camera .review-task-header h2{flex:1;margin:0;font-size:21px}
+.quantity-browser .review-task-header button,.quantity-camera .review-task-header button{margin:0;flex:none}
+.task-edit-dialog.quantity-browser table{table-layout:auto;min-width:480px}
+.task-edit-dialog.quantity-browser td,.task-edit-dialog.quantity-browser th{white-space:nowrap;overflow-wrap:normal;padding:8px 10px}
+.quantity-browser .dialog-dismiss,.quantity-camera .dialog-dismiss{width:40px;min-width:40px;background:white;color:#345c4b;border:1px solid #dce5df}
+
+.task-edit-dialog.quantity-browser[data-quantity-mode="bin"] table{min-width:330px}
+.quantity-browser .quantity-product{white-space:normal!important;min-width:140px}
+.quantity-browser .quantity-product strong,.quantity-browser .quantity-product a,.quantity-browser .quantity-product small{display:block;overflow-wrap:anywhere}
+.quantity-browser .quantity-product small{font-size:12px;color:#5c6e65}
+.quantity-browser .quantity-value{white-space:normal!important;min-width:64px}
+.quantity-browser .quantity-led{min-width:96px;white-space:normal!important}
+@media(max-width:600px){.task-edit-dialog.quantity-browser{padding:10px}.task-edit-dialog.quantity-browser td,.task-edit-dialog.quantity-browser th{padding:7px 6px}.quantity-browser .quantity-led{min-width:80px}.quantity-browser [data-show-row]{min-width:80px}}
+
+.quantity-browser [data-cycle],.quantity-browser [data-show-product]{min-width:165px}
+@media(max-width:600px){
+ .task-edit-dialog.quantity-browser[data-quantity-mode="bin"] table{table-layout:fixed;min-width:330px;width:100%}
+ .quantity-browser[data-quantity-mode="bin"] th:first-child{width:48%;white-space:normal;overflow-wrap:normal}
+ .quantity-browser[data-quantity-mode="bin"] th:nth-child(2){width:22%;white-space:normal}
+ .quantity-browser[data-quantity-mode="bin"] th:nth-child(3){width:30%}
+ .quantity-browser[data-quantity-mode="bin"] td{min-width:0}
+ .quantity-browser[data-quantity-mode="bin"] [data-showing]{font-size:12px;white-space:normal}
+ .quantity-browser .work-views{margin:0}
+}
+
+/* Keep catalogue paging bounded and compact at every screen width. */
+.catalog-pagination { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:12px 0; font-size:.875rem; }
+.catalog-pagination > span { white-space:nowrap; }
+.catalog-pagination .inline-form { display:flex; flex-direction:row; flex-wrap:nowrap; align-items:end; gap:8px; margin-left:auto; flex:0 0 auto; width:auto; max-width:100%; }
+.catalog-pagination label { flex:0 0 auto; display:flex; flex-direction:column; gap:4px; }
+.catalog-pagination select { min-width:76px; width:100%; }
+.catalog-pagination button { flex:0 0 auto; min-width:72px; white-space:nowrap; }
+@media(max-width:700px) { .catalog-pagination .inline-form { margin-left:0; } }

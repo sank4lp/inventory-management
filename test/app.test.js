@@ -539,10 +539,12 @@ test("product low stock uses significant drop below thirty-day average", async (
   );
   const lowStockTemplate = html.match(/data-report-template="low-stock"[\s\S]*?<\/template>/)?.[0] || "";
 
-  assert.match(lowStockTemplate, /AVG-LOW-001/);
-  assert.match(lowStockTemplate, /30-day avg/);
-  assert.match(lowStockTemplate, /below 30-day average/);
-  assert.match(lowStockTemplate, /Average Sensitive Item/);
+  assert.match(lowStockTemplate, /data-report-src="\/products\?report=low-stock"/);
+  const loadedReport=createProductPages({db}).renderProducts({id:1,name:'Admin',username:'admin',role:'admin'},null,'',false,new URL('http://local/products?report=low-stock'));
+  assert.match(loadedReport, /AVG-LOW-001/);
+  assert.match(loadedReport, /30-day avg/);
+  assert.match(loadedReport, /below 30-day average/);
+  assert.match(loadedReport, /Average Sensitive Item/);
 });
 
 test("profile page shows account details and activity summary", async () => {

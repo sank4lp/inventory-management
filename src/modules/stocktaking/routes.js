@@ -6,7 +6,8 @@ export async function stocktakingRoutes(request,response,url,user,state) {
   if(url.pathname.startsWith('/api/stocktaking/')) {
     if(!ensureApiAuth(response,user))return true;
     const action=url.pathname.slice('/api/stocktaking/'.length);
-    if(request.method==='GET'&&action==='snapshot')sendJson(response,service.snapshot(user));
+    if(request.method==='GET'&&action==='status')sendJson(response,service.status(user));
+    else if(request.method==='GET'&&action==='snapshot')sendJson(response,service.snapshot(user,{runId:url.searchParams.get('run')}));
     else if(request.method==='GET'&&action==='resolve')sendJson(response,service.resolve(user,url.searchParams.get('runId'),url.searchParams.get('label')));
     else if(request.method==='GET'&&action==='movements')sendJson(response,service.movements(user,url.searchParams.get('observationId'),url.searchParams.get('q')||''));
     else if(request.method==='POST')sendJson(response,action==='heartbeat'?service.heartbeat(user,request.parsedForm):service.command(user,action,request.parsedForm));
@@ -15,7 +16,7 @@ export async function stocktakingRoutes(request,response,url,user,state) {
   }
   if(request.method==='GET'&&['/stocktaking','/stocktaking/results','/stocktaking/offline'].includes(url.pathname)) {
     const offline=url.pathname==='/stocktaking/offline';if(!offline&&!ensureAuth(response,user))return true;
-    const snapshot=offline?null:service.snapshot(user),boot=JSON.stringify(snapshot).replace(/</g,'\\u003c');
+    const snapshot=offline?null:service.snapshot(user,{runId:url.searchParams.get('run')}),boot=JSON.stringify(snapshot).replace(/</g,'\\u003c');
     sendHtml(response,page({title:'Stocktaking',user:offline?null:user,content:`<link rel="stylesheet" href="/stocktaking.css"><div id="stocktaking-app"><p>Loading stocktaking…</p></div><script id="stocktaking-boot" type="application/json">${boot}</script><script src="/client/vendor/jsQR.js"></script><script type="module" src="/client/stocktaking.js"></script>`}),200,{'Cache-Control':'no-store'});return true;
   }
   return false;

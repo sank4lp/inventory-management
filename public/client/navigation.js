@@ -4,6 +4,7 @@ import {PageScope} from './page-lifecycle.js';
 export const PAGE_MODULES=new Set(['/client/led-test.js','/client/business-reports.js','/client/business-import.js','/client/warehouse-excel.js','/client/ui-template.js','/app.js','/client/displays.js','/client/recommendation-actuals.js','/client/work.js','/client/stocktaking.js','/client/location-setup.js','/client/location-browse.js','/client/location-hierarchy.js','/client/location-history.js','/client/product-settings.js','/client/roles.js']);
 export const PERSISTENT_MODULES=new Set(['/client/table-scroll.js','/client/session.js','/client/stable-buttons.js','/client/navigation.js','/client/page-lifecycle.js','/client/camera-zoom.js','/client/searchable-select.js','/client/notifications.js','/client/mobile-nav.js','/client/mobile-layout.js','/client/work-outbox-status.js','/client/stocktake-status.js']);
 export function navigationTarget(href,current){const target=new URL(href,current),from=new URL(current);return target.origin===from.origin&&!/^\/(api|auth|login|logout|register|offline)(\/|$)/.test(target.pathname)?target:null;}
+export function navigationResponseUrl(responseUrl,target){const resolved=new URL(responseUrl||target.href);if(resolved.pathname===target.pathname&&!resolved.hash)resolved.hash=target.hash;return resolved.href;}
 const shell=typeof document!=='undefined'&&document.querySelector('.dashboard-body .dashboard-shell'),body=typeof document!=='undefined'&&document.querySelector('.page-body');
 if(shell&&body){
  let current=location.href,loading=null,serial=0,committing=false,queued=null;
@@ -44,19 +45,20 @@ if(shell&&body){
    try{
      const response=await fetch(target.href,{headers:{Accept:'text/html'},cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
      if(!response.ok||!response.headers.get('content-type')?.includes('text/html'))throw Error('This page could not be opened. Try again.');
+     const destinationHref=navigationResponseUrl(response.url,target);
      const next=new DOMParser().parseFromString(await response.text(),'text/html'),content=next.querySelector('.page-body');
      if(token!==serial)return;
      globalThis.WarehouseSession?.remaining(next.body.dataset.sessionRemainingMs);
      if(globalThis.WarehouseSession?.check()===false)return;
      const sources=new Map();for(const source of next.querySelectorAll('script[src]'))sources.set(new URL(source.src,location.href).pathname,source);const scripts=[...sources.values()];
      const unsupported=[...next.querySelectorAll('script:not([src])')].some(s=>s.type!=='application/json'&&s.textContent.trim())||scripts.some(s=>s.type==='module'&&!persistent.has(new URL(s.src,location.href).pathname)&&!PAGE_MODULES.has(new URL(s.src,location.href).pathname));
-     if(!content||next.body.dataset.notificationScope!==identity||unsupported){location.assign(response.url||target.href);return;}
-     await currentScope().leave({url:response.url||target.href});if(token!==serial)return;
+     if(!content||next.body.dataset.notificationScope!==identity||unsupported){location.assign(destinationHref);return;}
+     await currentScope().leave({url:destinationHref});if(token!==serial)return;
      committing=true;globalThis.WarehouseNavigation.mounting=true;
      savedPositions.set(current,{x:scrollX,y:scrollY});
      currentScope().dispose();document.querySelectorAll('[data-page-script]').forEach(s=>s.remove());
      globalThis.WarehousePageLifecycle.current=new PageScope();
-     current=response.url||target.href;
+     current=destinationHref;
      if(!pop){const state={warehousePage:true};if(replace)history.replaceState(state,'',current);else history.pushState(state,'',current);}
      for(const executable of content.querySelectorAll('script[src],script:not([type="application/json"])'))executable.remove();
      body.replaceChildren(...content.childNodes);

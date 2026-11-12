@@ -23,6 +23,7 @@ export function stocktakeScope(db,input) {
   return cells.map(c=>c.id);
 }
 export function countCellValues(db,cellId,productId=null){
+  if(Array.isArray(productId))return productId.flatMap(id=>countCellValues(db,cellId,id));
   const rows=db.prepare('SELECT product_id,available_quantity FROM inventory_balances WHERE cell_id=? AND (? IS NULL OR product_id=?) AND available_quantity!=0 ORDER BY product_id').all(cellId,productId,productId);
   return rows.length?rows.map(r=>({productId:r.product_id,value:r.available_quantity})):[{productId:productId||null,value:0}];
 }
@@ -31,7 +32,7 @@ export function stocktakeIndicator(db,cellId){
     WHERE i.cell_id=? AND i.display_active=1 AND r.display_enabled=1 AND i.state!='excluded' AND r.status NOT IN ('closed','stopped')
     ORDER BY r.id DESC LIMIT 1`).get(cellId);
   if(!item)return null;
-  return {action:'stocktake',runId:item.run_id,itemId:item.id,color:item.state==='counted'?'blue':'yellow',values:countCellValues(db,cellId,JSON.parse(item.scope_json).productId||null)};
+  return {action:'stocktake',runId:item.run_id,itemId:item.id,color:item.state==='counted'?'blue':'yellow',values:countCellValues(db,cellId,JSON.parse(item.scope_json).productsByCell?.[cellId]||JSON.parse(item.scope_json).productId||null)};
 }
 export function countCellOwner(db,cellId){
   return db.prepare(`SELECT cl.*,i.cell_id,i.state,i.run_id,u.name FROM stocktake_display_claims cl

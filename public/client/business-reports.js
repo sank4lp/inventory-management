@@ -1,10 +1,15 @@
 export function mount(){
  const root=document.querySelector('[data-business-reports]');if(!root||root.dataset.mounted)return;root.dataset.mounted='true';
  const scope=globalThis.WarehousePageLifecycle?.current,listen=(node,...args)=>node&&(scope?scope.listen(node,...args):node.addEventListener(...args));
- let printDetails=[];
- const reset=()=>{document.body.classList.remove('business-report-printing');for(const details of printDetails)details.open=false;printDetails=[];};
+ let printDetails=[],originalDocument=null,printing=false;
+ const reset=()=>{if(originalDocument){root.querySelector('.business-report-document').replaceChildren(...originalDocument);originalDocument=null;}document.body.classList.remove('business-report-printing');for(const details of printDetails)details.open=false;printDetails=[];};
  const print=()=>{printDetails=[...root.querySelectorAll('.business-report-help:not([open])')];for(const details of printDetails)details.open=true;document.body.classList.add('business-report-printing');try{window.print();}catch{reset();}};
- listen(root.querySelector('[data-business-report-print]'),'click',print);listen(window,'afterprint',reset);scope?.own(reset);
+ listen(root.querySelector('[data-business-report-print]'),'click',async event=>{
+  if(printing)return;printing=true;const button=event.currentTarget,label=button.textContent;button.disabled=true;button.textContent='Preparing…';
+  try{const url=new URL(location.href);url.searchParams.set('print','1');const response=await(scope?scope.fetch(url):fetch(url));if(!response.ok)throw Error('The full report could not load. Try again.');const html=await response.text(),doc=new DOMParser().parseFromString(html,'text/html'),full=doc.querySelector('.business-report-document');if(!full)throw Error('Sign in again before printing.');const target=root.querySelector('.business-report-document');originalDocument=[...target.childNodes];target.replaceChildren(...full.childNodes);print();}
+  catch(error){reset();globalThis.WarehouseNotifications?.notify(error.message);}
+  finally{button.disabled=false;button.textContent=label;printing=false;}
+ });listen(window,'afterprint',reset);scope?.own(reset);
  listen(root.querySelector('[data-report-page]'),'change',event=>{const next=new URL(event.target.value,location.origin),current=new URL(location.href);for(const name of ['section',...(next.pathname==='/reports/stocktake-range'?['run']:[])])if(current.searchParams.get(name))next.searchParams.set(name,current.searchParams.get(name));const path=next.pathname+next.search;if(globalThis.WarehouseNavigation)void globalThis.WarehouseNavigation.go(path);else location.assign(path);});
  const form=root.querySelector('[data-threshold-form]');let selected=null,busy=false,opener=null;
  listen(root,'click',event=>{

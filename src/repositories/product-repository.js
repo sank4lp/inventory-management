@@ -115,7 +115,11 @@ export function createProductRepository(db) {
             WHERE p.active = 1
               AND (
                 p.sku LIKE ? OR p.name LIKE ? OR p.brand LIKE ? OR COALESCE(p.cicp_id,'') LIKE ?
-                OR EXISTS(SELECT 1 FROM product_import_aliases a JOIN products m ON m.id=a.main_product_id WHERE UPPER(TRIM(m.cos_sec))=UPPER(TRIM(p.cos_sec)) AND UPPER(TRIM(m.part_no))=UPPER(TRIM(p.part_no)) AND (a.cos_sec||' / '||a.part_no) LIKE ?)
+                OR (UPPER(TRIM(p.cos_sec)), UPPER(TRIM(p.part_no))) IN (
+                  SELECT UPPER(TRIM(m.cos_sec)), UPPER(TRIM(m.part_no))
+                  FROM product_import_aliases a JOIN products m ON m.id=a.main_product_id
+                  WHERE (a.cos_sec||' / '||a.part_no) LIKE ?
+                )
                 OR EXISTS (
                   SELECT 1
                   FROM product_attribute_values pav

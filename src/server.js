@@ -602,7 +602,7 @@ export const requestHandler = async (request, response) => {
           listProducts(db, q),
           q ? "No products match that search." : "No products have been added yet.",
           q,
-          { canEditCapacity: can(user,"products.capacity"), canStocktake:can(user,"count.create")||can(user,"count.manage") },
+          { page:url.searchParams.get("page"),pageSize:url.searchParams.get("pageSize"),canEditCapacity: can(user,"products.capacity"), canStocktake:can(user,"count.create")||can(user,"count.manage") },
         ),
       );
       return;

@@ -144,6 +144,13 @@ export function createProductPages({ db, productFieldService = null }) {
     search = "",
     options = {},
   ) {
+    const pageSize=[20,50,100].includes(Number(options.pageSize))?Number(options.pageSize):50;
+    const total=products.length,pages=Math.max(1,Math.ceil(total/pageSize));
+    const pageNumber=Math.min(pages,Math.max(1,Math.floor(Number(options.page)||1)));
+    const offset=(pageNumber-1)*pageSize,visibleProducts=products.slice(offset,offset+pageSize);
+    const pageParams=new URLSearchParams({q:search,status:options.status||'catalog-items',pageSize:String(pageSize)});
+    const pageLink=n=>{const params=new URLSearchParams(pageParams);params.set('page',n);return '/products?'+params;};
+    const pagination=`<nav class="catalog-pagination" aria-label="Product pages"><span>${total?offset+1:0}–${Math.min(total,offset+pageSize)} of ${total} products</span>${pageNumber>1?`<a class="ghost-button" href="${escapeHtml(pageLink(pageNumber-1))}">Previous</a>`:''}<span>Page ${pageNumber} of ${pages}</span>${pageNumber<pages?`<a class="ghost-button" href="${escapeHtml(pageLink(pageNumber+1))}">Next</a>`:''}<form method="get" action="/products" class="inline-form"><input type="hidden" name="q" value="${escapeHtml(search)}"><input type="hidden" name="status" value="${escapeHtml(options.status||'catalog-items')}"><label>Items per page<select name="pageSize">${[20,50,100].map(n=>`<option value="${n}" ${n===pageSize?'selected':''}>${n}</option>`).join('')}</select></label><button>Apply</button></form></nav>`;
     const businessCatalog=Boolean(db.prepare("SELECT 1 FROM products WHERE active=1 AND cos_sec IS NOT NULL LIMIT 1").get());
     const labels = fieldLabels();
     const identifierLabel = fieldLabel(labels, "product.sku", "SKU");
@@ -206,10 +213,11 @@ export function createProductPages({ db, productFieldService = null }) {
             ? `Showing ${statusLabel} products.`
           : `Browse all products, or search by ${identifierLabel}/${nameLabel.toLowerCase()} when an operator has an item in hand.`,
       )}</p>
+      ${pagination}
       <div class="product-catalog-table">
       ${table(
         businessCatalog?[...BUSINESS_FACTS.map(([,label])=>label),"Items per location","Action"]:[identifierLabel, nameLabel, "Items Per Location", "On rack", unitLabel, "Action"],
-        products.map((product) => [
+        visibleProducts.map((product) => [
           ...(businessCatalog?[...BUSINESS_FACTS.map(([key])=>["name","cos_sec","part_no"].includes(key)?`<a href="/products/${product.id}">${escapeHtml(product[key]??"—")}</a>`:escapeHtml(product[key]??"—")),product.capacity_pending?"Set during stocktake":escapeHtml(formatQuantity(product.items_per_cell))]:[
           `<a href="/products/${product.id}">${escapeHtml(product.sku)}</a>`,
           `<a href="/products/${product.id}">${escapeHtml(product.name)}</a><br /><small>${escapeHtml(product.brand)}</small>`,
@@ -515,7 +523,7 @@ export function createProductPages({ db, productFieldService = null }) {
         ${reports.map(productStatButton).join("")}
       </dl></div>
       <section class="report-template-library" hidden>
-        ${reports.map((report) => productReportTemplate(report, generatedAt, reportFormat)).join("")}
+        ${reports.map(report=>`<template data-report-template="${escapeHtml(report.key)}" data-report-title="${escapeHtml(report.title)}" data-report-description="${escapeHtml(report.description)}" data-report-src="/products?report=${encodeURIComponent(report.key)}"></template>`).join("")}
       </section>
       <section
         id="product-status-report-modal"
@@ -628,7 +636,7 @@ export function createProductPages({ db, productFieldService = null }) {
     const labels = fieldLabels();
     const customFields = visibleCustomFields();
     const allProducts = enrichProductsWithStockTrends(listProducts(db));
-    const matchingProductIds = new Set(listProducts(db, search).map((product) => Number(product.id)));
+    const matchingProductIds = new Set((search.trim()?listProducts(db, search):allProducts).map((product) => Number(product.id)));
     const selectedStatus=url.searchParams.get('outOfStock')==='1'?'out-of-stock':url.searchParams.get('inStock')==='1'?'in-stock':url.searchParams.get('status')||'catalog-items';
     const products = allProducts.filter(product => matchingProductIds.has(Number(product.id)) && (selectedStatus==='in-stock'?product.total_available>0:selectedStatus==='out-of-stock'?product.total_available<=0:selectedStatus==='low-stock'?product.is_low_stock:true));
     const stockedProducts = allProducts.filter((product) => Number(product.total_available || 0) > 0);
@@ -671,6 +679,11 @@ export function createProductPages({ db, productFieldService = null }) {
       },
     ];
 
+    if(url.searchParams.has('report')){
+      const report=productStatusReports.find(r=>r.key===url.searchParams.get('report'));
+      if(!report)throw new Error('Product report not found.');
+      return productReportTemplate(report,generatedAt,reportFormat);
+    }
     return page({
       title: "Products",
       user,
@@ -730,7 +743,7 @@ export function createProductPages({ db, productFieldService = null }) {
                     products,
                     search ? "No products match that search." : selectedStatus === "out-of-stock" ? "No out-of-stock products." : selectedStatus === "low-stock" ? "No low-stock products." : selectedStatus === "in-stock" ? "No products currently in stock." : "No products have been added yet.",
                     search,
-                    { canEditCapacity: false, status: selectedStatus, canStocktake:can(user,"count.create")||can(user,"count.manage") },
+                    { page:url.searchParams.get("page"),pageSize:url.searchParams.get("pageSize"),canEditCapacity: false, status: selectedStatus, canStocktake:can(user,"count.create")||can(user,"count.manage") },
                   )}
                 </div>
               `,

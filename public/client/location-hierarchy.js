@@ -31,7 +31,7 @@ export async function mount() {
  compactLocationCards(root,scope);
  if(!edit)return;
  const listen=(target,...args)=>scope?scope.listen(target,...args):target.addEventListener(...args);
- const read=JSON.parse(boot.textContent),cards=read.cards;
+ const read=JSON.parse(boot.textContent),cards=read.cards||Object.fromEntries([...root.querySelectorAll('[data-tree-cell]')].map(node=>[node.dataset.treeCell,node.querySelector('.location-cell-card').outerHTML])),visibleIds=read.visibleCellIds?new Set(read.visibleCellIds.map(String)):null;
  let base=structuredClone(read),draft=structuredClone(read),editing=false,busy=false,pending=null,drag=null;
  const save=document.querySelector('[data-save-layout]'),cancel=document.querySelector('[data-cancel-layout]'),add=document.querySelector('[data-add-warehouse]'),hint=document.querySelector('[data-layout-hint]'),error=document.querySelector('[data-layout-error]');
  const payload=value=>({version:value.version,warehouses:value.warehouses.map(w=>({id:w.id,name:w.name})),shelves:value.shelves.map(s=>({id:s.id,name:s.name,warehouseId:s.warehouse_id})),cells:value.cells.map(c=>({id:c.id,shelfId:c.shelf_id}))});
@@ -48,7 +48,7 @@ export async function mount() {
  }
  function render(open=null){
   root.classList.toggle('is-editing',editing);
-  root.innerHTML=locationTree(draft,cards,{editing,open,displayCapabilities:read.displayCapabilities||[]});
+  root.innerHTML=locationTree(draft,cards,{editing,open,visibleCellIds:visibleIds,displayCapabilities:read.displayCapabilities||[]});
   refreshLabels();globalThis.WarehouseCombobox?.init(root);
  }
  function controls(){edit.hidden=editing;save.hidden=cancel.hidden=add.hidden=hint.hidden=!editing;save.disabled=busy||!dirty();cancel.disabled=add.disabled=busy;root.inert=busy;}

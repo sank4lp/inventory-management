@@ -1007,6 +1007,7 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_transactions_product_created ON transactions(product_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_transactions_user_created ON transactions(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_transactions_task ON transactions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_cell_created ON transactions(cell_id,created_at,id);
     CREATE INDEX IF NOT EXISTS idx_transactions_type_created ON transactions(type, created_at);
     CREATE INDEX IF NOT EXISTS idx_device_events_created_at ON device_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_device_events_task ON device_events(task_id);

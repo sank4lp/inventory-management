@@ -1,6 +1,6 @@
 import {historicalFactor} from '../src/modules/operations/corrections.js';
 import {createProductPages} from '../src/server/pages/products.js';
-import {getProductDetail} from '../src/services/inventory.js';
+import {getProductDetail,listProducts} from '../src/services/inventory.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,realpathSync} from 'node:fs';
@@ -100,7 +100,7 @@ test('voucher data is scoped to the assigned operator while administrators see a
 }));
 
 test('an existing narrower count cannot hide newly selected locations',()=>fixture(f=>{
- const p=f.add();const first=f.apply(f.review(f.upload('products',[product({stok_ser:5})]),{rows:[{row:2,cellIds:[f.cells[0].id]}]}));const second=f.apply(f.review(f.upload('products',[product({stok_ser:5})]),{rows:[{row:2,cellIds:[f.cells[0].id,f.cells[1].id]}]}));assert.notEqual(first.rows[0].stocktakeId,second.rows[0].stocktakeId);assert.deepEqual(f.db.prepare('SELECT cell_id FROM stocktake_items WHERE run_id=?').all(second.rows[0].stocktakeId).map(i=>i.cell_id),[f.cells[1].id]);assert.equal(productStockTotal(f.db,p.id),0);
+ const p=f.add();const first=f.apply(f.review(f.upload('products',[product({stok_ser:5})]),{rows:[{row:2,cellIds:[f.cells[0].id]}]}));const second=f.apply(f.review(f.upload('products',[product({stok_ser:5})]),{rows:[{row:2,cellIds:[f.cells[0].id,f.cells[1].id]}]}));assert.notEqual(first.rows[0].stocktakeId,second.rows[0].stocktakeId);assert.deepEqual(f.db.prepare('SELECT cell_id FROM stocktake_items WHERE run_id=?').all(second.rows[0].stocktakeId).map(i=>i.cell_id),[f.cells[0].id,f.cells[1].id]);assert.equal(productStockTotal(f.db,p.id),0);
 }));
 test('editing an eligible receipt condition retains CURRENT stock identity and updates the task instruction',()=>fixture(f=>{
  f.add();const saved=f.apply(f.review(f.upload('received',[receipt()]))),id=saved.rows[0].taskId;const changed=f.apply(f.review(f.upload('received',[receipt({condition:'OTHER'})]),{rows:[{row:2,updateConfirmed:true}]}));assert.equal(changed.ready,1,JSON.stringify(changed));assert.equal(changed.rows[0].taskId,id);assert.equal(f.work.task(f.admin,id).voucher.condition,'OTHER');assert.match(f.work.task(f.admin,id).instruction_note,/Condition: OTHER/);assert.equal(f.work.task(f.admin,id).voucher.mpi_status,'CURRENT');
@@ -158,6 +158,7 @@ test('a later merge flattens import aliases and retains source provenance and hi
  const a=f.add(),b=f.add({part_no:'B'}),c=f.add({part_no:'C'});f.stock(a,1);f.stock(b,2);f.stock(c,3);
  const tx=Number(f.db.prepare("INSERT INTO transactions(type,product_id,cell_id,quantity_delta,user_id,reason,created_at,unit_of_measure) VALUES('put',?,?,2,?,'Earlier movement','2026-11-01T00:00:00.000Z','NOS')").run(b.id,f.cells[0].id,f.admin.id).lastInsertRowid);
  f.apply(f.service.mergeReview(f.admin,{mainProductId:a.id,productIds:[b.id],name:'AB'}));f.apply(f.service.mergeReview(f.admin,{mainProductId:c.id,productIds:[a.id],name:'ABC'}));
+ assert.deepEqual(listProducts(f.db,'01 / B').map(p=>p.id),[c.id]);assert.equal(listProducts(f.db,'unknown-alias').length,0);
  assert.equal(productStockTotal(f.db,c.id),6);const movement=f.db.prepare('SELECT * FROM transactions WHERE id=?').get(tx);assert.equal(movement.product_id,c.id);assert.equal(movement.merged_from_product_id,b.id);assert.equal(movement.quantity_delta,2);
  const upload=f.upload('products',[product({stok_ser:1}),product({part_no:'B',stok_ser:2}),product({part_no:'C',stok_ser:3})]),result=f.apply(f.review(upload));assert.ok(result.rows.every(r=>r.productId===c.id&&r.expected===6&&!r.stocktakeId));
  assert.throws(()=>f.service.saveProduct(f.admin,{...product({part_no:'RENAMED'}),productId:c.id,confirmed:true}),/remembered import identities/);
@@ -171,7 +172,7 @@ test('pending product counts follow merged identity and an active bin count bloc
  assert.throws(()=>f.service.mergeReview(f.admin,{mainProductId:a.id,productIds:[b.id],name:'Combined'}),/active bin count/);
  // Mimic the existing pause command's release; historical observations are not deleted.
  f.db.prepare("UPDATE stocktake_items SET state='pending' WHERE run_id=?").run(pending);
- f.apply(f.service.mergeReview(f.admin,{mainProductId:a.id,productIds:[b.id],name:'Combined'}));assert.equal(JSON.parse(f.db.prepare('SELECT scope_json FROM stocktake_runs WHERE id=?').get(pending).scope_json).productId,a.id);assert.equal(f.db.prepare('SELECT state FROM stocktake_items WHERE id=?').get(item.id).state,'pending');
+ f.apply(f.service.mergeReview(f.admin,{mainProductId:a.id,productIds:[b.id],name:'Combined'}));assert.deepEqual(JSON.parse(f.db.prepare('SELECT scope_json FROM stocktake_runs WHERE id=?').get(pending).scope_json).productsByCell[f.cells[0].id],[a.id]);assert.equal(f.db.prepare('SELECT state FROM stocktake_items WHERE id=?').get(item.id).state,'pending');
 }));
 
 test('new merged Excel products keep several MPI rows separate in the same import',()=>fixture(f=>{
@@ -187,4 +188,81 @@ test('corrections retain unit conversion history before and after a product merg
  assert.equal(historicalFactor(f.db,a.id,'PACK','2025-12-01T00:00:00.000Z',b.id),2);
  addConversion(a.id,'NOS','BOX',0.5,'2099-01-01T00:00:00.000Z');f.db.prepare("UPDATE products SET unit_of_measure='BOX' WHERE id=?").run(a.id);
  assert.equal(historicalFactor(f.db,a.id,'PACK','2025-12-01T00:00:00.000Z',b.id),1);
+}));
+
+test('selected mismatches create one import run with exact products per bin and selected rows only',()=>fixture(f=>{
+ const p=f.add(),q=f.add({part_no:'SECOND'}),third=f.add({part_no:'SKIP'});f.stock(p,2);f.stock(q,4,f.cells[1]);
+ const d=f.upload('products',[product({stok_ser:5}),product({part_no:'SECOND',stok_ser:8}),product({part_no:'SKIP',nomen1:'Must not change',stok_ser:3})]);
+ assert.equal(d.rows[0].variants[0].currentStock,2);
+ const preview=f.review(d,{rows:[{row:2},{row:3},{row:4,skip:true}]});assert.equal(preview.ready,2);assert.equal(preview.excluded,1);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_runs').get().n,0);
+ const done=f.apply(preview),runId=done.rows[0].stocktakeId;assert.equal(runId,done.rows[1].stocktakeId);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_runs').get().n,1);
+ assert.equal(f.db.prepare('SELECT name FROM products WHERE id=?').get(third.id).name,'Test item');
+ const items=f.db.prepare('SELECT * FROM stocktake_items WHERE run_id=? ORDER BY cell_id').all(runId);assert.deepEqual(items.map(i=>JSON.parse(i.required_products_json)),[[p.id],[q.id]]);
+ f.cmd('start',{runId});const a=f.cmd('begin',{itemId:items[0].id,generation:items[0].generation,method:'manual',location:f.cells[0].logical_code});
+ assert.deepEqual(f.count.snapshot(f.op).runs.find(r=>r.id===runId).attempts[0].baseline.products.map(p=>p.productId),[p.id]);
+ assert.throws(()=>f.cmd('observe',{attemptId:a.attemptId,lines:[{productId:q.id,actual:2}]}),/selected product/);
+}));
+
+test('combined import counts all required products in a shared bin, excluding unrelated stock',()=>fixture(f=>{
+ const p=f.add(),q=f.add({part_no:'SECOND'}),other=f.add({part_no:'OTHER'});f.stock(p,2);f.stock(q,3);f.stock(other,8);
+ const done=f.apply(f.review(f.upload('products',[product({stok_ser:5}),product({part_no:'SECOND',stok_ser:6})]))),runId=done.rows[0].stocktakeId;
+ f.cmd('start',{runId});const item=f.count.snapshot(f.op).runs.find(r=>r.id===runId).items[0];const a=f.cmd('begin',{itemId:item.id,generation:item.generation,method:'manual',location:f.cells[0].logical_code});
+ assert.deepEqual(f.count.snapshot(f.op).runs.find(r=>r.id===runId).attempts[0].baseline.products.map(p=>p.productId),[p.id,q.id]);
+ assert.throws(()=>f.cmd('observe',{attemptId:a.attemptId,lines:[{productId:p.id,actual:5}]}),/every recorded/);
+ f.cmd('observe',{attemptId:a.attemptId,lines:[{productId:p.id,actual:5},{productId:q.id,actual:6}]});
+ assert.equal(f.count.snapshot(f.op).runs.find(r=>r.id===runId).status,'completed');assert.equal(productStockTotal(f.db,other.id),8);
+}));
+
+
+test('large product imports stay selected, create one run, and keep catalog/status responses bounded',()=>fixture(f=>{
+ const rows=Array.from({length:1000},(_,i)=>product({part_no:'SCALE-'+i,nomen1:'Scale product '+String(i).padStart(4,'0'),stok_ser:10}));
+ const result=f.apply(f.review(f.upload('products',rows)));
+ assert.equal(result.ready,1000);assert.equal(new Set(result.rows.map(r=>r.stocktakeId)).size,1);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM inventory_balances').get().n,0);
+ const runId=result.rows[0].stocktakeId;
+ const full=f.count.snapshot(f.admin),status=f.count.status(f.admin);
+ assert.equal(status.badge,full.badge);
+ assert.deepEqual(status.runs.map(r=>[r.id,r.pending,r.reviews,r.actionable,r.total,r.completed]),full.runs.map(r=>[r.id,r.pending,r.reviews,r.actionable,r.total,r.completed]));
+ assert.ok(JSON.stringify(status).length<2000);assert.equal(status.runs[0].scope_json,undefined);
+ const home=f.count.snapshot(f.admin,{runId:null});assert.equal(home.runs[0].items.length,0);assert.equal(home.runs[0].total,full.runs[0].total);
+ const selected=f.count.snapshot(f.admin,{runId});assert.equal(selected.runs[0].items.length,full.runs[0].items.length);
+ const pages=createProductPages({db:f.db});
+ const catalog=pages.renderProducts(f.admin,null,'Scale product',false,new URL('http://local/products?q=Scale+product'));
+ assert.ok(catalog.includes('1–50 of 1000 products'));assert.ok(catalog.length<250000);assert.ok(catalog.includes('data-report-src='));
+ assert.equal((catalog.match(/data-display-kind="quantity"/g)||[]).length,50);
+ const last=pages.renderProducts(f.admin,null,'Scale product',false,new URL('http://local/products?q=Scale+product&page=999&pageSize=20'));
+ assert.ok(last.includes('981–1000 of 1000 products'));assert.ok(last.includes('Scale product 0999'));
+ const print=pages.renderProducts(f.admin,null,'',false,new URL('http://local/products?report=catalog-items'));
+ assert.ok(print.includes('Scale product 0000'));assert.ok(print.includes('Scale product 0999'));
+ const plan=f.db.prepare("EXPLAIN QUERY PLAN SELECT * FROM products WHERE active=1 AND UPPER(TRIM(cos_sec))=? AND UPPER(TRIM(part_no))=? ORDER BY mpi_status,id").all('01','SCALE-1');
+ assert.ok(plan.some(r=>r.detail.includes('product_import_lookup')));
+ // A second import resolves existing rows; it must never create duplicate products.
+ const second=f.apply(f.review(f.upload('products',rows),{skipStocktake:true}));assert.equal(second.ready,1000);
+ assert.equal(f.db.prepare("SELECT COUNT(*) n FROM products WHERE part_no LIKE 'SCALE-%'").get().n,1000);
+}));
+
+test('lightweight stocktake status preserves permissions, pending counts and review reminders',()=>fixture(f=>{
+ const saved=f.apply(f.review(f.upload('products',[product({stok_ser:2})]),{rows:[{row:2,createConfirmed:true,cellIds:[f.cells[0].id]}]}));
+ const other=f.db.prepare("SELECT * FROM users WHERE id!=? AND role='operator'").get(f.op.id);
+ const compare=()=>{for(const actor of [f.admin,f.op,other].filter(Boolean)){
+  const full=f.count.snapshot(actor),small=f.count.status(actor);
+  assert.equal(small.badge,full.badge);assert.deepEqual(small.runs.map(r=>[r.id,r.pending,r.reviews,r.actionable,r.overdue]),full.runs.map(r=>[r.id,r.pending,r.reviews,r.actionable,r.overdue]));
+ }};
+ compare();const id=saved.rows[0].stocktakeId;f.cmd('start',{runId:id});compare();
+ const item=f.count.snapshot(f.op).runs.find(r=>r.id===id).items[0],begin=f.cmd('begin',{itemId:item.id,generation:item.generation,method:'manual',location:f.cells[0].logical_code});
+ compare();f.cmd('observe',{attemptId:begin.attemptId,lines:[{productId:saved.rows[0].productId,actual:2,unit:'NOS'}]});compare();
+ const observation=f.db.prepare('SELECT id FROM stocktake_observations LIMIT 1').get();
+ f.db.prepare("UPDATE stocktake_observations SET status='review' WHERE id=?").run(observation.id);compare();
+}));
+
+test('compact stocktake pages retain counted-product scope in the active baseline',()=>fixture(f=>{
+ const result=f.apply(f.review(f.upload('products',[product({stok_ser:8})]),{rows:[{row:2,createConfirmed:true,cellIds:[f.cells[0].id]}]}));
+ const runId=result.rows[0].stocktakeId,productId=result.rows[0].productId;
+ const compact=f.count.snapshot(f.op,{runId}).runs.find(r=>r.id===runId);
+ assert.equal(JSON.parse(compact.scope_json).productsByCell,undefined);
+ assert.equal(compact.items[0].required_products_json,undefined);
+ assert.deepEqual(JSON.parse(f.count.snapshot(f.op).runs.find(r=>r.id===runId).items[0].required_products_json),[productId]);
+ f.cmd('start',{runId});const item=compact.items[0];f.cmd('begin',{itemId:item.id,generation:item.generation,method:'manual',location:f.cells[0].logical_code});
+ const active=f.count.snapshot(f.op,{runId}).runs.find(r=>r.id===runId);
+ assert.deepEqual(active.attempts[0].baseline.productScopes,[productId]);
 }));

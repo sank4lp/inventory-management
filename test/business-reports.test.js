@@ -154,3 +154,28 @@ test('report routes offer both Range modes, filtered exports and combined thresh
  assert.equal(request('/reports/movement-speed?period=day').status,200);
  assert.equal(request('/reports/customers').status,200);
 });
+
+test('report pages render one page while printing retains every matching product',async t=>{
+ const f=fixture(t);for(let i=0;i<120;i++)f.product('S','CURRENT','NOS','PAGE-'+i);
+ const {renderSectionReport,renderMovementReport}=await import('../src/modules/reports/pages.js');
+ const report=sectionStockReport(f.db,f.admin,{}),url=new URL('http://local/reports/sections');
+ const first=renderSectionReport(f.db,f.admin,url,report);
+ assert.equal((first.match(/href="\/products\/\d+"/g)||[]).length,50);
+ assert.match(first,/1–50 of 120/);
+ const last=renderSectionReport(f.db,f.admin,new URL(url+'?page=3'),report);
+ assert.equal((last.match(/href="\/products\/\d+"/g)||[]).length,20);
+ const printed=renderSectionReport(f.db,f.admin,new URL(url+'?print=1'),report);
+ assert.equal((printed.match(/href="\/products\/\d+"/g)||[]).length,120);
+ const speed=movementSpeedReport(f.db,f.admin,{period:'month',direction:'combined'});
+ const movement=renderMovementReport(f.db,f.admin,new URL('http://local/reports/movement-speed'),speed);
+ assert.equal((movement.match(/data-threshold="/g)||[]).length,50);
+});
+
+test('large library reports page their rows and print the complete report',async t=>{
+ const f=fixture(t);for(let i=0;i<120;i++)f.product('S','CURRENT','NOS','LIBRARY-'+i);
+ const {createReportsPages}=await import('../src/server/pages/reports.js'),pages=createReportsPages({db:f.db});
+ const page=pages.renderReports(f.admin,null,new URL('http://local/reports?reportFragment=replenishment-watch'));
+ assert.match(page,/1–50 of 120/);assert.match(page,/page=2#replenishment-watch/);
+ const full=pages.renderReports(f.admin,null,new URL('http://local/reports?reportFragment=replenishment-watch&print=1'));
+ assert.doesNotMatch(full,/catalog-pagination/);assert.match(full,/REPORT-99/);assert.doesNotMatch(page,/REPORT-99/);assert.equal((full.match(/<small>SKU:/g)||[]).length,120);
+});

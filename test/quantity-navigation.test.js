@@ -68,3 +68,20 @@ test('legacy location utility listeners are reattached to the retained document 
     assert.equal(document.handlers.get('click').size,1);scope.dispose();assert.equal(document.handlers.get('click').size,0);assert.equal(document.documentElement.dataset.locationUtilityActionsBound,undefined);
   }
 });
+
+test('unscoped quantities open inspection without lighting, then selected product uses owned display cleanup',async()=>{
+ const document=new Target(),window=new Target(),requests=[];document.documentElement={dataset:{}};window.location={pathname:'/cells',search:''};
+ const opener=button({quantityKey:'warehouse:all',activateEndpoint:'/products/quantities'});opener.matches=s=>s.includes('[data-show-product-quantity]');
+ document.querySelector=()=>null;document.querySelectorAll=()=>[opener];document.createElement=()=>button({});
+ const scope=new PageScope(),opened=[];
+ const context=vm.createContext({document,window,pageScope:scope,URLSearchParams,crypto,activeCatalogProductQuantity:null,
+ onPage:(target,...args)=>scope.listen(target,...args),setTimeout:(...args)=>scope.timeout(...args),setButtonLoading(){},sendProductFindLedClearEndpoint(){},
+ openBrowserStub:async value=>opened.push(value),
+ fetch:async(endpoint,{body})=>{requests.push({endpoint,body});return {ok:true,json:async()=>body.get('previewOnly')==='1'?{state:'ready'}:endpoint.endsWith('/stop')?{message:'Stopped'}:{displayId:'inspect-1',targets:[{status:'sent',productId:7,value:42}]}};}});
+ vm.runInContext(quantitySource.replace("await import('./client/quantity-browser.js')",'({openQuantityBrowser:openBrowserStub})')+';wireCatalogProductQuantity();',context);
+ await document.fire('click',{target:{closest:()=>opener},preventDefault(){},stopImmediatePropagation(){}});
+ assert.equal(opened.length,1);assert.equal(requests.length,0,'opening the chooser must not light the warehouse');
+ const receipt=await opened[0].show({productId:'7',cellId:'3'});
+ assert.equal(requests.length,2);assert.equal(requests[1].body.get('product_id'),'7');assert.equal(requests[1].body.get('cellId'),'3');assert.equal(requests[1].body.get('stockOnly'),'1');
+ await opened[0].stop(receipt.displayId);assert.equal(requests.at(-1).body.get('displayId'),'inspect-1');assert.equal(opener.attributes['aria-pressed'],'false');scope.dispose();
+});

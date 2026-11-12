@@ -4,14 +4,14 @@ let updateId=0;
 async function update(){
  const thisUpdate=++updateId;
  try{
-  const response=await fetch('/api/stocktaking/snapshot',{cache:'no-store',signal:AbortSignal.timeout(10000)});
+  const response=await fetch('/api/stocktaking/status',{cache:'no-store',signal:AbortSignal.timeout(10000)});
   if(!response.ok)return;
   const s=await response.json();if(thisUpdate!==updateId||String(s.user.id)!==document.body.dataset.accountId)return;
   if(badge){badge.textContent=s.badge;badge.hidden=!s.badge;}
   globalThis.WarehouseNotifications?.reconcileKeys?.('stocktaking-run:',s.runs.filter(r=>r.actionable).map(r=>'stocktaking-run:'+r.id));
   const r=s.runs.find(r=>r.actionable);
   if(r){
-   const message=r.reviews&&(s.capabilities.approve||s.capabilities.recount)?`Stocktaking: ${r.reviews} items need checking`:!r.items.some(i=>s.capabilities.count&&i.active!==0&&(i.assignee_id===s.user.id||i.counterIds?.includes(s.user.id))&&['pending','counting','skipped','recheck'].includes(i.state))?'Stocktaking — assign / review locations':r.overdue?'Stocktaking overdue — continue':r.started_at?'Stocktaking in progress — continue':'Stocktaking pending — start';
+   const message=r.reviews&&(s.capabilities.approve||s.capabilities.recount)?`Stocktaking: ${r.reviews} items need checking`:!(s.capabilities.count&&r.pending>0)?'Stocktaking — assign / review locations':r.overdue?'Stocktaking overdue — continue':r.started_at?'Stocktaking in progress — continue':'Stocktaking pending — start';
    globalThis.WarehouseNotifications?.notify(message,{key:'stocktaking-run:'+r.id,tone:'warning',href:'/stocktaking?run='+r.id});
   }
   const saved=JSON.parse(localStorage.getItem('lightguide-stocktaking-v1')||'null'),partition=`${s.site}:${s.user.id}`,requests=new Map((saved?.queues?.[partition]||[]).map(q=>[q.id,q]));

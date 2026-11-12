@@ -275,3 +275,59 @@ test('nonfinal counts keep the active counting session and final coverage alone 
   }
  }finally{f.db.close();}
 });
+
+test('later stocktakes cover overlapping bins and automatically complete the earlier run without duplicate inventory writes',()=>{
+ const f=fixture();try{
+  const cells=f.db.prepare('SELECT * FROM cells WHERE active=1 LIMIT 6').all();for(const c of cells)f.stock(c,5);
+  const first=f.create({autoStart:false,cellIds:cells.slice(0,4).map(c=>c.id)});f.advance(1000);
+  const second=f.create({cellIds:[cells[1].id,cells[3].id,cells[5].id]});
+  for(const c of [cells[1],cells[3],cells[5]]){const a=f.begin(second,f.op,c);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:4}]});}
+  assert.equal(f.item(first,cells[1]).state,'counted');assert.equal(f.item(first,cells[3]).state,'counted');assert.equal(f.item(first,cells[0]).state,'pending');
+  const proof=f.item(first,cells[1]).countProvenance;assert.equal(proof[0].kind,'reused');assert.equal(proof[0].run_id,second);assert.equal(proof[0].counter_id,f.op.id);
+  f.advance(1000);const third=f.create({cellIds:[cells[0].id,cells[2].id]});
+  for(const c of [cells[0],cells[2]]){const a=f.begin(third,f.admin,c);f.cmd(f.admin,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:3}]});}
+  assert.equal(f.count.snapshot(f.admin).runs.find(r=>r.id===first).status,'completed');
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM stocktake_settlements').get().n,5);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM transactions').get().n,5);
+  const item=f.item(first,cells[0]);f.cmd(f.op,'recountCell',{itemId:item.id,generation:item.generation});
+  const a=f.begin(first,f.op,cells[0]);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:3}]});
+  assert.equal(f.count.snapshot(f.op).runs.find(r=>r.id===first).status,'completed');assert.equal(f.item(first,cells[0]).countProvenance[0].kind,'direct');
+  assert.ok(f.db.prepare("SELECT 1 FROM stocktake_events WHERE run_id=? AND event_type='count_reused'").get(first));
+ }finally{f.work.dispose();f.db.close();}
+});
+
+test('partial product counts accumulate only across products required by the target bin',()=>{
+ const f=fixture();try{
+  const q=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.p.id),c=f.cells[0];f.stock(c,5);f.stock(c,7,q);
+  const first=f.create({autoStart:false,cellIds:[c.id]});f.advance(1000);
+  const second=f.create({mode:'product',productId:f.p.id,cellIds:[c.id]});let a=f.begin(second);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:5}]});
+  assert.equal(f.item(first,c).state,'pending');assert.equal(f.item(first,c).countProvenance.length,1);
+  const third=f.create({mode:'product',productId:q.id,cellIds:[c.id]});a=f.begin(third);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:q.id,actual:7}]});
+  assert.equal(f.item(first,c).state,'counted');assert.equal(f.item(first,c).countProvenance.length,2);
+  const observation=f.db.prepare('SELECT lines_json FROM stocktake_observations WHERE id=?').get(f.item(first,c).latest_observation);
+  assert.deepEqual(JSON.parse(observation.lines_json).map(l=>l.actual),[5,7]);
+ }finally{f.work.dispose();f.db.close();}
+});
+
+test('reuse preserves active counts, stopped runs and counts explicitly requested again',()=>{
+ const f=fixture();try{
+  const c=f.cells[0];f.stock(c,5);const first=f.create({cellIds:[c.id]});const attempt=f.begin(first);f.advance(1000);
+  const second=f.create({autoStart:false,cellIds:[c.id]});f.cmd(f.op,'observe',{attemptId:attempt.attemptId,lines:[{productId:f.p.id,actual:5}]});
+  assert.equal(f.item(second,c).state,'pending','attempt began before second was created');
+  const r=f.count.snapshot(f.admin).runs.find(r=>r.id===second);f.cmd(f.admin,'stop',{runId:second,revision:r.revision,confirmed:true});
+  let item=f.item(first,c);f.cmd(f.op,'recountCell',{itemId:item.id,generation:item.generation});
+  const third=f.create({cellIds:[c.id]});const a=f.begin(third);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:5}]});
+  assert.equal(f.item(first,c).state,'recheck');assert.equal(f.item(second,c).state,'pending');
+ }finally{f.work.dispose();f.db.close();}
+});
+
+test('an intervening movement invalidates partial reuse even when the quantity later returns to its old value',()=>{
+ const f=fixture();try{
+  const c=f.cells[0],q=f.db.prepare('SELECT * FROM products WHERE id!=? LIMIT 1').get(f.p.id);f.stock(c,5);f.stock(c,2,q);
+  const first=f.create({autoStart:false,cellIds:[c.id]});f.advance(1000);
+  const second=f.create({mode:'product',productId:f.p.id,cellIds:[c.id]});let a=f.begin(second);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:f.p.id,actual:5}]});
+  // A zero-delta ledger event still invalidates earlier physical evidence.
+  f.db.prepare("INSERT INTO transactions(product_id,cell_id,type,quantity_delta,unit_of_measure,user_id,reason,created_at) VALUES(?,?,'adjustment',0,?,?,'Movement boundary',?)").run(f.p.id,c.id,f.p.unit_of_measure,f.op.id,new Date().toISOString());
+  const third=f.create({mode:'product',productId:q.id,cellIds:[c.id]});a=f.begin(third);f.cmd(f.op,'observe',{attemptId:a.attemptId,lines:[{productId:q.id,actual:2}]});assert.equal(f.item(first,c).state,'pending');
+ }finally{f.work.dispose();f.db.close();}
+});

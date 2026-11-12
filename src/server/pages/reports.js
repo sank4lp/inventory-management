@@ -1,3 +1,4 @@
+import {paginateRows} from '../pagination.js';
 import {currentActor} from "../../modules/access/service.js";
 import {can} from "../../modules/access/catalog.js";
 import * as reportServices from "../../services/reports.js";
@@ -1621,7 +1622,7 @@ function replenishmentWatchBody(report = {}, labels = {}) {
       </div>
     </section>
     <section class="report-document-section">
-      <h4>Products To Review</h4>
+      <h4>Products To Review</h4>${report.pagingControls||""}
       ${table(
         [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "On rack (recorded)", batchLabel, "Locations"],
         rows.map((row) => [
@@ -1672,7 +1673,7 @@ function slowMovingStockBody(report = {}, labels = {}) {
       {
         key: "slow",
         label: "Stocked Products Without Picks",
-        value: formatQuantity(rows.length),
+        value: formatQuantity(report.totalMatchingRows??rows.length),
         detail: "No positive completed pick in the selected timeframe",
       },
       {
@@ -1703,7 +1704,7 @@ function slowMovingStockBody(report = {}, labels = {}) {
       </div>
     </section>
     <section class="report-document-section">
-      <h4>Stock Without Recent Picks</h4>
+      <h4>Stock Without Recent Picks</h4>${report.pagingControls||""}
       ${table(
         [`${productLabel} / ${skuLabel}`, categoryLabel, "On Hand", "Last Pick", "Idle For", "Locations"],
         rows.map((row) => [
@@ -1853,13 +1854,14 @@ function reportDocumentContext(report, user, reportFormat) {
   `;
 }
 
-function reportInlineDocument(report, range, generatedAt, reportFormat, user, active = false) {
+function reportInlineDocument(report, range, generatedAt, reportFormat, user, active = false, deferredSource = null) {
   const effectiveRange = report.range || range;
   return `
     <article
       id="${escapeHtml(report.key)}"
       class="report-document report-inline-document"
       data-report-inline="${escapeHtml(report.key)}"
+      ${deferredSource?`data-report-src="${escapeHtml(deferredSource)}"`:""}
       data-report-document="${escapeHtml(report.key)}"
       data-report-uses-global-range="${report.usesGlobalRange ? "true" : "false"}"
       aria-label="${escapeHtml(report.title)}"
@@ -1886,7 +1888,7 @@ function reportInlineDocument(report, range, generatedAt, reportFormat, user, ac
         </dl>
       </header>
       ${reportDocumentContext(report, user, reportFormat)}
-      ${report.body}
+      ${deferredSource?'<p role="status">Select this report to load its details.</p>':report.body}
     </article>
   `;
 }
@@ -1934,6 +1936,8 @@ export function createReportsPages({ db }) {
       topN: 10,
       visualization: "bar",
     });
+    const paged=(key,rows)=>{const target=new URL(url);target.searchParams.delete('reportFragment');target.searchParams.delete('print');target.hash=key;return paginateRows(rows,target,{label:'Report',complete:url.searchParams.get('print')==='1'});};
+    const replenishmentPage=paged('replenishment-watch',reports.replenishmentWatch.rows),slowPage=paged('slow-moving-stock',reports.slowMovingStock.rows),adjustmentPage=paged('adjustments',reports.adjustments);
     const builtInReportSections = [
       {
         key: "product-movement",
@@ -1969,7 +1973,7 @@ export function createReportsPages({ db }) {
         metricLabel: "Products To Review",
         usesGlobalRange: false,
         range: { fromAt: null, toAt: null, label: "Current Snapshot" },
-        body: replenishmentWatchBody(reports.replenishmentWatch, productLabels),
+        body: replenishmentWatchBody({...reports.replenishmentWatch,rows:replenishmentPage.rows,pagingControls:replenishmentPage.controls}, productLabels),
       },
       {
         key: "slow-moving-stock",
@@ -1978,7 +1982,7 @@ export function createReportsPages({ db }) {
         metric: formatQuantity(reports.slowMovingStock.totalMatchingRows),
         metricLabel: "Products Without Picks",
         usesGlobalRange: true,
-        body: slowMovingStockBody(reports.slowMovingStock, productLabels),
+        body: slowMovingStockBody({...reports.slowMovingStock,rows:slowPage.rows,pagingControls:slowPage.controls}, productLabels),
       },
       {
         key: "movement",
@@ -2014,9 +2018,9 @@ export function createReportsPages({ db }) {
         metric: formatQuantity(reports.adjustments.length),
         metricLabel: "Count Changes",
         usesGlobalRange: true,
-        body: table(
+        body: adjustmentPage.controls+table(
           ["When", `${productNameLabel} / ${skuLabel}`, "Bin", "Delta", unitLabel, "Reason", "Recorded By"],
-          reports.adjustments.map((row) => [
+          adjustmentPage.rows.map((row) => [
             escapeHtml(formatDate(row.created_at)),
             `${escapeHtml(row.product_name)}<br /><small>${escapeHtml(skuLabel)}: ${escapeHtml(row.sku)}</small>`,
             escapeHtml(row.logical_code),
@@ -2030,6 +2034,9 @@ export function createReportsPages({ db }) {
       },
     ];
     const reportSections = builtInReportSections;
+    const fragment=url.searchParams.get('reportFragment');
+    if(fragment){const selected=reportSections.find(r=>r.key===fragment);if(!selected)throw Object.assign(new Error('Report not found.'),{statusCode:404});return reportInlineDocument(selected,range,generatedAt,reportFormat,user,true);}
+    const reportSource=key=>{const next=new URL(url);next.searchParams.set('reportFragment',key);return next.pathname+next.search;};
 
     return page({
       title: "Reports",
@@ -2104,7 +2111,7 @@ export function createReportsPages({ db }) {
               <p class="sr-only" aria-live="polite" data-report-announcer></p>
               <section class="report-inline-stack" data-report-inline-stack>
                 ${reportSections
-                  .map((report, index) => reportInlineDocument(report, range, generatedAt, reportFormat, user, index === 0))
+                  .map((report, index) => reportInlineDocument(report, range, generatedAt, reportFormat, user, index === 0, index===0?null:reportSource(report.key)))
                   .join("")}
               </section>
             </section>

@@ -9,7 +9,8 @@
     "dev": "node --watch src/server.js",
     "test": "node --test",
     "preview": "node scripts/dev-preview.mjs",
-    "package:pi:test": "node scripts/build-pi-package.mjs"
+    "package:pi:test": "node scripts/build-pi-package.mjs",
+    "test:stress": "node scripts/stress-test.mjs"
   },
   "dependencies": {
     "jsqr": "^1.4.0",

@@ -47,9 +47,9 @@ export function enhanceSelect(select){
 
  function paint(message){
   if(remote&&message!==undefined)remoteMessage=message;
-  visible=busy||failed?[]:matchingOptions(select.options,remote?'':editing?input.value:'').filter(o=>o.value||!select.required);active=-1;input.removeAttribute('aria-activedescendant');list.replaceChildren();
+  const matches=busy||failed?[]:matchingOptions(select.options,remote?'':editing?input.value:'').filter(o=>o.value||!select.required);visible=matches.slice(0,100);active=-1;input.removeAttribute('aria-activedescendant');list.replaceChildren();
   for(const [i,option] of visible.entries()){const row=doc.createElement('span');row.id=id+'-option-'+i;row.className='searchable-option';row.setAttribute('role','option');row.setAttribute('aria-selected',String(option.value===select.value));row.textContent=option.textContent;row.addEventListener('pointerdown',e=>e.preventDefault());row.addEventListener('click',e=>{e.preventDefault();choose(option);});list.append(row);}
-  place();status.textContent=message||(remote&&remoteMessage)||(visible.length?`${visible.length} ${visible.length===1?'option':'options'}. Use arrow keys and Enter to choose.`:'No matching options.');
+  place();status.textContent=message||(remote&&remoteMessage)||(matches.length>100?`Showing 100 of ${matches.length} options. Type to narrow the results.`:'')||(visible.length?`${visible.length} ${visible.length===1?'option':'options'}. Use arrow keys and Enter to choose.`:'No matching options.');
  }
  function search(){
   if(!remote)return paint();

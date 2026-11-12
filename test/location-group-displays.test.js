@@ -160,3 +160,48 @@ test('group ping expiry clears only its selected outputs',t=>{
  assert.deepEqual([...new Set(f.writes.slice(before))].sort(),['to 1 clear 1','to 1 clear 2']);
  assert.equal(f.db.prepare('SELECT state FROM display_requests WHERE id=?').get(shown.id).state,'stopped');
 });
+
+test('product selector restricts a mixed bin to one MPI product and preserves group boundaries',t=>{
+ const f=fixture(t);f.stock(f.products[0],f.cells[0],42);f.stock(f.products[1],f.cells[0],18);f.stock(f.products[0],f.cells[3],9);
+ const shown=f.api({displayKind:'quantity',shelfId:String(f.shed),product_id:String(f.products[1].id)});
+ assert.equal(shown.targets.length,1);assert.equal(shown.targets[0].value,18);assert.equal(shown.targets[0].productId,f.products[1].id);assert.equal(shown.targets[0].sequence,null);
+ for(const value of ['0','bad','-2'])assert.throws(()=>f.api({displayKind:'quantity',product_id:value}),/valid product/);
+});
+
+test('quantity browser supplies scoped identities and excludes historical zero stock without lighting LEDs',t=>{
+ const f=fixture(t);f.stock(f.products[0],f.cells[0],42);f.stock(f.products[1],f.cells[0],0);f.stock(f.products[1],f.cells[3],10);
+ f.db.prepare('UPDATE products SET cos_sec=?,part_no=?,mpi_status=? WHERE id=?').run('A','PART-42','OBT',f.products[0].id);
+ const response={writeHead(code){this.code=code;},end(body){this.body=JSON.parse(body);}};
+ assert.equal(displayRoutes({method:'GET'},response,new URL('http://localhost/api/displays/quantities?shelfId='+f.shed),f.admin,{displayCoordinator:f.display,operationsService:f.work}),true);
+ assert.deepEqual(response.body.rows.map(r=>r.cell.id),f.cells.slice(0,2).map(c=>c.id));
+ assert.equal(response.body.rows[0].products.length,1);assert.equal(response.body.rows[0].products[0].part_no,'PART-42');assert.equal(response.body.rows[0].products[0].mpi_status,'OBT');assert.equal(f.writes.length,0);
+});
+
+test('twenty products cycle individually and confirmed current identity follows each delivered number',t=>{
+ const f=fixture(t);let time=new Date();const display=createDisplayCoordinator({db:f.db,hardwareService:{showCellQuantity:()=>({ok:true}),clearCellQuantity:()=>({ok:true})},operationsService:f.work,clock:()=>time});
+ // Use the normal coordinator with deterministic delivery and clock, without physical hardware.
+ for(let n=0;n<20;n++){
+  const id=Number(f.db.prepare("INSERT INTO products(sku,name,brand,unit_of_measure,items_per_cell,active,created_at) VALUES(?,?,'','pcs',100,1,?)").run('MULTI-'+n,'Product '+n,new Date().toISOString()).lastInsertRowid);
+  f.stock({id},f.cells[0],n+1);
+ }
+ const result=display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id});assert.equal(result.targets[0].sequence.length,20);
+ const ids=new Set();for(let n=0;n<20;n++){
+  const target=display.status(f.admin)[0].targets[0];ids.add(target.productId);assert.equal(target.productId,target.sequence[target.sequenceIndex].productId);assert.equal(target.value,target.sequence[target.sequenceIndex].value);
+  time=new Date(time.getTime()+4100);
+ }
+ assert.equal(ids.size,20);display.stop(f.admin,result.id);assert.equal(display.status(f.admin).length,0);
+});
+
+test('inspection cycles omit zero-stock history',t=>{
+ const f=fixture(t);f.stock(f.products[0],f.cells[0],4);f.stock(f.products[1],f.cells[0],0);
+ const result=f.api({displayKind:'quantity',cellId:String(f.cells[0].id),stockOnly:'1'});
+ assert.equal(result.targets[0].sequence,null);assert.equal(result.targets[0].productId,f.products[0].id);assert.equal(result.targets[0].value,4);
+});
+
+test('a failed cycle delivery is reported unconfirmed until a later delivery succeeds',t=>{
+ const f=fixture(t);f.stock(f.products[0],f.cells[0],4);f.stock(f.products[1],f.cells[0],7);let time=new Date(),fail=false;
+ const display=createDisplayCoordinator({db:f.db,operationsService:f.work,clock:()=>time,hardwareService:{showCellQuantity:()=>({ok:!fail}),clearCellQuantity:()=>({ok:true})}});
+ display.start(f.admin,{kind:'quantity',cellId:f.cells[0].id});fail=true;time=new Date(time.getTime()+4100);
+ const failed=display.status(f.admin)[0].targets[0];assert.equal(failed.sequenceDeliveryFailed,true);assert.equal(failed.sequenceIndex,0);
+ fail=false;const recovered=display.status(f.admin)[0].targets[0];assert.equal(recovered.sequenceDeliveryFailed,false);assert.equal(recovered.sequenceIndex,1);assert.equal(recovered.productId,f.products[1].id);
+});

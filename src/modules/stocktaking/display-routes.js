@@ -4,14 +4,26 @@ import {sendJson,sendRedirect} from '../../server/http/responses.js';
 export function displayRoutes(request,response,url,user,state) {
  const d=state.displayCoordinator;
  const displayKind=value=>['items_per_location','capacity_total','capacity_available'].includes(value)?value:'quantity';
+ if(request.method==='GET'&&url.pathname==='/api/displays/quantities'){
+   if(!ensureApiAuth(response,user))return true;
+   state.operationsService.actorNow(user,'locations.quantity');
+   const scope={};
+   for(const key of ['cellId','shelfId','warehouseId'])if(url.searchParams.has(key)){
+     const id=Number(url.searchParams.get(key));if(!Number.isSafeInteger(id)||id<1)throw new Error('Choose a valid bin, rack or shed.');scope[key]=id;
+   }
+   if(Object.keys(scope).length>1)throw new Error('Choose one bin, rack or shed.');
+   const rows=d.view(user,scope).map(({cell,products})=>({cell:{id:cell.id,name:cell.display_name||cell.logical_code,rack:cell.travel_instructions,shed:cell.warehouse_name},products:products.filter(p=>p.on_hand>0)}));
+   sendJson(response,{rows});return true;
+ }
  if(url.pathname==='/api/displays/status'){if(!ensureApiAuth(response,user))return true;sendJson(response,d.status(user));return true;}
  if(request.method==='POST'&&['/api/displays/start','/api/displays/stop'].includes(url.pathname)) {
    if(!ensureApiAuth(response,user))return true;const i=request.parsedForm;
    if(url.pathname.endsWith('/stop')){sendJson(response,d.stop(user,i.displayId));return true;}
    const selectors=['cellId','shelfId','warehouseId'].filter(key=>i[key]!==undefined);
    if(selectors.length>1||selectors.some(key=>!Number.isSafeInteger(Number(i[key]))||Number(i[key])<1))throw new Error('Choose one valid bin, rack or shed.');
+   const productId=i.productId??i.product_id;if(productId!==undefined&&(!Number.isSafeInteger(Number(productId))||Number(productId)<1))throw new Error('Choose a valid product.');
    const kind=i.displayKind||i.kind;
-   const scope={kind:['locate','ping','module_number','cell_name'].includes(kind)?kind:displayKind(kind),...Object.fromEntries(selectors.map(key=>[key,Number(i[key])])),...(i.productId?{productId:Number(i.productId)}:{}),...(i.overrideWork==='1'?{overrideWork:true}:{})};
+   const scope={...(i.stockOnly==='1'?{positiveOnly:true}:{}),kind:['locate','ping','module_number','cell_name'].includes(kind)?kind:displayKind(kind),...Object.fromEntries(selectors.map(key=>[key,Number(i[key])])),...(i.productId||i.product_id?{productId:Number(i.productId||i.product_id)}:{}),...(i.overrideWork==='1'?{overrideWork:true}:{})};
    const result=d.start(user,scope,{requestId:i.requestId,promptOnBusy:i.promptOnBusy==='1',confirmOverride:i.confirmOverride==='1',previewOnly:i.previewOnly==='1'});
    sendJson(response,{...result,...(result.id?{displayId:result.id}:{})});return true;
  }

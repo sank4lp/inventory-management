@@ -31,9 +31,11 @@ export function warehouseExcelData(db) {
   const products=db.prepare('SELECT * FROM products WHERE active=1 ORDER BY sku,id').all();
   const balances=db.prepare(`SELECT b.* FROM inventory_balances b JOIN cells c ON c.id=b.cell_id WHERE c.active=1 ORDER BY b.product_id,b.cell_id`).all();
   const cellNames=new Map(cells.map(c=>[c.id,cellName(c)]));
+  const byProduct=new Map();
+  for(const balance of balances){if(!byProduct.has(balance.product_id))byProduct.set(balance.product_id,[]);byProduct.get(balance.product_id).push(balance);}
   const stockRows=[];
   for(const product of products){
-    const rows=balances.filter(b=>b.product_id===product.id);
+    const rows=byProduct.get(product.id)||[];
     // A product without a saved location still belongs in the catalog export.
     for(const balance of rows.length?rows:[null])stockRows.push([
       product.sku,product.name,balance?cellNames.get(balance.cell_id):'',balance?Number(balance.available_quantity):'',

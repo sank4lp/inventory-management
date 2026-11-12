@@ -29,7 +29,7 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
  function productFor(a,row,choice,kind,initial){
   const values={...row.values},main=aliasMain(db,values);
   if(main){const otherIdentity=productIdentity(values)!==productIdentity(main);values.cos_sec=main.cos_sec;values.part_no=main.part_no;values.nomen1=main.name;if(otherIdentity){values.cicp_id=main.cicp_id;values.review_dt=main.review_dt;}}
-  const siblings=initial.filter(p=>normalizeIdentity(p.cos_sec)===normalizeIdentity(values.cos_sec)&&normalizeIdentity(p.part_no)===normalizeIdentity(values.part_no));
+  const siblings=initial.byIdentity.get(productIdentity(values))||[];
   if(kind!=='products'){values.mpi_status=kind==='received'?'CURRENT':normalizeIdentity(choice.mpiStatus);values.cicp_id=main?.cicp_id??values.comp_no;values.review_dt=main?.review_dt??null;if(!values.mpi_status)throw new Error('Choose MPI Status for this Issue row.');}
   let existing=variants(values).find(p=>normalizeIdentity(p.mpi_status)===normalizeIdentity(values.mpi_status));
   if(kind==='products'&&!existing){
@@ -50,7 +50,7 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
   if(existing&&normalizeIdentity(existing.mpi_status)!==normalizeIdentity(product.mpi_status))operationsService.stageMpiChange(a,product.id,existing.mpi_status,product.mpi_status);
   return product;
  }
- function stageCount(a,d,row,product,choice,input){
+ function stageCount(a,d,row,product,choice,input,validated){
   const recorded=productStockTotal(db,product.id),expected=Number(row.values.stok_ser);
   if(input.skipStocktake===true)return {recorded,expected,stocktakeId:null,stocktakeSkipped:true};
   if(Math.abs(recorded-expected)<1e-6)return {recorded,expected,stocktakeId:null};
@@ -58,13 +58,10 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
   const known=db.prepare('SELECT b.cell_id FROM inventory_balances b JOIN cells c ON c.id=b.cell_id WHERE b.product_id=? AND c.active=1 AND b.available_quantity!=0').all(product.id).map(r=>r.cell_id);
   let cells=Array.isArray(choice.cellIds)&&choice.cellIds.length?choice.cellIds.map(Number):known.length?known:db.prepare('SELECT id FROM cells WHERE active=1').all().map(c=>c.id);
   if(!cells.length)throw new Error('Add shed locations before creating this product stocktake.');
-  const pending=db.prepare("SELECT * FROM stocktake_runs WHERE status NOT IN ('completed','closed','stopped') ORDER BY id").all().filter(r=>JSON.parse(r.scope_json).productId===product.id);
-  const covered=new Set(pending.flatMap(r=>db.prepare("SELECT cell_id FROM stocktake_items WHERE run_id=? AND state!='excluded'").all(r.id).map(c=>c.cell_id)));
-  cells=cells.filter(id=>!covered.has(id));
-  if(!cells.length&&pending.length){event(a,d.id,'stock_comparison',{productId:product.id,recorded,expected,stocktakeId:pending[0].id});return {recorded,expected,stocktakeId:pending[0].id,reused:true};}
   if(!Array.isArray(input.counterIds)||!input.counterIds.length)throw new Error('Choose a counter for the stock differences.');
-  const created=stocktakingService.stageExcelCount(a,{mode:'product',productId:product.id,cellIds:cells,locationsChosen:true,counterIds:input.counterIds,dueDate:input.countDueDate,title:`Stock check · ${businessProductLabel(product)}`,importId:d.id,comparisons:[{productId:product.id,recorded,expected,sourceRow:row.row}]});
-  return {recorded,expected,stocktakeId:created.runId};
+  const validationKey=json(cells);
+  if(!validated.has(validationKey)){stocktakingService.validateExcelCount(a,{mode:'selected',cellIds:cells,counterIds:input.counterIds,dueDate:input.countDueDate});validated.add(validationKey);}
+  return {recorded,expected,stocktakeId:null,countCells:cells};
  }
  function voucher(a,kind,number){
   db.prepare('INSERT OR IGNORE INTO vouchers(kind,number,created_by,created_at) VALUES(?,?,?,?)').run(kind,number,a.id,now());return db.prepare('SELECT * FROM vouchers WHERE kind=? AND number=?').get(kind,number);
@@ -77,6 +74,9 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
   if(input.merges?.length&&d.kind!=='products'&&d.kind!=='merge')throw Error('Merge products from Products or the product import first.');
   const merges=(input.merges||[]).map(merge=>{assertCan(a,'products.edit');const result=stageProductMerge(db,a,merge,{rows:doc.rows,choices:input.rows,now:now()});operationsService.refreshMergedInstructions(a,result.taskIds);return result;});
   const initial=db.prepare('SELECT * FROM products WHERE active=1').all();
+  initial.byId=new Map(initial.map(p=>[p.id,p]));initial.byIdentity=new Map();
+  for(const p of initial){const key=productIdentity(p);if(!initial.byIdentity.has(key))initial.byIdentity.set(key,[]);initial.byIdentity.get(key).push(p);}
+  const countValidations=new Set();
   const groups=new Map();for(const row of doc.rows){const key=d.kind==='products'&&!choices.get(row.row)?.skip?productIdentity(aliasMain(db,row.values)||row.values)+'|'+normalizeIdentity(row.values.mpi_status):String(row.row);groups.set(key,[...(groups.get(key)||[]),row]);}
   if(choices.size!==(input.rows||[]).length)throw new Error('Resolve each file row once.');
   const touchedProducts=new Set();
@@ -103,7 +103,7 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
      const product=productFor(a,row,choice,d.kind,initial);result.productName=product.name;
      if(d.kind==='products'){
       if(touchedProducts.has(product.id))throw new Error('Two source rows would change the same product variant. Choose Add new status for the additional row.');
-      const count=stageCount(a,d,{...row,values:{...row.values,stok_ser:group.reduce((n,r)=>n+Number(r.values.stok_ser),0)}},product,choice,input),old=initial.find(p=>p.id===product.id),change=old&&old.mpi_status!==product.mpi_status?`MPI changes from ${old.mpi_status} to ${product.mpi_status}; open tasks go to review. `:'';Object.assign(result,{status:'ready',productId:product.id,message:change+(count.stocktakeSkipped?'Product only. Stock unchanged; stocktaking skipped.':count.stocktakeId?'Stocktake required.':'Stock matches.'),...count});touchedProducts.add(product.id);
+      const count=stageCount(a,d,{...row,values:{...row.values,stok_ser:group.reduce((n,r)=>n+Number(r.values.stok_ser),0)}},product,choice,input,countValidations),old=initial.byId.get(product.id),change=old&&old.mpi_status!==product.mpi_status?`MPI changes from ${old.mpi_status} to ${product.mpi_status}; open tasks go to review. `:'';Object.assign(result,{status:'ready',productId:product.id,message:change+(count.stocktakeSkipped?'Product only. Stock unchanged; stocktaking skipped.':count.countCells?'Stocktake required.':'Stock matches.'),...count});touchedProducts.add(product.id);
      }else{
       const spec={direction:d.kind==='issue'?'pick':'put',productId:product.id,quantity:row.values[d.kind==='issue'?'qty_iss':'qty_r'],assigneeId:choice.assigneeId||input.assigneeId,dueDuration:choice.dueDuration||input.dueDuration||readDeadlineDefaults(db)[d.kind==='received'?'putMinutes':'pickMinutes'],dueUnit:choice.dueUnit||input.dueUnit||'minutes',note:`${d.kind==='issue'?'Issue':'Received'} Voucher ${row.voucherNumber}${row.values.condition?' · Condition: '+row.values.condition:''}`};
       const task=prior?.task_id?operationsService.stageVoucherUpdate(a,{...spec,taskId:prior.task_id}):operationsService.stageVoucherAssignment(a,spec);
@@ -117,6 +117,13 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
     if(d.kind!=='products'&&row.voucherNumber&&!row.errors.length&&!prior?.task_id){const v=voucher(a,d.kind,row.voucherNumber);storeLine(v,d,row,{status:'pending',message:error.message,mpi:d.kind==='received'?'CURRENT':choice.mpiStatus});result.voucherId=v.id;}
    }
    for(const member of group)results.push({...result,row:member.row,values:member.values,...(group.length>1?{mergedRows:group.map(r=>r.row),message:result.message+' Combined stock from '+group.length+' rows.'}:{})});
+  }
+  const differences=[...new Map(results.filter(r=>r.status==='ready'&&r.countCells).map(r=>[r.productId,r])).values()];
+  if(differences.length){
+   const productsByCell={};
+   for(const row of differences)for(const cell of row.countCells)(productsByCell[cell]??=[]).push(row.productId);
+   const created=stocktakingService.stageExcelCount(a,{mode:'selected',cellIds:Object.keys(productsByCell).map(Number),productsByCell,counterIds:input.counterIds,dueDate:input.countDueDate,title:`Import stocktake · ${d.file_name}`,importId:d.id,comparisons:differences.map(r=>({productId:r.productId,recorded:r.recorded,expected:r.expected,sourceRow:r.row}))});
+   for(const row of results)if(row.countCells){row.stocktakeId=created.runId;delete row.countCells;}
   }
   return {merges,rows:results.sort((a,b)=>a.row-b.row),ready:results.filter(r=>r.status==='ready').length,blocked:results.filter(r=>r.status==='blocked').length,existing:results.filter(r=>r.status==='existing').length,excluded:results.filter(r=>['excluded','excluded_uns'].includes(r.status)).length};
  }

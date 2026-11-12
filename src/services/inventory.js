@@ -37,7 +37,7 @@ function displayQuantity(value) {
   return Number.isInteger(number) ? String(number) : String(number).replace(/\.?0+$/, "");
 }
 
-function moveSuggestions(db, { productId, sourceCellId, quantity }) {
+function moveSuggestions(db, { productId, sourceCellId, quantity, emptyCells }) {
   const product = findProductOrThrow(db, Number(productId));
   const balances = createInventoryBalanceRepository(db);
   const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
@@ -47,7 +47,7 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
     requestedQuantity,
     itemsPerCell,
     sameProductCells: balances.listSameProductMoveTargets(product.id, sourceCellId),
-    emptyCells: balances.listEmptyMoveTargets(sourceCellId),
+    emptyCells: emptyCells ? emptyCells.filter(c=>c.cell_id!==sourceCellId) : balances.listEmptyMoveTargets(sourceCellId),
   });
 
   return {
@@ -157,6 +157,7 @@ function buildCellAnomalies(db) {
   }
 
   const anomalies = [];
+  const emptyCells=createInventoryBalanceRepository(db).listEmptyMoveTargets(-1);
 
   for (const cell of grouped.values()) {
     if (cell.products.length > 1) {
@@ -164,7 +165,7 @@ function buildCellAnomalies(db) {
       const suggestion = moveSuggestions(db, {
         productId: moveProduct.productId,
         sourceCellId: cell.cellId,
-        quantity: moveProduct.totalQuantity,
+        quantity: moveProduct.totalQuantity,emptyCells,
       });
       anomalies.push({
         key: `mixed-${cell.cellId}-${moveProduct.productId}`,
@@ -190,7 +191,7 @@ function buildCellAnomalies(db) {
         const suggestion = moveSuggestions(db, {
           productId: product.productId,
           sourceCellId: cell.cellId,
-          quantity: excessQuantity,
+          quantity: excessQuantity,emptyCells,
         });
         anomalies.push({
           key: `overflow-${cell.cellId}-${product.productId}`,

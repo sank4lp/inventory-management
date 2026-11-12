@@ -123,7 +123,7 @@ function iconSvg(name, className = "ui-icon") {
 function nav(user, currentTitle = "", currentPath = "") {
   if(!user)return '';
   const runtime=getRuntimeContext(),admin=can(user,'work.team'),title=currentTitle.toLowerCase();
-  const counts=can(user,"count.view")?runtime.stocktakingService?.snapshot(user):null;
+  const counts=can(user,"count.view")?runtime.stocktakingService?.status(user):null;
   const primary=navigation(user);
   const selectedWork=currentWorkTab(currentPath);
   const active=currentPath.startsWith('/settings/')||currentPath==='/work/timing'?'Settings':selectedWork?'Work':title.includes('stocktak')?'Stocktaking':title.includes('product')?'Products':title.includes('location')||title.includes('cell')||title.includes('bin')?'Locations':title==='reports'?'Reports':['settings','admin','configuration','backups','roles and permissions','hardware'].some(t=>title.includes(t))?'Settings':'Work';

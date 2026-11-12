@@ -26,6 +26,7 @@ export function stageProductMerge(db,actor,input,{rows=[],choices=[],now=new Dat
  const cells=new Set();for(const id of sources.keys())for(const b of db.prepare('SELECT cell_id FROM inventory_balances WHERE product_id=? AND available_quantity!=0').all(id))cells.add(b.cell_id);
  for(const id of sources.keys()){
   if(db.prepare('SELECT 1 FROM cell_turns c JOIN task_lines l ON l.id=c.line_id WHERE l.product_id=?').get(id)||db.prepare("SELECT 1 FROM tasks t JOIN task_lines l ON l.task_id=t.id WHERE l.product_id=? AND t.completed_at IS NULL AND t.assignment_state='started' AND t.guidance_paused=0 AND t.attention=0").get(id))throw Error('Pause the active Pick/Put for these products before merging.');
+  if(db.prepare("SELECT 1 FROM stocktake_items i,json_each(COALESCE(i.required_products_json,'[]')) p WHERE i.state='counting' AND p.value=?").get(id))throw Error('Finish or pause the active bin count before merging these products.');
   if(db.prepare("SELECT 1 FROM stocktake_items i JOIN stocktake_runs r ON r.id=i.run_id WHERE i.state='counting' AND (json_extract(r.scope_json,'$.productId')=? OR (json_extract(r.scope_json,'$.productId') IS NULL AND i.cell_id IN (SELECT cell_id FROM inventory_balances WHERE product_id=? AND available_quantity!=0)))").get(id,id))throw Error('Finish or pause the active bin count before merging these products.');
  }
  if(!main){assertCan(actor,'products.add');const choice=byChoice.get(mainRow.row)||{};main=saveBusinessProduct(db,{...mainRow.values,nomen1:name},{confirmed:choice.createConfirmed===true,capacity:choice.itemsPerCell});sources.set(main.id,main);}
@@ -61,10 +62,14 @@ export function stageProductMerge(db,actor,input,{rows=[],choices=[],now=new Dat
  for(const run of db.prepare("SELECT * FROM stocktake_runs WHERE status NOT IN ('completed','closed')").all()){
   const scope=JSON.parse(run.scope_json),scoped=ids.includes(scope.productId)||[...targets.values()].some(p=>p.id===scope.productId);
   if(scope.productId&&!scoped)continue;
-  const affected=db.prepare("SELECT * FROM stocktake_items WHERE run_id=? AND state!='excluded'").all(run.id).filter(i=>scoped||cells.has(i.cell_id));if(!affected.length)continue;
+  const affected=db.prepare("SELECT * FROM stocktake_items WHERE run_id=? AND state!='excluded'").all(run.id).filter(i=>scoped||cells.has(i.cell_id)||JSON.parse(i.required_products_json||'[]').some(id=>ids.includes(id)));if(!affected.length)continue;
   if(remap.has(scope.productId))scope.productId=remap.get(scope.productId);
+  if(scope.productsByCell)for(const cell of Object.keys(scope.productsByCell))scope.productsByCell[cell]=[...new Set(scope.productsByCell[cell].map(id=>remap.get(id)||id))];
   db.prepare('UPDATE stocktake_runs SET scope_json=?,revision=revision+1 WHERE id=?').run(JSON.stringify(scope),run.id);
-  for(const item of affected){db.prepare("UPDATE stocktake_items SET generation=generation+1,state='pending',latest_observation=NULL,note='Products merged. Count the combined stock.' WHERE id=?").run(item.id);db.prepare('DELETE FROM stocktake_display_claims WHERE item_id=?').run(item.id);}
+  for(const item of affected){
+    if(item.required_products_json)db.prepare('UPDATE stocktake_items SET required_products_json=? WHERE id=?').run(JSON.stringify([...new Set(JSON.parse(item.required_products_json).map(id=>remap.get(id)||id))]),item.id);
+    db.prepare('DELETE FROM stocktake_reused_counts WHERE item_id=?').run(item.id);
+    db.prepare("UPDATE stocktake_items SET generation=generation+1,state='pending',latest_observation=NULL,note='Products merged. Count the combined stock.' WHERE id=?").run(item.id);db.prepare('DELETE FROM stocktake_display_claims WHERE item_id=?').run(item.id);}
   for(const id of ids)db.prepare('DELETE FROM stocktake_capacity_inputs WHERE run_id=? AND product_id=?').run(run.id,id);
   db.prepare("INSERT INTO stocktake_events(run_id,actor_id,event_type,payload,created_at) VALUES(?,?,'products_merged',?,?)").run(run.id,actor.id,JSON.stringify({mappings,items:affected.map(i=>i.id)}),now);
  }

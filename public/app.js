@@ -1367,6 +1367,20 @@ function wireReportsWorkspace() {
     });
   };
 
+  const inlineLoads=new Map();
+  const loadInlineReport=key=>{
+    const panel=inlinePanelMap.get(key);if(!panel?.dataset.reportSrc)return Promise.resolve();
+    if(inlineLoads.has(key))return inlineLoads.get(key);
+    panel.setAttribute('aria-busy','true');
+    const pending=fetch(panel.dataset.reportSrc,{cache:'no-store',signal:AbortSignal.timeout(30000)}).then(async response=>{
+      if(!response.ok)throw Error('Could not load this report. Select it again to retry.');
+      const holder=document.createElement('template');holder.innerHTML=await response.text();const loaded=holder.content.querySelector('[data-report-inline]');
+      if(!loaded)throw Error('Sign in again to view this report.');if(!workspace.isConnected)return;
+      panel.innerHTML=loaded.innerHTML;delete panel.dataset.reportSrc;
+      if(activeReportKey===key)setInlineReport(key);
+    }).catch(error=>{if(workspace.isConnected){panel.textContent=error.message;}throw error;}).finally(()=>{panel.removeAttribute('aria-busy');inlineLoads.delete(key);});
+    inlineLoads.set(key,pending);return pending;
+  };
   const setInlineReport = (key, { scroll = false } = {}) => {
     let activePanel = null;
     inlinePanels.forEach((panel) => {
@@ -1377,6 +1391,7 @@ function wireReportsWorkspace() {
       }
     });
 
+    if(activePanel?.dataset.reportSrc)void loadInlineReport(key).catch(()=>{});
     const active = Boolean(activePanel);
     if (inlineStack) {
       inlineStack.hidden = false;
@@ -1421,6 +1436,24 @@ function wireReportsWorkspace() {
     if (modalDescription) {
       modalDescription.textContent = template.dataset.reportDescription || "";
     }
+    if(template.dataset.reportSrc){
+      const source=template.dataset.reportSrc;
+      const print=workspace.querySelector('[data-report-print-current]');
+      if(print)print.disabled=true;
+      modalContent.innerHTML='<p role="status">Loading product list…</p>';
+      modal.hidden=false;setActiveReportButton(key);
+      void fetch(source,{cache:'no-store',signal:AbortSignal.timeout(30000)}).then(async response=>{
+        if(!response.ok)throw new Error('Could not load the product list. Close and try again.');
+        const holder=document.createElement('template');holder.innerHTML=await response.text();
+        const loaded=holder.content.querySelector('template[data-report-template]');
+        if(!loaded)throw new Error('Sign in again to load the product list.');
+        if(!workspace.isConnected||activeReportKey!==key||modal.hidden)return;
+        template.innerHTML=loaded.innerHTML;delete template.dataset.reportSrc;
+        if(print)print.disabled=false;setModalReport(key);
+      }).catch(error=>{if(workspace.isConnected&&activeReportKey===key&&!modal.hidden)modalContent.textContent=error.message;});
+      return modal;
+    }
+    const print=workspace.querySelector('[data-report-print-current]');if(print)print.disabled=false;
     modalContent.innerHTML = template.innerHTML;
     const reportRoot = modalContent.querySelector("[data-report-document]");
     syncReportContextControls(reportRoot);
@@ -1512,17 +1545,31 @@ function wireReportsWorkspace() {
     printMenu.querySelector("[data-report-print-close]")?.focus();
   };
 
-  const printActiveReport = () => {
+  let printRestore=null, preparingPrint=false;
+  const restorePrintedReport=()=>{printRestore?.();printRestore=null;document.body.classList.remove("report-printing");};
+  const printActiveReport = async () => {
+    if(preparingPrint)return;
     if (!activeReportKey) {
       openPrintMenu();
       return;
     }
 
-    document.body.classList.add("report-printing");
-    setTimeout(() => {
-      document.body.classList.remove("report-printing");
-    }, 60000);
-    requestAnimationFrame(() => window.print());
+    const printingKey=activeReportKey;
+    try{await loadInlineReport(printingKey);}catch{return;}
+    if(!workspace.isConnected||activeReportKey!==printingKey)return;
+    const panel=inlinePanelMap.get(printingKey);
+    preparingPrint=true;
+    try{
+      // Printing includes all rows, independently of the current table page.
+      if(panel&&['replenishment-watch','slow-moving-stock','adjustments'].includes(printingKey)){const target=new URL(location.href);target.hash='';target.searchParams.set('reportFragment',printingKey);target.searchParams.set('print','1');
+        const response=await fetch(target,{cache:'no-store',signal:AbortSignal.timeout(60000)});if(!response.ok)throw Error('Could not prepare the full report. Try again.');
+        const holder=document.createElement('template');holder.innerHTML=await response.text();const full=holder.content.querySelector('[data-report-inline]');if(!full)throw Error('Sign in again to print this report.');
+        if(!workspace.isConnected||activeReportKey!==printingKey)return;
+        restorePrintedReport();const original=[...panel.childNodes];panel.replaceChildren(...full.childNodes);printRestore=()=>panel.replaceChildren(...original);
+      }
+      document.body.classList.add("report-printing");
+      requestAnimationFrame(()=>{try{window.print();}catch(error){restorePrintedReport();throw error;}});
+    }catch(error){globalThis.WarehouseNotifications?.notify(error.message,{tone:'error'});}finally{preparingPrint=false;}
   };
 
   reportButtons.forEach((button) => {
@@ -1755,9 +1802,8 @@ function wireReportsWorkspace() {
       document.body.classList.add("report-printing");
     }
   });
-  onPage(window,"afterprint", () => {
-    document.body.classList.remove("report-printing");
-  });
+  onPage(window,"afterprint", restorePrintedReport);
+  pageScope?.own(restorePrintedReport);
   modal?.addEventListener("click", (event) => {
     if (event.target === modal) {
       closeReport();
@@ -3689,6 +3735,7 @@ async function activateCatalogProductQuantity(button, { previewOnly = false, ove
   body.set("requestId", crypto.randomUUID());
   body.set("promptOnBusy", "1");
   if (button.dataset.displayKind) body.set("displayKind", button.dataset.displayKind);
+  if (button.dataset.stockOnly) body.set("stockOnly", button.dataset.stockOnly);
   if (cellId) body.set("cellId", cellId);
   if (button.dataset.warehouseId) body.set("warehouseId", button.dataset.warehouseId);
   if (button.dataset.shelfId) body.set("shelfId", button.dataset.shelfId);
@@ -3747,6 +3794,44 @@ function wireCatalogProductQuantity() {
   onPage(document,"click", async (event) => {
     const button = event.target.closest("[data-show-product-quantity], [data-show-location-count], [data-locate-cell], [data-adjustment-locate-cell], [data-ping-cell], [data-ping-controller]");
     if (!button || button.disabled) {
+      return;
+    }
+    // A multi-product quantity display needs an explicit product/bin choice.
+    if (!button.dataset.productId && (!button.dataset.displayKind || button.dataset.displayKind === 'quantity') &&
+        button.matches('[data-show-product-quantity], [data-show-location-count]')) {
+      event.preventDefault();event.stopImmediatePropagation?.();
+      if (document.querySelector('[data-quantity-browser]')) return;
+      button.disabled=true;
+      try {
+        const {openQuantityBrowser}=await import('./client/quantity-browser.js');
+        await openQuantityBrowser({button,pageScope,
+          show:async selection=>{
+            const control=document.createElement('button');
+            Object.assign(control.dataset,{activateEndpoint:'/api/displays/start',displayKind:'quantity',stockOnly:'1',...selection});
+            let preview=await activateCatalogProductQuantity(control,{previewOnly:true}),overrideWork=false;
+            if(preview.state==='confirmation_required'){
+              overrideWork=await confirmQuantityOverride(preview.conflicts);
+              if(!overrideWork)return null;
+            }
+            if(activeCatalogProductQuantity){await clearCatalogProductQuantity(activeCatalogProductQuantity);activeCatalogProductQuantity=null;syncCatalogProductQuantityButtons();}
+            let result=await activateCatalogProductQuantity(control,{overrideWork});
+            if(result.state==='confirmation_required'){
+              if(!await confirmQuantityOverride(result.conflicts))return null;
+              result=await activateCatalogProductQuantity(control,{overrideWork:true});
+            }
+            if(!result.displayId||!result.targets?.some(t=>t.status==='sent'))throw new Error(result.message||'No bin could show this quantity.');
+            activeCatalogProductQuantity={key:catalogProductQuantityKey(button),clearEndpoint:'/api/displays/stop',displayId:result.displayId};
+            syncCatalogProductQuantityButtons();return result;
+          },
+          stop:async id=>{
+            const result=await clearCatalogProductQuantity({displayId:id,clearEndpoint:'/api/displays/stop'});
+            if(activeCatalogProductQuantity?.displayId===id){activeCatalogProductQuantity=null;syncCatalogProductQuantityButtons();}
+            return result;
+          },
+          ended:id=>{if(activeCatalogProductQuantity?.displayId===id){activeCatalogProductQuantity=null;syncCatalogProductQuantityButtons();}}
+        });
+      }catch(error){globalThis.WarehouseNotifications?.notify(error.message,{tone:'error'});}
+      finally{button.disabled=false;}
       return;
     }
     const quantityKey = catalogProductQuantityKey(button);

@@ -190,7 +190,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       const indicator=stocktakeIndicator(db,cellId);
       const scope=count?JSON.parse(db.prepare('SELECT scope_json FROM stocktake_runs WHERE id=?').get(count.run_id).scope_json):null;
       const clear=old?{action:'clear',binding:old.binding||binding,...(old.action==='stocktake'||old.backgroundStocktake?{backgroundStocktake:true}:{})}:null;
-      const desired=!c.active?clear:count?{action:'count',itemId:count.item_id,itemGeneration:count.generation,binding:count.binding,color:'orange',values:countCellValues(db,cellId,scope.productId||null)}:owner?{action:c.guidance_mode==='shared'?'locate':'quantity',lineId:owner.id,quantity:owner.planned_quantity,binding}:!pausedTurn&&indicator?{...indicator,binding}:clear;
+      const desired=!c.active?clear:count?{action:'count',itemId:count.item_id,itemGeneration:count.generation,binding:count.binding,color:'orange',values:countCellValues(db,cellId,scope.productsByCell?.[cellId]||scope.productId||null)}:owner?{action:c.guidance_mode==='shared'?'locate':'quantity',lineId:owner.id,quantity:owner.planned_quantity,binding}:!pausedTurn&&indicator?{...indicator,binding}:clear;
       if(desired&&JSON.stringify(desired)!==JSON.stringify(old))setGuidance(cellId,desired);
     }
   }
@@ -1447,6 +1447,11 @@ export function createOperationsService({ db, hardwareService = null, logger = n
   }
   function snapshot(actor,query={}) {
     const current=actorNow(actor);
+    if(query.view==='timing'){
+      assertCan(current,'work.timing');
+      return {...identity(),user:current,workTabs:workTabs(current),capabilities:workCapabilities(current),timing:timingSettings(),operators:[],performers:[],reports:[],tasks:[],products:[],cells:[],pending:[],postedReports:[],contents:[],discrepancies:[],generatedAt:now()};
+    }
+    const listView=['mine','history','activity','active'].includes(query.view);
     if(query.view==='active')query={...query,view:'history',activeOnly:true,currentAssigneeOnly:!can(current,'work.team'),scope:can(current,'work.team')?'team':undefined,taskId:undefined};
     else if(query.view==='history'&&can(current,'work.team')&&!query.scope)query={...query,scope:'team'};
     if(query.view==='assign')assertCan(current,'work.assign');
@@ -1459,7 +1464,8 @@ export function createOperationsService({ db, hardwareService = null, logger = n
     const cells=db.prepare('SELECT id,logical_code,label_id,label_revision,guidance_mode FROM cells WHERE active=1 ORDER BY row_number,column_number').all().map(c=>({...c,description:describeLocation(db,c.id)}));
     const reviews=reviewSelection(db,current,query),pending=reviews.rows,loads=workloads(db);
     const planner=['work.pick','work.put','work.report'].some(cap=>can(current,cap)),productIds=new Set([...taskList.flatMap(t=>t.lines.map(l=>l.product_id)),...pending.map(r=>r.product_id)]),cellIds=new Set([...taskList.flatMap(t=>t.lines.map(l=>l.cell_id)),...pending.map(r=>r.cell_id)]);
-    const visibleProducts=can(current,'products.view')||planner?products:products.filter(p=>productIds.has(p.id)),visibleCells=can(current,'locations.view')||can(current,'work.stop')||can(current,'work.teamStop')||planner?cells:cells.filter(c=>cellIds.has(c.id));
+    const visibleProducts=!listView&&(can(current,'products.view')||planner)?products:products.filter(p=>productIds.has(p.id)),visibleCells=can(current,'locations.view')||can(current,'work.stop')||can(current,'work.teamStop')||planner?cells:cells.filter(c=>cellIds.has(c.id));
+    const visibleProductIds=new Set(visibleProducts.map(p=>p.id)),visibleCellIds=new Set(visibleCells.map(c=>c.id));
     const operators=(can(current,'work.assign')||can(current,'work.team')||can(current,'review.view'))?db.prepare('SELECT id,name,username,status,role FROM users ORDER BY name').all().map(u=>{
       const effective=effectiveUser(db,u),load=loads.find(v=>v.id===u.id);
       return {...u,role_name:effective.role_name,eligible:workCapabilities(effective).execute,...(can(current,'work.assign')?{assignedTaskCount:load?.open||0}:{}),...((can(current,'work.team')||can(current,'review.view'))?load:{})};
@@ -1469,7 +1475,7 @@ export function createOperationsService({ db, hardwareService = null, logger = n
       tasks:taskList,watchedTasks,returnedTasks:returned.ids.map(id=>task(current,id)),returnedPage:returned.page,myWorkPriority:selection.priority,myWorkNextTask:selection.priority?readWorkItem(selection.priority.id):null,taskPage:selection.page,taskCounts:selection.counts,inactivityAlerts:inactivityAlerts(current),reviewPage:reviews.page,reviewTotal:reviews.total,reviewGroups:reviews.groups,products:visibleProducts,cells:visibleCells,pending:pending.map(r=>({...r,...(JSON.parse(r.payload).taskClosure?{closureTask:task(current,r.task_id),closureActuals:JSON.parse(r.payload).actuals,closureCounts:db.prepare('SELECT o.id,o.lines_json,i.cell_id,c.logical_code,r.title FROM stocktake_observations o JOIN stocktake_items i ON i.id=o.item_id JOIN stocktake_runs r ON r.id=i.run_id JOIN cells c ON c.id=i.cell_id JOIN stocktake_settlements s ON s.observation_id=o.id ORDER BY s.created_at DESC LIMIT 100').all()}:{}),reviewFollowup:r.task_id?Boolean(db.prepare('SELECT review_followup FROM tasks WHERE id=?').get(r.task_id)?.review_followup):false,observations:r.task_id?task(current,r.task_id).review_observations:[],countOverlap:Boolean(countBoundary(db,r,r.line_id?line(r.line_id):null)),countEvidence:countBoundary(db,r,r.line_id?line(r.line_id):null)?countCandidates(current,{reportId:r.id})[0]||null:null,accounting:!r.line_id&&r.direction!=='count'?manualAccounting(r):null})),generatedAt:now(),
       postedReports:can(current,'review.view')?db.prepare(`SELECT r.*,p.name AS product_name,c.logical_code,u.name AS performer_name FROM work_reports r
         JOIN products p ON p.id=r.product_id JOIN cells c ON c.id=r.cell_id LEFT JOIN users u ON u.id=r.performer_id WHERE r.status='posted' ORDER BY r.created_at DESC LIMIT 500`).all():[],
-      contents:db.prepare(`SELECT b.cell_id,b.product_id,b.available_quantity,p.name,p.unit_of_measure FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.available_quantity!=0`).all().filter(c=>visibleCells.some(v=>v.id===c.cell_id)&&visibleProducts.some(v=>v.id===c.product_id)),
+      contents:db.prepare(`SELECT b.cell_id,b.product_id,b.available_quantity,p.name,p.unit_of_measure FROM inventory_balances b JOIN products p ON p.id=b.product_id WHERE b.available_quantity!=0`).all().filter(c=>visibleCellIds.has(c.cell_id)&&visibleProductIds.has(c.product_id)),
       discrepancies:can(current,'review.view')?db.prepare('SELECT d.*,c.logical_code,p.name AS product_name FROM work_discrepancies d JOIN cells c ON c.id=d.cell_id JOIN products p ON p.id=d.product_id').all():[]};
   }
   function inactivityAlerts(actor){

@@ -46,6 +46,9 @@ export function migrateStocktaking(db) {
       id INTEGER PRIMARY KEY, run_id INTEGER REFERENCES stocktake_runs(id), item_id INTEGER REFERENCES stocktake_items(id),
       actor_id INTEGER REFERENCES users(id), event_type TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS stocktake_attempt_item_counter ON stocktake_attempts(item_id,counter_id);
+    CREATE INDEX IF NOT EXISTS stocktake_observation_item_status ON stocktake_observations(item_id,status,counter_id);
+    CREATE INDEX IF NOT EXISTS stocktake_event_run_id ON stocktake_events(run_id,id DESC);
     CREATE TABLE IF NOT EXISTS stocktake_receipts (
       actor_id INTEGER NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
       result_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(actor_id,request_id)
@@ -81,6 +84,14 @@ export function migrateStocktaking(db) {
   for(const [name,definition] of [['display_enabled','INTEGER NOT NULL DEFAULT 0'],['immediate_counts','INTEGER NOT NULL DEFAULT 1'],['assignment_groups',"TEXT NOT NULL DEFAULT '[]'"],['paused_at','TEXT']]) {
     if(!db.prepare('PRAGMA table_info(stocktake_runs)').all().some(c=>c.name===name))db.exec(`ALTER TABLE stocktake_runs ADD COLUMN ${name} ${definition}`);
   }
+  for(const [name,type] of [['required_products_json','TEXT'],['whole_bin','INTEGER NOT NULL DEFAULT 1']]){
+    if(!db.prepare('PRAGMA table_info(stocktake_items)').all().some(c=>c.name===name))db.exec(`ALTER TABLE stocktake_items ADD COLUMN ${name} ${type}`);
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS stocktake_reused_counts (
+    item_id INTEGER NOT NULL REFERENCES stocktake_items(id), product_id INTEGER NOT NULL,
+    observation_id TEXT NOT NULL REFERENCES stocktake_observations(id), ledger_id INTEGER NOT NULL,
+    PRIMARY KEY(item_id,product_id)
+  );`);
   // Upgrade future saves without applying or changing any historical observation.
   db.exec('UPDATE stocktake_runs SET immediate_counts=1 WHERE immediate_counts=0');
   if(!db.prepare('PRAGMA table_info(stocktake_items)').all().some(c=>c.name==='display_active')){
