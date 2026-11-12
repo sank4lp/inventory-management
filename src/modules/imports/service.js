@@ -58,7 +58,7 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
   const known=db.prepare('SELECT b.cell_id FROM inventory_balances b JOIN cells c ON c.id=b.cell_id WHERE b.product_id=? AND c.active=1 AND b.available_quantity!=0').all(product.id).map(r=>r.cell_id);
   let cells=Array.isArray(choice.cellIds)&&choice.cellIds.length?choice.cellIds.map(Number):known.length?known:db.prepare('SELECT id FROM cells WHERE active=1').all().map(c=>c.id);
   if(!cells.length)throw new Error('Add shed locations before creating this product stocktake.');
-  if(!Array.isArray(input.counterIds)||!input.counterIds.length)throw new Error('Choose a counter for the stock differences.');
+  if(!Array.isArray(input.counterIds)||!input.counterIds.length)throw Object.assign(new Error('Select someone to perform the stocktake for products with quantity differences. Go back to rows and choose Stocktaking assigned to, or select Products only — skip stocktaking.'),{code:'STOCKTAKE_ASSIGNEE_REQUIRED',recorded,expected});
   const validationKey=json(cells);
   if(!validated.has(validationKey)){stocktakingService.validateExcelCount(a,{mode:'selected',cellIds:cells,counterIds:input.counterIds,dueDate:input.countDueDate});validated.add(validationKey);}
   return {recorded,expected,stocktakeId:null,countCells:cells};
@@ -113,6 +113,7 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
     db.exec('RELEASE business_row');
    }catch(error){
     db.exec('ROLLBACK TO business_row; RELEASE business_row');result.message=error.message;
+    if(error.code==='STOCKTAKE_ASSIGNEE_REQUIRED')Object.assign(result,{issueCode:error.code,recorded:error.recorded,expected:error.expected});
     // Keep failed rows for retry, but never replace the source of an existing task.
     if(d.kind!=='products'&&row.voucherNumber&&!row.errors.length&&!prior?.task_id){const v=voucher(a,d.kind,row.voucherNumber);storeLine(v,d,row,{status:'pending',message:error.message,mpi:d.kind==='received'?'CURRENT':choice.mpiStatus});result.voucherId=v.id;}
    }

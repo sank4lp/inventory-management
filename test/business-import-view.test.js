@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {importRowPresentation,resultTable,currentStock} from '../public/client/business-import.js';
+import {importRowPresentation,resultTable,currentStock,stocktakeAssignmentNotice} from '../public/client/business-import.js';
 const row=(status,message)=>({row:2,status,message,values:{cos_sec:'A',part_no:'123',nomen1:'Test item',mpi_status:'CURRENT'}});
 test('stock, issue and received previews distinguish valid, invalid and intentionally excluded rows',()=>{
  for(const kind of ['products','issue','received']){
@@ -37,4 +37,16 @@ test('review quantity follows the selected MPI row and distinguishes new product
  assert.equal(currentStock(row),'Choose MPI row');assert.equal(currentStock(row,{sourceProductId:1}),0);
  assert.equal(currentStock(row,{sourceProductId:2}),12);assert.equal(currentStock(row,{sourceProductId:'new'}),'New product (0)');
  assert.equal(currentStock({...row,values:{mpi_status:'OBT'}}),12);
+});
+
+test('missing stocktake assignment is distinct from invalid product data',()=>{
+ const result={rows:[{...row('blocked','Select someone to perform the stocktake.'),issueCode:'STOCKTAKE_ASSIGNEE_REQUIRED',recorded:0,expected:5}]};
+ const html=resultTable(result);
+ assert.match(html,/data-import-status="assignment_required"/);
+ assert.match(html,/Stocktake assignment required — not saved/);
+ assert.doesNotMatch(html,/Invalid — not saved/);
+ assert.match(html,/In system: 0 · In Excel: 5/);
+ assert.match(stocktakeAssignmentNotice(result),/Stocktaking assigned to/);
+ assert.match(stocktakeAssignmentNotice(result),/Products only — skip stocktaking/);
+ assert.equal(stocktakeAssignmentNotice({rows:[row('blocked','Invalid quantity')]}),'');
 });

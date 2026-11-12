@@ -266,3 +266,18 @@ test('compact stocktake pages retain counted-product scope in the active baselin
  const active=f.count.snapshot(f.op,{runId}).runs.find(r=>r.id===runId);
  assert.deepEqual(active.attempts[0].baseline.productScopes,[productId]);
 }));
+
+test('missing stocktake assignee blocks only differences with an actionable assignment issue',()=>fixture(f=>{
+ const d=f.upload('products',[product({stok_ser:5}),product({part_no:'ZERO',stok_ser:0})]);
+ const r=f.review(d,{counterIds:[]});
+ assert.equal(r.ready,1);assert.equal(r.blocked,1);
+ const pending=r.rows.find(r=>r.status==='blocked');
+ assert.equal(pending.issueCode,'STOCKTAKE_ASSIGNEE_REQUIRED');
+ assert.match(pending.message,/Select someone to perform the stocktake/);
+ assert.equal(pending.recorded,0);assert.equal(pending.expected,5);
+ assert.equal(f.db.prepare("SELECT COUNT(*) n FROM products WHERE part_no='001234'").get().n,0);
+ const assigned=f.review(d,{counterIds:[f.op.id]});
+ assert.equal(assigned.ready,2);assert.equal(assigned.blocked,0);
+ const done=f.apply(assigned);assert.ok(done.rows[0].stocktakeId);
+ assert.equal(productStockTotal(f.db,done.rows[0].productId),0);
+}));

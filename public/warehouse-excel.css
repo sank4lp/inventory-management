@@ -84,3 +84,7 @@ dialog.excel-dialog:not([open]){display:none}
 .business-import-dialog .business-import-options .business-multiselect{align-self:center}
 .business-import-dialog .business-import-pager label{flex-direction:row}
 .business-import-dialog .business-row-controls input[type=number]{max-width:160px}
+
+.business-import-table tr[data-import-status="assignment_required"] > td {background:#fff8e6 !important;}
+.business-import-table tr[data-import-status="assignment_required"] .import-row-validation {color:#704a00;}
+.import-assignment-notice {padding:.65rem .8rem;border-left:3px solid #b78316;background:#fff8e6;border-radius:.35rem;}
