@@ -17,8 +17,9 @@ function build(t,source,flags=[]) {
   const binary=join(dir,'check');
   execFileSync(compiler,['-std=c++17','-I',join(root,'test/fixtures/esp32/rmt'),'-I',join(root,'test/fixtures/esp32'),...flags,source,'-o',binary]);return binary;
 }
-test('streaming driver sends whole chains with bounded storage, timeout and safe recovery',t=>{
-  const binary=build(t,join(root,'test/fixtures/esp32/led-streaming.cpp'));if(binary)execFileSync(binary,[]);
+for(const profile of ['default','0','1'])test(`streaming driver timing profile ${profile}: exact pulses, whole chains, bounded timeout and safe recovery`,t=>{
+  const flags=profile==='default'?[]:[`-DLYTGUIDE_LED_MAX_HIGH_EXPERIMENT=${profile}`];
+  const binary=build(t,join(root,'test/fixtures/esp32/led-streaming.cpp'),flags);if(binary)execFileSync(binary,[]);
 });
 test('17, 18, 22 and 64 matrices render heartbeats and report output failures without losing RS485',t=>{
   const dir=mkdtempSync(join(tmpdir(),'led-sketch-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));

@@ -13,7 +13,20 @@ int main() {
     int before=RmtTest::transmits;
     assert(output.write(data.data(),data.size(),18));assert(output.error()==0);
     assert(RmtTest::transmits==before+(modules?1:0));
-    if(modules)assert(RmtTest::received==data); // Includes the last pixel in the last matrix.
+    if(modules) {
+      assert(RmtTest::received==data); // Includes the last pixel in the last matrix.
+      const auto timing=RmtTest::timing;
+      const auto ns=[](unsigned ticks){return ticks*1000000000ULL/RmtTest::resolution;};
+#if LYTGUIDE_LED_MAX_HIGH_EXPERIMENT
+      assert(ns(timing.bit0.duration0)==550 && ns(timing.bit0.duration1)==700);
+      assert(ns(timing.bit1.duration0)==1000 && ns(timing.bit1.duration1)==250);
+      assert(RmtTest::timeout==100+(data.size()*10+999)/1000);
+#else
+      assert(ns(timing.bit0.duration0)==400 && ns(timing.bit0.duration1)==800);
+      assert(ns(timing.bit1.duration0)==800 && ns(timing.bit1.duration1)==400);
+      assert(RmtTest::timeout==100+(data.size()*96+9999)/10000);
+#endif
+    }
   }
   assert(RmtTest::creates==1 && RmtTest::encoderCreates==1);
   assert(!output.write(nullptr,1,18));assert(output.error()==ESP_ERR_INVALID_ARG);

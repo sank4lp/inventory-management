@@ -43,7 +43,8 @@ line low for 300 microseconds to latch it. Brightness, colours, GPIO18, matrix
 routing and RS485 addressing are unchanged. There are no separate per-matrix
 transmissions that could accidentally restart at the first physical matrix.
 
-Transmission has a length-aware timeout (at most 218 ms at 64 matrices).
+Transmission has a length-aware timeout (at most 218 ms with the original
+timings, or 223 ms with the maximum-HIGH experiment, at 64 matrices).
 Allocation/transmission failures are reported separately from RS485 health;
 failed display frames are not acknowledged or remembered as successfully
 delivered. USB configuration verification also rejects failed LED output while
@@ -61,6 +62,45 @@ compiled for ESP32 core 3.0.7 / NeoPixel 1.12.4 (installer toolchain) and core
 3.3.8 / NeoPixel 1.15.4 (the reported browser toolchain versions). These build
 checks did not flash a controller; the corrected output still needs validation
 on the physical 22-matrix chain.
+
+### Maximum-HIGH pulse experiment (2026-11-12)
+
+This checkout enables `LYTGUIDE_LED_MAX_HIGH_EXPERIMENT=1` in
+`firmware/esp32-simple-matrix/matrix-led-output.h`. The next firmware build
+uses these timings; existing flashed controllers do not change automatically.
+This is a bench experiment, not a production-qualified fix for bad wiring or
+3.3 V signalling into a 5 V matrix.
+
+| Bit | Previous HIGH / LOW | Experimental HIGH / LOW |
+| --- | --- | --- |
+| 0 | 0.40 / 0.80 microseconds | 0.55 / 0.70 microseconds |
+| 1 | 0.80 / 0.40 microseconds | 1.00 / 0.25 microseconds |
+
+The experimental profile uses a 20 MHz RMT clock (50 ns ticks). Both bits are
+1.25 microseconds long, so the data rate remains 800 kbit/s. The 300 microsecond
+latch, pixel order, brightness, module routing and RS485 communication are
+unchanged. Its HIGH durations sit at the upper tolerance boundaries of the
+[WORLDSEMI WS2812B January 2016 specification, page 5](https://files.waveshare.com/upload/9/94/WS2812B_datasheet_EN.pdf).
+The exact installed pixel revision is unverified; other revisions can have
+different limits, and hardware clock error can put a boundary setting outside
+the specified range. A longer HIGH does not raise GPIO voltage to 5 V or prove
+that downstream matrices reproduce the requested timings exactly.
+
+To test:
+
+1. Update firmware on **one existing controller** using the normal firmware-update
+   flow, preserving its identity, LED count and mappings. Do not choose fresh setup.
+2. Keep the same power, common ground and cable arrangement. Compare changing
+   numbers, colours, Ping and clear commands with the previous firmware. Check
+   the first and last matrices and continued controller health.
+3. If output worsens, change the header's `#define LYTGUIDE_LED_MAX_HIGH_EXPERIMENT 1`
+   to `0`, rebuild and update that same controller again. A compile flag
+   `-DLYTGUIDE_LED_MAX_HIGH_EXPERIMENT=0` also selects the original profile.
+
+The driver tests exercise both profiles, full 64-matrix payloads, calculated
+timeouts and output failure/recovery. They emulate RMT; a real ESP32 build and
+on-device/oscilloscope checks are separate verification steps. Do not distribute
+this experimental build to other installations until the experiment is assessed.
 
 ### Shared-bus replies
 

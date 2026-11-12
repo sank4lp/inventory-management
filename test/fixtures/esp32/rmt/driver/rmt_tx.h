@@ -21,18 +21,21 @@ inline int creates=0,deletes=0,encoderCreates=0,encoderDeletes=0,transmits=0,tim
 inline const uint8_t *borrowed=nullptr;
 inline size_t borrowedLength=0;
 inline std::vector<uint8_t> received;
+inline uint32_t resolution=0;
+inline rmt_bytes_encoder_config_t timing={};
 inline void reset() {failAt="";creates=deletes=encoderCreates=encoderDeletes=transmits=timeout=0;borrowed=nullptr;borrowedLength=0;received.clear();}
 }
 inline esp_err_t rmt_new_tx_channel(const rmt_tx_channel_config_t *config,rmt_channel_handle_t *out) {
-  assert(config->gpio_num==18);assert(config->resolution_hz==10000000);
+  assert(config->gpio_num==18);RmtTest::resolution=config->resolution_hz;
   assert(config->mem_block_symbols==128 && config->trans_queue_depth==1);
   if(RmtTest::failAt=="channel")return ESP_ERR_NO_MEM;
   *out=new TestChannel;RmtTest::creates++;return ESP_OK;
 }
 inline esp_err_t rmt_new_bytes_encoder(const rmt_bytes_encoder_config_t *config,rmt_encoder_handle_t *out) {
   assert(config->flags.msb_first==1);
-  assert(config->bit0.level0==1 && config->bit0.duration0==4 && config->bit0.level1==0 && config->bit0.duration1==8);
-  assert(config->bit1.level0==1 && config->bit1.duration0==8 && config->bit1.level1==0 && config->bit1.duration1==4);
+  assert(config->bit0.level0==1 && config->bit0.level1==0);
+  assert(config->bit1.level0==1 && config->bit1.level1==0);
+  RmtTest::timing=*config;
   if(RmtTest::failAt=="encoder")return ESP_ERR_NO_MEM;
   *out=new TestEncoder{*config};RmtTest::encoderCreates++;return ESP_OK;
 }
@@ -57,7 +60,7 @@ inline esp_err_t rmt_transmit(rmt_channel_handle_t channel,rmt_encoder_handle_t,
   RmtTest::borrowed=(const uint8_t*)data;RmtTest::borrowedLength=length;return ESP_OK;
 }
 inline esp_err_t rmt_tx_wait_all_done(rmt_channel_handle_t,int timeout) {
-  assert(timeout>=100 && timeout<=218);RmtTest::timeout=timeout;
+  assert(timeout>=100 && timeout<=223);RmtTest::timeout=timeout;
   if(RmtTest::failAt=="wait" || RmtTest::failAt=="disable")return ESP_ERR_TIMEOUT;
   RmtTest::received.assign(RmtTest::borrowed,RmtTest::borrowed+RmtTest::borrowedLength);
   RmtTest::borrowed=nullptr;return ESP_OK;

@@ -1,5 +1,15 @@
 #pragma once
 
+// Bench experiment requested for the separate-supply LED setup. Set to 0 and
+// reflash to restore the previous timings. This changes pulse widths, not GPIO
+// voltage, and is not a qualified timing profile for every WS2812 revision.
+#ifndef LYTGUIDE_LED_MAX_HIGH_EXPERIMENT
+#define LYTGUIDE_LED_MAX_HIGH_EXPERIMENT 1
+#endif
+#if LYTGUIDE_LED_MAX_HIGH_EXPERIMENT != 0 && LYTGUIDE_LED_MAX_HIGH_EXPERIMENT != 1
+#error "LYTGUIDE_LED_MAX_HIGH_EXPERIMENT must be 0 or 1"
+#endif
+
 // Encode bytes into the ESP32 RMT peripheral as it consumes them. Expanding a
 // whole strip into 32-bit symbols costs 6 KB per matrix, even when it is dark.
 // This transmitter has a fixed 12 KB payload and a fixed hardware symbol FIFO.
@@ -13,6 +23,18 @@ class MatrixLedOutput {
 public:
   static constexpr size_t MaxBytes = 64 * 64 * 3;
   static constexpr size_t SymbolCount = 128;
+#if LYTGUIDE_LED_MAX_HIGH_EXPERIMENT
+  // 50 ns ticks: T0H=550 ns, T0L=700 ns; T1H=1000 ns, T1L=250 ns.
+  // HIGH maxima / LOW minima from WORLDSEMI WS2812B Jan 2016, page 5.
+  // Both bits remain 1.25 us (800 kbit/s). These are tolerance boundaries.
+  static constexpr uint32_t ResolutionHz = 20000000;
+  static constexpr unsigned ZeroHigh = 11, ZeroLow = 14, OneHigh = 20, OneLow = 5;
+#else
+  static constexpr uint32_t ResolutionHz = 10000000;
+  static constexpr unsigned ZeroHigh = 4, ZeroLow = 8, OneHigh = 8, OneLow = 4;
+#endif
+  static constexpr unsigned MaxBitTicks =
+    ZeroHigh + ZeroLow > OneHigh + OneLow ? ZeroHigh + ZeroLow : OneHigh + OneLow;
   int error() const { return lastError; }
 
   bool write(const uint8_t *bytes, size_t length, int pin) {
@@ -27,9 +49,9 @@ public:
     transmit.flags.queue_nonblocking = 1;
     esp_err_t result = rmt_transmit(channel, encoder, payload, length, &transmit);
     if (result == ESP_OK) {
-      // 1.2 us per bit, plus a scheduling margin. Never wait indefinitely and
+      // Actual profile's bit time, plus a scheduling margin. Never wait indefinitely and
       // starve the independent RS485/USB command loop after an output failure.
-      const int timeoutMs = 100 + (length * 96 + 9999) / 10000;
+      const int timeoutMs = 100 + (length * 8ULL * MaxBitTicks * 1000 + ResolutionHz - 1) / ResolutionHz;
       result = rmt_tx_wait_all_done(channel, timeoutMs);
     }
     if (result != ESP_OK) {
@@ -81,17 +103,17 @@ private:
     rmt_tx_channel_config_t config = {};
     config.gpio_num = (gpio_num_t)pin;
     config.clk_src = RMT_CLK_SRC_DEFAULT;
-    config.resolution_hz = 10000000;
+    config.resolution_hz = ResolutionHz;
     config.mem_block_symbols = SymbolCount;
     config.trans_queue_depth = 1;
     esp_err_t result = rmt_new_tx_channel(&config, &channel);
     if (result == ESP_OK) {
       rmt_bytes_encoder_config_t bytes = {};
-      // Preserve the timings and GRB byte ordering of the previous driver.
-      bytes.bit0.level0 = 1; bytes.bit0.duration0 = 4;
-      bytes.bit0.level1 = 0; bytes.bit0.duration1 = 8;
-      bytes.bit1.level0 = 1; bytes.bit1.duration0 = 8;
-      bytes.bit1.level1 = 0; bytes.bit1.duration1 = 4;
+      // Keep GRB/MSB-first ordering; only the selected timing profile changes.
+      bytes.bit0.level0 = 1; bytes.bit0.duration0 = ZeroHigh;
+      bytes.bit0.level1 = 0; bytes.bit0.duration1 = ZeroLow;
+      bytes.bit1.level0 = 1; bytes.bit1.duration0 = OneHigh;
+      bytes.bit1.level1 = 0; bytes.bit1.duration1 = OneLow;
       bytes.flags.msb_first = 1;
       result = rmt_new_bytes_encoder(&bytes, &encoder);
     }
