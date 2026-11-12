@@ -50,3 +50,9 @@ test('missing stocktake assignment is distinct from invalid product data',()=>{
  assert.match(stocktakeAssignmentNotice(result),/Products only — skip stocktaking/);
  assert.equal(stocktakeAssignmentNotice({rows:[row('blocked','Invalid quantity')]}),'');
 });
+
+test('a product saved without a task is clearly identified in review and results',()=>{
+ const pending={...row('ready','Product added. No task created: Not enough recorded stock.'),issueCode:'PRODUCT_ONLY'};
+ assert.match(resultTable({rows:[pending]}),/Product only — no task/);
+ assert.match(resultTable({rows:[pending]},true),/Product saved — no task/);
+});

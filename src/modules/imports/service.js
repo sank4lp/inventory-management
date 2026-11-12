@@ -26,7 +26,7 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
   db.prepare('INSERT INTO business_imports(id,actor_id,dataset,kind,file_name,document_json,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(id,a.id,dataset(),input.kind,String(input.fileName||'Excel').slice(0,200),json(document),now(),new Date(clock().getTime()+86400000).toISOString());
   return describe(a,draft(a,id));
  }
- function productFor(a,row,choice,kind,initial){
+ function productFor(a,row,choice,kind,initial,{requirePutCapacity=true}={}){
   const values={...row.values},main=aliasMain(db,values);
   if(main){const otherIdentity=productIdentity(values)!==productIdentity(main);values.cos_sec=main.cos_sec;values.part_no=main.part_no;values.nomen1=main.name;if(otherIdentity){values.cicp_id=main.cicp_id;values.review_dt=main.review_dt;}}
   const siblings=initial.byIdentity.get(productIdentity(values))||[];
@@ -45,7 +45,7 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
   }
   assertCan(a,existing?'products.edit':'products.add');
   if(existing&&choice.itemsPerCell&&Number(choice.itemsPerCell)!==existing.items_per_cell)assertCan(a,'products.capacity');
-  if(kind==='received'&&!choice.itemsPerCell)throw new Error('Enter items per location for the new CURRENT product.');
+  if(kind==='received'&&requirePutCapacity&&!choice.itemsPerCell)throw new Error('Enter items per location for the new CURRENT product.');
   const product=saveBusinessProduct(db,values,{existing,capacity:choice.itemsPerCell,confirmed:choice.createConfirmed===true});
   if(existing&&normalizeIdentity(existing.mpi_status)!==normalizeIdentity(product.mpi_status))operationsService.stageMpiChange(a,product.id,existing.mpi_status,product.mpi_status);
   return product;
@@ -68,6 +68,12 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
  }
  function storeLine(v,d,row,{product=null,taskId=null,status,message,mpi=null}){
   db.prepare(`INSERT INTO voucher_lines(voucher_id,line_key,source_json,source_hash,product_id,mpi_status,condition,task_id,status,message,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(line_key) DO UPDATE SET source_json=excluded.source_json,source_hash=excluded.source_hash,product_id=COALESCE(excluded.product_id,voucher_lines.product_id),mpi_status=excluded.mpi_status,condition=excluded.condition,task_id=COALESCE(excluded.task_id,voucher_lines.task_id),status=excluded.status,message=excluded.message,updated_at=excluded.updated_at`).run(v.id,d.kind+':'+row.lineKey,json(row.values),row.fingerprint,product?.id||null,mpi||product?.mpi_status||null,row.values.condition||null,taskId,status,message||'',now());
+ }
+ function addMissingVoucherProduct(a,d,row,choice,initial){
+  if(d.kind==='products'||!choice.createConfirmed||row.errors.length||d.kind==='received'&&normalizeIdentity(row.values.condition)==='UNS')return null;
+  const mpi=d.kind==='received'?'CURRENT':normalizeIdentity(choice.mpiStatus);
+  if(!mpi||variants(row.values).some(p=>normalizeIdentity(p.mpi_status)===mpi))return null;
+  return productFor(a,row,choice,d.kind,initial,{requirePutCapacity:false});
  }
  function stage(a,d,input){
   const doc=JSON.parse(d.document_json),choices=new Map((input.rows||[]).map(r=>[Number(r.row),r])),results=[];
@@ -92,7 +98,11 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
      for(const field of ['itemsPerCell','sourceProductId']){const values=[...new Set(group.map(r=>choices.get(r.row)?.[field]).filter(v=>v!=null&&v!=='' ).map(String))];if(field==='itemsPerCell'&&aliasMain(db,row.values))continue;if(values.length>1)throw Error('Use the same '+(field==='itemsPerCell'?'items per location':'MPI row choice')+' for merged rows.');if(values.length)choice[field]=values[0];}
      choice.createConfirmed=group.every(r=>choices.get(r.row)?.createConfirmed===true);choice.cellIds=[...new Set(group.flatMap(r=>choices.get(r.row)?.cellIds||[]))];
     }
-    if(choice.skip===true){result.status='excluded';result.message='Excluded from this import.';}
+    if(choice.skip===true){
+     const added=addMissingVoucherProduct(a,d,row,choice,initial);
+     if(added)Object.assign(result,{status:'ready',productId:added.id,productName:added.name,issueCode:'PRODUCT_ONLY',message:'Product added. No task selected.'});
+     else {result.status='excluded';result.message='Excluded from this import; no task will be created.';}
+    }
     else if(row.errors.length)throw new Error(row.errors.join(' '));
     else if(prior?.task_id&&prior.source_hash===row.fingerprint){Object.assign(result,{status:'existing',taskId:prior.task_id,message:'Task already created.'});}
     else if(d.kind==='received'&&normalizeIdentity(row.values.condition)==='UNS'){
@@ -114,8 +124,14 @@ export function createBusinessImportService({db,operationsService,stocktakingSer
    }catch(error){
     db.exec('ROLLBACK TO business_row; RELEASE business_row');result.message=error.message;
     if(error.code==='STOCKTAKE_ASSIGNEE_REQUIRED')Object.assign(result,{issueCode:error.code,recorded:error.recorded,expected:error.expected});
+    // An explicitly selected new product can still be saved if its task cannot be planned.
+    if(d.kind!=='products'&&!row.errors.length&&!prior?.task_id){
+     db.exec('SAVEPOINT business_product_only');
+     try{const added=addMissingVoucherProduct(a,d,row,choice,initial);if(added)Object.assign(result,{status:'ready',productId:added.id,productName:added.name,issueCode:'PRODUCT_ONLY',message:'Product added. No task created: '+error.message});db.exec('RELEASE business_product_only');}
+     catch{db.exec('ROLLBACK TO business_product_only; RELEASE business_product_only');}
+    }
     // Keep failed rows for retry, but never replace the source of an existing task.
-    if(d.kind!=='products'&&row.voucherNumber&&!row.errors.length&&!prior?.task_id){const v=voucher(a,d.kind,row.voucherNumber);storeLine(v,d,row,{status:'pending',message:error.message,mpi:d.kind==='received'?'CURRENT':choice.mpiStatus});result.voucherId=v.id;}
+    if(d.kind!=='products'&&row.voucherNumber&&!row.errors.length&&!prior?.task_id){const v=voucher(a,d.kind,row.voucherNumber);storeLine(v,d,row,{product:result.productId?db.prepare('SELECT * FROM products WHERE id=?').get(result.productId):null,status:'pending',message:error.message,mpi:d.kind==='received'?'CURRENT':choice.mpiStatus});result.voucherId=v.id;}
    }
    for(const member of group)results.push({...result,row:member.row,values:member.values,...(group.length>1?{mergedRows:group.map(r=>r.row),message:result.message+' Combined stock from '+group.length+' rows.'}:{})});
   }

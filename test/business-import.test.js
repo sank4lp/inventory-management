@@ -55,14 +55,14 @@ test('received Condition is separate; every UNS row is retained without creating
  const voucher=f.service.detail(f.admin,done.rows[0].voucherId);assert.equal(voucher.rows.length,2);assert.ok(voucher.rows.every(r=>r.mpi_status==='CURRENT'&&r.task_id===null));assert.equal(f.apply(f.review(f.upload('received',[receipt({condition:'UNS',part_no:'A'})]))).excluded,1);
 }));
 test('eligible receipt always creates CURRENT Put even if only an OBT variant exists; condition is on voucher/task',()=>fixture(f=>{
- const obt=f.add({mpi_status:'OBT'});f.stock(obt,2);const d=f.upload('received',[receipt({condition:'NEW'})]);let r=f.review(d);assert.equal(r.blocked,1);assert.match(r.rows[0].message,/items per location/);
+ const obt=f.add({mpi_status:'OBT'});f.stock(obt,2);const d=f.upload('received',[receipt({condition:'NEW'})]);let r=f.review(d);assert.equal(r.rows[0].issueCode,'PRODUCT_ONLY');assert.match(r.rows[0].message,/items per location/);
  r=f.review(d,{rows:[{row:2,createConfirmed:true,itemsPerCell:10,mpiStatus:'OBT'}]});assert.equal(r.ready,1,JSON.stringify(r));const done=f.apply(r),line=f.db.prepare('SELECT * FROM voucher_lines WHERE task_id=?').get(done.rows[0].taskId);assert.equal(line.mpi_status,'CURRENT');assert.equal(line.condition,'NEW');assert.notEqual(line.product_id,obt.id);assert.equal(productStockTotal(f.db,obt.id),2);assert.match(f.work.task(f.admin,line.task_id).instruction_note||'',/Condition: NEW/);
 }));
 test('issue MPI selection picks only that variant, and repeated files do not create duplicate tasks',()=>fixture(f=>{
  const a=f.add(),b=f.add({mpi_status:'OBT'});f.stock(a,5);f.stock(b,5);const rows=[issue()];const d=f.upload('issue',rows),r=f.review(d,{rows:[{row:2,mpiStatus:'OBT'}]});assert.equal(r.ready,1,JSON.stringify(r));const done=f.apply(r);assert.ok(f.work.task(f.admin,done.rows[0].taskId).lines.every(l=>l.product_id===b.id));assert.equal(f.apply(f.review(f.upload('issue',rows))).existing,1);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tasks').get().n,1);
 }));
 test('partial voucher import creates valid rows and retries only pending rows',()=>fixture(f=>{
- const p=f.add();f.stock(p,10);const rows=[issue(),issue({gs_no:'I002',part_no:'MISSING'})];let result=f.apply(f.review(f.upload('issue',rows)));assert.equal(result.ready,1,JSON.stringify(result));assert.equal(result.blocked,1);const p2=f.add({part_no:'MISSING'});f.stock(p2,5);result=f.apply(f.review(f.upload('issue',rows)));assert.equal(result.existing,1);assert.equal(result.ready,1);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tasks').get().n,2);
+ const p=f.add();f.stock(p,10);const rows=[issue(),issue({gs_no:'I002',part_no:'MISSING'})];let result=f.apply(f.review(f.upload('issue',rows),{rows:[{row:2,mpiStatus:'CURRENT'},{row:3,mpiStatus:'CURRENT',createConfirmed:false}]}));assert.equal(result.ready,1,JSON.stringify(result));assert.equal(result.blocked,1);const p2=f.add({part_no:'MISSING'});f.stock(p2,5);result=f.apply(f.review(f.upload('issue',rows)));assert.equal(result.existing,1);assert.equal(result.ready,1);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tasks').get().n,2);
 }));
 test('MPI reclassification preserves stock and sends open tasks to review, including started tasks',()=>fixture(f=>{
  const p=f.add();f.stock(p,5);const created=f.wcmd(f.op,'create',{direction:'pick',productId:p.id,quantity:2});const r=f.review(f.upload('products',[product({mpi_status:'OBT',stok_ser:5})]));assert.equal(r.ready,1,JSON.stringify(r));f.apply(r);assert.equal(productStockTotal(f.db,p.id),5);assert.equal(f.db.prepare('SELECT mpi_status FROM products WHERE id=?').get(p.id).mpi_status,'OBT');const t=f.work.task(f.admin,created.taskId);assert.equal(t.attention,1);assert.equal(t.outcome,'needs_review');
@@ -280,4 +280,26 @@ test('missing stocktake assignee blocks only differences with an actionable assi
  assert.equal(assigned.ready,2);assert.equal(assigned.blocked,0);
  const done=f.apply(assigned);assert.ok(done.rows[0].stocktakeId);
  assert.equal(productStockTotal(f.db,done.rows[0].productId),0);
+}));
+
+test('voucher rows independently select products to add and tasks to create',()=>fixture(f=>{
+ const existing=f.add();f.stock(existing,10);
+ const d=f.upload('issue',[issue(),issue({gs_no:'I002',part_no:'NEW'}),issue({gs_no:'I003',part_no:'NOTASK'}),issue({gs_no:'I004',part_no:'IGNORE'})]);
+ const choices=[{row:2,mpiStatus:'CURRENT'},{row:3,mpiStatus:'CURRENT',createConfirmed:true},{row:4,mpiStatus:'CURRENT',createConfirmed:true,skip:true},{row:5,mpiStatus:'CURRENT',skip:true}];
+ let r=f.review(d,{rows:choices});assert.equal(r.rows[0].status,'ready');
+ assert.equal(r.rows[1].issueCode,'PRODUCT_ONLY');assert.match(r.rows[1].message,/No task created/);
+ assert.equal(r.rows[2].issueCode,'PRODUCT_ONLY');assert.equal(r.rows[3].status,'excluded');
+ let saved=f.apply(r);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tasks').get().n,1);
+ assert.ok(f.db.prepare("SELECT id FROM products WHERE part_no='NEW'").get());
+ assert.ok(f.db.prepare("SELECT id FROM products WHERE part_no='NOTASK'").get());
+ assert.equal(f.db.prepare("SELECT id FROM products WHERE part_no='IGNORE'").get(),undefined);
+ f.stock(f.db.prepare("SELECT * FROM products WHERE part_no='NEW'").get(),5);
+ const retry=f.review(f.upload('issue',[issue({gs_no:'I002',part_no:'NEW'})]),{rows:[{row:2,mpiStatus:'CURRENT'}]});assert.equal(retry.ready,1,JSON.stringify(retry));
+ f.apply(retry);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tasks').get().n,2);
+ const received=f.upload('received',[receipt({rv_no:'R100',part_no:'NEWPUT'}),receipt({rv_no:'R101',part_no:'SKIPPUT'}),receipt({rv_no:'R102',part_no:'UNS',condition:'UNS'}),receipt({rv_no:'R103',part_no:'NEWONLY'})]);
+ r=f.review(received,{rows:[{row:2,createConfirmed:true,itemsPerCell:10},{row:3,skip:true},{row:4,createConfirmed:true,itemsPerCell:10},{row:5,createConfirmed:true,skip:true}]});
+ saved=f.apply(r);assert.ok(saved.rows[0].taskId);assert.equal(saved.rows[1].status,'excluded');assert.equal(saved.rows[2].status,'excluded_uns');
+ assert.equal(f.db.prepare("SELECT id FROM products WHERE part_no='SKIPPUT'").get(),undefined);
+ assert.equal(f.db.prepare("SELECT id FROM products WHERE part_no='UNS'").get(),undefined);
+ assert.equal(saved.rows[3].issueCode,'PRODUCT_ONLY');assert.equal(f.db.prepare("SELECT capacity_pending FROM products WHERE part_no='NEWONLY'").get().capacity_pending,1);
 }));
