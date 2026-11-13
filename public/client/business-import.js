@@ -20,6 +20,19 @@ export function importRowPresentation(row,saved=false) {
  const message=String(row.message||row.errors?.join(' ')||(status==='blocked'?'This row could not be validated. Go back to the rows and check the import again.':''));
  return {status,label,message};
 }
+export function importActionLabel(kind,preview,draftRows=[]){
+ const ready=(preview.rows||[]).filter(row=>row.status==='ready');
+ if(!ready.length)return 'Save import results';
+ if(kind==='products')return 'Save valid products';
+ const direction=kind==='received'?'PUT':'PICK';
+ const tasks=ready.filter(row=>row.taskId);
+ if(!tasks.length)return 'Save valid products';
+ const originals=new Map(draftRows.map(row=>[row.row,row]));
+ const addsProducts=ready.some(row=>row.issueCode==='PRODUCT_ONLY'||(row.taskId&&originals.has(row.row)&&!originals.get(row.row).variants.some(v=>v.mpi_status===row.mpiStatus)));
+ const updates=tasks.some(row=>row.message==='Update task.');
+ const verb=updates?'create or update':'create';
+ return `${addsProducts?'Save products and ':' '}${addsProducts?verb:verb[0].toUpperCase()+verb.slice(1)} valid ${direction} tasks`.trim();
+}
 export function stocktakeAssignmentNotice(result){
  const count=(result.rows||[]).filter(r=>r.status==='blocked'&&r.issueCode==='STOCKTAKE_ASSIGNEE_REQUIRED').length;
  return count?`<p role="status" class="import-assignment-notice">${count} row(s) need a stocktake assignee, not a correction to the product data. Go back to rows and choose <strong>Stocktaking assigned to</strong>, or select <strong>Products only — skip stocktaking</strong>. These rows have not been saved.</p>`:'';
@@ -29,6 +42,11 @@ export function currentStock(row,choice={}){
  const exact=row.variants.find(v=>v.mpi_status===row.values.mpi_status);
  const p=exact||(choice?.sourceProductId==='new'?null:row.variants.find(v=>String(v.id)===String(choice?.sourceProductId))||(row.variants.length===1?row.variants[0]:null));
  return p?p.currentStock:row.variants.length&&choice?.sourceProductId!=='new'?'Choose MPI row':'New product (0)';
+}
+export function voucherProductStatus(row,mpi){
+ const present=row.variants.some(v=>v.mpi_status===mpi);
+ const message=row.variants.length?'Selected MPI status not in catalogue':'Product not in catalogue';
+ return `<div class="business-product-status"><small data-missing-product ${present?'hidden':''}>${esc(message)}</small>${row.rememberedProduct?`<small>Uses <a href="/products/${esc(row.rememberedProduct.id)}">${esc(row.rememberedProduct.name)}</a></small>`:''}</div>`;
 }
 export async function mount(){
  const root=document.querySelector('#business-import');if(!root)return;
@@ -65,7 +83,7 @@ export async function mount(){
   const mpi=isProduct?row.values.mpi_status:draft.kind==='received'?'CURRENT':p.mpiStatus||choices.mpiStatus||'CURRENT',exact=row.variants.find(v=>v.mpi_status===mpi);
   const chooseSource=isProduct&&!exact&&row.variants.length>0;
   if(chooseSource&&!p.sourceProductId&&row.variants.length===1)p.sourceProductId=row.variants[0].id;
-  return `<div class="business-row-controls">${!isProduct?`<small data-missing-product ${exact?'hidden':''}>Selected MPI status not in catalogue</small>`:''}${row.rememberedProduct?`<small>Uses <a href="/products/${row.rememberedProduct.id}">${esc(row.rememberedProduct.name)}</a></small>`:''}${draft.kind==='issue'?`<label>MPI Status (mpi_status)<select data-row-field="mpiStatus" data-searchable>${draft.choices.mpi.map(v=>option(v,v,mpi)).join('')}</select></label>`:!isProduct?'<span>MPI Status: CURRENT</span>':''}${chooseSource?`<label>Update MPI row<select data-row-field="sourceProductId" data-searchable>${option('','Choose',p.sourceProductId)}${row.variants.map(v=>option(v.id,v.mpi_status,p.sourceProductId)).join('')}${option('new','Add new status',p.sourceProductId)}</select></label>`:''}<label class="checkbox-line"><input type="checkbox" data-row-field="createConfirmed" ${p.createConfirmed?'checked':''}>Add product if missing</label><label>Items per location<input type="number" min="0.000001" step="any" data-row-field="itemsPerCell" value="${esc(p.itemsPerCell??(exact&&!exact.capacity_pending?exact.items_per_cell:''))}" placeholder="${isProduct?'Set during stocktake':'Required for new Put'}"></label>${isProduct?`<div data-stocktake-options ${choices.skipStocktake?'hidden':''}>${multi('cellIds','Locations to count',draft.choices.cells,p.cellIds||[])}</div>`:''}${row.existingLine?.task_id?`<label class="checkbox-line"><input type="checkbox" data-row-field="updateConfirmed" ${p.updateConfirmed?'checked':''}>Update unstarted Task #${row.existingLine.task_id} if changed</label>`:''}</div>`;
+  return `<div class="business-row-controls">${!isProduct?voucherProductStatus(row,mpi):(row.rememberedProduct?`<small>Uses <a href="/products/${esc(row.rememberedProduct.id)}">${esc(row.rememberedProduct.name)}</a></small>`:'')}${draft.kind==='issue'?`<label>MPI Status (mpi_status)<select data-row-field="mpiStatus" data-searchable>${draft.choices.mpi.map(v=>option(v,v,mpi)).join('')}</select></label>`:!isProduct?'<span>MPI Status: CURRENT</span>':''}${chooseSource?`<label>Update MPI row<select data-row-field="sourceProductId" data-searchable>${option('','Choose',p.sourceProductId)}${row.variants.map(v=>option(v.id,v.mpi_status,p.sourceProductId)).join('')}${option('new','Add new status',p.sourceProductId)}</select></label>`:''}<label class="checkbox-line"><input type="checkbox" data-row-field="createConfirmed" ${p.createConfirmed?'checked':''}>Add product if missing</label><label>Items per location<input type="number" min="0.000001" step="any" data-row-field="itemsPerCell" value="${esc(p.itemsPerCell??(exact&&!exact.capacity_pending?exact.items_per_cell:''))}" placeholder="${isProduct?'Set during stocktake':'Required for new Put'}"></label>${isProduct?`<div data-stocktake-options ${choices.skipStocktake?'hidden':''}>${multi('cellIds','Locations to count',draft.choices.cells,p.cellIds||[])}</div>`:''}${row.existingLine?.task_id?`<label class="checkbox-line"><input type="checkbox" data-row-field="updateConfirmed" ${p.updateConfirmed?'checked':''}>Update unstarted Task #${row.existingLine.task_id} if changed</label>`:''}</div>`;
  }
  function reviewScreen(push=true){
   const isProduct=draft.kind==='products',info=importPage(draft.rows,editPage,pageSize);editPage=info.page;optionSources.clear();rowChoices=new Map((choices.rows||[]).map(row=>[row.row,row]));
@@ -97,7 +115,7 @@ export async function mount(){
   const rows=draft.rows.filter(r=>mergeRows.includes(r.row));
   modal('Merge selected products',`<form data-merge-rows-form><label>Main product<select data-merge-main data-searchable required>${rows.map(r=>`<option value="row:${r.row}" data-name="${esc(r.values.nomen1)}">Row ${r.row} · ${esc(r.values.cos_sec+' / '+r.values.part_no+' · '+r.values.nomen1)}</option>`).join('')}${draft.choices.products.map(p=>`<option value="product:${p.id}" data-name="${esc(p.name)}">${esc(p.label)}</option>`).join('')}</select></label><label>Name to keep<input name="mergeName" maxlength="500" value="${esc(rows[0]?.values.nomen1)}" required></label><p>Stock totals are added within each MPI status. Future imports will use this product and name.</p><div class="ui-actions"><button>Add merge</button><button type="button" class="secondary" data-import-edit>Back to rows</button></div></form>`,false);
  }
- function confirmScreen(){modal('Confirm import',`<p>${preview.ready} ready · ${preview.blocked} need attention · ${preview.existing} already created · ${preview.excluded} excluded. Save valid rows applies to selected valid rows across all pages.${draft.kind==='products'&&preview.rows.some(r=>r.stocktakeId)?' One combined stocktake will cover the differences.':''}</p>${stocktakeAssignmentNotice(preview)}${mergeSummary(preview)}${resultTable(preview,false,confirmPage,pageSize)}<div class="ui-actions"><button type="button" data-import-apply>Save valid rows</button><button type="button" class="secondary" data-import-edit>Back to rows</button></div>`,false);}
+ function confirmScreen(){const action=importActionLabel(draft.kind,preview,draft.rows);modal('Confirm import',`<p>${preview.ready} ready · ${preview.blocked} need attention · ${preview.existing} already created · ${preview.excluded} excluded. This applies to selected valid rows across all pages.${draft.kind==='products'&&preview.rows.some(r=>r.stocktakeId)?' One combined stocktake will cover the differences.':''}</p>${stocktakeAssignmentNotice(preview)}${mergeSummary(preview)}${resultTable(preview,false,confirmPage,pageSize)}<div class="ui-actions"><button type="button" data-import-apply>${esc(action)}</button><button type="button" class="secondary" data-import-edit>Back to rows</button></div>`,false);}
  function savedScreen(){const result=savedResult;root.querySelector('[data-import-result]').innerHTML=`<section class="ui-panel"><h2>${result.kind==='merge'?'Merge complete':'Import result'}</h2><p>${esc(result.message)}</p>${stocktakeAssignmentNotice(result)}${mergeSummary(result)}${resultTable(result,true,savedPage,pageSize)}${result.kind==='merge'?'<div class="ui-actions"><button type="button" data-merge-another>Merge more products</button><a class="ghost-button" href="/products">Products</a></div>':''}</section>`;}
  function showPage(view,page){if(view==='edit'){editPage=page;reviewScreen(false);}else if(view==='confirm'){confirmPage=page;confirmScreen();}else if(view==='saved'){savedPage=page;savedScreen();}}
  async function submit(event){
@@ -118,9 +136,9 @@ export async function mount(){
   if(button.matches('[data-import-back]')){history.back();return;}
   if(button.matches('[data-import-edit]')){reviewScreen(false);return;}
   if(button.matches('[data-import-apply]')){
-   busy=true;button.disabled=true;button.textContent='Saving valid rows…';
+   const actionLabel=button.textContent;busy=true;button.disabled=true;button.textContent='Saving…';
    try{const result=await api('apply',{id:preview.id,token:preview.token,confirmed:true});savedResult=result;savedPage=0;savedScreen();if(result.kind==='merge'&&mergeForm)mergeForm.hidden=true;history.back();await loadVouchers();}
-   catch(e){error(e);button.disabled=false;button.textContent="Save valid rows";}finally{busy=false;}
+   catch(e){error(e);button.disabled=false;button.textContent=actionLabel;}finally{busy=false;}
   }
  }
  async function loadVouchers(){

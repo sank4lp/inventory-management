@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {importRowPresentation,resultTable,currentStock,stocktakeAssignmentNotice} from '../public/client/business-import.js';
+import {importRowPresentation,resultTable,currentStock,stocktakeAssignmentNotice,voucherProductStatus,importActionLabel} from '../public/client/business-import.js';
 const row=(status,message)=>({row:2,status,message,values:{cos_sec:'A',part_no:'123',nomen1:'Test item',mpi_status:'CURRENT'}});
 test('stock, issue and received previews distinguish valid, invalid and intentionally excluded rows',()=>{
  for(const kind of ['products','issue','received']){
@@ -55,4 +55,28 @@ test('a product saved without a task is clearly identified in review and results
  const pending={...row('ready','Product added. No task created: Not enough recorded stock.'),issueCode:'PRODUCT_ONLY'};
  assert.match(resultTable({rows:[pending]}),/Product only — no task/);
  assert.match(resultTable({rows:[pending]},true),/Product saved — no task/);
+});
+
+test('voucher product status reserves a consistent slot and distinguishes missing products from missing MPI variants',()=>{
+ const missing=voucherProductStatus({variants:[]},'CURRENT');
+ assert.match(missing,/class="business-product-status"/);assert.match(missing,/Product not in catalogue/);assert.doesNotMatch(missing,/data-missing-product hidden/);
+ const found=voucherProductStatus({variants:[{mpi_status:'CURRENT'}]},'CURRENT');
+ assert.match(found,/class="business-product-status"/);assert.match(found,/data-missing-product hidden/);
+ const other=voucherProductStatus({variants:[{mpi_status:'OBT'}],rememberedProduct:{id:1,name:'Combined'}},'CURRENT');
+ assert.match(other,/Selected MPI status not in catalogue/);assert.match(other,/Uses <a href="\/products\/1">Combined/);
+});
+
+test('confirmation actions describe the valid products and voucher tasks being saved',()=>{
+ const preview=rows=>({rows});
+ const task={status:'ready',row:2,taskId:1,mpiStatus:'CURRENT',message:'Create task.'};
+ const existing=[{row:2,variants:[{mpi_status:'CURRENT'}]}];
+ const missing=[{row:2,variants:[]}];
+ assert.equal(importActionLabel('products',preview([{status:'ready'}])),'Save valid products');
+ assert.equal(importActionLabel('received',preview([task]),existing),'Create valid PUT tasks');
+ assert.equal(importActionLabel('issue',preview([task]),existing),'Create valid PICK tasks');
+ assert.equal(importActionLabel('received',preview([task]),missing),'Save products and create valid PUT tasks');
+ assert.equal(importActionLabel('issue',preview([{...task,issueCode:'PRODUCT_ONLY',taskId:null}])), 'Save valid products');
+ assert.equal(importActionLabel('issue',preview([task,{status:'ready',issueCode:'PRODUCT_ONLY'}]),existing),'Save products and create valid PICK tasks');
+ assert.equal(importActionLabel('issue',preview([{...task,message:'Update task.'}]),existing),'Create or update valid PICK tasks');
+ assert.equal(importActionLabel('issue',preview([{status:'blocked'}])),'Save import results');
 });

@@ -157,3 +157,13 @@ dialog.excel-dialog:not([open]){display:none}
 .business-import-dialog [data-import-review] .business-import-table td {
   min-width: 0;
 }
+
+/* Reserve the same status space in each voucher row, including matched products. */
+.business-import-dialog .business-row-controls > .business-product-status {
+  flex: 0 0 150px;
+  width: 150px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.business-import-dialog .business-product-status small {display: block; line-height: 1.3;}
+.business-import-dialog .business-product-status small[hidden] {display: none;}
