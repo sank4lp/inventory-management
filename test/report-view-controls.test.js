@@ -148,7 +148,7 @@ test("operator stock reports keep controls in the stage toolbar and print only r
     null,
     new URL("http://localhost/reports#stock-snapshot"),
   );
-  const report = extractInlineReport(html, "stock-snapshot");
+  const report = createReportsPages({db:context.db}).renderReports(context.operator,null,new URL("http://localhost/reports?reportFragment=stock-snapshot"));
 
   assert.doesNotMatch(html, /class="[^"]*\breport-filter-panel\b/);
   assert.doesNotMatch(html, /class="[^"]*\bpreset-chip\b/);
@@ -269,18 +269,18 @@ test("curated report library exposes one clear question and print target per rep
   );
   const expectedReports = [
     ["product-movement", "Product Movement & Demand", "Which products were picked most in the selected timeframe?", true],
-    ["stock-snapshot", "Stock Snapshot", "What stock can we pick right now?", false],
+    ["stock-snapshot", "Stock Snapshot", "What stock is recorded on rack?", false],
     ["replenishment-watch", "Replenishment Watch", "Which products are out of stock or down to one normal location batch?", false],
     ["slow-moving-stock", "Slow-Moving Stock", "Which stocked products were not picked in the selected timeframe?", true],
     ["movement", "Stock Change Over Time", "Did inventory increase or decrease during the selected timeframe?", true],
     ["team-activity", "Team Throughput", "What pick and put-away work did each team member complete?", true],
-    ["issues", "Exception Hotspots", "Where did completed warehouse work fall short of plan?", true],
+    ["issues", "Exception Hotspots", "Where did completed shed work fall short of plan?", true],
     ["adjustments", "Adjustment Audit", "Who manually changed stock, when, and why?", true],
   ];
 
   assert.match(html, /Curated Questions/);
-  assert.match(html, /Choose the warehouse question you want answered\./);
-  assert.match(html, /<span>8<\/span>/);
+  assert.match(html, /Choose the shed question you want answered\./);
+  assert.match(html, /<span>14<\/span>/);
   const libraryItems = tagsWithAttribute(html, "a", "data-report-open");
   const inlineReports = tagsWithAttribute(html, "article", "data-report-inline");
   const printOptions = tagsWithAttribute(html, "button", "data-report-print-option");
@@ -356,7 +356,7 @@ test("replenishment, slow-moving stock, and team throughput answer their questio
     new URL("http://localhost/reports?preset=last-30d#replenishment-watch"),
   );
 
-  const replenishment = extractInlineReport(html, "replenishment-watch");
+  const replenishment = createReportsPages({db:context.db}).renderReports(context.operator,null,new URL("http://localhost/reports?preset=last-30d&reportFragment=replenishment-watch"));
   assert.match(replenishment, /<h3>Replenishment Watch<\/h3>/);
   assert.match(replenishment, /<dd>Current Snapshot<\/dd>/);
   assert.deepEqual(
@@ -371,7 +371,7 @@ test("replenishment, slow-moving stock, and team throughput answer their questio
   assert.match(replenishment, /One batch or less/);
   assert.match(replenishment, /practical replenishment watch, not a demand forecast/i);
 
-  const slowMoving = extractInlineReport(html, "slow-moving-stock");
+  const slowMoving = createReportsPages({db:context.db}).renderReports(context.operator,null,new URL("http://localhost/reports?preset=last-30d&reportFragment=slow-moving-stock"));
   assert.match(slowMoving, /<h3>Slow-Moving Stock<\/h3>/);
   assert.deepEqual(
     tagsWithAttribute(slowMoving, "tr", "data-report-summary-item")
@@ -385,7 +385,7 @@ test("replenishment, slow-moving stock, and team throughput answer their questio
   assert.match(slowMoving, /Never picked/);
   assert.match(slowMoving, /Only positive quantities on completed pick tasks count as usage/);
 
-  const throughput = extractInlineReport(html, "team-activity");
+  const throughput = createReportsPages({db:context.db}).renderReports(context.operator,null,new URL("http://localhost/reports?preset=last-30d&reportFragment=team-activity"));
   assert.match(throughput, /<h3>Team Throughput<\/h3>/);
   assert.deepEqual(
     tagsWithAttribute(throughput, "tr", "data-report-summary-item")
@@ -567,7 +567,7 @@ test("client controller binds multi-select stock controls, curated hashes, and r
     /window\.history\.pushState\(null, "", `\$\{window\.location\.pathname\}\$\{window\.location\.search\}#\$\{key\}`\)/,
   );
   assert.match(appSource, /const syncReportFromLocation = \(\) =>/);
-  assert.match(appSource, /window\.addEventListener\("hashchange", syncReportFromLocation\)/);
+  assert.match(appSource, /onPage\(window,"hashchange", syncReportFromLocation\)/);
   assert.match(
     appSource,
     /window\.history\.replaceState\([\s\S]*?#\$\{defaultReportKey\}`/,
@@ -575,12 +575,12 @@ test("client controller binds multi-select stock controls, curated hashes, and r
   assert.match(appSource, /button\.dataset\.reportPrintOption/);
   assert.match(appSource, /openReport\(key, \{ updateHash: true, focus: false, scroll: false \}\)/);
   assert.match(appSource, /document\.body\.classList\.add\("report-printing"\)/);
-  assert.match(appSource, /window\.requestAnimationFrame\(\(\) => window\.print\(\)\)/);
-  assert.match(appSource, /window\.addEventListener\("beforeprint"/);
-  assert.match(appSource, /window\.addEventListener\("afterprint"/);
+  assert.match(appSource, /requestAnimationFrame\(\(\)=>\{try\{window\.print\(\)/);
+  assert.match(appSource, /onPage\(window,"beforeprint"/);
+  assert.match(appSource, /onPage\(window,"afterprint"/);
 });
 
-test("report tables fit without internal scrolling and share compact stock typography", () => {
+test("paper-preview and print report styles retain compact stock typography", () => {
   const styles = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
 
   assert.match(
@@ -615,4 +615,23 @@ test("report tables fit without internal scrolling and share compact stock typog
     styles,
     /body\.report-printing \.report-inline-stack > \[data-report-inline\]:not\(\[hidden\]\)\s*\{[^}]*display:\s*block\s*!important;/,
   );
+});
+
+test('Stock Snapshot prints recorded stock including reservations and only links to permitted availability views',async()=>{
+ const context=await createTestContext(),{db,admin,inventory}=context;
+ const cell=inventory.listCells(db)[0],boots=createProduct(inventory,db,{sku:'RESERVED-BOOT',name:'Reserved Boots',unit:'pairs'});
+ stockProducts(inventory,db,admin,cell.id,[{product:boots,quantity:7}]);
+ db.prepare('UPDATE inventory_balances SET reserved_quantity=5 WHERE product_id=?').run(boots.id);
+ const {createReportsPages}=await freshImport('../src/server/pages/reports.js'),pages=createReportsPages({db});
+ const before=db.prepare('SELECT * FROM inventory_balances').all();
+ const html=pages.renderReports(admin,null,new URL('http://localhost/reports#stock-snapshot'));
+ assert.match(extractInlineReport(html,'stock-snapshot'),/data-report-src=/);
+ const stock=pages.renderReports(admin,null,new URL('http://localhost/reports?reportFragment=stock-snapshot'));
+ assert.match(stock,/On rack \(recorded\)/);assert.match(stock,/including reserved goods/);assert.match(stock,/Reserved Boots/);assert.match(stock,/>7(?:\.0)?(?:\s|<)/);
+ assert.doesNotMatch(stock,/What stock can we pick right now|>Available</);assert.match(stock,/href="\/cells"/);
+ // The printable article is the same content used on screen; no alternative misleading heading.
+ assert.doesNotMatch(stock,/data-report-screen-only/);
+ const restricted=extractInlineReport(pages.renderReports({...admin,capabilities:['reports.view']},null,new URL('http://localhost/reports?reportFragment=stock-snapshot')),'stock-snapshot');assert.doesNotMatch(restricted,/href="\/cells"/);
+ assert.match(html,/manual movement entries/);assert.doesNotMatch(html,/manual reports are shown/);
+ assert.deepEqual(db.prepare('SELECT * FROM inventory_balances').all(),before);db.close();
 });

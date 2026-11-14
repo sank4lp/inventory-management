@@ -1,10 +1,15 @@
+import { migrateAccess } from "./modules/access/service.js";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { migrateOperations } from "./modules/operations/schema.js";
+import { migrateStocktaking } from "./modules/stocktaking/schema.js";
+import {migrateLocationHierarchy} from './modules/locations/hierarchy.js';
+import {migratePhaseTwo} from './modules/stocktaking/phase-two-schema.js';
+import {migrateBusinessImports} from './modules/imports/catalog.js';
+import {migrateBusinessReports} from './modules/reports/data.js';
 
-const DATA_DIR = join(process.cwd(), "data");
-const DB_PATH = join(DATA_DIR, "inventory.db");
-export const APP_SCHEMA_VERSION = "5";
+export const APP_SCHEMA_VERSION = "14";
 
 const CORE_PRODUCT_FIELD_DEFINITIONS = [
   {
@@ -213,7 +218,7 @@ function seedUsers(db, authHelpers) {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
     ).run(
-      "Warehouse Operator",
+      "Shed Operator",
       "operator",
       hashPassword("operator123"),
       "operator",
@@ -315,7 +320,7 @@ function seedWarehouse(db) {
     }
   }
 
-  const admin = db.prepare("SELECT id FROM users WHERE username = ?").get("admin");
+  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id LIMIT 1").get();
   const controllerRows = db.prepare("SELECT * FROM controllers").all();
 
   for (let row = 1; row <= 3; row += 1) {
@@ -1002,6 +1007,7 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_transactions_product_created ON transactions(product_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_transactions_user_created ON transactions(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_transactions_task ON transactions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_cell_created ON transactions(cell_id,created_at,id);
     CREATE INDEX IF NOT EXISTS idx_transactions_type_created ON transactions(type, created_at);
     CREATE INDEX IF NOT EXISTS idx_device_events_created_at ON device_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_device_events_task ON device_events(task_id);
@@ -1093,7 +1099,7 @@ function initializeSchema(db) {
 }
 
 export function withTransaction(db, callback) {
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
     const result = callback();
     db.exec("COMMIT");
@@ -1105,6 +1111,7 @@ export function withTransaction(db, callback) {
 }
 
 export function createDatabase(authHelpers) {
+  const DB_PATH = join(process.cwd(), "data", "inventory.db");
   ensureDirectory(dirname(DB_PATH));
   const db = new DatabaseSync(DB_PATH);
   db.exec(`
@@ -1113,7 +1120,6 @@ export function createDatabase(authHelpers) {
     PRAGMA busy_timeout = 5000;
   `);
   initializeSchema(db);
-  db.prepare("UPDATE inventory_balances SET reserved_quantity = 0 WHERE reserved_quantity != 0").run();
   db.prepare(
     `
       DELETE FROM submission_tokens
@@ -1124,12 +1130,20 @@ export function createDatabase(authHelpers) {
   if (authHelpers.allowDevAuthSeeds !== false) {
     seedRegistrationKeys(db);
   }
-  seedWarehouse(db);
-  seedProducts(db);
+  if(authHelpers.allowWarehouseSeeds!==false)seedWarehouse(db);
+  else if(!db.prepare('SELECT id FROM zones LIMIT 1').get())db.prepare('INSERT INTO zones(code,name,sort_order) VALUES(?,?,?)').run('Z1','Main Zone',1);
+  if(authHelpers.allowCatalogSeeds!==false)seedProducts(db);
   if (authHelpers.allowDemoInventorySeed === false) {
     cleanupLegacyDemoInventory(db);
   } else {
     seedInventory(db);
   }
+  migrateOperations(db);
+  migrateStocktaking(db);
+  migrateBusinessImports(db);
+  migrateBusinessReports(db);
+  migratePhaseTwo(db);
+  migrateLocationHierarchy(db);
+  migrateAccess(db);
   return db;
 }

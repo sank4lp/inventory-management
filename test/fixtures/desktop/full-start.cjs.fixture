@@ -1,0 +1,10 @@
+const {app,BrowserWindow}=require('electron');const {createServer}=require('node:http');const {spawn}=require('node:child_process');const {mkdtempSync}=require('node:fs');const {tmpdir}=require('node:os');const {join}=require('node:path');const assert=require('node:assert/strict');
+const root=process.env.LYTGUIDE_DESKTOP_TEST_ROOT;const {startDesktop}=require(process.env.LYTGUIDE_DESKTOP_PRODUCTION);const temp=process.env.LYTGUIDE_NATIVE_INSTANCE||mkdtempSync(join(tmpdir(),'lytguide-instance-'));app.setPath('appData',temp);app.commandLine.appendSwitch('disable-gpu');let server;
+const options={readWorkUrl:()=> 'http://localhost:3326/work',isPending:()=>false,assetRoot:join(root,'resources/lytguide-assets')};
+const fail=setTimeout(()=>{console.error('Native startup test timed out');app.exit(1);},30000);
+(async()=>{
+ if(process.env.LYTGUIDE_NATIVE_CHILD){await startDesktop(options);return;}
+ server=createServer((req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>LytGuide</title><h1>Warehouse ready</h1>');});await new Promise(r=>server.listen(3326,'::',r));
+ const controller=await startDesktop(options);assert.equal(app.name,'LytGuide');assert.equal(controller.windows.size,1);const win=[...controller.windows][0];assert.equal(win.webContents.getURL(),'http://localhost:3326/work');assert.equal(win.isVisible(),true);assert.equal(win.webContents.getLastWebPreferences().sandbox,true);
+ const child=spawn(process.execPath,[],{env:{...process.env,LYTGUIDE_NATIVE_CHILD:'1',LYTGUIDE_NATIVE_INSTANCE:temp},stdio:'ignore'});const exit=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',resolve);});assert.equal(exit,0);assert.equal(controller.windows.size,1);clearTimeout(fail);server.close();console.log('PASS actual desktop startup, pre-ready Linux application identity, bundled app window, sandbox and single-instance reopen');app.exit(0);
+})().catch(error=>{console.error(error);clearTimeout(fail);server?.close();app.exit(1);});

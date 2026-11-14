@@ -1,0 +1,37 @@
+// Real browser-generated headers through the actual local Setup proxy.
+// Synthetic controller endpoint only; no serial device or warehouse is accessed.
+const {app,BrowserWindow}=require('electron');const {createServer}=require('node:http');
+const {mkdtempSync,writeFileSync,rmSync}=require('node:fs');const {join,resolve}=require('node:path');const {tmpdir}=require('node:os');const {pathToFileURL}=require('node:url');const {randomBytes}=require('node:crypto');const assert=require('node:assert/strict');
+const repo=resolve(__dirname,'../../..'),expectRejected=process.env.LYTGUIDE_EXPECT_FORM_REJECTION==='1';
+app.setPath('userData',mkdtempSync(join(tmpdir(),'lytguide-setup-origin-profile-')));app.enableSandbox();app.disableHardwareAcceleration();
+const deadline=setTimeout(()=>app.exit(2),60000);
+(async()=>{
+ await app.whenReady();const {createSetupServer}=await import(pathToFileURL(join(repo,'scripts/setup/server.mjs')));
+ const assets=mkdtempSync(join(tmpdir(),'lytguide-setup-origin-assets-'));writeFileSync(join(assets,'index.html'),'<!doctype html><iframe src="/devices"></iframe>');
+ let forwarded=0;const captured=[];
+ const upstream=createServer(async(req,res)=>{
+  if(req.method==='POST'){for await(const chunk of req){}forwarded++;res.writeHead(302,{Location:'/devices?checked=1'});res.end();return;}
+  res.writeHead(200,{'Content-Type':'text/html'});res.end('<!doctype html><p data-ready>Controller health</p><form method="post" action="/devices/controller-test"><input name="controller_id" value="1"><button>Check connection</button></form>');
+ });await new Promise(r=>upstream.listen(0,'127.0.0.1',r));
+ const token=randomBytes(32).toString('hex'),driver={appPort:()=>upstream.address().port,appCookie:()=> 'synthetic-upstream-session'};
+ const server=createSetupServer({driver,redeem:()=>({uid:1000,expiresAt:Date.now()+120000}),assets,uploadDirectory:assets,port:0});
+ server.prependListener('request',req=>{if(req.method==='POST'&&req.url==='/devices/controller-test')captured.push({origin:req.headers.origin,mode:req.headers['sec-fetch-mode'],site:req.headers['sec-fetch-site']});});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port,origin='http://127.0.0.1:'+port;
+ const unlock=await fetch(origin+'/setup-api/unlock',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({token})});assert.equal(unlock.status,200);const cookie=unlock.headers.get('set-cookie').split(';')[0].split('=')[1];
+ const win=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+ const js=expression=>win.webContents.executeJavaScript(expression),wait=async expression=>{for(let i=0;i<200;i++){if(await js(expression))return;await new Promise(r=>setTimeout(r,50));}throw Error('Timeout: '+expression);};
+ for(const host of ['127.0.0.1','localhost']){
+  const base='http://'+host+':'+port;await win.webContents.session.cookies.set({url:base,name:'lytguide_setup',value:cookie,httpOnly:true,sameSite:'strict'});
+  await win.loadURL(base+'/');await wait(`Boolean(document.querySelector('iframe')?.contentDocument?.querySelector('form'))`);
+  const before=forwarded;
+  await js(`(document.querySelector('iframe').contentDocument.querySelector('form').requestSubmit(),true)`);
+  if(expectRejected){await wait(`document.querySelector('iframe')?.contentDocument?.body.textContent.includes('Open this action')`);assert.equal(forwarded,before);assert.equal(captured.at(-1).origin,'null');}
+  else{await wait(`document.querySelector('iframe')?.contentWindow.location.search==='?checked=1'`);assert.equal(forwarded,before+1);assert.equal(captured.at(-1).origin,base);}
+  const result=await js(`document.querySelector('iframe').contentWindow.fetch('/devices/controller-test',{method:'POST',body:new URLSearchParams({controller_id:'1'})}).then(r=>r.status)`);assert.equal(result,200);assert.equal(captured.at(-1).origin,base);
+ }
+ const attacker=createServer((req,res)=>{res.writeHead(200,{'Content-Type':'text/html','Referrer-Policy':'no-referrer'});res.end('<!doctype html><form method="post" action="'+origin+'/devices/controller-test"><button>Untrusted origin</button></form>');});await new Promise(r=>attacker.listen(0,'127.0.0.1',r));
+ const before=forwarded;await win.loadURL('http://127.0.0.1:'+attacker.address().port);await js(`(document.querySelector('form').requestSubmit(),true)`);await wait(`document.body.textContent.includes('Open this action')`);assert.equal(forwarded,before);assert.equal(captured.at(-1).origin,'null');
+ console.log(expectRejected?'REPRODUCED: same-origin native form posts were rejected with Origin: null while fetch worked':'PASS: native controller forms, redirects and fetch work from both loopback names; untrusted null-origin forms remain blocked');
+ console.log(JSON.stringify(captured));
+ win.destroy();for(const s of [server,upstream,attacker]){s.closeAllConnections();await new Promise(r=>s.close(r));}rmSync(assets,{recursive:true,force:true});clearTimeout(deadline);app.exit(0);
+})().catch(error=>{console.error(error);clearTimeout(deadline);app.exit(1);});

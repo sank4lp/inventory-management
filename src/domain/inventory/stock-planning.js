@@ -1,5 +1,5 @@
 export const PUT_CAPACITY_ERROR_MESSAGE =
-  "System is already full for this product. Eligible empty and same-product cells do not have enough remaining room.";
+  "System is already full for this product. Eligible empty and same-product bins do not have enough remaining room.";
 
 function inventoryLine(productId, cellId, plannedQuantity, guidanceColor) {
   return {

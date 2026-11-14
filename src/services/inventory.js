@@ -1,9 +1,13 @@
+import {currentActor,effectiveUser,protectLastAdmin,auditAccess} from "../modules/access/service.js";
+import { guardSetupChange, guardLegacyTask } from "../modules/operations/guards.js";
+import { historicalFactor } from "../modules/operations/corrections.js";
 import { randomBytes } from "node:crypto";
 
 import { withTransaction } from "../db.js";
 import { createInventoryBalanceRepository } from "../repositories/inventory-balance-repository.js";
 import { createProductRepository } from "../repositories/product-repository.js";
 import { createTaskRepository } from "../repositories/task-repository.js";
+import { cellHasReferences } from "../repositories/cell-reference-repository.js";
 import {
   assertSufficientBalance,
   normalizeItemsPerCell,
@@ -33,7 +37,7 @@ function displayQuantity(value) {
   return Number.isInteger(number) ? String(number) : String(number).replace(/\.?0+$/, "");
 }
 
-function moveSuggestions(db, { productId, sourceCellId, quantity }) {
+function moveSuggestions(db, { productId, sourceCellId, quantity, emptyCells }) {
   const product = findProductOrThrow(db, Number(productId));
   const balances = createInventoryBalanceRepository(db);
   const itemsPerCell = normalizeItemsPerCell(product.items_per_cell);
@@ -43,7 +47,7 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
     requestedQuantity,
     itemsPerCell,
     sameProductCells: balances.listSameProductMoveTargets(product.id, sourceCellId),
-    emptyCells: balances.listEmptyMoveTargets(sourceCellId),
+    emptyCells: emptyCells ? emptyCells.filter(c=>c.cell_id!==sourceCellId) : balances.listEmptyMoveTargets(sourceCellId),
   });
 
   return {
@@ -55,7 +59,7 @@ function moveSuggestions(db, { productId, sourceCellId, quantity }) {
   };
 }
 
-function getActiveCell(db, cellId, message = "Selected cell is not active.") {
+function getActiveCell(db, cellId, message = "Selected bin is not active.") {
   const cell = db
     .prepare("SELECT * FROM cells WHERE id = ? AND active = 1")
     .get(Number(cellId));
@@ -66,7 +70,7 @@ function getActiveCell(db, cellId, message = "Selected cell is not active.") {
 }
 
 function assertPutCellEligible(db, { productId, cellId }) {
-  const cell = getActiveCell(db, cellId, "Selected put cell is not active.");
+  const cell = getActiveCell(db, cellId, "Selected put bin is not active.");
   const otherProduct = db
     .prepare(
       `
@@ -83,7 +87,7 @@ function assertPutCellEligible(db, { productId, cellId }) {
 
   if (otherProduct) {
     throw new Error(
-      `Cell ${cell.logical_code} already contains ${otherProduct.sku}. Choose an empty cell or a cell with the same product.`,
+      `Bin ${cell.logical_code} already contains ${otherProduct.sku}. Choose an empty bin or a bin with the same product.`,
     );
   }
 
@@ -107,7 +111,7 @@ function getPickCellAvailability(db, { productId, cellId }) {
     .get(Number(productId), Number(cellId));
 
   if (!cell) {
-    throw new Error("Selected pick cell is not active.");
+    throw new Error("Selected pick bin is not active.");
   }
 
   return cell;
@@ -153,6 +157,7 @@ function buildCellAnomalies(db) {
   }
 
   const anomalies = [];
+  const emptyCells=createInventoryBalanceRepository(db).listEmptyMoveTargets(-1);
 
   for (const cell of grouped.values()) {
     if (cell.products.length > 1) {
@@ -160,7 +165,7 @@ function buildCellAnomalies(db) {
       const suggestion = moveSuggestions(db, {
         productId: moveProduct.productId,
         sourceCellId: cell.cellId,
-        quantity: moveProduct.totalQuantity,
+        quantity: moveProduct.totalQuantity,emptyCells,
       });
       anomalies.push({
         key: `mixed-${cell.cellId}-${moveProduct.productId}`,
@@ -170,7 +175,7 @@ function buildCellAnomalies(db) {
         logicalCode: cell.logicalCode,
         title: `${cell.logicalCode} has mixed products`,
         description: `${cell.products.map((item) => `${item.sku} (${item.totalQuantity})`).join(", ")}`,
-        actionSummary: `Move ${moveProduct.sku} from ${cell.logicalCode} into its own cell(s).`,
+        actionSummary: `Move ${moveProduct.sku} from ${cell.logicalCode} into its own bin(s).`,
         productId: moveProduct.productId,
         productSku: moveProduct.sku,
         productName: moveProduct.name,
@@ -186,7 +191,7 @@ function buildCellAnomalies(db) {
         const suggestion = moveSuggestions(db, {
           productId: product.productId,
           sourceCellId: cell.cellId,
-          quantity: excessQuantity,
+          quantity: excessQuantity,emptyCells,
         });
         anomalies.push({
           key: `overflow-${cell.cellId}-${product.productId}`,
@@ -429,9 +434,9 @@ function buildWarehouseOptimizationRecommendations(db) {
       type: "warehouse_optimization",
       severity: "info",
       cellId: moves[0].sourceCellId,
-      logicalCode: `${product.cells.length} cells`,
+      logicalCode: `${product.cells.length} bins`,
       title: `Optimize ${product.productSku} storage`,
-      description: `Stored ${displayQuantity(totalQuantity)} across ${product.cells.length} cells; ideal ${displayQuantity(itemsPerCell)} per cell.`,
+      description: `Stored ${displayQuantity(totalQuantity)} across ${product.cells.length} bins; ideal ${displayQuantity(itemsPerCell)} per bin.`,
       actionSummary: `Move ${displayQuantity(
         moves.reduce((sum, move) => sum + Number(move.quantity || 0), 0),
       )} ${product.productSku} item(s) into ${targetCells.map((cell) => cell.logicalCode).join(", ")}.`,
@@ -517,6 +522,7 @@ export function createProduct(db, input) {
 }
 
 export function removeProduct(db, productId) {
+  guardSetupChange(db,{productId:Number(productId)});
   return withTransaction(db, () => {
     const products = createProductRepository(db);
     const product = products.findById(productId);
@@ -546,6 +552,7 @@ export function removeProduct(db, productId) {
 }
 
 export function updateProductDetails(db, input) {
+  guardSetupChange(db,{productId:Number(input.productId)});
   const productId = Number(input.productId);
   const required = [
     ["name", "Product name is required."],
@@ -706,6 +713,8 @@ export function planPut(db, { userId, productId, quantity, preferredCellId = nul
 }
 
 export function cancelTask(db, { taskId }) {
+  guardLegacyTask(db, taskId);
+  guardSetupChange(db);
   const task = getTask(db, Number(taskId));
   if (!task) {
     throw new Error("Task not found.");
@@ -727,6 +736,8 @@ export function cancelTask(db, { taskId }) {
 }
 
 export function completeTask(db, { taskId, actualQuantities, actualCellIds, userId, note }) {
+  guardLegacyTask(db, taskId);
+  guardSetupChange(db);
   const task = getTask(db, Number(taskId));
   if (!task) {
     throw new Error("Task not found.");
@@ -759,7 +770,7 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
 
         if (actualQuantity > Number(pickCell.available_quantity)) {
           throw new Error(
-            `Cell ${pickCell.logical_code} only has ${Number(pickCell.available_quantity)} item(s) left for ${line.sku}. Choose another eligible cell or reduce the quantity.`,
+            `Bin ${pickCell.logical_code} only has ${Number(pickCell.available_quantity)} item(s) left for ${line.sku}. Choose another eligible bin or reduce the quantity.`,
           );
         }
 
@@ -843,6 +854,8 @@ export function completeTask(db, { taskId, actualQuantities, actualCellIds, user
 }
 
 export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
+  guardLegacyTask(db, taskId);
+  guardSetupChange(db);
   const task = getTask(db, Number(taskId));
   if (!task) {
     throw new Error("Task not found.");
@@ -878,10 +891,10 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
       continue;
     }
     if (!Number.isInteger(cellId) || cellId <= 0) {
-      throw new Error("Choose a valid cell for each adjusted put line.");
+      throw new Error("Choose a valid bin for each adjusted put line.");
     }
     if (seenCells.has(cellId)) {
-      throw new Error("Each adjusted put cell can appear only once.");
+      throw new Error("Each adjusted put bin can appear only once.");
     }
     assertPutCellEligible(db, { productId, cellId });
     seenCells.add(cellId);
@@ -889,7 +902,7 @@ export function updatePendingPutPlan(db, { taskId, allocations, note = null }) {
   }
 
   if (!nextAllocations.length) {
-    throw new Error("Add at least one cell with a quantity greater than zero.");
+    throw new Error("Add at least one bin with a quantity greater than zero.");
   }
 
   return withTransaction(db, () => {
@@ -912,6 +925,8 @@ export function correctCompletedTask(
   db,
   { taskId, actualQuantities, actualCellIds, userId, note },
 ) {
+  guardLegacyTask(db, taskId);
+  guardSetupChange(db);
   const task = getTask(db, Number(taskId));
   if (!task) {
     throw new Error("Task not found.");
@@ -922,146 +937,37 @@ export function correctCompletedTask(
   }
 
   return withTransaction(db, () => {
-    const balances = createInventoryBalanceRepository(db);
-    const tasks = createTaskRepository(db);
-    const touchedCellIds = new Set();
-
-    for (const line of task.lines) {
-      const previousQuantity = Number(line.actual_quantity);
-      const nextQuantity = Number(actualQuantities[line.id] ?? previousQuantity);
-      const nextCellId = Number(actualCellIds?.[line.id] || line.cell_id);
-
-      if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
-        throw new Error("Corrected quantities must be zero or greater.");
-      }
-
-      const oldBalance = balances.getOrCreate(line.product_id, line.cell_id);
-
-      if (task.type === "pick") {
-        const nextPickCell = getPickCellAvailability(db, {
-          productId: line.product_id,
-          cellId: nextCellId,
-        });
-        const nextAvailable =
-          Number(nextPickCell.available_quantity) +
-          (Number(nextCellId) === Number(line.cell_id) ? previousQuantity : 0);
-
-        if (nextAvailable < nextQuantity) {
-          throw new Error(
-            `Cell ${nextPickCell.logical_code} no longer has enough stock to apply this correction safely.`,
-          );
-        }
-
-        balances.increase(oldBalance.id, previousQuantity);
-
-        db.prepare(
-          `
-            INSERT INTO transactions (
-              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-            )
-            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
-          `,
-        ).run(
-          line.product_id,
-          line.cell_id,
-          previousQuantity,
-          userId,
-          task.id,
-          note || `Correction reversal for task #${task.id}`,
-          nowIso(),
-        );
-
-        const nextBalance = balances.getOrCreate(line.product_id, nextCellId);
-        balances.decrease(nextBalance.id, nextQuantity);
-
-        db.prepare(
-          `
-            INSERT INTO transactions (
-              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-            )
-            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
-          `,
-        ).run(
-          line.product_id,
-          nextCellId,
-          -nextQuantity,
-          userId,
-          task.id,
-          note || `Correction applied for task #${task.id}`,
-          nowIso(),
-        );
-
-        touchedCellIds.add(Number(line.cell_id));
-        touchedCellIds.add(nextCellId);
-      } else if (task.type === "put") {
-        assertPutCellEligible(db, {
-          productId: line.product_id,
-          cellId: nextCellId,
-        });
-
-        assertSufficientBalance(
-          oldBalance,
-          previousQuantity,
-          `Cell ${line.logical_code} no longer contains the previously recorded quantity, so this correction cannot be applied safely.`,
-        );
-
-        balances.decrease(oldBalance.id, previousQuantity);
-
-        db.prepare(
-          `
-            INSERT INTO transactions (
-              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-            )
-            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
-          `,
-        ).run(
-          line.product_id,
-          line.cell_id,
-          -previousQuantity,
-          userId,
-          task.id,
-          note || `Correction reversal for task #${task.id}`,
-          nowIso(),
-        );
-
-        const newBalance = balances.getOrCreate(line.product_id, nextCellId);
-        balances.increase(newBalance.id, nextQuantity);
-
-        db.prepare(
-          `
-            INSERT INTO transactions (
-              type, product_id, cell_id, quantity_delta, user_id, task_id, reason, created_at
-            )
-            VALUES ('adjustment', ?, ?, ?, ?, ?, ?, ?)
-          `,
-        ).run(
-          line.product_id,
-          nextCellId,
-          nextQuantity,
-          userId,
-          task.id,
-          note || `Correction applied for task #${task.id}`,
-          nowIso(),
-        );
-
-        touchedCellIds.add(Number(line.cell_id));
-        touchedCellIds.add(nextCellId);
-      }
-
-      const nextExceptionQuantity = Math.max(0, Number(line.planned_quantity) - nextQuantity);
-      tasks.updateLineActual({
-        lineId: line.id,
-        actualQuantity: nextQuantity,
-        exceptionQuantity: nextExceptionQuantity,
-        note: note || line.note,
-        cellId: nextCellId,
-      });
+    const deltas=new Map(), updates=[];
+    const add=(productId,cellId,delta)=>{const k=`${productId}:${cellId}`;const v=deltas.get(k)||{productId,cellId,delta:0};v.delta+=delta;deltas.set(k,v);};
+    for(const line of task.lines){
+      const raw=actualQuantities?.[line.id];
+      if(raw!=null&&String(raw).trim()==="")throw new Error("Enter an explicit actual quantity, including zero.");
+      const quantity=Number(raw??line.actual_quantity),cellId=Number(actualCellIds?.[line.id]||line.cell_id);
+      if(!Number.isFinite(quantity)||quantity<0)throw new Error("Corrected quantities must be zero or greater.");
+      const factor=historicalFactor(db,line.product_id,line.unit_of_measure,task.completed_at||task.started_at,line.merged_from_product_id), sign=task.type==='pick'?-1:1;
+      add(line.product_id,line.cell_id,-sign*line.actual_quantity*factor);
+      add(line.product_id,cellId,sign*quantity*factor);
+      updates.push({line,quantity,cellId});
     }
-
-    return {
-      task: tasks.get(task.id),
-      anomalies: detectAnomalies(db).filter((anomaly) => touchedCellIds.has(anomaly.cellId)),
-    };
+    for(const {productId,cellId,delta} of deltas.values()){
+      const product=findProductOrThrow(db,productId);
+      const b=createInventoryBalanceRepository(db).getOrCreate(productId,cellId);
+      const next=Number((b.available_quantity+delta).toFixed(6));
+      if(next<0||next<b.reserved_quantity)throw new Error("Correction would leave insufficient stock for existing reservations.");
+      if(delta>0){
+        const occupied=db.prepare("SELECT COALESCE(SUM(available_quantity),0) n FROM inventory_balances WHERE cell_id=?").get(cellId).n;
+        if(occupied+delta>product.items_per_cell)throw new Error("Correction exceeds the location capacity.");
+      }
+      if(Math.abs(delta)>0.0000001){
+        db.prepare("UPDATE inventory_balances SET available_quantity=? WHERE id=?").run(next,b.id);
+        db.prepare("INSERT INTO transactions(type,product_id,cell_id,quantity_delta,user_id,task_id,reason,unit_of_measure,created_at) VALUES('adjustment',?,?,?,?,?,?,?,?)").run(productId,cellId,Number(delta.toFixed(6)),userId,task.id,note||`Correction for task #${task.id}`,product.unit_of_measure,nowIso());
+      }
+    }
+    for(const {line,quantity,cellId} of updates){
+      createTaskRepository(db).updateLineActual({lineId:line.id,actualQuantity:quantity,exceptionQuantity:Math.max(0,line.planned_quantity-quantity),note:note||line.note,cellId});
+      db.prepare("INSERT INTO work_events(line_id,actor_id,event_type,payload,created_at) VALUES(?,?,'historical_correction',?,?)").run(line.id,userId,JSON.stringify({previous:line.actual_quantity,actual:quantity,unit:line.unit_of_measure,oldCell:line.cell_id,cellId,note}),nowIso());
+    }
+    return {task:getTask(db,task.id),anomalies:detectAnomalies(db).filter(a=>[...deltas.values()].some(d=>d.cellId===a.cellId))};
   });
 }
 
@@ -1078,9 +984,10 @@ export function markPhysicalConfirmation(db, lineId) {
 }
 
 export function createAdjustment(db, { productId, cellId, quantityDelta, userId, reason, lines }) {
+  guardSetupChange(db,{cellId:Number(cellId)});
   const cell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
   if (!cell) {
-    throw new Error("Cell not found.");
+    throw new Error("Bin not found.");
   }
 
   if (!String(reason || "").trim()) {
@@ -1150,7 +1057,7 @@ export function createAdjustment(db, { productId, cellId, quantityDelta, userId,
 
       if (Number(balance.available_quantity) + delta < 0) {
         throw new Error(
-          `Adjustment for ${line.product.sku} would make the cell quantity negative.`,
+          `Adjustment for ${line.product.sku} would make the bin quantity negative.`,
         );
       }
 
@@ -1190,6 +1097,16 @@ export function detectAnomalies(db) {
 }
 
 export function getRecommendedActions(db) {
+  const conflicts=db.prepare(`SELECT t.id taskId,l.product_id productId,p.sku productSku,c.logical_code logicalCode,l.cell_id cellId,e.payload
+    FROM work_events e JOIN work_reports r ON r.id=e.report_id JOIN task_lines l ON l.id=e.line_id JOIN tasks t ON t.id=l.task_id
+    JOIN products p ON p.id=l.product_id JOIN cells c ON c.id=l.cell_id
+    WHERE e.event_type='reservation_displaced' AND r.status IN ('review','received') AND t.completed_at IS NULL ORDER BY e.id DESC`).all();
+  const seen=new Set(),taskActions=conflicts.filter(r=>{if(seen.has(r.taskId))return false;seen.add(r.taskId);return true;}).map(r=>{
+    const replacement=JSON.parse(r.payload).replacementTaskId;
+    return {...r,key:`task-reservation:${r.taskId}`,type:'task_reservation_conflict',title:`Task #${r.taskId} needs review`,priority:'high',
+      actionSummary:`Stock or space was taken over by Task #${replacement}. Update or close the earlier task.`,
+      description:'Check any work already done before closing the task.',taskHref:`/tasks/${r.taskId}`,freedLocationCount:0,freedLocations:[],recommendedMoves:[]};
+  });
   const anomalyActions = detectAnomalies(db).map((anomaly) => {
     const cell = db.prepare("SELECT id, logical_code FROM cells WHERE id = ?").get(anomaly.cellId);
     return {
@@ -1200,6 +1117,7 @@ export function getRecommendedActions(db) {
     };
   });
   return [
+    ...taskActions,
     ...anomalyActions,
     ...buildWarehouseOptimizationRecommendations(db),
   ];
@@ -1209,9 +1127,13 @@ export function listUsers(db) {
   return db
     .prepare(
       `
-        SELECT id, name, username, role, status, created_at, last_active_at
-        FROM users
-        ORDER BY role DESC, username
+        SELECT u.id, u.name, u.username, u.role, u.role_id, u.status, u.created_at, u.last_active_at,
+               u.registration_key_id, k.created_at AS key_issued_at, k.usage_policy AS key_usage_policy,
+               inviter.name AS invited_by_name
+        FROM users u
+        LEFT JOIN registration_keys k ON k.id=u.registration_key_id
+        LEFT JOIN users inviter ON inviter.id=k.created_by
+        ORDER BY u.role DESC, u.username
       `,
     )
     .all();
@@ -1236,9 +1158,13 @@ export function getUserProfile(db, userId) {
   const profile = db
     .prepare(
       `
-        SELECT id, name, username, role, status, created_at, last_active_at
-        FROM users
-        WHERE id = ?
+        SELECT u.id, u.name, u.username, u.role, u.role_id, u.status, u.created_at, u.last_active_at,
+               u.registration_key_id, k.created_at AS key_issued_at, k.usage_policy AS key_usage_policy,
+               inviter.name AS invited_by_name
+        FROM users u
+        LEFT JOIN registration_keys k ON k.id=u.registration_key_id
+        LEFT JOIN users inviter ON inviter.id=k.created_by
+        WHERE u.id = ?
       `,
     )
     .get(Number(userId));
@@ -1293,32 +1219,40 @@ export function listRegistrationKeys(db) {
 }
 
 export function issueRegistrationKey(db, { keyValue, role, userId, usagePolicy = "single_use" }) {
+  const actor=currentActor(db,{id:userId},'access.manage');
+  const chosen=db.prepare('SELECT * FROM access_roles WHERE id=?').get(role);
+  if(!chosen)throw new Error('Choose an existing role.');
   const normalizedRole = role === "admin" ? "admin" : "operator";
   const normalized = String(keyValue || "").trim() || generateRegistrationKeyValue(normalizedRole);
   const normalizedUsagePolicy =
-    normalizedRole === "operator" && usagePolicy === "global" ? "global" : "single_use";
+    usagePolicy === "global" ? "global" : "single_use";
   const expiresAt =
     normalizedUsagePolicy === "global"
       ? null
       : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
-  const result = db.prepare(
-    `
-      INSERT INTO registration_keys (key_value, role, status, usage_policy, usage_count, expires_at, created_by, created_at)
-      VALUES (?, ?, 'active', ?, 0, ?, ?, ?)
-    `,
-  ).run(
-    normalized,
-    normalizedRole,
-    normalizedUsagePolicy,
-    expiresAt,
-    userId,
-    nowIso(),
-  );
+  return withTransaction(db, () => {
+    if (db.prepare('SELECT id FROM registration_keys WHERE key_value=?').get(normalized)) {
+      throw new Error('This key already exists. Enter a different key or leave it blank.');
+    }
+    const result = db.prepare(
+      `
+        INSERT INTO registration_keys (key_value, role, status, usage_policy, usage_count, expires_at, created_by, created_at)
+        VALUES (?, ?, 'active', ?, 0, ?, ?, ?)
+      `,
+    ).run(
+      normalized,
+      normalizedRole,
+      normalizedUsagePolicy,
+      expiresAt,
+      userId,
+      nowIso(),
+    );
 
-  return db
-    .prepare("SELECT * FROM registration_keys WHERE id = ?")
-    .get(result.lastInsertRowid);
+    db.prepare('UPDATE registration_keys SET role_id=? WHERE id=?').run(chosen.id,result.lastInsertRowid);
+    auditAccess(db,actor,'invitation_issued',result.lastInsertRowid,{roleId:chosen.id,usagePolicy:normalizedUsagePolicy});
+    return db.prepare("SELECT * FROM registration_keys WHERE id = ?").get(result.lastInsertRowid);
+  });
 }
 
 export function revokeRegistrationKey(db, { keyId }) {
@@ -1390,6 +1324,8 @@ export function registerUser(db, { registrationKey, name, username, password, ha
         nowIso(),
       );
 
+    db.prepare('UPDATE users SET role_id=?,registration_key_id=? WHERE id=?').run(key.role_id||key.role,key.id,result.lastInsertRowid);
+    auditAccess(db,{id:Number(result.lastInsertRowid)},'onboarded',result.lastInsertRowid,{roleId:key.role_id||key.role,invitationId:key.id});
     if (key.usage_policy === "global") {
       db.prepare(
         `
@@ -1432,10 +1368,12 @@ export function authenticateUser(db, { username, password, verifyPassword }) {
     username: user.username,
     role: user.role,
     status: user.status,
+    session_version: user.session_version,
   };
 }
 
 export function setUserStatus(db, { userId, status, actingUserId }) {
+ return withTransaction(db,()=>{
   const nextStatus = String(status || "").trim().toLowerCase();
   if (!["active", "inactive"].includes(nextStatus)) {
     throw new Error("User status must be active or inactive.");
@@ -1453,28 +1391,17 @@ export function setUserStatus(db, { userId, status, actingUserId }) {
       throw new Error("You cannot suspend your own account.");
     }
 
-    if (targetUser.role === "admin") {
-      const remainingActiveAdmins = db
-        .prepare(
-          `
-            SELECT COUNT(*) AS count
-            FROM users
-            WHERE role = 'admin' AND status = 'active' AND id != ?
-          `,
-        )
-        .get(targetUser.id).count;
-
-      if (Number(remainingActiveAdmins) < 1) {
-        throw new Error("At least one active admin account is required.");
-      }
-    }
+    protectLastAdmin(db,effectiveUser(db,targetUser),effectiveUser(db,targetUser).role_id,nextStatus);
   }
+  const actor=currentActor(db,{id:actingUserId},'people.manage');
+  auditAccess(db,actor,'user_status',targetUser.id,{before:targetUser.status,after:nextStatus});
 
   db.prepare("UPDATE users SET status = ? WHERE id = ?").run(nextStatus, targetUser.id);
 
   return db
     .prepare("SELECT id, name, username, role, status FROM users WHERE id = ?")
     .get(targetUser.id);
+ });
 }
 
 export function listCells(db) {
@@ -1748,6 +1675,7 @@ export function updateControllerHealth(db, { controllerId, status }) {
 }
 
 export function deleteController(db, { controllerId }) {
+  guardSetupChange(db);
   return withTransaction(db, () => {
     const controller = db
       .prepare("SELECT * FROM controllers WHERE id = ?")
@@ -1784,10 +1712,10 @@ export function deleteController(db, { controllerId }) {
 function normalizeLogicalCode(value) {
   const logicalCode = String(value || "").trim().toUpperCase();
   if (!logicalCode) {
-    throw new Error("Cell name is required.");
+    throw new Error("Bin name is required.");
   }
   if (!/^[A-Z0-9._:-]+$/.test(logicalCode)) {
-    throw new Error("Cell name can use letters, numbers, dot, dash, underscore, or colon.");
+    throw new Error("Bin name can use letters, numbers, dot, dash, underscore, or colon.");
   }
   return logicalCode;
 }
@@ -1901,7 +1829,7 @@ export function getCellDeletionImpact(db, cellId) {
     .get(id);
 
   if (!cell) {
-    throw new Error("Cell not found.");
+    throw new Error("Bin not found.");
   }
 
   const counts = db
@@ -1938,16 +1866,17 @@ export function getCellDeletionImpact(db, cellId) {
 }
 
 export function deleteCell(db, { cellId, deletedBy = null } = {}) {
+  guardSetupChange(db,{cellId:Number(cellId)});
   return withTransaction(db, () => {
     const impact = getCellDeletionImpact(db, cellId);
     if (impact.hasStock) {
-      throw new Error("Move all stock out of this cell before deleting it.");
+      throw new Error("Move all stock out of this bin before deleting it.");
     }
 
     const id = Number(cellId);
     db.prepare("DELETE FROM inventory_balances WHERE cell_id = ?").run(id);
     const placeholder = createModulePlaceholder(db, impact.cell, deletedBy);
-    const hasHistory = cellHasOperationalHistory(db, id);
+    const hasHistory = cellHasOperationalHistory(db, id)||!!db.prepare('SELECT 1 FROM stocktake_items WHERE cell_id=?').get(id)||!!db.prepare("SELECT 1 FROM stocktake_schedules s,json_each(s.scope_json,'$.cellIds') j WHERE json_extract(s.scope_json,'$.mode')='selected' AND j.value=?").get(id);
 
     if (hasHistory) {
       db.prepare(
@@ -2013,7 +1942,7 @@ function detachCellsForManualOperation(db, cellIds) {
   let removed = 0;
 
   for (const cell of cells) {
-    if (Number(cell.active) === 1) {
+    if (Number(cell.active) === 1 || cellHasStock(db, cell.id) || cellHasReferences(db, cell.id)) {
       db.prepare(
         `
           UPDATE cells
@@ -2021,10 +1950,10 @@ function detachCellsForManualOperation(db, cellIds) {
             controller_id = NULL,
             hardware_channel = NULL,
             mapping_status = 'unmapped',
-            active = 1
+            active = ?
           WHERE id = ?
         `,
-      ).run(Number(cell.id));
+      ).run(Number(cell.active), Number(cell.id));
       detached += 1;
       continue;
     }
@@ -2038,11 +1967,13 @@ function detachCellsForManualOperation(db, cellIds) {
   return { detached, removed };
 }
 
-export function createCell(db, { logicalCode, capacity = 12, createdBy = null } = {}) {
+export function createCell(db, { logicalCode, capacity = 12, createdBy = null, travelInstructions } = {}) {
   const code = normalizeLogicalCode(logicalCode);
+  const details=travelInstructions==null?null:String(travelInstructions).trim();
+  if(details!=null&&details.length>1000)throw new Error('Rack details must be at most 1000 characters.');
   const cellCapacity = Number(capacity || 12);
   if (!Number.isFinite(cellCapacity) || cellCapacity <= 0) {
-    throw new Error("Cell capacity must be a positive number.");
+    throw new Error("Bin capacity must be a positive number.");
   }
 
   const existing = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(code);
@@ -2059,9 +1990,10 @@ export function createCell(db, { logicalCode, capacity = 12, createdBy = null } 
           WHERE id = ?
         `,
       ).run(cellCapacity, createdBy, existing.id);
+      if(details)db.prepare('UPDATE cells SET travel_instructions=?,description_revision=description_revision+1 WHERE id=?').run(details,existing.id);
       return db.prepare("SELECT * FROM cells WHERE id = ?").get(existing.id);
     }
-    throw new Error("A cell with this name already exists.");
+    throw new Error("A bin with this name already exists.");
   }
 
   const zoneId = getOrCreateZone(db);
@@ -2077,10 +2009,12 @@ export function createCell(db, { logicalCode, capacity = 12, createdBy = null } 
     )
     .run(code, zoneId, cellCapacity, createdBy);
 
+  if(details)db.prepare('UPDATE cells SET travel_instructions=? WHERE id=?').run(details,Number(result.lastInsertRowid));
   return db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(result.lastInsertRowid));
 }
 
 export function renameCell(db, { cellId, logicalCode, renamedBy = null } = {}) {
+  guardSetupChange(db,{cellId:Number(cellId)});
   const id = Number(cellId);
   if (!Number.isInteger(id) || id <= 0) {
     throw new Error("Choose a location to rename.");
@@ -2098,7 +2032,7 @@ export function renameCell(db, { cellId, logicalCode, renamedBy = null } = {}) {
 
     const existing = db.prepare("SELECT * FROM cells WHERE logical_code = ?").get(code);
     if (existing && Number(existing.id) !== id) {
-      throw new Error("A cell with this name already exists.");
+      throw new Error("A bin with this name already exists.");
     }
 
     db.prepare(
@@ -2113,30 +2047,38 @@ export function renameCell(db, { cellId, logicalCode, renamedBy = null } = {}) {
   });
 }
 
+function assertMappingIntegrity(db) {
+  const duplicate=db.prepare(`SELECT ctrl.address,c.hardware_channel,COUNT(*) n FROM cells c JOIN controllers ctrl ON ctrl.id=c.controller_id WHERE c.hardware_channel IS NOT NULL GROUP BY ctrl.address,c.hardware_channel HAVING COUNT(*)>1 LIMIT 1`).get();
+  const invalid=db.prepare("SELECT 1 FROM cells WHERE hardware_channel IS NOT NULL AND (hardware_channel!=CAST(hardware_channel AS INTEGER) OR hardware_channel<1 OR hardware_channel>255) LIMIT 1").get();
+  if(duplicate||invalid)throw new Error('Each physical controller/channel must map to exactly one location, using an integer channel from 1 to 255.');
+}
+
 export function updateCellMapping(
   db,
   { cellId, hardwareChannel, logicalCode = null, targetCellId = null, mappedBy },
+  { withinTransaction = false } = {},
 ) {
+  guardSetupChange(db);
   const channel = Number(hardwareChannel);
-  if (!Number.isFinite(channel) || channel <= 0) {
+  if (!Number.isInteger(channel) || channel <= 0 || channel > 255) {
     throw new Error("Hardware channel must be a positive number.");
   }
 
-  return withTransaction(db, () => {
+  const apply = () => {
     const sourceCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(cellId));
     if (!sourceCell) {
       throw new Error("Mapped module not found.");
     }
 
     if (!sourceCell.controller_id) {
-      throw new Error("Choose a mapped LED module before assigning a cell.");
+      throw new Error("Choose a mapped LED module before assigning a bin.");
     }
 
     let targetCell = null;
     if (targetCellId) {
       targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(Number(targetCellId));
       if (!targetCell) {
-        throw new Error("Selected cell was not found.");
+        throw new Error("Selected bin was not found.");
       }
       if (Number(targetCell.active) !== 1) {
         throw new Error("Selected cell is not active. Choose an active cell from the list.");
@@ -2148,7 +2090,7 @@ export function updateCellMapping(
         throw new Error("Add this location before assigning it to an LED module.");
       }
       if (Number(targetCell.active) !== 1) {
-        throw new Error("Selected cell is not active. Add this location before assigning it to an LED module.");
+        throw new Error("Selected bin is not active. Add this location before assigning it to an LED module.");
       }
     } else {
       throw new Error("Choose a location to assign this LED module.");
@@ -2168,6 +2110,7 @@ export function updateCellMapping(
           WHERE id = ?
         `,
       ).run(channel, now, mappedBy, sourceCell.id);
+      assertMappingIntegrity(db);
       return db.prepare("SELECT * FROM cells WHERE id = ?").get(sourceCell.id);
     }
 
@@ -2205,8 +2148,11 @@ export function updateCellMapping(
     ).run(sourceCell.controller_id, channel, now, mappedBy, targetCell.id);
 
     retireEmptyMappingCell(db, sourceCell.id);
+    assertMappingIntegrity(db);
     return db.prepare("SELECT * FROM cells WHERE id = ?").get(targetCell.id);
-  });
+  };
+  // Setup receipts already own the transaction; mapping and receipt must commit together.
+  return withinTransaction ? apply() : withTransaction(db, apply);
 }
 
 function getOrCreateZone(db, code = "Z1", name = "Main Zone") {
@@ -2252,7 +2198,9 @@ export function configureControllerModules(
     configuredBy = null,
     firmwareVersion = ESP32_FIRMWARE_PROTOCOL,
   },
+  afterConfigure = null,
 ) {
+  guardSetupChange(db);
   const count = Number(moduleCount);
   if (!Number.isInteger(count) || count <= 0) {
     throw new Error("LED module count must be a positive whole number.");
@@ -2447,15 +2395,16 @@ export function configureControllerModules(
       mappingSummary.removed += staleDetached.removed;
     }
 
+    assertMappingIntegrity(db);
     const controller = db.prepare("SELECT * FROM controllers WHERE id = ?").get(controllerId);
-    return {
-      ...controller,
-      mappingSummary,
-    };
+    const result={...controller,mappingSummary};
+    afterConfigure?.(result);
+    return result;
   });
 }
 
 export function updateProductItemsPerCell(db, { productId, itemsPerCell }) {
+  guardSetupChange(db,{productId:Number(productId)});
   const capacity = normalizeItemsPerCell(itemsPerCell);
   const result = createProductRepository(db).updateItemsPerCell(productId, capacity);
 
@@ -2470,6 +2419,7 @@ export function applyRecommendedAction(
   db,
   { sourceCellId, productId, moves, userId, reason },
 ) {
+  guardSetupChange(db,{productId:Number(productId)});
   const product = findProductOrThrow(db, Number(productId));
   const normalizedMoves = moves
     .map((move) => ({
@@ -2487,13 +2437,13 @@ export function applyRecommendedAction(
   const sourceQuantities = new Map();
   for (const move of normalizedMoves) {
     if (!move.sourceCellId) {
-      throw new Error("Source cell not found.");
+      throw new Error("Source bin not found.");
     }
     if (!move.targetCellId) {
-      throw new Error("Target cell not found.");
+      throw new Error("Target bin not found.");
     }
     if (move.sourceCellId === move.targetCellId) {
-      throw new Error("Source and target cells must be different.");
+      throw new Error("Source and target bins must be different.");
     }
     sourceQuantities.set(
       move.sourceCellId,
@@ -2507,11 +2457,11 @@ export function applyRecommendedAction(
       .prepare("SELECT * FROM cells WHERE id = ?")
       .get(Number(moveSourceCellId));
     if (!sourceCell) {
-      throw new Error("Source cell not found.");
+      throw new Error("Source bin not found.");
     }
     const sourceBalance = balances.getOrCreate(product.id, sourceCell.id);
     if (Number(sourceBalance.available_quantity) < totalQuantity) {
-      throw new Error(`Source cell ${sourceCell.logical_code} does not have enough quantity for this adjustment.`);
+      throw new Error(`Source bin ${sourceCell.logical_code} does not have enough quantity for this adjustment.`);
     }
     sourceCells.set(moveSourceCellId, {
       cell: sourceCell,
@@ -2544,7 +2494,7 @@ export function applyRecommendedAction(
     for (const move of normalizedMoves) {
       const targetCell = db.prepare("SELECT * FROM cells WHERE id = ?").get(move.targetCellId);
       if (!targetCell) {
-        throw new Error("Target cell not found.");
+        throw new Error("Target bin not found.");
       }
       assertPutCellEligible(db, {
         productId: product.id,

@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import * as reportFormatServices from "../../services/report-format.js";
 import { escapeHtml } from "./shared.js";
 
@@ -312,7 +313,7 @@ function editorContents(reportFormat, returnTo) {
                 <p class="report-document-company" data-report-format-preview-company>${escapeHtml(reportFormat.companyName)}</p>
                 <p class="report-document-kicker" data-report-format-preview-label>${escapeHtml(reportFormat.headerLabel)}</p>
                 <h3>Stock Snapshot</h3>
-                <p class="report-document-subheading">A clear view of current inventory across the warehouse.</p>
+                <p class="report-document-subheading">A clear view of current inventory across the shed.</p>
               </div>
               <dl class="report-document-meta">
                 <div><dt>Timeframe</dt><dd>Current</dd></div>
@@ -342,7 +343,7 @@ function editorContents(reportFormat, returnTo) {
               <h4>Inventory Detail</h4>
               <div class="table-wrap">
                 <table>
-                  <thead><tr><th>Product</th><th>Category</th><th>Available</th></tr></thead>
+                  <thead><tr><th>Product</th><th>Category</th><th>On rack (recorded)</th></tr></thead>
                   <tbody>
                     <tr><td>Basmati Rice</td><td>Rice</td><td>1,240 kg</td></tr>
                     <tr><td>Brown Rice</td><td>Rice</td><td>880 kg</td></tr>
@@ -368,7 +369,7 @@ export function renderReportFormatEditor(
     attributes = "",
   } = {},
 ) {
-  if (user?.role !== "admin") {
+  if (!can(user,"reports.format")) {
     return "";
   }
 

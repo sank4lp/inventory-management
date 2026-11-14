@@ -1,0 +1,94 @@
+{
+  "site": "read-only-cycle3",
+  "dataset": "synthetic-fixture",
+  "user": {
+    "id": 1
+  },
+  "capabilities": {
+    "count": true,
+    "manage": false,
+    "approve": false
+  },
+  "products": [
+    {
+      "id": 1,
+      "name": "Combat Boots",
+      "unit_of_measure": "pairs"
+    },
+    {
+      "id": 2,
+      "name": "Tactical Gloves",
+      "unit_of_measure": "pairs"
+    },
+    {
+      "id": 3,
+      "name": "Canteen",
+      "unit_of_measure": "pieces"
+    },
+    {
+      "id": 4,
+      "name": "Field Notebook",
+      "unit_of_measure": "books"
+    }
+  ],
+  "cells": [],
+  "counters": [],
+  "conditions": [],
+  "runs": [
+    {
+      "id": 1,
+      "title": "Read-only count draft",
+      "status": "in_progress",
+      "pending": 1,
+      "reviews": 0,
+      "started_at": "2026-09-28T10:00:00Z",
+      "items": [
+        {
+          "id": 10,
+          "generation": 1,
+          "assignee_id": 1,
+          "active": 1,
+          "state": "counting",
+          "description": {
+            "name": "A1",
+            "directions": "Aisle A, shelf 1"
+          },
+          "logical_code": "A1",
+          "counter_name": "Sam Patel",
+          "counter_username": "sam.one"
+        }
+      ],
+      "attempts": [
+        {
+          "id": "fixture-attempt",
+          "item_id": 10,
+          "generation": 1,
+          "baseline": {
+            "pending": [],
+            "reports": [],
+            "products": [
+              {
+                "id": 1,
+                "name": "Combat Boots",
+                "unit_of_measure": "pairs",
+                "productId": 1,
+                "unit": "pairs",
+                "recorded": 2
+              },
+              {
+                "id": 2,
+                "name": "Tactical Gloves",
+                "unit_of_measure": "pairs",
+                "productId": 2,
+                "unit": "pairs",
+                "recorded": 5
+              }
+            ]
+          }
+        }
+      ],
+      "observations": [],
+      "scopeChanges": []
+    }
+  ]
+}

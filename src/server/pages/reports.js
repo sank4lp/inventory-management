@@ -1,3 +1,6 @@
+import {paginateRows} from '../pagination.js';
+import {currentActor} from "../../modules/access/service.js";
+import {can} from "../../modules/access/catalog.js";
 import * as reportServices from "../../services/reports.js";
 import {
   getReportFormatSettings,
@@ -805,7 +808,7 @@ function stockDetailColumnLabel(column, { groupLabel, unitLabel, labels }) {
     return "Products";
   }
   if (column === "available_quantity") {
-    return "Available";
+    return "On rack (recorded)";
   }
   return labels[column] || fallbackLabels[column] || column.replace(/^custom\./, "").replaceAll("_", " ");
 }
@@ -1091,7 +1094,7 @@ function stockCompositionBody(
       </section>
       <footer class="report-notes">
         <strong>Calculation note</strong>
-        <span>Stock composition is a current snapshot. Percentages use the complete total for each compatible unit, including the “Other” slice.</span>
+        <span>Stock composition shows recorded on-rack stock, including reserved goods; it is not the quantity available to pick. Percentages use the complete total for each compatible unit, including the “Other” slice.</span>
       </footer>
     </section>
   `;
@@ -1304,7 +1307,7 @@ function productMovementBody(rows, report = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>${escapeHtml(report.note || `${presentation.label} is calculated from corrected completed tasks. Current stock is an as-of-now value, and incompatible units are never combined.`)}</span>
+      <span>${escapeHtml(report.note || `${presentation.label} is calculated from corrected completed tasks. Current stock is an as-of-now value, and incompatible units are never combined. Open-task partial movements and manual movement entries are shown in Stock Change Over Time and Movement history.`)}</span>
     </footer>
   `;
 }
@@ -1418,7 +1421,7 @@ function movementOverTimeBody(report = {}, { chartKey = "movement-over-time" } =
     ${charts ? `
       <section class="report-visuals" aria-label="Movement trend visuals">
         <div class="report-visual-grid">${charts}</div>
-        <p class="report-visual-note"><sup>*</sup> Trend quantities are calculated from corrected completed tasks and never combine incompatible units.</p>
+        <p class="report-visual-note"><sup>*</sup> Trend quantities use posted ledger movements, including partial allocations, manual movements and correction deltas; incompatible units are never combined.</p>
       </section>
     ` : ""}
     <section class="report-document-section">
@@ -1619,9 +1622,9 @@ function replenishmentWatchBody(report = {}, labels = {}) {
       </div>
     </section>
     <section class="report-document-section">
-      <h4>Products To Review</h4>
+      <h4>Products To Review</h4>${report.pagingControls||""}
       ${table(
-        [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "Available", batchLabel, "Locations"],
+        [`${productLabel} / ${skuLabel}`, categoryLabel, "Status", "On rack (recorded)", batchLabel, "Locations"],
         rows.map((row) => [
           `${escapeHtml(row.name)}<br /><small>${escapeHtml(skuLabel)}: ${escapeHtml(row.sku)}</small>`,
           escapeHtml(row.category || "Uncategorized"),
@@ -1635,7 +1638,7 @@ function replenishmentWatchBody(report = {}, labels = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>“Low” means one normal location batch or less. This is a practical replenishment watch, not a demand forecast or supplier reorder point.</span>
+      <span>Quantities are recorded on rack, including reserved goods. “Low” means one normal location batch or less. This is a practical replenishment watch, not a demand forecast or supplier reorder point.</span>
     </footer>
   `;
 }
@@ -1670,7 +1673,7 @@ function slowMovingStockBody(report = {}, labels = {}) {
       {
         key: "slow",
         label: "Stocked Products Without Picks",
-        value: formatQuantity(rows.length),
+        value: formatQuantity(report.totalMatchingRows??rows.length),
         detail: "No positive completed pick in the selected timeframe",
       },
       {
@@ -1701,7 +1704,7 @@ function slowMovingStockBody(report = {}, labels = {}) {
       </div>
     </section>
     <section class="report-document-section">
-      <h4>Stock Without Recent Picks</h4>
+      <h4>Stock Without Recent Picks</h4>${report.pagingControls||""}
       ${table(
         [`${productLabel} / ${skuLabel}`, categoryLabel, "On Hand", "Last Pick", "Idle For", "Locations"],
         rows.map((row) => [
@@ -1786,7 +1789,7 @@ function teamThroughputBody(report = {}) {
     </section>
     <footer class="report-notes">
       <strong>Calculation note</strong>
-      <span>Throughput uses completed task counts, not mixed-unit item totals. Multi-line tasks count once.</span>
+      <span>Throughput uses completed task counts, not mixed-unit item totals. Multi-line tasks count once. Open-task partial movements and unreserved manual movements are excluded; use Stock Change Over Time for posted inventory changes.</span>
     </footer>
   `;
 }
@@ -1851,13 +1854,14 @@ function reportDocumentContext(report, user, reportFormat) {
   `;
 }
 
-function reportInlineDocument(report, range, generatedAt, reportFormat, user, active = false) {
+function reportInlineDocument(report, range, generatedAt, reportFormat, user, active = false, deferredSource = null) {
   const effectiveRange = report.range || range;
   return `
     <article
       id="${escapeHtml(report.key)}"
       class="report-document report-inline-document"
       data-report-inline="${escapeHtml(report.key)}"
+      ${deferredSource?`data-report-src="${escapeHtml(deferredSource)}"`:""}
       data-report-document="${escapeHtml(report.key)}"
       data-report-uses-global-range="${report.usesGlobalRange ? "true" : "false"}"
       aria-label="${escapeHtml(report.title)}"
@@ -1884,7 +1888,7 @@ function reportInlineDocument(report, range, generatedAt, reportFormat, user, ac
         </dl>
       </header>
       ${reportDocumentContext(report, user, reportFormat)}
-      ${report.body}
+      ${deferredSource?'<p role="status">Select this report to load its details.</p>':report.body}
     </article>
   `;
 }
@@ -1895,6 +1899,7 @@ export function createReportsPages({ db }) {
     const range = resolveReportRange(url, runtime.config?.reportDefaultDays || 30);
     const generatedAt = new Date().toISOString();
     const reportFormat = getReportFormatSettings(db);
+    currentActor(db,user,"reports.view");
     const reports = buildReports(db, { fromAt: range.fromAt, toAt: range.toAt });
     const productMovementReport = reports.productMovement || {};
     const productMovement = normalizeProductMovement(productMovementReport);
@@ -1931,6 +1936,8 @@ export function createReportsPages({ db }) {
       topN: 10,
       visualization: "bar",
     });
+    const paged=(key,rows)=>{const target=new URL(url);target.searchParams.delete('reportFragment');target.searchParams.delete('print');target.hash=key;return paginateRows(rows,target,{label:'Report',complete:url.searchParams.get('print')==='1'});};
+    const replenishmentPage=paged('replenishment-watch',reports.replenishmentWatch.rows),slowPage=paged('slow-moving-stock',reports.slowMovingStock.rows),adjustmentPage=paged('adjustments',reports.adjustments);
     const builtInReportSections = [
       {
         key: "product-movement",
@@ -1948,7 +1955,7 @@ export function createReportsPages({ db }) {
       {
         key: "stock-snapshot",
         title: "Stock Snapshot",
-        description: "What stock can we pick right now?",
+        description: "What stock is recorded on rack?",
         metric: formatQuantity(stockCompositionReport.totalMatchingRows ?? stockCompositionRows.length),
         metricLabel: "Products With Stock",
         usesGlobalRange: false,
@@ -1956,7 +1963,7 @@ export function createReportsPages({ db }) {
         body: stockCompositionBody(
           { ...stockCompositionReport, groupBy: "product", labels: stockCompositionReport.labels || productLabels },
           { visualization: "bar", chartKey: "stock-snapshot" },
-        ),
+        ) + (can(user, "locations.view") ? '<p class="report-availability-link"><a href="/cells">View stock by location</a></p>' : ""),
       },
       {
         key: "replenishment-watch",
@@ -1966,7 +1973,7 @@ export function createReportsPages({ db }) {
         metricLabel: "Products To Review",
         usesGlobalRange: false,
         range: { fromAt: null, toAt: null, label: "Current Snapshot" },
-        body: replenishmentWatchBody(reports.replenishmentWatch, productLabels),
+        body: replenishmentWatchBody({...reports.replenishmentWatch,rows:replenishmentPage.rows,pagingControls:replenishmentPage.controls}, productLabels),
       },
       {
         key: "slow-moving-stock",
@@ -1975,7 +1982,7 @@ export function createReportsPages({ db }) {
         metric: formatQuantity(reports.slowMovingStock.totalMatchingRows),
         metricLabel: "Products Without Picks",
         usesGlobalRange: true,
-        body: slowMovingStockBody(reports.slowMovingStock, productLabels),
+        body: slowMovingStockBody({...reports.slowMovingStock,rows:slowPage.rows,pagingControls:slowPage.controls}, productLabels),
       },
       {
         key: "movement",
@@ -1998,7 +2005,7 @@ export function createReportsPages({ db }) {
       {
         key: "issues",
         title: "Exception Hotspots",
-        description: "Where did completed warehouse work fall short of plan?",
+        description: "Where did completed shed work fall short of plan?",
         metric: formatQuantity(exceptionHotspotsReport.totals?.affected_tasks || 0),
         metricLabel: "Affected Tasks",
         usesGlobalRange: true,
@@ -2011,15 +2018,15 @@ export function createReportsPages({ db }) {
         metric: formatQuantity(reports.adjustments.length),
         metricLabel: "Count Changes",
         usesGlobalRange: true,
-        body: table(
-          ["When", `${productNameLabel} / ${skuLabel}`, "Cell", "Delta", unitLabel, "Reason", "Recorded By"],
-          reports.adjustments.map((row) => [
+        body: adjustmentPage.controls+table(
+          ["When", `${productNameLabel} / ${skuLabel}`, "Bin", "Delta", unitLabel, "Reason", "Recorded By"],
+          adjustmentPage.rows.map((row) => [
             escapeHtml(formatDate(row.created_at)),
             `${escapeHtml(row.product_name)}<br /><small>${escapeHtml(skuLabel)}: ${escapeHtml(row.sku)}</small>`,
             escapeHtml(row.logical_code),
             escapeHtml(formatQuantity(row.quantity_delta)),
             escapeHtml(row.unit_of_measure),
-            escapeHtml(row.reason),
+            escapeHtml(row.reason)+(row.stocktake_run_id ? `<br><a href="/stocktaking/results?run=${Number(row.stocktake_run_id)}#observation-${escapeHtml(String(row.origin_ref).slice(10))}">Count evidence</a>` : ''),
             escapeHtml(row.username),
           ]),
           "No adjustments were recorded in this timeframe.",
@@ -2027,6 +2034,9 @@ export function createReportsPages({ db }) {
       },
     ];
     const reportSections = builtInReportSections;
+    const fragment=url.searchParams.get('reportFragment');
+    if(fragment){const selected=reportSections.find(r=>r.key===fragment);if(!selected)throw Object.assign(new Error('Report not found.'),{statusCode:404});return reportInlineDocument(selected,range,generatedAt,reportFormat,user,true);}
+    const reportSource=key=>{const next=new URL(url);next.searchParams.set('reportFragment',key);return next.pathname+next.search;};
 
     return page({
       title: "Reports",
@@ -2036,13 +2046,13 @@ export function createReportsPages({ db }) {
         <section class="reports-workspace" data-reports-workspace>
           <header class="reports-hero app-panel" data-report-screen-only>
             <div>
-              <p class="report-eyebrow">Warehouse Intelligence</p>
+              <p class="report-eyebrow">Shed Intelligence</p>
               <h2>Report Library</h2>
-              <p>Choose the warehouse question you want answered.</p>
+              <p>Choose the shed question you want answered.</p>
             </div>
             <div class="reports-hero-actions">
               ${
-                user.role === "admin"
+                can(user,"reports.format")
                   ? `<button
                       type="button"
                       class="ghost-button"
@@ -2069,15 +2079,20 @@ export function createReportsPages({ db }) {
                   <p class="report-eyebrow">Curated Questions</p>
                   <h2 id="report-library-title">Choose A Report</h2>
                 </div>
-                <span>${escapeHtml(formatQuantity(reportSections.length))}</span>
+                <span>${escapeHtml(formatQuantity(reportSections.length+6))}</span>
               </div>
               <label class="report-library-search">
                 <span>Search reports</span>
                 <input type="search" placeholder="Name or purpose" autocomplete="off" data-report-library-search />
               </label>
-              <nav class="report-library-list report-overview-grid" aria-label="Curated warehouse reports">
-                <p class="report-library-group-label">Warehouse Questions</p>
-                ${builtInReportSections.map(reportLibraryItem).join("")}
+              <nav class="report-library-list report-overview-grid" aria-label="Curated shed reports">
+                ${[['Stock',['stock-snapshot','replenishment-watch','slow-moving-stock']],['Operations',['product-movement','movement','team-activity']],['Checks',['issues','adjustments']]].map(([label,keys])=>`<p class="report-library-group-label">${label}</p>${builtInReportSections.filter(r=>keys.includes(r.key)).map(reportLibraryItem).join('')}`).join('')}
+                <a class="report-library-item" href="/reports/sections">Section Stock · products by Section (cos_sec)</a>
+                <a class="report-library-item" href="/reports/stocktake-range?rangeBy=product">Range &amp; Depth · Products, MPI combined</a>
+                <a class="report-library-item" href="/reports/stocktake-range?rangeBy=mpi">Range &amp; Depth · Separate MPI variants</a>
+                <a class="report-library-item" href="/reports/movement-speed">Product Movement · Fast, Normal and Slow</a>
+                <a class="report-library-item" href="/reports/customers">Customer Movement · vouchers and recorded quantities</a>
+                <a class="report-library-item" href="/reports/stocktake-differences">Stocktake differences · count evidence and coverage</a>
                 <p class="report-library-empty" data-report-library-empty hidden>No reports match that search.</p>
               </nav>
             </aside>
@@ -2096,7 +2111,7 @@ export function createReportsPages({ db }) {
               <p class="sr-only" aria-live="polite" data-report-announcer></p>
               <section class="report-inline-stack" data-report-inline-stack>
                 ${reportSections
-                  .map((report, index) => reportInlineDocument(report, range, generatedAt, reportFormat, user, index === 0))
+                  .map((report, index) => reportInlineDocument(report, range, generatedAt, reportFormat, user, index === 0, index===0?null:reportSource(report.key)))
                   .join("")}
               </section>
             </section>

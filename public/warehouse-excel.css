@@ -1,0 +1,169 @@
+#warehouse-excel .ui-actions{margin-bottom:1rem;flex-wrap:wrap}
+#warehouse-excel [data-excel-error]:empty,.excel-dialog [data-dialog-error]:empty{display:none}
+.ui-template #warehouse-excel [data-excel-result] .excel-table{min-width:0;table-layout:fixed}
+.ui-template #warehouse-excel [data-excel-result] .excel-table :is(th,td){white-space:normal;overflow-wrap:anywhere}
+.excel-dialog{width:min(1100px,calc(100vw - 24px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:18px;overflow:auto;box-sizing:border-box;border:1px solid #d3dfda;border-radius:14px;background:#fff;color:#173f35;box-shadow:0 16px 48px #102e2833}
+dialog.excel-dialog:not([open]){display:none}
+.excel-dialog .review-task-header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.excel-dialog .review-task-header h2{flex:1;margin:0;min-width:0}
+.excel-dialog .review-task-header button[data-excel-back]{background:#fff;color:#245b4c;border-color:#bbcfc6}
+.excel-dialog fieldset{border:0;padding:0;margin:0;min-width:0}
+.excel-dialog h3{margin:18px 0 8px}
+.excel-dialog .excel-field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;align-items:end}
+.excel-dialog label{display:flex;flex-direction:column;gap:4px;font-size:.9rem;min-width:0;margin:0}
+.excel-dialog input:not([type=checkbox]),.excel-dialog select{width:100%;min-width:0;box-sizing:border-box;min-height:40px}
+.excel-dialog input[type=checkbox]{width:18px;height:18px;min-height:0;flex:none;margin:0}
+.excel-dialog .excel-create-check,.excel-dialog td>label{flex-direction:row;align-items:center;gap:7px}
+.excel-dialog .excel-create-check,.excel-dialog .excel-location-groups{grid-column:1/-1}
+.excel-dialog .location-group-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}
+.ui-template.excel-dialog .excel-table{table-layout:auto;min-width:0}
+.ui-template.excel-dialog .excel-table th,.ui-template.excel-dialog .excel-table td{padding:9px 10px;vertical-align:top;white-space:normal}
+.excel-dialog :is(.excel-location-table,.excel-product-table) th:first-child{width:14%}
+.excel-dialog :is(.excel-location-table,.excel-product-table) th:nth-child(2){width:24%}
+.excel-dialog :is(.excel-location-table,.excel-product-table) th:nth-child(3){width:62%}
+.excel-dialog :is(.excel-location-table,.excel-product-table) td:first-child{min-width:100px}
+.excel-dialog :is(.excel-location-table,.excel-product-table) td:nth-child(2){min-width:190px}
+.excel-dialog [data-location-details],.excel-dialog [data-product-row] td:last-child{min-width:330px}
+.excel-dialog .excel-table small{display:block;margin-top:3px;color:var(--muted,#65756f)}
+.excel-dialog .excel-counter{margin:18px 0;grid-template-columns:minmax(160px,2fr) minmax(140px,1fr)}
+.excel-dialog .excel-counter small{grid-column:1/-1}
+.excel-dialog [data-dialog-error]{color:#a52c32;white-space:normal;overflow-wrap:anywhere}
+.excel-dialog [data-light-numbers]{min-width:165px}
+.excel-dialog .ui-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+@media(max-width:600px){.excel-dialog{padding:12px;width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.excel-dialog .review-task-header{gap:6px}.excel-dialog .review-task-header h2{font-size:1.1rem}.excel-dialog .excel-table th,.excel-dialog .excel-table td{padding:8px}.excel-dialog .excel-counter{grid-template-columns:minmax(150px,1fr) minmax(130px,1fr)}}
+@media(max-width:600px){
+  .ui-template.excel-dialog .excel-table:has(thead th:nth-child(4)){min-width:440px}
+  .ui-template.excel-dialog .excel-table:has(thead th:nth-child(4)) td:last-child{white-space:nowrap;overflow-wrap:normal}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table),.ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) :is(thead,tbody){display:block;width:100%;min-width:0}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) tr{display:grid;grid-template-columns:95px minmax(0,1fr)}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) :is(th,td){width:auto;min-width:0;position:static}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) th:nth-child(3){display:none}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) td:nth-child(3){grid-column:1/-1}
+  .ui-template.excel-dialog :is(.excel-location-table,.excel-product-table) td:nth-child(3):empty{display:none}
+  .excel-dialog .excel-field-grid,.excel-dialog .location-group-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .excel-dialog .excel-product-table td:nth-child(2) .excel-field-grid{grid-template-columns:minmax(0,1fr)}
+  .excel-dialog .excel-product-table td:first-child>label{white-space:nowrap}
+}
+.business-import-dialog{width:min(96vw,1500px);max-height:92dvh;padding:1rem}.business-import-dialog fieldset{border:0;padding:0;min-width:0}.business-import-options{display:flex;flex-wrap:wrap;align-items:end;gap:.75rem;margin:.75rem 0}.business-import-options label{flex:1 1 160px;min-width:0}.business-import-table{max-width:100%;overflow:auto}.business-import-table table{width:100%;border-collapse:collapse}.business-import-table th,.business-import-table td{padding:.5rem .65rem;text-align:left;vertical-align:top;min-width:100px;border-bottom:1px solid var(--border-color,#dce3e2)}.business-import-table th{white-space:nowrap}.business-import-table td small{display:block}.business-row-controls{display:grid;gap:.5rem;min-width:230px}.business-row-controls label{display:grid;gap:.2rem}.business-row-controls .checkbox-line{display:flex;align-items:center}.business-row-controls select[multiple]{min-height:5rem}.business-import-dialog .ui-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}.business-import-dialog [role=alert]{color:var(--danger,#a52828);margin:.5rem 0}.business-import-dialog .review-task-header{display:flex;align-items:center;gap:.75rem}.business-import-dialog .review-task-header h2{flex:1}.business-import-dialog button{min-height:44px}.business-import-dialog input,.business-import-dialog select{max-width:100%}@media(max-width:600px){.business-import-dialog{padding:.65rem;width:calc(100vw - 16px);max-width:calc(100vw - 16px)}.business-import-dialog .review-task-header h2{font-size:1.05rem}.business-import-options{gap:.5rem}.business-import-table td,.business-import-table th{font-size:.85rem}.business-import-dialog .ui-actions button{flex:1 1 140px}}
+
+.business-multiselect{position:relative;min-width:200px;align-self:stretch}.business-multiselect>summary{font-weight:600;cursor:pointer;padding:.6rem;border:1px solid #ccd7d3;border-radius:6px}.business-multiselect>summary small{display:block;font-weight:400}.business-multiselect>div{padding:.5rem;border:1px solid #ccd7d3;border-radius:6px;background:white;min-width:210px}.business-option-list{max-height:180px;overflow:auto}.business-option-list label{display:flex;align-items:center;gap:.5rem;min-height:36px}.business-option-list label[hidden]{display:none}.business-option-list input[type=checkbox]{width:auto;flex:none}.business-import-dialog table{table-layout:auto}.business-import-dialog .ui-actions{position:sticky;bottom:0;background:white;padding:.75rem 0}.business-import-dialog .business-import-options input{min-width:0;width:100%}
+
+[data-stocktake-options][hidden]{display:none!important}.business-import-options input[type=checkbox]{width:auto;flex:none}.business-import-dialog .merge-selection-cell{min-width:44px}.business-import-dialog .merge-selection-cell input{width:auto}
+
+/* Import validity uses text as well as colour, including sticky cells and hover. */
+.business-import-table tr[data-import-status="ready"] > td {background:#eaf7ee !important;}
+.business-import-table tr[data-import-status="blocked"] > td {background:#fff0f0 !important;}
+.business-import-table tr[data-import-status="ready"] .import-row-validation {color:#205b36;}
+.business-import-table tr[data-import-status="blocked"] .import-row-validation {color:#962c32;}
+.business-import-table .import-row-validation {display:block;white-space:normal;min-width:125px;}
+.business-import-table .import-row-reason {display:block;white-space:normal;overflow-wrap:anywhere;min-width:180px;max-width:440px;}
+.business-import-table tr[data-import-status="blocked"] .import-row-reason {color:#76262c;}
+
+.business-import-pager{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
+.business-import-pager>span{flex:1 1 230px}
+.business-import-pager label{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.business-import-pager select{width:auto!important;min-width:70px}
+.business-import-pager button{min-width:88px}
+.business-multiselect [hidden]{display:none!important}
+@media(max-width:600px){.business-import-pager>span{flex-basis:100%}.business-import-pager label{flex:1 1 130px}.business-import-pager button{flex:1 1 80px}}
+
+/* Keep import options on a single horizontal line; the table owns narrow-screen scrolling. */
+.business-import-dialog .business-row-controls{display:flex;flex-wrap:nowrap;align-items:center;gap:14px;min-width:max-content}
+.business-import-dialog .business-row-controls>*,.business-import-dialog .business-row-controls label{flex:none}
+.business-import-dialog .business-row-controls label{display:flex;flex-direction:row;align-items:center;gap:6px;white-space:nowrap}
+.business-import-dialog .business-row-controls input[type=number]{width:120px;min-width:120px}
+.business-import-dialog .business-row-controls select,.business-import-dialog .business-row-controls .searchable-select{width:180px;min-width:180px}
+.business-import-dialog .business-row-controls .business-multiselect{align-self:center;min-width:210px}
+.business-import-dialog .business-row-controls .business-multiselect>summary{display:flex;align-items:center;gap:8px;min-height:40px;box-sizing:border-box;white-space:nowrap}
+.business-import-dialog .business-row-controls .business-multiselect>summary small{display:inline;margin:0}
+.business-import-dialog [data-import-row]>td{vertical-align:middle}
+.business-import-dialog .business-row-controls>small{max-width:220px;white-space:normal}
+.business-import-dialog .business-import-options>.business-import-options:not([hidden]){display:contents}
+.business-import-dialog .business-import-options>label{flex:0 1 auto}
+.business-import-dialog .business-import-options .checkbox-line{display:flex;flex-direction:row;align-items:center;gap:8px}
+.business-import-dialog .business-import-options .business-multiselect{align-self:center}
+.business-import-dialog .business-import-pager label{flex-direction:row}
+.business-import-dialog .business-row-controls input[type=number]{max-width:160px}
+
+.business-import-table tr[data-import-status="assignment_required"] > td {background:#fff8e6 !important;}
+.business-import-table tr[data-import-status="assignment_required"] .import-row-validation {color:#704a00;}
+.import-assignment-notice {padding:.65rem .8rem;border-left:3px solid #b78316;background:#fff8e6;border-radius:.35rem;}
+
+/* Align the review controls while keeping each field readable on small screens. */
+.business-import-dialog [data-import-review] > fieldset > .business-import-options {
+  align-items: end;
+  gap: 12px 16px;
+}
+.business-import-dialog [data-import-review] .business-import-options > label:not(.checkbox-line) {
+  display: flex;
+  flex: 0 1 190px;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  min-width: 160px;
+}
+.business-import-dialog [data-import-review] .business-import-options > .checkbox-line {
+  flex: 0 1 auto;
+  min-height: 40px;
+  margin: 0;
+  padding: 0;
+}
+.business-import-dialog [data-import-review] .business-import-options input[type="checkbox"],
+.business-import-dialog [data-import-review] > fieldset > .checkbox-line input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  flex: none;
+}
+.business-import-dialog [data-import-review] .business-import-options .business-multiselect {
+  align-self: end;
+  flex: 0 1 230px;
+  min-width: 200px;
+}
+.business-import-dialog [data-import-review] .business-import-options .business-multiselect > summary {
+  min-height: 40px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.business-import-dialog [data-import-review] .business-import-options .business-multiselect > summary small {display: inline;}
+.business-import-dialog [data-import-review] .business-import-options input[type="date"] {min-height: 40px;}
+.business-import-dialog [data-import-review] > fieldset > .checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+@media (max-width: 600px) {
+  .business-import-dialog [data-import-review] > fieldset > .business-import-options {gap: 8px 12px;}
+  .business-import-dialog [data-import-review] .business-import-options > .checkbox-line {flex: 1 1 100%; min-height: 36px;}
+  .business-import-dialog [data-import-review] .business-import-options > label:not(.checkbox-line),
+  .business-import-dialog [data-import-review] .business-import-options .business-multiselect {flex: 1 1 150px; min-width: 0;}
+}
+
+/* Let review headings wrap so short values do not inherit a wide heading. */
+.business-import-dialog [data-import-review] .business-import-table th {
+  min-width: 0;
+  max-width: 7rem;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+  line-height: 1.3;
+}
+.business-import-dialog [data-import-review] .business-import-table td {
+  min-width: 0;
+}
+
+/* Reserve the same status space in each voucher row, including matched products. */
+.business-import-dialog .business-row-controls > .business-product-status {
+  flex: 0 0 150px;
+  width: 150px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.business-import-dialog .business-product-status small {display: block; line-height: 1.3;}
+.business-import-dialog .business-product-status small[hidden] {display: none;}

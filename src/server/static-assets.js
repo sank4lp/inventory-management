@@ -2,9 +2,22 @@ import { createReadStream, existsSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
 
 const PUBLIC_FILES = new Map([
+  ["/table-scroll.css", "table-scroll.css"],
+  ["/led-test.css", "led-test.css"],
   ["/styles.css", "styles.css"],
+  ["/ui-template.css", "ui-template.css"],
+  ["/device-enrollment.css", "device-enrollment.css"],
+  ["/warehouse-excel.css", "warehouse-excel.css"],
+  ["/business-reports.css", "business-reports.css"],
   ["/theme.css", "theme.css"],
   ["/app.js", "app.js"],
+  ["/work.css", "work.css"],
+  ["/responsive.css", "responsive.css"],
+  ["/layout.css", "layout.css"],
+  ["/mobile.css", "mobile.css"],
+  ["/stocktaking.css", "stocktaking.css"],
+  ["/sw.js", "sw.js"],
+  ["/manifest.webmanifest", "manifest.webmanifest"],
 ]);
 
 export function serveStatic(response, publicDir, pathname) {
@@ -20,7 +33,7 @@ export function serveStatic(response, publicDir, pathname) {
 
   const extension = extname(filePath);
   const contentType =
-    extension === ".css"
+    extension === ".webmanifest" ? "application/manifest+json" : extension === ".css"
       ? "text/css; charset=utf-8"
       : extension === ".js"
         ? "application/javascript; charset=utf-8"

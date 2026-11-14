@@ -1,3 +1,4 @@
+import {can} from "../../modules/access/catalog.js";
 import {
   card,
   escapeHtml,
@@ -199,7 +200,7 @@ export function cellPickerField(
     options: cells.map((cell) => {
       const contents = cell.inventory_summary
         ? truncateText(cell.inventory_summary, 54)
-        : "Empty cell";
+        : "Empty bin";
       const occupiedLabel = `${formatQuantity(cell.occupied_quantity)} occupied`;
       const searchText = `${cell.logical_code} ${cell.inventory_summary || ""}`.toLowerCase();
 
@@ -222,9 +223,9 @@ export function cellPickerField(
     fieldPrefix,
     hiddenName,
     selectedLabel,
-    placeholder: "Type cell code",
+    placeholder: "Type bin code",
     toggleLabel: "Search",
-    requiredMessage: "Choose a cell from the list.",
+    requiredMessage: "Choose a bin from the list.",
     formId,
     compact: true,
   });
@@ -358,7 +359,7 @@ export function renderAdjustmentLine(products, index, options = {}) {
           <input
             type="number"
             min="0"
-            step="0.01"
+            step="1"
             inputmode="decimal"
             name="absolute_quantity_${index}"
             value="${escapeHtml(quantityValue)}"
@@ -375,5 +376,5 @@ export function renderAdjustmentLine(products, index, options = {}) {
 }
 
 export function canEditTask(user, task) {
-  return Boolean(user && task && (user.role === "admin" || user.id === task.created_by));
+  return Boolean(user && task && (can(user,"work.team") || user.id === task.created_by));
 }

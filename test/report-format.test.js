@@ -198,12 +198,8 @@ test("report format controls are admin-only and support a server-opened reports 
   assert.doesNotMatch(operatorHtml, /data-report-format-editor/);
 
   const adminHtml = createAdminPages({ db }).renderAdmin(admin, null);
-  assert.match(
-    adminHtml,
-    /<section class="report-format-panel report-format-panel-embedded app-panel"[^>]*data-report-format-editor[^>]*id="report-format"/,
-  );
-  assert.match(adminHtml, /<h2 id="report-format-section-title">Report Format<\/h2>/);
-  assert.doesNotMatch(adminHtml, /data-report-format-modal/);
+  assert.match(adminHtml,/href="\/reports\?format=1"/);
+  assert.doesNotMatch(adminHtml,/data-report-format-editor/);
 
   db.close();
 });

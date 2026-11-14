@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Inventory Management Portal every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=inventory-management-healthcheck.service
+
+[Install]
+WantedBy=timers.target

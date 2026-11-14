@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
+import {refreshWarehouseExcel,WAREHOUSE_EXCEL_FILE} from './warehouse-excel.js';
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   renameSync,
   statfsSync,
   statSync,
@@ -691,6 +693,12 @@ export function createBackupService({
     }
 
     const backup = backupInfoFromPath(finalPath);
+    // Export the immutable snapshot, never a second query of the live database.
+    // Excel is a convenience copy; its failure must not undo a valid backup.
+    try {
+      backup.excel=refreshWarehouseExcel(finalPath,backupDir(),{createdAt:currentTime});
+      if(backup.excel.lastError)logger?.warn?.('backup.excel.failed',{error:backup.excel.lastError});
+    } catch(error) { backup.excel={lastError:error.message};logger?.warn?.('backup.excel.failed',{error:error.message}); }
     logger?.info?.("backup.created", {
       kind: backup.kind,
       filename: backup.filename,
@@ -817,6 +825,7 @@ export function createBackupService({
   }
 
   function restoreBackup(filename) {
+    if(getDb().prepare("SELECT 1 FROM operation_receipts UNION ALL SELECT 1 FROM tasks WHERE workflow_version=2 UNION ALL SELECT 1 FROM work_reports LIMIT 1").get()) throw new Error("Live restore is disabled after multi-operator work begins. Preserve the current database and pending device queues; use the supervised offline recovery procedure.");
     const selectedBackup = getBackupByFilename(filename);
     validateDatabaseFile(selectedBackup.path);
 
@@ -921,6 +930,14 @@ export function createBackupService({
   }
 
   return {
+    getExcelStatus() {
+      try{return JSON.parse(readFileSync(join(backupDir(),'warehouse-excel-status.json'),'utf8'));}catch{return null;}
+    },
+    readExcel() {
+      const path=join(backupDir(),WAREHOUSE_EXCEL_FILE);
+      if(!existsSync(path))throw Object.assign(new Error('Create a backup first to generate the shed Excel file.'),{statusCode:404});
+      return readFileSync(path);
+    },
     createAutomaticBackupIfDue,
     createBackup,
     createCriticalBackup,

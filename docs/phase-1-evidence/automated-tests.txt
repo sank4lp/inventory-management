@@ -1,0 +1,294 @@
+
+> inventory-management@0.1.0 test
+> node --test
+
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.466Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T14:25:03.467Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.467Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T14:25:03.467Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.467Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T14:25:03.467Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T14:25:03.468Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"7"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T14:25:33.465Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T14:25:33.465Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T14:25:33.465Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T14:25:03.468Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T14:25:03.469Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T14:25:03.468Z","completedAt":"2026-09-28T14:25:03.469Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T14:25:03.468Z","systemCutoff":"2026-06-30T14:25:03.468Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T14:25:03.468Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+(node:7323) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.525Z","type":"set-cell-state","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"yellow","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"product_find","quantity":3}
+{"ts":"2026-09-28T14:25:03.526Z","level":"info","event":"hardware.activate_guidance.ok","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":1,"source":"product_find","productId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.527Z","type":"clear-cell-state","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"taskId":null}
+{"ts":"2026-09-28T14:25:03.527Z","level":"info","event":"hardware.clear_guidance.ok","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":1,"source":"product_find_leave","productId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.527Z","type":"set-cell-state","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"yellow","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"product_find","quantity":3}
+{"ts":"2026-09-28T14:25:03.528Z","level":"info","event":"hardware.activate_guidance.ok","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":1,"source":"product_find","productId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.528Z","type":"clear-cell-state","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"taskId":null}
+{"ts":"2026-09-28T14:25:03.528Z","level":"info","event":"hardware.clear_guidance.ok","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":1,"source":"product_find_leave","productId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.529Z","type":"set-cell-state","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"yellow","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"product_find","quantity":3}
+{"ts":"2026-09-28T14:25:03.529Z","level":"info","event":"hardware.activate_guidance.ok","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":1,"source":"product_find","productId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.530Z","type":"clear-cell-state","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"taskId":null}
+{"ts":"2026-09-28T14:25:03.530Z","level":"info","event":"hardware.clear_guidance.ok","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":1,"source":"product_find_leave","productId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.626Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T14:25:03.626Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.627Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T14:25:03.627Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.627Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T14:25:03.627Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T14:25:03.627Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"7"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T14:25:33.626Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T14:25:33.626Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T14:25:33.626Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T14:25:03.627Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T14:25:03.628Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T14:25:03.627Z","completedAt":"2026-09-28T14:25:03.628Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T14:25:03.627Z","systemCutoff":"2026-06-30T14:25:03.627Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T14:25:03.627Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.638Z","type":"set-cell-state","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"yellow","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"catalog_quantity_audit","quantity":5}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.638Z","type":"set-cell-state","controllerId":1,"cell":"Z1-R1-C02","hardwareChannel":2,"color":"yellow","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"catalog_quantity_audit","quantity":4}
+{"ts":"2026-09-28T14:25:03.638Z","level":"info","event":"hardware.activate_guidance.ok","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":2,"source":"catalog_quantity_audit"}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.639Z","type":"clear-cell-state","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"taskId":null}
+[RS485-SIM] {"ts":"2026-09-28T14:25:03.639Z","type":"clear-cell-state","controllerId":1,"cell":"Z1-R1-C02","hardwareChannel":2,"taskId":null}
+{"ts":"2026-09-28T14:25:03.639Z","level":"info","event":"hardware.clear_guidance.ok","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":2,"source":"catalog_quantity_audit_leave"}
+{"ts":"2026-09-28T14:25:04.179Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"auto","filename":"auto-2026-09-28T14-25-04-169Z-b81f55-product-capacity-update.sqlite","source":"product-capacity-update","sizeBytes":417792}
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.939Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T14:25:04.939Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.940Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T14:25:04.940Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.940Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T14:25:04.940Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T14:25:04.940Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"7"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.939Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.939Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.939Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T14:25:04.940Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T14:25:04.941Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T14:25:04.940Z","completedAt":"2026-09-28T14:25:04.941Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T14:25:04.940Z","systemCutoff":"2026-06-30T14:25:04.940Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T14:25:04.940Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+{"ts":"2026-09-28T14:25:04.944Z","level":"info","event":"task.pending_review.timeout_updated","siteId":"warehouse-local","timeoutMinutes":12,"updatedBy":1}
+{"ts":"2026-09-28T14:25:04.952Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"auto","filename":"auto-2026-09-28T14-25-04-944Z-979343-task-timeout-update.sqlite","source":"task-timeout-update","sizeBytes":417792}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.328Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T14:25:05.328Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.328Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T14:25:05.328Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.328Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T14:25:05.328Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T14:25:05.329Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"7"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T14:25:35.327Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T14:25:35.327Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T14:25:35.327Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T14:25:05.329Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T14:25:05.329Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T14:25:05.329Z","completedAt":"2026-09-28T14:25:05.329Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T14:25:05.329Z","systemCutoff":"2026-06-30T14:25:05.329Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T14:25:05.329Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.337Z","type":"manual-guidance","controllerId":null,"cell":"CLR-R1-C02","taskId":null,"taskType":"recommended_move","quantity":1,"color":"green","brightnessPercent":8,"brightnessMode":"night","reason":"cell-not-mapped-to-controller"}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.337Z","type":"manual-guidance","controllerId":null,"cell":"CLR-R1-C01","taskId":null,"taskType":"recommended_move","quantity":2,"color":"red","brightnessPercent":8,"brightnessMode":"night","reason":"cell-not-mapped-to-controller"}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.337Z","type":"manual-guidance","controllerId":null,"cell":"CLR-R1-C03","taskId":null,"taskType":"recommended_move","quantity":1,"color":"green","brightnessPercent":8,"brightnessMode":"night","reason":"cell-not-mapped-to-controller"}
+{"ts":"2026-09-28T14:25:05.338Z","level":"warn","event":"hardware.activate_guidance.degraded","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":3,"source":"recommended_action_light","recommendationKey":"optimize-26","message":null}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.338Z","type":"manual-guidance-clear","controllerId":null,"cell":"CLR-R1-C02","taskId":null,"reason":"cell-not-mapped-to-controller"}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.338Z","type":"manual-guidance-clear","controllerId":null,"cell":"CLR-R1-C01","taskId":null,"reason":"cell-not-mapped-to-controller"}
+[RS485-SIM] {"ts":"2026-09-28T14:25:05.338Z","type":"manual-guidance-clear","controllerId":null,"cell":"CLR-R1-C03","taskId":null,"reason":"cell-not-mapped-to-controller"}
+{"ts":"2026-09-28T14:25:05.339Z","level":"warn","event":"hardware.clear_guidance.degraded","siteId":"warehouse-local","adapter":"simulator","taskId":null,"lineCount":3,"source":"recommended_action_leave","recommendationKey":"optimize-26","message":null}
+{"ts":"2026-09-28T14:25:05.669Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"auto","filename":"auto-2026-09-28T14-25-05-662Z-47cd22-adjustment-create.sqlite","source":"adjustment-create","sizeBytes":417792}
+{"ts":"2026-09-28T14:25:06.292Z","level":"info","event":"backup.schedule.updated","siteId":"warehouse-local","cadence":"biweekly","startTime":"04:45","anchorDate":"2026-09-28"}
+{"ts":"2026-09-28T14:25:06.293Z","level":"info","event":"backup.retention.updated","siteId":"warehouse-local","retentionDays":20}
+{"ts":"2026-09-28T14:25:06.302Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"critical","filename":"critical-2026-09-28T14-25-06-298Z-34615d-cell-created.sqlite","source":"cell-created","sizeBytes":417792}
+{"ts":"2026-09-28T14:25:06.308Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"critical","filename":"critical-2026-09-28T14-25-06-303Z-b8135b-cell-renamed.sqlite","source":"cell-renamed","sizeBytes":417792}
+{"ts":"2026-09-28T14:25:06.313Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"critical","filename":"critical-2026-09-28T14-25-06-308Z-a947d8-cell-delete-before.sqlite","source":"cell-delete-before","sizeBytes":417792}
+{"ts":"2026-09-28T14:25:06.320Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"critical","filename":"critical-2026-09-28T14-25-06-313Z-e4823d-cell-delete.sqlite","source":"cell-delete","sizeBytes":417792}
+[RS485-SIM] {"ts":"2026-09-28T14:25:06.495Z","type":"set-cell-state","controllerId":4,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"green","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"recommended_move","quantity":10}
+[RS485-SIM] {"ts":"2026-09-28T14:25:06.495Z","type":"set-cell-state","controllerId":4,"cell":"Z1-R1-C02","hardwareChannel":2,"color":"red","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"recommended_move","quantity":10}
+[RS485-SIM] {"ts":"2026-09-28T14:25:07.250Z","type":"cell-test","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"green","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T14:25:07.250Z","level":"info","event":"hardware.cell_test.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"color":"green"}
+[RS485-SIM] {"ts":"2026-09-28T14:25:07.253Z","type":"cell-test","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"green","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T14:25:07.253Z","level":"info","event":"hardware.cell_test.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"color":"green"}
+[RS485-SIM] {"ts":"2026-09-28T14:25:07.329Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T14:25:07.329Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:07.329Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T14:25:07.329Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:07.329Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T14:25:07.330Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T14:25:07.330Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"7"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T14:25:37.329Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T14:25:37.329Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T14:25:37.329Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T14:25:07.330Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T14:25:07.330Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T14:25:07.330Z","completedAt":"2026-09-28T14:25:07.330Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T14:25:07.330Z","systemCutoff":"2026-06-30T14:25:07.330Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T14:25:07.330Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+[RS485-SIM] {"ts":"2026-09-28T14:25:07.336Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"0","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T14:25:07.336Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"quantity":"0","color":"yellow","source":"product_location_quantity","productId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:07.336Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+{"ts":"2026-09-28T14:25:07.337Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"source":"location_count_leave"}
+✔ core inventory flows work against a fresh seeded database (258.020208ms)
+✔ demo inventory stock can be disabled and untouched legacy sample stock is cleared (194.378959ms)
+✔ product quantities only count stock in active locations (152.199208ms)
+✔ product detail shows the latest activity time for each holding cell (144.51775ms)
+✔ product find shows yellow quantity guidance on every mapped holding cell (168.77175ms)
+✔ product catalog audit shows total available quantity on every mapped stocked cell (109.964375ms)
+✔ product low stock uses significant drop below thirty-day average (105.339916ms)
+✔ profile page shows account details and activity summary (113.528792ms)
+✔ operators can view reports but not admin-only pages by direct URL (10.119459ms)
+✔ database-backed settings and inventory survive an app restart (98.339458ms)
+✔ product removal is admin-safe and SKU re-add restores the same product identity (103.573875ms)
+✔ put capacity error page offers an inline items-per-cell update (91.629542ms)
+✔ capacity updates show newly-created recommended actions in a same-page prompt (22.578792ms)
+✔ active pick and put tasks allow changed quantities on eligible cells (97.029958ms)
+✔ locations expose direct pick and put actions (102.622375ms)
+✔ operator movement screens keep context and use plain task actions (106.4205ms)
+✔ pick and put product pickers prioritize recently selected movement products (94.89925ms)
+✔ overview recent tasks show user links and respect operator scope (91.23375ms)
+✔ pending review inactivity flags verification and preserves reservations after five minutes (88.705042ms)
+✔ pending review task timeout can be configured (86.90075ms)
+✔ admins can update task completion timeout from admin panel (99.005209ms)
+✔ recommended actions open as a scan-friendly list before detailed cleanup (100.488625ms)
+✔ warehouse optimization recommendations consolidate product into closer cells (96.54475ms)
+✔ warehouse optimization minimizes the quantity operators must move (89.579125ms)
+✔ recommended action LEDs clear when the operator leaves without applying (99.812417ms)
+✔ admins can revoke registration keys and suspend user access (194.798125ms)
+✔ adjustment preview guidance targets selected cell with entered quantity total (116.166417ms)
+✔ admin adjustment product rows load from the selected cell (20.066583ms)
+✔ backups can restore previous data and prune old automatic snapshots (154.808375ms)
+✔ backup maintenance compacts previous days and enforces retention days (99.953916ms)
+✔ backup maintenance keeps retained days and prunes excess active-day backups (363.567458ms)
+✔ admins can update automatic backup schedule from the backup panel (5.610417ms)
+✔ critical device changes create interim critical backups (26.817417ms)
+✔ database maintenance prunes operational logs and archives old business history (86.3755ms)
+✔ recommended move guidance displays quantity on source and target with pick and put colors (87.930584ms)
+✔ startup recovery records stale guidance cleanup in degraded mode (80.263667ms)
+✔ system health summary reflects current controller health after startup warning (78.17075ms)
+✔ offline controllers retry three times at thirty seconds before five minute backoff (78.751375ms)
+✔ system health warning clears when startup recovery tasks are resolved (87.616541ms)
+✔ reflashing an existing controller migrates mappings to the new RS485 id (85.291292ms)
+✔ reflashing the same physical controller preserves what it can when module count changes (83.787ms)
+✔ controllers with the same USB adapter identity stay separate unless the same controller name is selected (82.017167ms)
+✔ controllers can be health-checked and deleted by an admin (79.507666ms)
+✔ mapping a new module to an existing cell preserves inventory and unassigns displaced LED (91.768333ms)
+✔ mapping form errors return to the mapping workflow (3.513542ms)
+✔ cell mapping ping supports async JSON without redirecting (3.99825ms)
+✔ location ping is available to authenticated operators (3.418209ms)
+✔ show count sends the current server-side quantity to the LED in yellow (83.039667ms)
+✔ cell mapping shows every online controller module and hides offline modules (83.381333ms)
+✔ no-op adjustments return to admin with informational feedback (3.690459ms)
+✔ deleting a cell requires it to be empty and preserves mapped LED modules (94.523875ms)
+✔ submission tokens are one-time use and production config requires a session secret (78.264ms)
+(node:7324) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ replenishment watch applies the one-batch rule without combining units (180.420625ms)
+✔ slow-moving stock treats only positive completed picks in the inclusive range as usage (199.993583ms)
+✔ team throughput counts completed tasks once regardless of lines or units (177.045916ms)
+(node:7325) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ movement trend and exception recipes validate and round-trip without opening custom SQL (176.679875ms)
+✔ movement trend and exception queries use completed actuals and never combine units (185.952542ms)
+✔ reports page presents a finite curated question library without custom creation controls (165.777875ms)
+✔ pick planning allocates stock in candidate order and rejects insufficient quantity (1.543459ms)
+✔ put planning fills preferred cell, same-product cells, then empty cells (0.19675ms)
+✔ put planning can prioritize multiple preferred cells before fallback cells (0.077916ms)
+✔ recommended move planning reports unresolved quantity when no destination has room (0.106458ms)
+[RS485-SIM] {"ts":"2026-09-28T14:25:02.871Z","type":"set-cell-state","controllerId":4,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"green","brightnessPercent":20,"brightnessMode":"day","taskId":null,"taskType":"pick","quantity":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:02.872Z","type":"cell-test","controllerId":4,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"amber","brightnessPercent":20,"brightnessMode":"day"}
+[RS485-SIM] {"ts":"2026-09-28T14:25:02.872Z","type":"cell-locate","controllerId":4,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"red","active":true,"brightnessPercent":20,"brightnessMode":"day","timeoutMs":120000}
+(node:7327) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ LED brightness policy uses day brightness during working hours and minimum brightness at night (3.088041ms)
+✔ hardware guidance records the resolved LED brightness (186.30275ms)
+✔ RS485 guidance activation sends repeated full-plan bursts (2.391375ms)
+✔ RS485 stock count uses yellow text display for multi-digit and decimal quantities (372.577708ms)
+(node:7328) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ multi-operator accounting, recovery, isolation, and durable receipts (296.822833ms)
+✔ shared cells have independent quantity holds and no exclusive lock (162.722792ms)
+✔ a conflicting A4 report leaves B independent and admin can retain other claims short (132.92875ms)
+✔ stale put plans retain their original actual without posting replacement defaults (127.148333ms)
+✔ unit-aware historical corrections use a net delta after later picks (107.843292ms)
+✔ a failed receipt insert rolls back the entire settlement (99.112792ms)
+✔ ledger trend includes partial tasks, manual movements and correction deltas (105.757834ms)
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.210Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T14:25:04.210Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.210Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T14:25:04.210Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.210Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T14:25:04.210Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T14:25:04.211Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"7"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.209Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.209Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.209Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T14:25:04.211Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T14:25:04.212Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T14:25:04.211Z","completedAt":"2026-09-28T14:25:04.212Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T14:25:04.211Z","systemCutoff":"2026-06-30T14:25:04.211Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T14:25:04.211Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+✔ camera decoder can decode the generated warehouse location QR (60.054125ms)
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.624Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T14:25:04.624Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.625Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T14:25:04.625Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:04.625Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T14:25:04.625Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T14:25:04.625Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"7"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.624Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.624Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T14:25:34.624Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T14:25:04.625Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T14:25:04.626Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T14:25:04.625Z","completedAt":"2026-09-28T14:25:04.625Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T14:25:04.625Z","systemCutoff":"2026-06-30T14:25:04.625Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T14:25:04.625Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+✔ hardware utility commands cannot replace an active turn; old generations and disposed writers are rejected (106.409042ms)
+✔ late conflicting actual can be reconciled once as a net correction (98.497417ms)
+✔ unplanned actual product mismatch remains evidence and never consumes another product (92.11125ms)
+✔ HTTP mutations recheck the session after the entire body arrives (129.313958ms)
+✔ structured attribution preserves original reporter and restricts operator impersonation (103.115416ms)
+✔ historical manual reports verify fractional accounting quantities and retain origin deduplication (94.9435ms)
+✔ unsupported historical mapping can be resolved only with explicit quantity and provenance (95.78025ms)
+✔ legacy HTTP actual forms retain explicit old-cell reports, reject defaults and enforce ownership (103.861833ms)
+✔ warehouse identity is enforced for fresh and replayed receipts (84.505584ms)
+✔ legacy completed zero actual remains zero in view and correction form (91.34225ms)
+✔ linking an open allocation to a posted movement requires disposition and releases only its own claim (102.821584ms)
+✔ inactivity delivers and retries clears without a later work command (91.04075ms)
+✔ inactivity of a waiting allocation cannot replace a newer active turn (91.760583ms)
+✔ shared locator remains available when one participant needs verification (92.169417ms)
+✔ Phase 1 assignments, deadlines, handback, stale evidence and partial handoff (97.924667ms)
+✔ Phase 1 scan never posts, manual Finish shares accounting, flexible actuals and zero/unknown stop (107.340584ms)
+✔ Phase 1 migrated identity, directions and revoked labels stay distinct from hardware and old instructions (95.989125ms)
+✔ Phase 1 legacy migration never invents assignment history/deadlines; restart preserves new defaults and receipts (97.841ms)
+✔ Phase 1 team throughput attributes assigned completion to physical performer, not creator (107.697583ms)
+✔ review movement search reaches older history and keeps matching and access scoped (115.762ms)
+✔ Pi health check leaves a healthy or intentionally stopped service alone (630.665458ms)
+✔ Pi health check retries a short stall and restarts after two failures (966.610458ms)
+[RS485-SIM] {"ts":"2026-09-28T14:25:02.909Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T14:25:02.910Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T14:25:02.910Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T14:25:02.911Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T14:25:02.911Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T14:25:02.911Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T14:25:02.912Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"7"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T14:25:32.909Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T14:25:32.909Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T14:25:32.909Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T14:25:02.912Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T14:25:02.915Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T14:25:02.912Z","completedAt":"2026-09-28T14:25:02.914Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T14:25:02.912Z","systemCutoff":"2026-06-30T14:25:02.912Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T14:25:02.912Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+(node:7330) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ custom report endpoints stay removed while retained definitions remain hidden (292.86025ms)
+✔ product field administration remains protected and uses report-oriented wording (9.235625ms)
+(node:7331) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ custom report definitions validate recipes, preserve ownership, and persist (176.499667ms)
+✔ custom product fields use stable keys and become report groupings and columns (189.265667ms)
+✔ unit conversion preview is guarded and apply normalizes current state while preserving history (180.071375ms)
+(node:7332) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ report-required system product fields cannot be made non-reportable (193.192958ms)
+✔ retired corrupt and legacy definitions remain stored but never render or execute (186.1585ms)
+✔ stock aggregate groupings reject product-only detail columns (151.965667ms)
+(node:7333) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ report format defaults extend legacy settings without changing their meaning (4.069917ms)
+✔ invalid print-control options fall back independently to defaults (1.371792ms)
+✔ new print controls parse from forms, generate CSS variables, persist, and reset (185.603084ms)
+✔ report format controls are admin-only and support a server-opened reports modal (193.479209ms)
+(node:7352) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ frequency rankings aggregate category and custom groups across units without summing quantities (213.137333ms)
+✔ dimensionless exception rankings combine units and count affected tasks distinctly (161.921708ms)
+✔ built-in movement and issue rows follow chained product unit conversions (143.879458ms)
+(node:7354) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ operator stock reports keep controls in the stage toolbar and print only report content (198.487042ms)
+✔ curated report library exposes one clear question and print target per report (111.749042ms)
+✔ replenishment, slow-moving stock, and team throughput answer their questions directly (109.089ms)
+✔ time control renders every preset and custom date-time details (104.395ms)
+✔ client controller binds multi-select stock controls, curated hashes, and report-only printing (1.189166ms)
+✔ paper-preview and print report styles retain compact stock typography (0.89275ms)
+✔ static asset server exposes browser modules and rejects traversal (6.89075ms)
+✔ operator and offline pages load the shared screen styles and offline installation caches them (3.122875ms)
+(node:7375) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ stock composition separates crates and kilograms and derives Other from the full denominator (149.129709ms)
+✔ stock composition aggregates categories and reportable custom fields within the selected unit (101.847541ms)
+✔ stock composition allocates exact tenths and handles empty and zero-stock results (100.539625ms)
+✔ stock composition recipes validate donut constraints and persist unchanged (107.626167ms)
+✔ built-in Stock Snapshot renders accessible visuals and hides retained custom donuts (120.168083ms)
+✔ lost response retries the exact durable command; other accounts are never delivered (2.181833ms)
+✔ refresh refuses account changes before sending any queued work (0.61ms)
+✔ Finish queued during an existing sync is delivered before its own sync resolves (0.939791ms)
+✔ summary and quantity draft identities are bound to instruction, account and method context (0.615708ms)
+✔ simulated camera frame verifies then opens summary, stops stream and never sends a movement (1.222833ms)
+✔ camera closing before permission resolves still releases the late stream without submitting (0.349125ms)
+✔ wrong simulated QR stays in camera with error and cannot unlock Finish (0.517625ms)
+✔ an unresolved camera permission prompt does not keep arrival submission locked or prevent manual Finish (0.666166ms)
+✔ arrival, camera and summary remain separate; only explicit Finish declares the displayed actual (2.102416ms)
+✔ offline reports stay accessible and queued/view-only safeguards survive simpler screens (0.684292ms)
+✔ active and review tasks precede completed history; optional location retains explicit preference (2.370625ms)
+✔ refresh restores both opened and explicitly closed disclosure state (13.394708ms)
+✔ mobile menu Escape and breakpoint changes restore focus after CSS hides a link (1.088958ms)
+ℹ tests 137
+ℹ suites 0
+ℹ pass 137
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5175.361709

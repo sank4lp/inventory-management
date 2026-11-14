@@ -1,0 +1,32 @@
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import assert from 'node:assert/strict';
+import {openUsbControllerSession} from '/work/src/services/usb-controller-session.js';
+import {createHostAdapter} from '/work/src/modules/hardware/host-adapter.js';
+const worker=spawn('python3',['-u','-c',`
+import os,time,json
+master,slave=os.openpty()
+print(os.ttyname(slave),flush=True)
+buf=b''; reads=0
+while True:
+ buf+=os.read(master,4096)
+ while b'\\n' in buf:
+  line,buf=buf.split(b'\\n',1)
+  if not line: continue
+  reads+=1
+  if reads==1: continue
+  parts=line.decode().split()
+  if parts[2]=='config-status': reply=json.dumps({'type':'controller-config','request':parts[3],'address':parts[1]})+'\\n'
+  else: reply=json.dumps({'type':'error','message':'config-storage-failed'})+'\\n'
+  for i in range(0,len(reply),7):
+   os.write(master,reply[i:i+7].encode());time.sleep(.005)
+`],{stdio:['ignore','pipe','inherit']});
+try{
+ const [chunk]=await once(worker.stdout,'data'),port=chunk.toString().trim();
+ const session=openUsbControllerSession(port,createHostAdapter());
+ try{
+  const result=await session.exchange('to CTRL-PTY config-status 0123456789abcdef',r=>r.request==='0123456789abcdef');assert.equal(result.address,'CTRL-PTY');
+  await assert.rejects(()=>session.exchange('to CTRL-PTY configure 0123456789abcdef',()=>true),/config-storage-failed/);
+ }finally{session.close();}
+ console.log('PASS real Linux PTY: serial flags, dropped first request, fragmented JSON, nonce matching and immediate ESP32 error propagation. No physical device used.');
+}finally{worker.kill('SIGTERM');}

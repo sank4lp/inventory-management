@@ -1,3 +1,5 @@
+import {currentActor} from "../modules/access/service.js";
+import { guardSetupChange } from "../modules/operations/guards.js";
 import { createHash } from "node:crypto";
 
 import { withTransaction } from "../db.js";
@@ -6,13 +8,7 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function assertAdmin(actor) {
-  const id = Number(actor?.id ?? actor?.userId);
-  if (!Number.isInteger(id) || id <= 0 || actor?.role !== "admin") {
-    throw new Error("Only an admin can migrate a product unit.");
-  }
-  return id;
-}
+function assertAdmin(db,actor) { try{return currentActor(db,actor,'products.fields').id;}catch(error){error.message='Only an admin or a role with product field permissions can change this setting. '+error.message;throw error;} }
 
 function normalizedUnit(value, label) {
   const unit = String(value || "").replace(/\s+/g, " ").trim();
@@ -126,7 +122,7 @@ function previewToken(payload) {
 }
 
 export function previewProductUnitConversion(db, input) {
-  assertAdmin(input.actor);
+  assertAdmin(db,input.actor);
   const snapshot = conversionSnapshot(db, input.productId ?? input.product_id);
   const sourceUnit = normalizedUnit(snapshot.product.unit_of_measure, "Current unit");
   const targetUnit = normalizedUnit(input.targetUnit ?? input.target_unit, "Target unit");
@@ -174,7 +170,8 @@ export function previewProductUnitConversion(db, input) {
 }
 
 export function applyProductUnitConversion(db, input) {
-  const createdBy = assertAdmin(input.actor);
+  guardSetupChange(db);
+  const createdBy = assertAdmin(db,input.actor);
   const preview = previewProductUnitConversion(db, input);
   if (!input.previewToken || input.previewToken !== preview.token) {
     throw new Error("Inventory changed after the preview. Review the conversion again before applying it.");

@@ -1,0 +1,26 @@
+/* Shared screen-only table navigation. No cloned headers or duplicate controls. */
+@media screen {
+  body .persistent-table-scroll {
+    min-width:0;max-width:100%;overflow:auto !important;position:relative;
+    padding-bottom:24px;scrollbar-gutter:stable;overscroll-behavior-x:contain;
+  }
+  body .persistent-table > thead {
+    position:sticky !important;top:var(--table-header-top,0px) !important;z-index:8;
+    background:var(--table-head-background,#edf4f0);box-shadow:0 1px 0 #cedbd5;
+  }
+  body .persistent-table > thead > tr > :is(th,td) {top:auto !important;}
+  .table-horizontal-scroll {
+    position:fixed;z-index:80;box-sizing:border-box;padding:3px 0;
+    border:1px solid #c4d3cb;border-radius:8px;background:#eef3f0;
+    touch-action:none;cursor:pointer;user-select:none;box-shadow:0 0 0 2px #fff;
+  }
+  .table-horizontal-scroll[hidden] {display:none !important;}
+  .table-horizontal-scroll:focus-visible {outline:2px solid #20735f;outline-offset:2px;}
+  .table-horizontal-thumb {height:100%;background:#547d6d;border-radius:6px;min-width:32px;cursor:grab;}
+  .table-horizontal-scroll:active .table-horizontal-thumb {cursor:grabbing;background:#245c49;}
+}
+@media print {
+  .table-horizontal-scroll {display:none !important;}
+  body .persistent-table-scroll {overflow:visible !important;max-height:none !important;padding-bottom:0;}
+  body .persistent-table > thead {position:static !important;display:table-header-group;box-shadow:none;}
+}

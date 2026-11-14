@@ -8,28 +8,20 @@ async function freshImport(specifier) {
   return import(`${specifier}?t=${Date.now()}-${Math.random()}`);
 }
 
-test("LED brightness policy uses day brightness during working hours and minimum brightness at night", async () => {
+test("LED brightness stays at maximum all day and ignores legacy dimming settings", async () => {
   const { resolveLedBrightness } = await freshImport("../src/services/hardware-brightness.js");
-
-  const noon = resolveLedBrightness({}, new Date(2026, 4, 13, 12, 0, 0));
-  assert.equal(noon.mode, "day");
-  assert.equal(noon.brightnessPercent, 20);
-
-  const lateNight = resolveLedBrightness({}, new Date(2026, 4, 13, 23, 0, 0));
-  assert.equal(lateNight.mode, "night");
-  assert.equal(lateNight.brightnessPercent, 8);
-
-  const customNight = resolveLedBrightness(
-    {
-      ledDayStartHour: 7,
-      ledNightStartHour: 19,
-      ledDayBrightnessPercent: 25,
-      ledNightBrightnessPercent: 3,
-    },
-    new Date(2026, 4, 13, 6, 30, 0),
-  );
-  assert.equal(customNight.mode, "night");
-  assert.equal(customNight.brightnessPercent, 3);
+  const { resolveConfig } = await freshImport("../src/config.js");
+  const legacyConfig = resolveConfig({LED_DAY_BRIGHTNESS_PERCENT: "20", LED_NIGHT_BRIGHTNESS_PERCENT: "8"});
+  for (const hour of [0, 5, 6, 12, 18, 23]) {
+    for (const config of [{}, legacyConfig, {
+      ledDayStartHour: 7, ledNightStartHour: 19,
+      ledDayBrightnessPercent: 25, ledNightBrightnessPercent: 3,
+    }]) {
+      const policy = resolveLedBrightness(config, new Date(2026, 4, 13, hour, 0, 0));
+      assert.equal(policy.brightnessPercent, 100);
+      assert.equal(policy.mode, "maximum");
+    }
+  }
 });
 
 test("hardware guidance records the resolved LED brightness", async () => {
@@ -101,11 +93,11 @@ test("hardware guidance records the resolved LED brightness", async () => {
 
   assert.deepEqual(
     payloads.map((payload) => payload.brightnessPercent),
-    [20, 20, 20],
+    [100, 100, 100],
   );
   assert.deepEqual(
     payloads.map((payload) => payload.brightnessMode),
-    ["day", "day", "day"],
+    ["maximum", "maximum", "maximum"],
   );
 });
 
@@ -149,12 +141,12 @@ test("RS485 guidance activation sends repeated full-plan bursts", async () => {
   );
 
   assert.deepEqual(writes, [
-    'to CTRL-A digit 1 "2" green 120 20',
-    'to CTRL-A digit 2 "4" red 120 20',
-    'to CTRL-A digit 1 "2" green 120 20',
-    'to CTRL-A digit 2 "4" red 120 20',
-    'to CTRL-A digit 1 "2" green 120 20',
-    'to CTRL-A digit 2 "4" red 120 20',
+    'to CTRL-A digit 1 "2" green 120 100',
+    'to CTRL-A digit 2 "4" red 120 100',
+    'to CTRL-A digit 1 "2" green 120 100',
+    'to CTRL-A digit 2 "4" red 120 100',
+    'to CTRL-A digit 1 "2" green 120 100',
+    'to CTRL-A digit 2 "4" red 120 100',
   ]);
   assert.equal(result.events.length, 2);
   assert.deepEqual(
@@ -189,7 +181,7 @@ test("RS485 stock count uses yellow text display for multi-digit and decimal qua
     "yellow",
   );
 
-  assert.deepEqual(writes, ['to CTRL-A text 1 "12.5" yellow 120 20']);
+  assert.deepEqual(writes, ['to CTRL-A text 1 "12.5" yellow 120 100']);
   assert.equal(result.degraded, false);
   assert.equal(result.events[0].eventType, "cell_quantity_displayed");
   assert.equal(result.events[0].payload.quantity, "12.5");
@@ -205,4 +197,46 @@ test("RS485 stock count uses yellow text display for multi-digit and decimal qua
   assert.deepEqual(writes.slice(1), Array(5).fill("to CTRL-A clear 1"));
   assert.equal(clearResult.degraded, false);
   assert.equal(clearResult.events[0].eventType, "cell_quantity_cleared");
+});
+
+
+test("every RS485 lighting action sends maximum brightness even with legacy night dimming", async () => {
+  const { createRs485Adapter } = await freshImport("../src/services/hardware-adapters/rs485.js");
+  const { createLogger } = await freshImport("../src/logger.js");
+  for (const hour of [12, 23]) {
+    const writes = [];
+    const adapter = createRs485Adapter({
+      config: {
+        rs485GuidanceBurstRepeats: 1, rs485InterCommandDelayMs: 0,
+        rs485WriteRepeats: 1, rs485WriteLine: line => writes.push(line.trim()),
+        ledDayBrightnessPercent: 20, ledNightBrightnessPercent: 8,
+        ledBrightnessClock: () => new Date(2026, 4, 13, hour, 0, 0),
+      },
+      logger: createLogger({level: "error", siteId: "test-site"}),
+    });
+    const cell = {id: 1, cell_id: 1, logical_code: "Z1-R1-C01", controller_id: 7,
+      controller_address: "CTRL-A", hardware_channel: 1, planned_quantity: 2};
+    const results = [
+      adapter.activateGuidance({id: 42, type: "pick"}, [cell]),
+      adapter.activateGuidance({id: 43, type: "put"}, [cell]),
+      adapter.showCellQuantity(cell, 12, "yellow"),
+      adapter.setCellLocate(cell, true, {managed: true}),
+      adapter.sendCellTest(cell, "green"),
+    ];
+    assert.deepEqual(writes, [
+      'to CTRL-A digit 1 "2" green 120 100',
+      'to CTRL-A digit 1 "2" red 120 100',
+      'to CTRL-A text 1 "12" yellow 120 100',
+      'to CTRL-A locate 1 red 100 300000',
+      'to CTRL-A blink 1 green 100 5000',
+    ]);
+    for (const result of results) {
+      assert.equal(result.ok, true);
+      assert.equal(result.degraded, false);
+      for (const event of result.events) {
+        assert.equal(event.payload.brightnessPercent, 100);
+        assert.equal(event.payload.brightnessMode, "maximum");
+      }
+    }
+  }
 });

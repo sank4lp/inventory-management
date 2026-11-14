@@ -1,0 +1,32 @@
+const {app}=require('electron');
+const {mkdtempSync,writeFileSync}=require('node:fs');
+const {join}=require('node:path');const {tmpdir}=require('node:os');const assert=require('node:assert/strict');
+const root='/opt/lytguide-test/current/desktop';const {createDesktop}=require(join(root,'resources/app/main.cjs'));
+app.setPath('userData',mkdtempSync(join(tmpdir(),'lytguide-administrator-ui-')));app.enableSandbox();app.disableHardwareAcceleration();app.on('window-all-closed',()=>{});
+const deadline=setTimeout(()=>app.exit(2),120000);
+(async()=>{
+ await app.whenReady();const desktop=createDesktop({authorizeSetup:async()=>process.env.LYTGUIDE_SETUP_TEST_URL,assetRoot:join(root,'resources/lytguide-assets')});await desktop.showSetup();const win=[...desktop.windows][0];
+ const js=expression=>win.webContents.executeJavaScript(expression).catch(error=>{throw Error(expression+'\n'+error.message);});
+ const wait=async expression=>{for(let n=0;n<300;n++){if(await js(expression))return;await new Promise(r=>setTimeout(r,100));}throw Error('Timeout: '+expression);};
+ await wait('Boolean(document.querySelector("[data-choose=configure]"))');
+ await js(`(document.querySelector('[name=pauseExisting]').checked=true,document.querySelector('[data-choose=configure]').click(),true)`);
+ await wait('Boolean(document.querySelector("[data-continue=system]"))');await js(`(document.querySelector('[data-continue=system]').click(),true)`);
+ await wait('Boolean(document.querySelector("[name=addressReserved]"))');await js(`(document.querySelector('[name=addressReserved]').checked=true,document.querySelector('[data-continue=network]').click(),true)`);
+ await wait('Boolean(document.querySelector("[name=adminPassword]"))');
+ assert.equal(await js(`document.querySelector('[name=adminPassword]').minLength`),-1);
+ assert.equal(await js(`document.querySelector('[name=adminPassword]').required`),false);
+ assert.equal(await js(`document.body.textContent.includes('Password guidance')||document.body.textContent.includes('Administrator already created')`),false);
+ await js(`(()=>{document.querySelector('[name=username]').value='guiowner';document.querySelector('[name=adminPassword]').value='1234';document.querySelector('[name=adminConfirm]').value='1234';return true;})()`);
+ for(const [width,height,name]of [[1280,960,'desktop'],[390,844,'mobile']]){
+  win.unmaximize();win.setSize(width,height);await new Promise(r=>setTimeout(r,100));await js('document.fonts.ready.then(()=>true)');
+  assert.equal(await js('document.documentElement.scrollWidth<=innerWidth+1'),true);writeFileSync('/tmp/lytguide-administrator-'+name+'.png',(await win.webContents.capturePage()).toPNG());
+ }
+ await js(`(document.querySelector('[name=adminConfirm]').value='different',document.querySelector('[data-continue=account]').click(),true)`);
+ await wait(`!document.querySelector('#message').hidden&&document.querySelector('#message').textContent.includes('do not match')`);
+ assert.ok(await js(`Boolean(document.querySelector('[name=adminPassword]'))`));
+ await js(`(document.querySelector('[name=adminConfirm]').value='1234',document.querySelector('[data-continue=account]').click(),true)`);
+ await wait('Boolean(document.querySelector("[name=piOnly]"))');
+ assert.equal(await js(`fetch('/setup-api/status').then(r=>r.json()).then(s=>s.existingWarehouse.username)`),'guiowner');
+ console.log('PASS packaged native Administrator screen: existing account credentials editable, 1234 accepted, confirmation mismatch visible without leaving the step, no length guidance, desktop/mobile layouts fit');
+ clearTimeout(deadline);app.exit(0);
+})().catch(error=>{console.error(error);clearTimeout(deadline);app.exit(1);});

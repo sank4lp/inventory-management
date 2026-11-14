@@ -1,4 +1,4 @@
-import { resolveLedBrightness } from "../hardware-brightness.js";
+import { resolveLedBrightness, resolveTestBrightness } from "../hardware-brightness.js";
 
 function stamp() {
   return new Date().toISOString();
@@ -221,6 +221,8 @@ export function createSimulatorAdapter({ config = {}, logger }) {
       const payload = {
         ts: stamp(),
         type: "cell-test",
+        pattern: "outward-ripple",
+        timeoutMs: 5000,
         controllerId: cell.controller_id,
         cell: cell.logical_code,
         hardwareChannel: cell.hardware_channel,
@@ -238,8 +240,9 @@ export function createSimulatorAdapter({ config = {}, logger }) {
         },
       ]);
     },
-    showCellQuantity(cell, quantity, color = "yellow") {
-      const brightness = brightnessPayload();
+    showCellQuantity(cell, quantity, color = "yellow", options = {}) {
+      const testPolicy = options.testBrightnessPercent === undefined ? null : resolveTestBrightness(options.testBrightnessPercent);
+      const brightness = testPolicy ? {brightnessPercent:testPolicy.brightnessPercent,brightnessMode:testPolicy.mode} : brightnessPayload();
       const payload = {
         ts: stamp(),
         type: hasModuleTarget(cell) ? "cell-quantity-display" : "manual-guidance",
@@ -248,6 +251,8 @@ export function createSimulatorAdapter({ config = {}, logger }) {
         hardwareChannel: cell.hardware_channel,
         quantity: String(quantity),
         color,
+        scrollOnce:options.scrollOnce===true,scrollSpeedMs:options.scrollSpeedMs||120,
+        solidColour:options.testSolidColour===true && !!testPolicy,
         ...brightness,
         ...(hasModuleTarget(cell) ? {} : { reason: "cell-not-mapped-to-controller" }),
       };
@@ -328,13 +333,14 @@ export function createSimulatorAdapter({ config = {}, logger }) {
       const payload = {
         ts: stamp(),
         type: "cell-locate",
+        pattern: "inward-ripple",
         controllerId: cell.controller_id,
         cell: cell.logical_code,
         hardwareChannel: cell.hardware_channel,
         color: "red",
         active,
         ...brightness,
-        timeoutMs: 120000,
+        timeoutMs: 300000,
       };
       emit(payload);
       return wrap([

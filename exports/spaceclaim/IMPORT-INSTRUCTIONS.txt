@@ -1,0 +1,23 @@
+LYTGUIDE IMS — CASE IMPRINT
+
+Import lytguide-logo-80mm.dxf for the complete logo (80 x 16.17 mm).
+Import lytguide-icon-25mm.dxf for the compact square icon (25 x 25 mm).
+
+Both files contain closed 2D polylines in the XY plane, with millimeter units.
+Lettering is geometry, so no font installation is needed when importing.
+Open or insert the DXF in SpaceClaim, set units to millimeters if prompted,
+and verify its overall width. Scale uniformly to suit your case. Position
+the outlines on the case face, then use Pull to cut or raise the selected
+logo regions to your chosen depth. Preserve the holes in letters and the
+empty space between the icon border and its nine cells.
+
+The monochrome CAD adaptation removes gradients, shadows, background fill,
+and light dots inside filled cells. Font outlines use the macOS system
+font fallback from the original SVG font stack (Inter is not installed).
+Original color SVG and geometry-matched PNG previews are also included.
+
+DXF units, vertex counts, and closed contours have been checked. Actual
+import has not been tested in SpaceClaim on this computer.
+
+SpaceClaim reference:
+https://help.spaceclaim.com/v19.0/en/Content/Importing_and_exporting.htm

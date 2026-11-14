@@ -7,7 +7,7 @@ export function renderLogin(flash) {
     content: `
       <section class="auth-shell">
         ${card(
-          "Warehouse Sign In",
+          "Shed Sign In",
           `
             <form method="post" action="/login" class="stack-form">
               <label>Username<input name="username" autocomplete="username" autofocus required /></label>

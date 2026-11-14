@@ -18,7 +18,7 @@ export function normalizeNonNegativeQuantity(
 }
 
 export function normalizeItemsPerCell(value) {
-  return normalizePositiveQuantity(value, "Items per cell must be a positive number.");
+  return normalizePositiveQuantity(value, "Items per bin must be a positive number.");
 }
 
 export function quantitiesMatch(left, right) {

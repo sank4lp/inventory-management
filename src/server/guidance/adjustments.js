@@ -14,7 +14,7 @@ export function adjustmentPreviewTask({ userId }) {
 export function adjustmentQuantityGuidance(cells, { cellId, lines }) {
   const cell = cells.find((entry) => Number(entry.id) === Number(cellId));
   if (!cell) {
-    throw new Error("Choose a cell before lighting the quantity.");
+    throw new Error("Choose a bin before lighting the quantity.");
   }
 
   const quantities = lines

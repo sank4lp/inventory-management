@@ -1,0 +1,700 @@
+
+> inventory-management@0.1.0 test
+> node --test
+
+(node:57578) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.565Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:21.565Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.565Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:21.566Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.566Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:21.566Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:21.566Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.564Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.564Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.564Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:21.566Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:21.567Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:21.566Z","completedAt":"2026-09-28T17:31:21.567Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:21.566Z","systemCutoff":"2026-06-30T17:31:21.566Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:21.566Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+✔ migration is additive, defaults equivalent, custom role invitations cannot self-upgrade (174.212666ms)
+✔ same session immediately receives custom access and stale actor cannot authorize itself (133.662583ms)
+✔ last full administrator protected across role assignment, status and custom role edits (145.501959ms)
+✔ viewing team work and review cases grants no assignment, execution or resolution (173.05125ms)
+✔ revocation during a working instruction preserves physical report once without posting or changing identity (172.524458ms)
+✔ revoked stocktake count is immutable recheck evidence; viewing differences cannot approve (186.607292ms)
+✔ service boundaries reject direct configuration, firmware, catalog and setup bypasses (166.947875ms)
+✔ prerequisites explicit, defaults immutable and markup excludes forbidden actions (113.719208ms)
+✔ direct HTTP requests and role UI share permissions, including cross-user tasks and unknown routes (190.930333ms)
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.997Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:20.997Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.998Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:20.998Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.998Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:20.998Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:20.999Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:50.996Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:50.996Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:50.996Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:20.999Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:21.000Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:20.999Z","completedAt":"2026-09-28T17:31:21.000Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:20.999Z","systemCutoff":"2026-06-30T17:31:20.999Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:20.999Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+(node:57579) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.085Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"6","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.085Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"quantity":6,"color":"yellow","source":"display_coordinator","displayId":"66a51558-f223-4718-8f19-3d2235cfee38","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.087Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+{"ts":"2026-09-28T17:31:21.087Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"source":"display_coordinator","displayId":"66a51558-f223-4718-8f19-3d2235cfee38","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.222Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:21.222Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.222Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:21.223Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.223Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:21.223Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:21.223Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.221Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.221Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.221Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:21.223Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:21.224Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:21.223Z","completedAt":"2026-09-28T17:31:21.224Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:21.223Z","systemCutoff":"2026-06-30T17:31:21.223Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:21.223Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.235Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"6","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.236Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"quantity":6,"color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.236Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C02","hardwareChannel":2,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.236Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":2,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.236Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C03","hardwareChannel":3,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.237Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":3,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.237Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C04","hardwareChannel":4,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.237Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":4,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.237Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C05","hardwareChannel":5,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.237Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":5,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.238Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C06","hardwareChannel":6,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.238Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":6,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.238Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C07","hardwareChannel":7,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.238Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":7,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.239Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C08","hardwareChannel":8,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.239Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":8,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.239Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C09","hardwareChannel":9,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.239Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":9,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.239Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C10","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.240Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":10,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.240Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C11","hardwareChannel":2,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.240Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":11,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.240Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C12","hardwareChannel":3,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.240Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":12,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.241Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C13","hardwareChannel":4,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.241Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":13,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.241Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C14","hardwareChannel":5,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.241Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":14,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.241Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C15","hardwareChannel":6,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.241Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":15,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.241Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C16","hardwareChannel":7,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.242Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":16,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.242Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C17","hardwareChannel":8,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.242Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":17,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.242Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R1-C18","hardwareChannel":9,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.242Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":18,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.243Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C19","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.243Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":19,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.243Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C20","hardwareChannel":2,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.243Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":20,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.243Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C21","hardwareChannel":3,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.243Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":21,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.243Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C22","hardwareChannel":4,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.244Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":22,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.244Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C23","hardwareChannel":5,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.244Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":23,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.244Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C24","hardwareChannel":6,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.244Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":24,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.244Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C25","hardwareChannel":7,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.244Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":25,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.244Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C26","hardwareChannel":8,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.245Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":26,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.245Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R1-C27","hardwareChannel":9,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.245Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":27,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.245Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C01","hardwareChannel":10,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.245Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":28,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.246Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C02","hardwareChannel":11,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.246Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":29,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.246Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C03","hardwareChannel":12,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.246Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":30,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.246Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C04","hardwareChannel":13,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.246Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":31,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.246Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C05","hardwareChannel":14,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.246Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":32,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.247Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C06","hardwareChannel":15,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.247Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":33,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.247Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C07","hardwareChannel":16,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.247Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":34,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.247Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C08","hardwareChannel":17,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.247Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":35,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.248Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R2-C09","hardwareChannel":18,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.248Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":36,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.248Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C10","hardwareChannel":10,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.248Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":37,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.248Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C11","hardwareChannel":11,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.248Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":38,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.248Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C12","hardwareChannel":12,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.249Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":39,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.249Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C13","hardwareChannel":13,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.249Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":40,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.249Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C14","hardwareChannel":14,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.249Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":41,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.249Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C15","hardwareChannel":15,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.250Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":42,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.250Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C16","hardwareChannel":16,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.250Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":43,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.250Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C17","hardwareChannel":17,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.250Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":44,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.250Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R2-C18","hardwareChannel":18,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.250Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":45,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.251Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C19","hardwareChannel":10,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.251Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":46,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.251Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C20","hardwareChannel":11,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.251Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":47,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.252Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C21","hardwareChannel":12,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.252Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":48,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.252Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C22","hardwareChannel":13,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.252Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":49,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.252Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C23","hardwareChannel":14,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.253Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":50,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.253Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C24","hardwareChannel":15,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.253Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":51,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.253Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C25","hardwareChannel":16,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.253Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":52,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.253Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C26","hardwareChannel":17,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.254Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":53,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.254Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R2-C27","hardwareChannel":18,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.254Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":54,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.254Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C01","hardwareChannel":19,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.255Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":55,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.255Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C02","hardwareChannel":20,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.255Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":56,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.255Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C03","hardwareChannel":21,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.255Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":57,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.255Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C04","hardwareChannel":22,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.255Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":58,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.256Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C05","hardwareChannel":23,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.256Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":59,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.256Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C06","hardwareChannel":24,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.256Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":60,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.256Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C07","hardwareChannel":25,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.256Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":61,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.257Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C08","hardwareChannel":26,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.257Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":62,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.257Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R3-C09","hardwareChannel":27,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.257Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":63,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.257Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C10","hardwareChannel":19,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.257Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":64,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.258Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C11","hardwareChannel":20,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.258Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":65,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.258Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C12","hardwareChannel":21,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.258Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":66,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.258Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C13","hardwareChannel":22,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.258Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":67,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.258Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C14","hardwareChannel":23,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.258Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":68,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.259Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C15","hardwareChannel":24,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.259Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":69,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.259Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C16","hardwareChannel":25,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.259Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":70,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.259Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C17","hardwareChannel":26,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.261Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":71,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.261Z","type":"cell-quantity-display","controllerId":2,"cell":"Z1-R3-C18","hardwareChannel":27,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.262Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":72,"controllerId":2,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.263Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C19","hardwareChannel":19,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.263Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":73,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.263Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C20","hardwareChannel":20,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.264Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":74,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.264Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C21","hardwareChannel":21,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.264Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":75,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.265Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C22","hardwareChannel":22,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.266Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":76,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.266Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C23","hardwareChannel":23,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.266Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":77,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.266Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C24","hardwareChannel":24,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.267Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":78,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.267Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C25","hardwareChannel":25,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.268Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":79,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.268Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C26","hardwareChannel":26,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.269Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":80,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.269Z","type":"cell-quantity-display","controllerId":3,"cell":"Z1-R3-C27","hardwareChannel":27,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:21.269Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":81,"controllerId":3,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.271Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+{"ts":"2026-09-28T17:31:21.271Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.271Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C02","hardwareChannel":2}
+{"ts":"2026-09-28T17:31:21.271Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":2,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.272Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C03","hardwareChannel":3}
+{"ts":"2026-09-28T17:31:21.272Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":3,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.272Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C04","hardwareChannel":4}
+{"ts":"2026-09-28T17:31:21.272Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":4,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.275Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C05","hardwareChannel":5}
+{"ts":"2026-09-28T17:31:21.275Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":5,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.275Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C06","hardwareChannel":6}
+{"ts":"2026-09-28T17:31:21.275Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":6,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.275Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C07","hardwareChannel":7}
+{"ts":"2026-09-28T17:31:21.276Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":7,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.276Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C08","hardwareChannel":8}
+{"ts":"2026-09-28T17:31:21.276Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":8,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.277Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C09","hardwareChannel":9}
+{"ts":"2026-09-28T17:31:21.277Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":9,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.277Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C10","hardwareChannel":1}
+{"ts":"2026-09-28T17:31:21.277Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":10,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.277Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C11","hardwareChannel":2}
+{"ts":"2026-09-28T17:31:21.278Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":11,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.278Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C12","hardwareChannel":3}
+{"ts":"2026-09-28T17:31:21.278Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":12,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.278Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C13","hardwareChannel":4}
+{"ts":"2026-09-28T17:31:21.279Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":13,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.279Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C14","hardwareChannel":5}
+{"ts":"2026-09-28T17:31:21.279Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":14,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.280Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C15","hardwareChannel":6}
+{"ts":"2026-09-28T17:31:21.280Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":15,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.280Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C16","hardwareChannel":7}
+{"ts":"2026-09-28T17:31:21.280Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":16,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.281Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C17","hardwareChannel":8}
+{"ts":"2026-09-28T17:31:21.281Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":17,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.281Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R1-C18","hardwareChannel":9}
+{"ts":"2026-09-28T17:31:21.281Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":18,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.282Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C19","hardwareChannel":1}
+{"ts":"2026-09-28T17:31:21.282Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":19,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.282Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C20","hardwareChannel":2}
+{"ts":"2026-09-28T17:31:21.282Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":20,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.282Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C21","hardwareChannel":3}
+{"ts":"2026-09-28T17:31:21.283Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":21,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.283Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C22","hardwareChannel":4}
+{"ts":"2026-09-28T17:31:21.283Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":22,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.283Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C23","hardwareChannel":5}
+{"ts":"2026-09-28T17:31:21.283Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":23,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.284Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C24","hardwareChannel":6}
+{"ts":"2026-09-28T17:31:21.284Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":24,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.284Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C25","hardwareChannel":7}
+{"ts":"2026-09-28T17:31:21.284Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":25,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.284Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C26","hardwareChannel":8}
+{"ts":"2026-09-28T17:31:21.285Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":26,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.285Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R1-C27","hardwareChannel":9}
+{"ts":"2026-09-28T17:31:21.285Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":27,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.285Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C01","hardwareChannel":10}
+{"ts":"2026-09-28T17:31:21.285Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":28,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.285Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C02","hardwareChannel":11}
+{"ts":"2026-09-28T17:31:21.286Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":29,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.286Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C03","hardwareChannel":12}
+{"ts":"2026-09-28T17:31:21.286Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":30,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.286Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C04","hardwareChannel":13}
+{"ts":"2026-09-28T17:31:21.286Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":31,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.286Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C05","hardwareChannel":14}
+{"ts":"2026-09-28T17:31:21.287Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":32,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.287Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C06","hardwareChannel":15}
+{"ts":"2026-09-28T17:31:21.287Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":33,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.287Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C07","hardwareChannel":16}
+{"ts":"2026-09-28T17:31:21.287Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":34,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.288Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C08","hardwareChannel":17}
+{"ts":"2026-09-28T17:31:21.288Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":35,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.288Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R2-C09","hardwareChannel":18}
+{"ts":"2026-09-28T17:31:21.288Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":36,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.289Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C10","hardwareChannel":10}
+{"ts":"2026-09-28T17:31:21.289Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":37,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.289Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C11","hardwareChannel":11}
+{"ts":"2026-09-28T17:31:21.289Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":38,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.289Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C12","hardwareChannel":12}
+{"ts":"2026-09-28T17:31:21.290Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":39,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.290Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C13","hardwareChannel":13}
+{"ts":"2026-09-28T17:31:21.290Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":40,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.290Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C14","hardwareChannel":14}
+{"ts":"2026-09-28T17:31:21.290Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":41,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.290Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C15","hardwareChannel":15}
+{"ts":"2026-09-28T17:31:21.291Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":42,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.291Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C16","hardwareChannel":16}
+{"ts":"2026-09-28T17:31:21.291Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":43,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.291Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C17","hardwareChannel":17}
+{"ts":"2026-09-28T17:31:21.291Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":44,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.291Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R2-C18","hardwareChannel":18}
+{"ts":"2026-09-28T17:31:21.291Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":45,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.292Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C19","hardwareChannel":10}
+{"ts":"2026-09-28T17:31:21.292Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":46,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.292Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C20","hardwareChannel":11}
+{"ts":"2026-09-28T17:31:21.292Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":47,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.292Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C21","hardwareChannel":12}
+{"ts":"2026-09-28T17:31:21.292Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":48,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.292Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C22","hardwareChannel":13}
+{"ts":"2026-09-28T17:31:21.293Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":49,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.293Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C23","hardwareChannel":14}
+{"ts":"2026-09-28T17:31:21.293Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":50,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.293Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C24","hardwareChannel":15}
+{"ts":"2026-09-28T17:31:21.293Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":51,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.293Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C25","hardwareChannel":16}
+{"ts":"2026-09-28T17:31:21.294Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":52,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.294Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C26","hardwareChannel":17}
+{"ts":"2026-09-28T17:31:21.294Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":53,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.294Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R2-C27","hardwareChannel":18}
+{"ts":"2026-09-28T17:31:21.294Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":54,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.295Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C01","hardwareChannel":19}
+{"ts":"2026-09-28T17:31:21.295Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":55,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.295Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C02","hardwareChannel":20}
+{"ts":"2026-09-28T17:31:21.295Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":56,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.295Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C03","hardwareChannel":21}
+{"ts":"2026-09-28T17:31:21.295Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":57,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.296Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C04","hardwareChannel":22}
+{"ts":"2026-09-28T17:31:21.296Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":58,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.296Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C05","hardwareChannel":23}
+{"ts":"2026-09-28T17:31:21.296Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":59,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.296Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C06","hardwareChannel":24}
+{"ts":"2026-09-28T17:31:21.296Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":60,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.297Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C07","hardwareChannel":25}
+{"ts":"2026-09-28T17:31:21.297Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":61,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.297Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C08","hardwareChannel":26}
+{"ts":"2026-09-28T17:31:21.297Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":62,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.297Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R3-C09","hardwareChannel":27}
+{"ts":"2026-09-28T17:31:21.298Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":63,"controllerId":1,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.298Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C10","hardwareChannel":19}
+{"ts":"2026-09-28T17:31:21.298Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":64,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.298Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C11","hardwareChannel":20}
+{"ts":"2026-09-28T17:31:21.298Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":65,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.299Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C12","hardwareChannel":21}
+{"ts":"2026-09-28T17:31:21.299Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":66,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.299Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C13","hardwareChannel":22}
+{"ts":"2026-09-28T17:31:21.299Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":67,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.299Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C14","hardwareChannel":23}
+{"ts":"2026-09-28T17:31:21.300Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":68,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.300Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C15","hardwareChannel":24}
+{"ts":"2026-09-28T17:31:21.300Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":69,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.300Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C16","hardwareChannel":25}
+{"ts":"2026-09-28T17:31:21.302Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":70,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.302Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C17","hardwareChannel":26}
+{"ts":"2026-09-28T17:31:21.303Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":71,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.303Z","type":"cell-quantity-clear","controllerId":2,"cell":"Z1-R3-C18","hardwareChannel":27}
+{"ts":"2026-09-28T17:31:21.303Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":72,"controllerId":2,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.303Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C19","hardwareChannel":19}
+{"ts":"2026-09-28T17:31:21.303Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":73,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.303Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C20","hardwareChannel":20}
+{"ts":"2026-09-28T17:31:21.304Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":74,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.304Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C21","hardwareChannel":21}
+{"ts":"2026-09-28T17:31:21.304Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":75,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.304Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C22","hardwareChannel":22}
+{"ts":"2026-09-28T17:31:21.304Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":76,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.305Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C23","hardwareChannel":23}
+{"ts":"2026-09-28T17:31:21.305Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":77,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.305Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C24","hardwareChannel":24}
+{"ts":"2026-09-28T17:31:21.305Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":78,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.305Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C25","hardwareChannel":25}
+{"ts":"2026-09-28T17:31:21.306Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":79,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.306Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C26","hardwareChannel":26}
+{"ts":"2026-09-28T17:31:21.306Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":80,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.306Z","type":"cell-quantity-clear","controllerId":3,"cell":"Z1-R3-C27","hardwareChannel":27}
+{"ts":"2026-09-28T17:31:21.306Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":81,"controllerId":3,"source":"display_coordinator","displayId":"a539f1bd-db98-4947-b2d4-d284fae9a5a6","displayActor":1}
+{"ts":"2026-09-28T17:31:21.933Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"auto","filename":"auto-2026-09-28T17-31-21-923Z-60001b-product-capacity-update.sqlite","source":"product-capacity-update","sizeBytes":663552}
+[RS485-SIM] {"ts":"2026-09-28T17:31:22.864Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:22.864Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:22.864Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:22.864Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:22.864Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:22.864Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:22.864Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:52.863Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:52.863Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:52.863Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:22.864Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:22.865Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:22.864Z","completedAt":"2026-09-28T17:31:22.865Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:22.864Z","systemCutoff":"2026-06-30T17:31:22.864Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:22.864Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+{"ts":"2026-09-28T17:31:22.870Z","level":"info","event":"task.pending_review.timeout_updated","siteId":"warehouse-local","timeoutMinutes":12,"updatedBy":1}
+{"ts":"2026-09-28T17:31:22.878Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"auto","filename":"auto-2026-09-28T17-31-22-871Z-840d85-task-timeout-update.sqlite","source":"task-timeout-update","sizeBytes":581632}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.316Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:23.316Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.316Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:23.316Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.316Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:23.316Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:23.316Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:53.315Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:53.315Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:53.315Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:23.316Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:23.317Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:23.317Z","completedAt":"2026-09-28T17:31:23.317Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:23.317Z","systemCutoff":"2026-06-30T17:31:23.317Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:23.317Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.324Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"1","color":"green","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:23.324Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"quantity":1,"color":"green","source":"display_coordinator","displayId":"recommendation-display-1-light-all","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.324Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C02","hardwareChannel":2,"quantity":"1","color":"red","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:23.324Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":2,"controllerId":1,"quantity":1,"color":"red","source":"display_coordinator","displayId":"recommendation-display-1-light-all","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.324Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+{"ts":"2026-09-28T17:31:23.324Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"source":"display_coordinator","displayId":"recommendation-display-1-light-all","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.325Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C02","hardwareChannel":2}
+{"ts":"2026-09-28T17:31:23.325Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":2,"controllerId":1,"source":"display_coordinator","displayId":"recommendation-display-1-light-all","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.733Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:23.733Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.733Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:23.733Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:23.733Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:23.733Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:23.733Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:53.732Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:53.732Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:53.732Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:23.733Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:23.734Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:23.733Z","completedAt":"2026-09-28T17:31:23.734Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:23.733Z","systemCutoff":"2026-06-30T17:31:23.733Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:23.733Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+{"ts":"2026-09-28T17:31:24.447Z","level":"info","event":"backup.schedule.updated","siteId":"warehouse-local","cadence":"biweekly","startTime":"04:45","anchorDate":"2026-09-28"}
+{"ts":"2026-09-28T17:31:24.448Z","level":"info","event":"backup.retention.updated","siteId":"warehouse-local","retentionDays":20}
+{"ts":"2026-09-28T17:31:24.462Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"critical","filename":"critical-2026-09-28T17-31-24-456Z-db87e5-cell-created.sqlite","source":"cell-created","sizeBytes":581632}
+{"ts":"2026-09-28T17:31:24.468Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"critical","filename":"critical-2026-09-28T17-31-24-463Z-b3bb92-cell-renamed.sqlite","source":"cell-renamed","sizeBytes":581632}
+{"ts":"2026-09-28T17:31:24.474Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"critical","filename":"critical-2026-09-28T17-31-24-468Z-140f79-cell-delete-before.sqlite","source":"cell-delete-before","sizeBytes":581632}
+{"ts":"2026-09-28T17:31:24.479Z","level":"info","event":"backup.created","siteId":"warehouse-local","kind":"critical","filename":"critical-2026-09-28T17-31-24-474Z-5aa863-cell-delete.sqlite","source":"cell-delete","sizeBytes":581632}
+[RS485-SIM] {"ts":"2026-09-28T17:31:24.656Z","type":"set-cell-state","controllerId":4,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"green","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"recommended_move","quantity":10}
+[RS485-SIM] {"ts":"2026-09-28T17:31:24.656Z","type":"set-cell-state","controllerId":4,"cell":"Z1-R1-C02","hardwareChannel":2,"color":"red","brightnessPercent":8,"brightnessMode":"night","taskId":null,"taskType":"recommended_move","quantity":10}
+[RS485-SIM] {"ts":"2026-09-28T17:31:25.561Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:25.561Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"53b7a7f7-0d93-4b7a-bcc9-73b54dbf94f4","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:25.562Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+{"ts":"2026-09-28T17:31:25.562Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"source":"display_coordinator","displayId":"53b7a7f7-0d93-4b7a-bcc9-73b54dbf94f4","displayActor":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:25.573Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:25.573Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"quantity":"LOC","color":"yellow","source":"display_coordinator","displayId":"93e19261-f1ee-49f3-ba3f-6242f2ee7234","displayActor":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:25.654Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:25.654Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:25.654Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:25.654Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:25.654Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:25.654Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:25.654Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:55.653Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:55.653Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:55.653Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:25.654Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:25.655Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:25.654Z","completedAt":"2026-09-28T17:31:25.655Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:25.654Z","systemCutoff":"2026-06-30T17:31:25.654Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:25.654Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+[RS485-SIM] {"ts":"2026-09-28T17:31:25.660Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"6","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+{"ts":"2026-09-28T17:31:25.660Z","level":"info","event":"hardware.cell_quantity_display.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"quantity":6,"color":"yellow","source":"display_coordinator","displayId":"fe6f83c8-c122-42fd-940f-f8d457873522","displayActor":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:25.661Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+{"ts":"2026-09-28T17:31:25.661Z","level":"info","event":"hardware.cell_quantity_clear.ok","siteId":"warehouse-local","adapter":"simulator","cellId":1,"controllerId":1,"source":"display_coordinator","displayId":"fe6f83c8-c122-42fd-940f-f8d457873522","displayActor":2}
+✔ core inventory flows work against a fresh seeded database (223.34625ms)
+✔ demo inventory stock can be disabled and untouched legacy sample stock is cleared (149.99775ms)
+✔ product quantities only count stock in active locations (138.566666ms)
+✔ product detail shows the latest activity time for each holding cell (164.435625ms)
+✔ product find shows yellow quantity guidance on every mapped holding cell (290.189041ms)
+✔ product catalog audit shows unambiguous quantities on every mapped stocked cell (218.913542ms)
+✔ product low stock uses significant drop below thirty-day average (125.716542ms)
+✔ profile page shows account details and activity summary (133.968709ms)
+✔ operators can view reports but not admin-only pages by direct URL (20.63625ms)
+✔ database-backed settings and inventory survive an app restart (115.621209ms)
+✔ product removal is admin-safe and SKU re-add restores the same product identity (108.223167ms)
+✔ put capacity error page offers an inline items-per-cell update (107.418458ms)
+✔ capacity updates show newly-created recommended actions in a same-page prompt (33.776917ms)
+✔ active pick and put tasks allow changed quantities on eligible cells (104.994292ms)
+✔ locations expose direct pick and put actions (115.840541ms)
+✔ operator movement screens keep context and use plain task actions (160.520208ms)
+✔ pick and put product pickers prioritize recently selected movement products (110.587625ms)
+✔ overview recent tasks show user links and respect operator scope (127.858958ms)
+✔ pending review inactivity flags verification and preserves reservations after five minutes (94.185709ms)
+✔ pending review task timeout can be configured (93.23925ms)
+✔ admins can update task completion timeout from admin panel (119.017458ms)
+✔ recommended actions open as a scan-friendly list before detailed cleanup (122.874ms)
+✔ warehouse optimization recommendations consolidate product into closer cells (135.283208ms)
+✔ warehouse optimization minimizes the quantity operators must move (93.425958ms)
+✔ recommendation displays retain receipts and stale bulk clearing cannot stop them (94.654708ms)
+✔ admins can revoke registration keys and suspend user access (230.981625ms)
+✔ adjustment preview guidance targets selected cell with entered quantity total (90.866542ms)
+✔ legacy count submission cannot replace stock without a stable stocktake baseline (88.351042ms)
+✔ backups can restore previous data and prune old automatic snapshots (163.216458ms)
+✔ backup maintenance compacts previous days and enforces retention days (101.75675ms)
+✔ backup maintenance keeps retained days and prunes excess active-day backups (442.521166ms)
+✔ admins can update automatic backup schedule from the backup panel (8.825666ms)
+✔ critical device changes create interim critical backups (28.222708ms)
+✔ database maintenance prunes operational logs and archives old business history (86.322917ms)
+✔ recommended move guidance displays quantity on source and target with pick and put colors (90.290583ms)
+✔ startup recovery records stale guidance cleanup in degraded mode (90.035833ms)
+✔ system health summary reflects current controller health after startup warning (117.6075ms)
+✔ offline controllers retry three times at thirty seconds before five minute backoff (91.489792ms)
+✔ system health warning clears when startup recovery tasks are resolved (96.678916ms)
+✔ reflashing an existing controller migrates mappings to the new RS485 id (93.252667ms)
+✔ reflashing the same physical controller preserves what it can when module count changes (83.306209ms)
+✔ controllers with the same USB adapter identity stay separate unless the same controller name is selected (84.679042ms)
+✔ controllers can be health-checked and deleted by an admin (86.068917ms)
+✔ mapping a new module to an existing cell preserves inventory and unassigns displaced LED (150.5235ms)
+✔ mapping form errors return to the mapping workflow (4.953917ms)
+✔ cell mapping ping supports async JSON without redirecting (6.672667ms)
+✔ location ping is available to authenticated operators (11.65175ms)
+✔ show count sends the current server-side quantity to the LED in yellow (87.147417ms)
+✔ cell mapping shows every online controller module and hides offline modules (86.957042ms)
+✔ no-op adjustments return to admin with informational feedback (3.981958ms)
+✔ deleting a cell requires it to be empty and preserves mapped LED modules (95.059209ms)
+✔ submission tokens are one-time use and production config requires a session secret (82.945708ms)
+(node:57580) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ replenishment watch applies the one-batch rule without combining units (187.767541ms)
+✔ slow-moving stock treats only positive completed picks in the inclusive range as usage (144.938292ms)
+✔ team throughput counts completed tasks once regardless of lines or units (140.1975ms)
+(node:57581) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ movement trend and exception recipes validate and round-trip without opening custom SQL (161.314333ms)
+✔ movement trend and exception queries use completed actuals and never combine units (175.860291ms)
+✔ reports page presents a finite curated question library without custom creation controls (171.183833ms)
+✔ pick planning allocates stock in candidate order and rejects insufficient quantity (1.344ms)
+✔ put planning fills preferred cell, same-product cells, then empty cells (0.185291ms)
+✔ put planning can prioritize multiple preferred cells before fallback cells (0.076792ms)
+✔ recommended move planning reports unresolved quantity when no destination has room (0.10675ms)
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.338Z","type":"set-cell-state","controllerId":4,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"green","brightnessPercent":20,"brightnessMode":"day","taskId":null,"taskType":"pick","quantity":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.338Z","type":"cell-test","controllerId":4,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"amber","brightnessPercent":20,"brightnessMode":"day"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.338Z","type":"cell-locate","controllerId":4,"cell":"Z1-R1-C01","hardwareChannel":1,"color":"red","active":true,"brightnessPercent":20,"brightnessMode":"day","timeoutMs":120000}
+(node:57583) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ LED brightness policy uses day brightness during working hours and minimum brightness at night (14.064958ms)
+✔ hardware guidance records the resolved LED brightness (165.546ms)
+✔ RS485 guidance activation sends repeated full-plan bursts (4.015125ms)
+✔ RS485 stock count uses yellow text display for multi-digit and decimal quantities (374.654375ms)
+✔ Pi and simulator provide the same discovery and firmware execution interface; simulation is explicit (3.203375ms)
+✔ offline bundle pins host, protocol, versions and hashes and rejects tampering (6.283209ms)
+✔ firmware execution refuses missing tools, wrong version, nonzero exit and interruption; never installs dependencies (31.64ms)
+(node:57585) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.361Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.516Z","type":"cell-quantity-display","controllerId":1,"cell":"Unconfigured output 1","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.519Z","type":"cell-quantity-clear","controllerId":1,"cell":"Unconfigured output 1","hardwareChannel":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.532Z","type":"cell-quantity-display","controllerId":1,"cell":"Unconfigured output 1","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.538Z","type":"cell-quantity-clear","controllerId":1,"cell":"Unconfigured output 1","hardwareChannel":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.545Z","type":"cell-quantity-display","controllerId":1,"cell":"Unconfigured output 2","hardwareChannel":2,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.729Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.919Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.920Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.924Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"5","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.930Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.930Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.270Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1,"quantity":"5","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.270Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C02","hardwareChannel":2,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.271Z","type":"cell-quantity-display","controllerId":1,"cell":"Z1-R1-C03","hardwareChannel":3,"quantity":"LOC","color":"yellow","brightnessPercent":8,"brightnessMode":"night"}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.274Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C01","hardwareChannel":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.274Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C02","hardwareChannel":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.274Z","type":"cell-quantity-clear","controllerId":1,"cell":"Z1-R1-C03","hardwareChannel":3}
+✔ light-first pairing is atomic, idempotent, retains existing cell stock and validates ownership (170.658625ms)
+✔ unmapped outputs can be tested only by an owning setup receipt; skip/resume and duplicate labels (177.429584ms)
+✔ field revisions, required values, and controller replacement invalidate stale pairing (184.146958ms)
+✔ mixed quantities, owner-only stop, expiry and newer task generation protection (202.417666ms)
+✔ recommendation actuals retain partial results, respect review boundaries and retry without duplicate reports (170.188917ms)
+✔ quantity displays preserve exact scoped balances and protect mappings during ownership (176.1285ms)
+(node:57586) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ multi-operator accounting, recovery, isolation, and durable receipts (250.819084ms)
+✔ shared cells have independent quantity holds and no exclusive lock (148.779084ms)
+✔ a conflicting A4 report leaves B independent and admin can retain other claims short (175.80525ms)
+✔ stale put plans retain their original actual without posting replacement defaults (169.7725ms)
+✔ unit-aware historical corrections use a net delta after later picks (185.515292ms)
+✔ a failed receipt insert rolls back the entire settlement (163.212ms)
+✔ ledger trend includes partial tasks, manual movements and correction deltas (119.212208ms)
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.924Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:21.924Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.924Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:21.924Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:21.924Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:21.924Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:21.925Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.923Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.923Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:51.923Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:21.925Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:21.926Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:21.925Z","completedAt":"2026-09-28T17:31:21.925Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:21.925Z","systemCutoff":"2026-06-30T17:31:21.925Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:21.925Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+✔ camera decoder can decode the generated warehouse location QR (59.844167ms)
+[RS485-SIM] {"ts":"2026-09-28T17:31:22.392Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:22.392Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:22.392Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:22.392Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:22.392Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:22.392Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:22.392Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:52.391Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:52.391Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:52.391Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:22.392Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:22.393Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:22.392Z","completedAt":"2026-09-28T17:31:22.393Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:22.392Z","systemCutoff":"2026-06-30T17:31:22.392Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:22.392Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+✔ hardware utility commands cannot replace an active turn; old generations and disposed writers are rejected (113.744458ms)
+✔ late conflicting actual can be reconciled once as a net correction (119.66125ms)
+✔ unplanned actual product mismatch remains evidence and never consumes another product (101.340292ms)
+✔ HTTP mutations recheck the session after the entire body arrives (136.950167ms)
+✔ structured attribution preserves original reporter and restricts operator impersonation (107.008792ms)
+✔ historical manual reports verify fractional accounting quantities and retain origin deduplication (113.150208ms)
+✔ unsupported historical mapping can be resolved only with explicit quantity and provenance (117.017042ms)
+✔ legacy HTTP actual forms retain explicit old-cell reports, reject defaults and enforce ownership (110.76325ms)
+✔ warehouse identity is enforced for fresh and replayed receipts (113.118708ms)
+✔ legacy completed zero actual remains zero in view and correction form (99.562125ms)
+✔ linking an open allocation to a posted movement requires disposition and releases only its own claim (106.4445ms)
+✔ inactivity delivers and retries clears without a later work command (102.979041ms)
+✔ inactivity of a waiting allocation cannot replace a newer active turn (107.50225ms)
+✔ shared locator remains available when one participant needs verification (102.985334ms)
+✔ Phase 1 assignments, deadlines, handback, stale evidence and partial handoff (106.682541ms)
+✔ Phase 1 scan never posts, manual Finish shares accounting, flexible actuals and zero/unknown stop (107.752167ms)
+✔ Phase 1 migrated identity, directions and revoked labels stay distinct from hardware and old instructions (96.629875ms)
+✔ Phase 1 legacy migration never invents assignment history/deadlines; restart preserves new defaults and receipts (101.078083ms)
+✔ Phase 1 team throughput attributes assigned completion to physical performer, not creator (120.467667ms)
+✔ review movement search reaches older history and keeps matching and access scoped (121.194792ms)
+✔ Pi health check leaves a healthy or intentionally stopped service alone (3880.809125ms)
+✔ Pi health check retries a short stall and restarts after two failures (986.533833ms)
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.386Z","type":"controller-health","controllerId":1,"controllerCode":"CTRL-Z1-B1","controllerAddress":"1","status":"online"}
+{"ts":"2026-09-28T17:31:20.386Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":1}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.386Z","type":"controller-health","controllerId":2,"controllerCode":"CTRL-Z1-B2","controllerAddress":"2","status":"online"}
+{"ts":"2026-09-28T17:31:20.386Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":2}
+[RS485-SIM] {"ts":"2026-09-28T17:31:20.386Z","type":"controller-health","controllerId":3,"controllerCode":"CTRL-Z1-B3","controllerAddress":"3","status":"online"}
+{"ts":"2026-09-28T17:31:20.387Z","level":"info","event":"hardware.controller_health.ok","siteId":"warehouse-local","adapter":"simulator","controllerId":3}
+{"ts":"2026-09-28T17:31:20.387Z","level":"info","event":"startup.check.completed","siteId":"warehouse-local","db":{"status":"healthy","message":"SQLite integrity check passed.","schemaVersion":"9"},"config":{"status":"healthy","message":"Configuration is valid."},"hardware":{"status":"healthy","message":"RS485 simulator active."},"controllers":{"status":"healthy","message":"3 of 3 controllers online.","checked":[{"controllerId":1,"controllerCode":"CTRL-Z1-B1","status":"online","message":"CTRL-Z1-B1 responded in simulator.","nextCheckAt":"2026-09-28T17:31:50.385Z","retryDelayMs":30000},{"controllerId":2,"controllerCode":"CTRL-Z1-B2","status":"online","message":"CTRL-Z1-B2 responded in simulator.","nextCheckAt":"2026-09-28T17:31:50.385Z","retryDelayMs":30000},{"controllerId":3,"controllerCode":"CTRL-Z1-B3","status":"online","message":"CTRL-Z1-B3 responded in simulator.","nextCheckAt":"2026-09-28T17:31:50.385Z","retryDelayMs":30000}]},"recovery":{"status":"healthy","message":"No unfinished tasks found during startup recovery scan.","pendingTaskIds":[],"recoveredTaskIds":[]}}
+{"ts":"2026-09-28T17:31:20.387Z","level":"info","event":"startup.recovery.completed","siteId":"warehouse-local","recoveredTaskIds":[],"adapter":"simulator"}
+{"ts":"2026-09-28T17:31:20.388Z","level":"info","event":"database.maintenance.completed","siteId":"warehouse-local","startedAt":"2026-09-28T17:31:20.387Z","completedAt":"2026-09-28T17:31:20.388Z","operationalPrune":{"deviceEventRetentionDays":90,"systemEventRetentionDays":90,"deviceCutoff":"2026-06-30T17:31:20.387Z","systemCutoff":"2026-06-30T17:31:20.387Z","deviceEventsDeleted":0,"systemEventsDeleted":0},"businessArchive":{"businessArchiveAfterDays":730,"cutoffAt":"2024-09-28T17:31:20.387Z","archived":false,"archiveFiles":[],"safetyBackup":null,"tasksArchived":0,"taskLinesArchived":0,"transactionsArchived":0,"deviceEventsDeleted":0},"optimize":{"optimized":true},"errors":[]}
+(node:57588) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ custom report endpoints stay removed while retained definitions remain hidden (290.314042ms)
+✔ product field administration remains protected and uses report-oriented wording (11.980708ms)
+(node:57589) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ custom report definitions validate recipes, preserve ownership, and persist (154.135292ms)
+✔ custom product fields use stable keys and become report groupings and columns (160.857458ms)
+✔ unit conversion preview is guarded and apply normalizes current state while preserving history (190.763417ms)
+(node:57610) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ report-required system product fields cannot be made non-reportable (159.599708ms)
+✔ retired corrupt and legacy definitions remain stored but never render or execute (166.811125ms)
+✔ stock aggregate groupings reject product-only detail columns (153.140084ms)
+(node:57611) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ report format defaults extend legacy settings without changing their meaning (2.349833ms)
+✔ invalid print-control options fall back independently to defaults (0.497833ms)
+✔ new print controls parse from forms, generate CSS variables, persist, and reset (175.168458ms)
+✔ report format controls are admin-only and support a server-opened reports modal (216.556417ms)
+(node:57612) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ frequency rankings aggregate category and custom groups across units without summing quantities (209.077417ms)
+✔ dimensionless exception rankings combine units and count affected tasks distinctly (184.881916ms)
+✔ built-in movement and issue rows follow chained product unit conversions (167.109208ms)
+(node:57613) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ operator stock reports keep controls in the stage toolbar and print only report content (221.972292ms)
+✔ curated report library exposes one clear question and print target per report (148.436792ms)
+✔ replenishment, slow-moving stock, and team throughput answer their questions directly (153.617625ms)
+✔ time control renders every preset and custom date-time details (138.914166ms)
+✔ client controller binds multi-select stock controls, curated hashes, and report-only printing (1.088458ms)
+✔ paper-preview and print report styles retain compact stock typography (0.814583ms)
+(node:57614) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ static asset server exposes browser modules and rejects traversal (5.579375ms)
+✔ operator and offline pages load the shared screen styles and offline installation caches them (3.812334ms)
+(node:57615) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ stock composition separates crates and kilograms and derives Other from the full denominator (211.602375ms)
+✔ stock composition aggregates categories and reportable custom fields within the selected unit (159.446083ms)
+✔ stock composition allocates exact tenths and handles empty and zero-stock results (122.889166ms)
+✔ stock composition recipes validate donut constraints and persist unchanged (137.227208ms)
+✔ built-in Stock Snapshot renders accessible visuals and hides retained custom donuts (128.1645ms)
+✔ a stale second tab cannot erase a first tab’s unsent count or confirmed receipt (5.439167ms)
+✔ a submission arriving during a refresh is drained and acknowledged with its original receipt (0.662916ms)
+(node:57620) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ matched observation, six/five exactly once, original evidence and distinct approver (172.911792ms)
+✔ extra, explicit zero and blank; matching empty cells need explicit check (164.205375ms)
+✔ movement or reservations during counting retain stale observations and reject correction (135.271541ms)
+✔ late offline movement links correction without double subtraction (118.628125ms)
+✔ mixed cells and unidentified/expired goods preserve totals and control allocation (112.396459ms)
+✔ monthly anchor, persistent due badge, restart idempotency, pause retains pending (109.4245ms)
+✔ decline, assignment race and old counter evidence remain independent (105.864416ms)
+✔ recount preserves original observation; cancelled partial scope never says completed (108.902875ms)
+✔ late correction of a settled allocation links only its difference to a stocktake (101.56475ms)
+✔ different second evidence for one attempt is rejected rather than silently acknowledged (96.463584ms)
+✔ readable count candidates preserve exact-once matching and include original quantities and people (103.890458ms)
+✔ counting keeps physical totals primary and optional time unknown unless explicitly supplied (4.578834ms)
+✔ schedule uses warehouse timezone and only enables cadence-relevant interval with stable calendar anchors (0.919333ms)
+✔ role editor previews transitive requirements and adds them only after explicit inclusion (2.512875ms)
+✔ setup scan confirms a read label, focuses its name and keeps physical confirmation separate; failed camera reveals fallback (1.162833ms)
+✔ lost response retries the exact durable command; other accounts are never delivered (2.067542ms)
+✔ refresh refuses account changes before sending any queued work (0.852417ms)
+✔ Finish queued during an existing sync is delivered before its own sync resolves (0.540959ms)
+✔ summary and quantity draft identities are bound to instruction, account and method context (0.448292ms)
+✔ simulated camera frame verifies then opens summary, stops stream and never sends a movement (1.376459ms)
+✔ camera closing before permission resolves still releases the late stream without submitting (0.4065ms)
+✔ wrong simulated QR stays in camera with error and cannot unlock Finish (0.398166ms)
+✔ an unresolved camera permission prompt does not keep arrival submission locked or prevent manual Finish (0.607291ms)
+(node:57628) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ three operators: untouched decline returns once, reassign preserves deadline/history, own cancellation makes no review case (256.792459ms)
+✔ server pages all authorized active and older work in batches of 100, monitoring never touches deadlines or activity (489.956959ms)
+✔ review filters compose by assigned/performed people; Unknown and duplicate display names retain separate identities (161.158625ms)
+✔ maintenance commands reject a service bypass before invoking backup effects (167.468667ms)
+✔ an old automatic timeout on provably untouched modern work can retire safely; explicit uncertainty cannot (154.945208ms)
+✔ arrival, camera and summary remain separate; only explicit Finish declares the displayed actual (3.456792ms)
+✔ offline reports stay accessible and queued/view-only safeguards survive simpler screens (0.862625ms)
+✔ active and review tasks precede completed history; optional location retains explicit preference (2.656666ms)
+✔ refresh restores both opened and explicitly closed disclosure state (12.314333ms)
+✔ mobile menu Escape and breakpoint changes restore focus after CSS hides a link (0.870459ms)
+✔ saved updates describe the actual action and distinguish delivery from supervisor checking (0.903042ms)
+✔ count comparison uses actual evidence and leaves inclusion versus separate movement explicit (0.993875ms)
+✔ review cases render all three people and human duplicate/count choices without internal-ID inputs (1.235792ms)
+✔ routine review guidance is state-based and preserves user-authored report wording in original details (0.769834ms)
+✔ task rows expose one set of own start/decline actions beside the product and retain manager assignment (0.819334ms)
+✔ completed task leads with its result without empty reassignment, while stopped remainder stays assignable (1.038458ms)
+✔ product filtering retains an explicit selection, never chooses the first result, and preserves recovery prefills/reference (1.56725ms)
+✔ live row updates retain a draft in the new first-column actions as well as the manager editor (1.864167ms)
+✔ prefilled drafts do not collide with plain drafts and distinct recovery drafts retain distinct stable references (0.957583ms)
+ℹ tests 186
+ℹ suites 0
+ℹ pass 186
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5968.393833

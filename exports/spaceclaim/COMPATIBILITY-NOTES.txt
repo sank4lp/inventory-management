@@ -1,0 +1,20 @@
+LYTGUIDE SPACECLAIM IMPORT ALTERNATIVES
+
+lytguide-logo-80mm-compatible-r12.dxf
+AutoCAD R12 ASCII; LINE entities only; visible green layer 0.
+No fonts, splines, lightweight polylines, blocks, or external references.
+Centered at the origin, XY plane. Set drawing units to millimeters.
+
+lytguide-logo-80mm-spaceclaim-curves.txt
+Native SpaceClaim Point Curve Text format; 3D polylines, with 24 closed loops.
+Set the SpaceClaim document units to millimeters BEFORE insertion.
+Insert via Assembly > Part > File; choose Point Curve Text (*.txt).
+The documented column order is Z X Y. Every Z is zero.
+Blank lines separate loops; repeating the first point closes each loop.
+
+If invisible: open separately from the case; enable object visibility;
+select Top view, then Zoom Extents (Alt+Z).
+For the DXF, ensure layer 0 is enabled with a Solid line style.
+
+Geometry checked independently by reading both exports back.
+Actual import in SpaceClaim has not been tested on this computer.

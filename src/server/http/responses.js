@@ -1,6 +1,7 @@
 export function sendHtml(response, html, statusCode = 200, headers = {}) {
   response.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
     ...headers,
   });
   response.end(html);
@@ -26,6 +27,7 @@ export function sendJson(response, payload, statusCode = 200, headers = {}) {
 export function sendRedirect(response, location, headers = {}) {
   response.writeHead(302, {
     Location: location,
+    "Cache-Control": "no-store",
     ...headers,
   });
   response.end();

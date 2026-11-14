@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Writable } from "node:stream";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import test from "node:test";
 
 import { serveStatic } from "../src/server/static-assets.js";
+import { operationsRoutes } from "../src/modules/operations/routes.js";
 
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -40,6 +43,17 @@ function serve(pathname) {
 }
 
 test("static asset server exposes browser modules and rejects traversal", async () => {
+  const reportStyles = await serve('/business-reports.css');
+  assert.equal(reportStyles.response.statusCode, 200);
+  assert.match(reportStyles.response.headers['Content-Type'], /text\/css/);
+  assert.match(reportStyles.response.body, /business-report-printing/);
+  const reportClient = await serve('/client/business-reports.js');
+  assert.equal(reportClient.response.statusCode, 200);
+  assert.match(reportClient.response.headers['Content-Type'], /javascript/);
+  const excelStyles = await serve('/warehouse-excel.css');
+  assert.equal(excelStyles.response.statusCode, 200);
+  assert.match(excelStyles.response.headers['Content-Type'], /text\/css/);
+  assert.match(excelStyles.response.body, /\.excel-dialog/);
   const moduleResult = await serve("/client/dom.js");
   assert.equal(moduleResult.handled, true);
   assert.equal(moduleResult.response.statusCode, 200);
@@ -54,7 +68,7 @@ test("static asset server exposes browser modules and rejects traversal", async 
   assert.match(appResult.response.body, /sendLocationCountClearCommand/);
   assert.match(appResult.response.body, /wireCatalogProductQuantity/);
   assert.match(appResult.response.body, /sendProductFindLedClearEndpoint/);
-  assert.match(appResult.response.body, /window\.addEventListener\("pagehide"/);
+  assert.match(appResult.response.body, /onPage\(window,"pagehide"/);
 
   const stylesResult = await serve("/styles.css");
   assert.equal(stylesResult.response.statusCode, 200);
@@ -93,7 +107,7 @@ test("static asset server exposes browser modules and rejects traversal", async 
     /\.count-button\s*\{[^}]*min-inline-size:\s*var\(--count-button-min-width\)/s,
   );
   assert.match(stylesResult.response.body, /\.product-summary-layout\s*\{/);
-  assert.match(stylesResult.response.body, /\.product-summary-facts\s*\{/);
+  assert.match(stylesResult.response.body, /\.product-summary-facts\.task-info-grid\s*\{/);
   assert.match(stylesResult.response.body, /\.catalog-capacity-editor\s*\{/);
   assert.match(stylesResult.response.body, /\.put-capacity-recovery-grid\s*\{/);
   assert.match(stylesResult.response.body, /\.recommendation-space-badge-positive\s*\{/);
@@ -104,4 +118,43 @@ test("static asset server exposes browser modules and rejects traversal", async 
 
   const traversalResult = await serve("/client/../app.js");
   assert.equal(traversalResult.handled, false);
+});
+
+test("operator and offline pages load the shared screen styles and offline installation caches them", async () => {
+  async function render(pathname) {
+    const response = { body: '', writeHead() {}, end(html) { this.body = html; } };
+    await operationsRoutes({method:'GET'}, response, new URL(pathname, 'http://localhost'),
+      {id:1,name:'Operator',role:'operator'}, {db:{},operationsService:{snapshot:()=>({tasks:[]})}});
+    return response.body;
+  }
+  const work = await render('/work');
+  const offline = await render('/offline');
+  const styles = html => [...html.matchAll(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"/g)].map(m => m[1]);
+  for (const html of [work, offline]) {
+    assert.equal(styles(html).filter(path => path === '/work.css').length, 1);
+    assert.equal(styles(html).filter(path => path === '/layout.css').length, 1);
+    assert.deepEqual(styles(html).slice(-4), ['/responsive.css', '/layout.css', '/mobile.css', '/table-scroll.css']);
+  }
+  const handlers = new Map();
+  let cached = [];
+  vm.runInNewContext(readFileSync(join(rootDir, 'public/sw.js'), 'utf8'), {
+    self: {addEventListener:(name, handler)=>handlers.set(name, handler), skipWaiting:()=>Promise.resolve()},
+    caches: {open:async()=>({addAll:async paths=>{cached=Array.from(paths);}})},
+  });
+  let installation;
+  handlers.get('install')({waitUntil:promise=>{installation=promise;}});
+  await installation;
+  assert.ok(cached.includes('/client/table-scroll.js'));
+  assert.ok(cached.includes('/table-scroll.css'));
+  assert.ok(cached.includes('/client/mobile-controls.js'), 'phone control layout must also load without internet');
+  assert.ok(cached.includes('/warehouse-excel.css'), 'Excel dialogs must keep their layout offline');
+  assert.ok(cached.includes('/business-reports.css'), 'Report styles must be available without internet');
+  assert.equal((await serve('/client/mobile-controls.js')).response.statusCode, 200);
+  for (const path of styles(offline)) {
+    assert.ok(cached.includes(path), `${path} must be available after connection loss`);
+    const asset = await serve(path);
+    assert.equal(asset.response.statusCode, 200);
+    assert.match(asset.response.headers['Content-Type'], /text\/css/);
+    assert.ok(asset.response.body.length > 0);
+  }
 });

@@ -20,12 +20,114 @@ RS485_RX    = RX2 / GPIO16
 RS485_TX    = TX2 / GPIO17
 LED_PIN     = D18 / GPIO18
 MODULES     = 4
-DEFAULT_BRIGHTNESS_PERCENT = 8
+DEFAULT_BRIGHTNESS_PERCENT = 100
 ```
 
 ## RS-485 command format
 
 All commands are newline-terminated.
+
+### Long LED chains
+
+The current sketch uses a streaming ESP-IDF RMT byte encoder. NeoPixel still
+provides its compact GRB pixel buffer, but its ESP32 `show()` path is bypassed.
+That older path expands every bit into a four-byte symbol: 104,448 bytes for
+17 matrices, 110,592 for 18, and 135,168 for 22, even if only one pixel per
+matrix is on. Failure to allocate that contiguous buffer can silently leave
+the whole chain dark. The exact threshold depends on the running controller's
+available memory; 17 is not a fixed protocol or LED-count limit.
+
+The streaming transmitter uses one fixed 12,288-byte payload and a 128-symbol
+hardware buffer. It sends the entire chain continuously, then holds the data
+line low for 300 microseconds to latch it. Brightness, colours, GPIO18, matrix
+routing and RS485 addressing are unchanged. There are no separate per-matrix
+transmissions that could accidentally restart at the first physical matrix.
+
+Transmission has a length-aware timeout (at most 218 ms with the original
+timings, or 223 ms with the maximum-HIGH experiment, at 64 matrices).
+Allocation/transmission failures are reported separately from RS485 health;
+failed display frames are not acknowledged or remembered as successfully
+delivered. USB configuration verification also rejects failed LED output while
+permitting explicit recovery of the existing setup. No saved cell mapping or
+inventory data is cleared by this change.
+
+Software checks cover 17, 18, 22 and 64 matrices, full payload delivery, output
+failure/recovery, retained routing and the two-controller reply discipline.
+These are protocol/driver checks with emulated peripherals; they do not certify
+the LED power supply, physical signal quality or a particular attached chain.
+
+Validation on 2026-11-04: all 108 targeted LED, controller configuration,
+replacement, USB, reconnect and RS485 tests passed. The 22-matrix sketch also
+compiled for ESP32 core 3.0.7 / NeoPixel 1.12.4 (installer toolchain) and core
+3.3.8 / NeoPixel 1.15.4 (the reported browser toolchain versions). These build
+checks did not flash a controller; the corrected output still needs validation
+on the physical 22-matrix chain.
+
+### Maximum-HIGH pulse experiment (2026-11-12)
+
+This checkout enables `LYTGUIDE_LED_MAX_HIGH_EXPERIMENT=1` in
+`firmware/esp32-simple-matrix/matrix-led-output.h`. The next firmware build
+uses these timings; existing flashed controllers do not change automatically.
+This is a bench experiment, not a production-qualified fix for bad wiring or
+3.3 V signalling into a 5 V matrix.
+
+| Bit | Previous HIGH / LOW | Experimental HIGH / LOW |
+| --- | --- | --- |
+| 0 | 0.40 / 0.80 microseconds | 0.55 / 0.70 microseconds |
+| 1 | 0.80 / 0.40 microseconds | 1.00 / 0.25 microseconds |
+
+The experimental profile uses a 20 MHz RMT clock (50 ns ticks). Both bits are
+1.25 microseconds long, so the data rate remains 800 kbit/s. The 300 microsecond
+latch, pixel order, brightness, module routing and RS485 communication are
+unchanged. Its HIGH durations sit at the upper tolerance boundaries of the
+[WORLDSEMI WS2812B January 2016 specification, page 5](https://files.waveshare.com/upload/9/94/WS2812B_datasheet_EN.pdf).
+The exact installed pixel revision is unverified; other revisions can have
+different limits, and hardware clock error can put a boundary setting outside
+the specified range. A longer HIGH does not raise GPIO voltage to 5 V or prove
+that downstream matrices reproduce the requested timings exactly.
+
+To test:
+
+1. Update firmware on **one existing controller** using the normal firmware-update
+   flow, preserving its identity, LED count and mappings. Do not choose fresh setup.
+2. Keep the same power, common ground and cable arrangement. Compare changing
+   numbers, colours, Ping and clear commands with the previous firmware. Check
+   the first and last matrices and continued controller health.
+3. If output worsens, change the header's `#define LYTGUIDE_LED_MAX_HIGH_EXPERIMENT 1`
+   to `0`, rebuild and update that same controller again. A compile flag
+   `-DLYTGUIDE_LED_MAX_HIGH_EXPERIMENT=0` also selects the original profile.
+
+The driver tests exercise both profiles, full 64-matrix payloads, calculated
+timeouts and output failure/recovery. They emulate RMT; a real ESP32 build and
+on-device/oscilloscope checks are separate verification steps. Do not distribute
+this experimental build to other installations until the experiment is assessed.
+
+### Shared-bus replies
+
+Use `to <controller-address> <command>` for any command that needs a reply,
+including health checks: `to ESP32-01 ping`. Only that controller replies.
+Legacy unaddressed/broadcast display commands still apply, but do not return
+acknowledgements. The broadcast heartbeat sync also stays silent.
+
+Controllers ignore JSON responses from other controllers. Previously, a peer's
+`pong` or ACK could trigger `unknown-command`, and the two controllers could
+then repeatedly answer each other's errors. This could work with one powered
+controller yet interfere with health checks and LED updates when two shared
+the bus. Boot announcements now use USB only, avoiding unsolicited RS485
+transmissions when several controllers power up together.
+
+The fix requires **updating firmware on every existing controller**, preserving
+its saved identity, LED count and routing. Pulling the application code or
+restarting the Pi service alone does not update ESP32 firmware. Use the existing
+controller's firmware-update flow, not fresh-controller setup. No database
+migration or cell remapping is needed.
+
+`test/rs485-multidrop.test.js` compiles two instances of the actual sketch with
+four and fifteen modules and forwards their replies to the other receiver. It
+covers alternating health queries, addressed errors, display acknowledgements,
+configuration reads, silent broadcasts and USB maintenance. Peripheral operations
+are simulated: this verifies protocol behaviour, not electrical signal quality,
+power capacity or the separate 22-module LED-driver issue.
 
 ### Display on a module
 
@@ -39,7 +141,7 @@ Examples:
 0 6 red
 1 0987654321 green
 2 "GOOD MORNING" cyan 80
-3 A+B ff00aa 100 8
+3 A+B ff00aa 100 100
 ```
 
 Rules:
@@ -48,33 +150,43 @@ Rules:
 - if the text is too wide, it scrolls automatically,
 - text with spaces must be wrapped in double quotes,
 - speed is optional and defaults to `120` ms per pixel step,
-- brightness is optional and defaults to `8` percent,
+- brightness is optional and defaults to `100` percent,
 - brightness is clamped from `0` to `100`,
 - each module keeps its own state, so changing module `3` does not stop module `1`.
 
+### Mixed-product quantities
+
+The app uses cyan, white and bright pink at 100% brightness for alternating
+mixed-product quantities. It does not reuse the yellow/red/green/blue/orange
+workflow colours. A single digit stays visible for four seconds. Longer
+numbers make one right-to-left pass at 120 ms per pixel before changing to
+the next product: about 2.76 seconds for two digits, 3.60 for three.
+
+The addressed command can add the optional `once` argument:
+
+```text
+to ESP32-01 text 1 "10" cyan 120 100 once
+```
+
+Rebuild and flash the updated `esp32-simple-matrix` sketch to enable exactly
+one scrolling pass. Existing sketches accept the normal text arguments but
+ignore `once` and may begin repeating while waiting for the next command.
+Regular task numbers and text commands without `once` keep their existing
+behaviour. Display ownership, expiry and restoring task lights still belong
+to the Pi app.
+
 ## Software brightness policy
 
-The inventory application now sends an explicit brightness value with every task,
-test, locate, and adjustment-preview LED command:
+The application sends **100% brightness** for Pick, Put, stocktaking, Locate,
+Ping, quantity/capacity displays, setup and adjustment previews. Time of day
+and legacy `LED_DAY_*` / `LED_NIGHT_*` settings cannot reduce it. Hardware
+logs identify this policy as `maximum`.
 
-```text
-daytime: 20%
-night: 8%
-```
-
-By default, daytime is `06:00` through `17:59` in the server's local time.
-Night is `18:00` through `05:59`. These values can be changed without code
-changes:
-
-```text
-LED_DAY_BRIGHTNESS_PERCENT=20
-LED_NIGHT_BRIGHTNESS_PERCENT=8
-LED_DAY_START_HOUR=6
-LED_NIGHT_START_HOUR=18
-```
-
-The `8%` night value matches the current firmware default/minimum operating
-brightness used in the power estimates below.
+The current firmware uses 100% defaults for text, tasks and test patterns,
+and full red for the idle heartbeat. The older `esp32-rs485-matrix` sketch
+uses NeoPixel brightness `255` (its 0–255 maximum). Firmware-only defaults
+and idle heartbeat changes require reflashing; explicit app commands at
+100% already work with firmware supporting the brightness argument.
 
 ### Control commands
 
@@ -135,7 +247,7 @@ Use hex without `#` in shell commands to avoid shell/comment parsing issues.
 printf '%s\n' '0 6 red' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 printf '%s\n' '1 0987654321 green 80' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 printf '%s\n' '2 "GOOD MORNING" cyan 80 8' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
-printf '%s\n' '3 A+B ff00aa 100 8' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+printf '%s\n' '3 A+B ff00aa 100 100' > /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 ```
 
 For four modules physically in a row, stagger the commands by one module width:
@@ -161,7 +273,7 @@ sleep seconds = 8 * speed-ms / 1000
 The current firmware default uses:
 
 ```text
-DEFAULT_BRIGHTNESS_PERCENT = 8%
+DEFAULT_BRIGHTNESS_PERCENT = 100%
 ```
 
 The firmware does not normally light all 64 pixels in a module. It lights only the pixels needed for the displayed character/string.
@@ -196,7 +308,7 @@ white = 3
 | Scrolling digits | 22 | ~35mA | ~440mA | ~106mA | ~1.32A |
 | Scrolling letters/symbols | 27 | ~43mA | ~540mA | ~130mA | ~1.62A |
 
-Real module current is higher than this because each WS2812 package also has control electronics. For planning current text-only operation, use a conservative module budget of:
+Real module current is higher than this because each WS2812 package also has control electronics. The following budgets are historical 8% text-only estimates, not the current 100% operating budget:
 
 ```text
 0.20A per module for green/blue/cyan text at 8% brightness
@@ -230,10 +342,10 @@ Worst-case full white at full brightness:
 At the current default brightness:
 
 ```text
-3.84A * 8% = about 0.31A per module
+3.84A * 100% = 3.84A per module
 ```
 
-Use this `0.30A` per module as the minimum design expectation if a module might ever be commanded full-white at the current default brightness.
+Use `3.84A` per module as the full-white planning estimate at the current default brightness. The 8% estimates do not size the current operating power requirements.
 
 If a command uses `100` percent brightness:
 
@@ -241,7 +353,7 @@ If a command uses `100` percent brightness:
 one 8x8 module can draw up to 3.84A at full-white
 ```
 
-Use 100% brightness only for brief tests unless the power zone is sized for it.
+The application now uses 100% continuously; size the power zone for the actual simultaneously lit modules, with full-white operation included in the worst case.
 
 ## 24V 5A SMPS limit
 
@@ -286,9 +398,11 @@ all grounds/common negatives are connected
 each zone should be fused
 ```
 
-### Conservative module count per buck
+### Historical module count per buck at 8%
 
-For text-only green/blue/cyan operation at current brightness:
+These examples used the old 8% brightness budget and must not be used for the current 100% setting. Use the full-brightness estimates above with the M/N formula below.
+
+For text-only green/blue/cyan operation at 8% brightness:
 
 ```text
 budget = 0.20A per module
@@ -378,3 +492,7 @@ Recommended production starting point for 8x8 matrix modules:
 ```
 
 Use the lower end if wiring is long or converter quality is unknown.
+
+## Grouped ping
+
+Protocol v13 adds an acknowledged, checksummed group command so selected outputs on one controller start together. See [grouped LED ping](06-grouped-led-ping.md) for update steps, delivery guarantees and bench checks.

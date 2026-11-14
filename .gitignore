@@ -1,2 +1,10 @@
 data/
 coverage/
+node_modules/
+.DS_Store
+._*
+/tmp/
+__pycache__/
+*.lytbackup
+/output/
+/outputs/

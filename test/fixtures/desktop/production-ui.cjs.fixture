@@ -1,0 +1,18 @@
+// Render the actual installed warehouse UI in the bundled app runtime.
+const {app}=require('electron');const {mkdtempSync,writeFileSync}=require('node:fs');const {join}=require('node:path');const {tmpdir}=require('node:os');const assert=require('node:assert/strict');
+app.setPath('appData',mkdtempSync(join(tmpdir(),'lytguide-production-window-')));app.disableHardwareAcceleration();
+const {startDesktop}=require('/opt/lytguide-test/current/desktop/resources/app/main.cjs');
+const deadline=setTimeout(()=>{console.error('Production UI test timed out');app.exit(1);},120000);
+(async()=>{
+ const controller=await startDesktop();const win=[...controller.windows][0];assert.ok(win);assert.equal(win.webContents.getLastWebPreferences().sandbox,true);
+ await win.loadURL('http://localhost:3310/login');
+ const signedIn=new Promise(resolve=>win.webContents.once('did-finish-load',resolve));
+ await win.webContents.executeJavaScript(`document.querySelector('[name="username"]').value='qaowner';document.querySelector('[name="password"]').value='test-admin-only-password-2026';document.querySelector('form').requestSubmit();`);await signedIn;
+ assert.equal(new URL(win.webContents.getURL()).pathname,'/work','Native production sign-in failed');
+ const waitFor=async expression=>{for(let i=0;i<200;i++){if(await win.webContents.executeJavaScript(expression))return;await new Promise(r=>setTimeout(r,50));}throw Error('The warehouse UI did not finish loading');};
+ await waitFor('Boolean(document.querySelector(".my-work-table"))');
+ await win.webContents.executeJavaScript('document.fonts.ready.then(()=>true)');
+ const image=await win.webContents.capturePage();const pixels=image.toBitmap(),colors=new Set();for(let i=0;i<pixels.length;i+=400)colors.add(pixels.subarray(i,i+4).toString('hex'));assert.ok(colors.size>20,'The app window did not paint its interface');writeFileSync('/tmp/lytguide-standalone-app.png',image.toPNG());
+ for(const path of ['/products','/cells','/stocktaking','/work/history','/settings/system']){await win.loadURL('http://localhost:3310'+path);assert.equal(new URL(win.webContents.getURL()).pathname,path);}
+ clearTimeout(deadline);console.log('PASS actual installed standalone app: production sign-in, secure localhost session, painted My Work, Products, Locations, Stocktaking, History and Settings');app.exit(0);
+})().catch(error=>{console.error(error);clearTimeout(deadline);app.exit(1);});
